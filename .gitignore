@@ -1,0 +1,8 @@
+node_modules/
+*.tsbuildinfo
+.DS_Store
+local/
+/tmp*.txt
+tmp/
+CLAUDE.md
+src/generated/

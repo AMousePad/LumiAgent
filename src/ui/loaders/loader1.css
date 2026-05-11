@@ -1,0 +1,47 @@
+/* HTML: <div class="loader"></div> */
+.loader {
+  width: 35px;
+  height: 80px;
+  position: relative;
+}
+.loader:before {
+  content: "";
+  position: absolute;
+  inset: 0 0 20px;
+  padding: 1px;
+  background:
+    conic-gradient(from -90deg at calc(100% - 3px) 3px, var(--lumiverse-primary) 135deg, var(--lumiverse-primary-muted) 0 270deg, #0000 0),
+    conic-gradient(from   0deg at 3px calc(100% - 3px), #0000 90deg, var(--lumiverse-primary-muted) 0 225deg, var(--lumiverse-primary) 0),
+    var(--lumiverse-bg-deep);
+  background-size: 17px 17px;
+  background-clip: content-box;
+  --c:no-repeat linear-gradient(#000 0 0);
+  -webkit-mask:
+      var(--c) 0    0,
+      var(--c) 17px 0,
+      var(--c) 0    17px,
+      var(--c) 17px 17px,
+      var(--c) 0    34px,
+      var(--c) 17px 34px,
+      linear-gradient(#000 0 0);
+  -webkit-mask-composite:xor;
+          mask-composite:exclude;
+  animation: l6 3s infinite ;
+}
+.loader:after {
+  content: "";
+  position: absolute;
+  inset: 60% 0 0;
+  background: var(--lumiverse-primary-text);
+  border-top: 5px solid var(--lumiverse-border);
+}
+@keyframes l6 {
+ 0%,14%  {-webkit-mask-size: 0 0,0 0,0 0,0 0,0 0,0 0,auto}
+ 15%,29% {-webkit-mask-size: 17px 17px,0 0,0 0,0 0,0 0,0 0,auto}
+ 30%,44% {-webkit-mask-size: 17px 17px,17px 17px,0 0,0 0,0 0,0 0,auto}
+ 45%,59% {-webkit-mask-size: 17px 17px,17px 17px,17px 17px,0 0,0 0,0 0,auto}
+ 60%,74% {-webkit-mask-size: 17px 17px,17px 17px,17px 17px,17px 17px,0 0,0 0,auto}
+ 75%,89% {-webkit-mask-size: 17px 17px,17px 17px,17px 17px,17px 17px,17px 17px,0 0,auto}
+ 90%,
+ 100%    {-webkit-mask-size: 17px 17px,17px 17px,17px 17px,17px 17px,17px 17px,17px 17px,auto}
+}

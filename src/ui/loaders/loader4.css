@@ -1,0 +1,25 @@
+/* HTML: <div class="loader"></div> */
+.loader {
+  height: 40px;
+  aspect-ratio: 1.5;
+  --c: var(--lumiverse-primary) 96%,#0000;
+  background:
+    radial-gradient(farthest-side at 100% 100%,var(--c)),
+    radial-gradient(farthest-side at 0    100%,var(--c)),
+    radial-gradient(farthest-side at 100% 0   ,var(--c)),
+    radial-gradient(farthest-side at 0    0   ,var(--c));
+  background-size: 33.4% 50%;
+  background-repeat: no-repeat;
+  animation: l9 2s infinite linear;
+}
+@keyframes l9 {
+  0%    {background-position:0 0,50% 0,0 100%,50% 100%}
+  12.5% {background-position:0 0,100% 0,0 100%,50% 100%}
+  25%   {background-position:50% 0,100% 0,0 100%,50% 100%}
+  37.5% {background-position:50% 0,100% 0,0 100%,100% 100%}
+  50%   {background-position:50% 0,100% 0,50% 100%,100% 100%}
+  62.5% {background-position:0 0,100% 0,50% 100%,100% 100%}
+  75%   {background-position:0 0,50% 0,50% 100%,100% 100%}
+  87.5% {background-position:0 0,50% 0,0 100%,100% 100%}
+  100%  {background-position:0 0,50% 0,0 100%,50% 100%}
+}

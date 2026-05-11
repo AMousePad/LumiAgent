@@ -1,0 +1,27 @@
+{
+  "name": "lumiagent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "GPL-3.0-or-later",
+  "description": "Agentic LLM workbench for character cards",
+  "scripts": {
+    "embed:icon": "bun run local/scripts/embed-icon.ts",
+    "typecheck": "bun --bun tsc --noEmit",
+    "build:backend": "bun build src/backend.ts --outfile dist/backend.js --target bun",
+    "build:frontend": "bun build src/frontend.ts --outfile dist/frontend.js --target browser",
+    "build": "bun run embed:icon && bun run typecheck && bun run build:backend && bun run build:frontend",
+    "deploy": "powershell.exe -File local/scripts/deploy.ps1"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/diff": "^8.0.0",
+    "lumiverse-spindle-types": "0.4.69",
+    "typescript": "^5.5.0"
+  },
+  "dependencies": {
+    "@tanstack/virtual-core": "^3.13.0",
+    "diff": "^9.0.0",
+    "zod": "^4.0.0"
+  }
+}

@@ -1,0 +1,36 @@
+/* HTML: <div class="loader"></div> */
+.loader {
+  width: 50px;
+  aspect-ratio: 1;
+  color: var(--lumiverse-primary);
+  border: 7px solid;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle 3px, var(--lumiverse-primary-text) 95%,#0000),
+    linear-gradient(180deg,var(--lumiverse-primary-text) 50%,#0000 0) center/3px 70%,
+    linear-gradient(90deg ,var(--lumiverse-primary-text) 50%,#0000 0) center/50% 3px;
+  background-repeat: no-repeat;
+  position: relative;
+  animation: l9 1s infinite;
+}
+.loader:before,
+.loader:after {
+  content: "";
+  position: absolute;
+  border-radius: 20px 20px 0 0;
+  inset: -20px calc(50% - 10px);
+  transform: rotate(40deg);
+  background:
+      linear-gradient(currentColor 0 0) top   /100% 10px,
+      linear-gradient(currentColor 0 0) bottom/3px  10px;
+  background-repeat: no-repeat;
+}
+.loader:after {
+  transform: rotate(-40deg);
+}
+@keyframes l9 {
+  0%,70%,100% {transform: translateY(0)    rotate(0)}
+  75%,85%,95% {transform: translateY(-3px) rotate(10deg)}
+  80%,90%     {transform: translateY(-3px) rotate(-10deg)}
+}

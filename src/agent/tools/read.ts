@@ -1,0 +1,55 @@
+import { z } from "zod";
+import { defineTool } from "./_framework";
+import { formatLineSlice, spillOrReturn } from "./_io";
+import { markReadWithHash } from "./_gates";
+import { resolveRead, PathError } from "./_path_v2";
+
+const inputSchema = z.object({
+  path: z.string().min(3).describe("Slash-separated path to a string leaf. Examples: 'char/description', 'char/first_mes', 'char/alternate_greetings/0', 'char/extensions/lumirealm.payload.background_html', 'rx/<scriptId>/replace_string', 'wb/<entryId>/content', 'wb/<entryId>/comment'."),
+  offset: z.number().int().positive().optional().describe("1-based starting line number."),
+  limit: z.number().int().positive().optional().describe("Max lines to return."),
+}).strict();
+
+export const readTool = defineTool({
+  name: "read",
+  description: `Read any string-valued surface on the character by path. ONE tool for every read; no per-surface variants.
+
+Path grammar:
+  char/<field>                          top-level character string (description, first_mes, scenario, personality, mes_example, system_prompt, post_history_instructions, creator_notes, creator, name)
+  char/alternate_greetings/<idx>        one greeting by 0-based index
+  char/extensions/<dotted-extension>    a string leaf under character.extensions (dotted-with-brackets, e.g. lumirealm.payload.lua_scripts[0].code)
+  rx/<scriptId>/find_regex              regex script pattern
+  rx/<scriptId>/replace_string          regex script body
+  wb/<entryId>/content                  lorebook entry body
+  wb/<entryId>/comment                  lorebook entry label
+
+Returns line-numbered text with pagination. Spills to a tmp handle if the result exceeds the per-call budget. Records the path as 'recently read' so a subsequent \`edit\` on the same path passes the read-gate.
+
+WHEN TO USE: every time you need to read or audit a string on the card. Replaces read_character_field, read_alternate_greeting, read_world_book_entry, read_regex_script_field, read_character_extension.`,
+  inputSchema,
+  jsonSchema: {
+    type: "object",
+    properties: {
+      path: { type: "string", description: "Surface path. See tool description for grammar." },
+      offset: { type: "integer", minimum: 1 },
+      limit: { type: "integer", minimum: 1 },
+    },
+    required: ["path"],
+    additionalProperties: false,
+  },
+  defaultSensitivity: "sensitive",
+  execute: async (input, ctx) => {
+    let leaf;
+    try { leaf = await resolveRead(ctx, input.path); }
+    catch (err) {
+      if (err instanceof PathError) return { content: `Error: [PATH_NOT_FOUND] ${err.message}`, isError: true };
+      return { content: `Error: ${(err as Error).message}`, isError: true };
+    }
+    const body = formatLineSlice(leaf.value, leaf.key, input.offset, input.limit);
+    // Hash the FULL value, not the sliced view, so a paged read against a
+    // large leaf still gates correctly when the agent edits.
+    markReadWithHash(ctx, leaf.key, leaf.value);
+    const out = await spillOrReturn(ctx, body, `read:${leaf.key}`, "If the leaf is huge, narrow with offset/limit or grep first.");
+    return { content: out };
+  },
+});

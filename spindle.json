@@ -1,0 +1,23 @@
+{
+  "version": "0.1.0",
+  "name": "LumiAgent",
+  "identifier": "lumiagent",
+  "author": "amousepad",
+  "github": "https://github.com/AMousePad/LumiAgent",
+  "homepage": "https://github.com/AMousePad/LumiAgent",
+  "description": "Agentic LLM workbench for your Lumiverse (˶>⩊<˶)",
+  "permissions": [
+    "generation",
+    "characters",
+    "world_books",
+    "regex_scripts",
+    "chats",
+    "chat_mutation",
+    "ui_panels",
+    "personas",
+    "databanks"
+  ],
+  "entry_backend": "dist/backend.js",
+  "entry_frontend": "dist/frontend.js",
+  "minimum_lumiverse_version": "0.9.7"
+}

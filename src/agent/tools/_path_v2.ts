@@ -1,0 +1,295 @@
+// Path-based addressing for every editable string surface on a card.
+//
+// Grammar (forward-slash separated; first segment names the surface):
+//
+//   char/<field>                       -> top-level character string field
+//                                          (description, first_mes, scenario, …)
+//   char/alternate_greetings/<idx>     -> one greeting by 0-based index
+//   char/extensions/<dotted>           -> a string leaf under character.extensions.*
+//                                          dotted-path uses '.' separators and
+//                                          [<n>] for array index (legacy form),
+//                                          e.g. lumirealm.payload.lua_scripts[0].code
+//   rx/<scriptId>/<field>              -> regex_script field ("find_regex" or "replace_string")
+//   wb/<entryId>/<field>               -> world_book_entry field ("content" or "comment")
+//
+// Returned content for read/edit is always the raw string at the leaf.
+// Writes go through the right spindle update call. The path is the same key
+// used by the recent-read gate and the audit tool — one string, one surface,
+// across read / edit / grep / inspect.
+
+import type { CharacterUpdateDTO, RegexScriptUpdateDTO, WorldBookEntryUpdateDTO } from "lumiverse-spindle-types";
+import type { ToolCtx } from "./_context";
+import type { EditRecord } from "../../types";
+import { CHARACTER_STRING_FIELDS, isCharacterStringField, wbLabel } from "./_surfaces";
+import { parseExtensionPath, getAtPath, setAtPath } from "./_paths";
+
+export interface ResolvedLeaf {
+  // Canonical key, normalized for the recent-read gate.
+  readonly key: string;
+  // Surface tag for analytics / ledger.
+  readonly surface: "character_field" | "alternate_greeting" | "extension" | "regex_script" | "world_book_entry";
+  // surfaceId is the entity id (character id for char/extension, script id, entry id).
+  readonly surfaceId: string;
+  // Human-facing label for the workshop diff card.
+  readonly surfaceLabel: string;
+  // For extension/structured paths, the "field" sub-key; otherwise same as the trailing segment.
+  readonly field: string;
+  // Current value at the leaf.
+  readonly value: string;
+}
+
+export class PathError extends Error {
+  constructor(public readonly path: string, msg: string) {
+    super(`Path '${path}': ${msg}`);
+    this.name = "PathError";
+  }
+}
+
+function splitTopLevel(path: string): readonly string[] {
+  return path.split("/").filter((s) => s.length > 0);
+}
+
+// Read the leaf currently addressed by `path`. Throws PathError if the path
+// is malformed or doesn't resolve to a string. Used by `read` and `edit`
+// (which calls read, mutates, calls write).
+export async function resolveRead(ctx: ToolCtx, path: string): Promise<ResolvedLeaf> {
+  const parts = splitTopLevel(path);
+  if (parts.length < 2) throw new PathError(path, "expected at least <surface>/<...>");
+  const head = parts[0]!;
+
+  if (head === "char" || head === "character") {
+    const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
+    if (!c) throw new PathError(path, `character ${ctx.characterId} not found`);
+    const sub = parts[1]!;
+    if (sub === "alternate_greetings") {
+      const idxStr = parts[2];
+      if (idxStr === undefined) throw new PathError(path, "alternate_greetings requires an index");
+      const idx = parseInt(idxStr, 10);
+      const arr = c.alternate_greetings ?? [];
+      if (!Number.isFinite(idx) || idx < 0 || idx >= arr.length) {
+        throw new PathError(path, `index ${idxStr} out of range (have ${arr.length})`);
+      }
+      const value = arr[idx] ?? "";
+      return {
+        key: `char/alternate_greetings/${idx}`,
+        surface: "alternate_greeting",
+        surfaceId: ctx.characterId,
+        surfaceLabel: `Greeting #${idx}`,
+        field: String(idx),
+        value,
+      };
+    }
+    if (sub === "extensions") {
+      const extPath = parts.slice(2).join(".");
+      if (extPath.length === 0) throw new PathError(path, "extensions requires a sub-path");
+      const segs = parseExtensionPath(extPath);
+      const v = getAtPath(c.extensions ?? {}, segs);
+      if (typeof v !== "string") throw new PathError(path, `extension path resolves to ${typeof v}, not string`);
+      return {
+        key: `char/extensions/${extPath}`,
+        surface: "extension",
+        surfaceId: ctx.characterId,
+        surfaceLabel: `extensions.${extPath}`,
+        field: extPath,
+        value: v,
+      };
+    }
+    if (parts.length !== 2) throw new PathError(path, `expected char/<field>, got ${parts.length} segments`);
+    if (!isCharacterStringField(sub)) throw new PathError(path, `unknown character field '${sub}'. Valid: ${CHARACTER_STRING_FIELDS.join(", ")}`);
+    const v = (c as unknown as Record<string, unknown>)[sub];
+    if (typeof v !== "string") throw new PathError(path, `field '${sub}' is not a string`);
+    return {
+      key: `char/${sub}`,
+      surface: "character_field",
+      surfaceId: ctx.characterId,
+      surfaceLabel: c.name,
+      field: sub,
+      value: v,
+    };
+  }
+
+  if (head === "rx" || head === "regex_script") {
+    if (parts.length !== 3) throw new PathError(path, "expected rx/<scriptId>/<field>");
+    const scriptId = parts[1]!;
+    const field = parts[2]!;
+    if (field !== "find_regex" && field !== "replace_string") {
+      throw new PathError(path, `regex field must be find_regex or replace_string, got '${field}'`);
+    }
+    const s = await ctx.spindle.regex_scripts.get(scriptId, ctx.userId);
+    if (!s) throw new PathError(path, `regex script ${scriptId} not found`);
+    const v = (s as unknown as Record<string, unknown>)[field];
+    if (typeof v !== "string") throw new PathError(path, `regex_script.${field} is not a string`);
+    return {
+      key: `rx/${scriptId}/${field}`,
+      surface: "regex_script",
+      surfaceId: scriptId,
+      surfaceLabel: s.name,
+      field,
+      value: v,
+    };
+  }
+
+  if (head === "wb" || head === "world_book_entry") {
+    if (parts.length !== 3) throw new PathError(path, "expected wb/<entryId>/<field>");
+    const entryId = parts[1]!;
+    const field = parts[2]!;
+    if (field !== "content" && field !== "comment") {
+      throw new PathError(path, `world_book_entry field must be content or comment, got '${field}'`);
+    }
+    const e = await ctx.spindle.world_books.entries.get(entryId, ctx.userId);
+    if (!e) throw new PathError(path, `world book entry ${entryId} not found`);
+    const v = (e as unknown as Record<string, unknown>)[field];
+    if (typeof v !== "string") throw new PathError(path, `entry.${field} is not a string`);
+    return {
+      key: `wb/${entryId}/${field}`,
+      surface: "world_book_entry",
+      surfaceId: entryId,
+      surfaceLabel: wbLabel(e),
+      field,
+      value: v,
+    };
+  }
+
+  throw new PathError(path, `unknown surface prefix '${head}'. Expected one of: char, rx, wb`);
+}
+
+// Write a new value back to the leaf. Caller has already produced `nextValue`
+// (typically via find/replace or wholesale). We do the right spindle update,
+// then push an EditRecord onto the ledger via ctx.pushEdit.
+export async function resolveWrite(
+  ctx: ToolCtx,
+  leaf: ResolvedLeaf,
+  nextValue: string,
+): Promise<void> {
+  if (leaf.surface === "character_field") {
+    const patch: CharacterUpdateDTO = { [leaf.field]: nextValue } as CharacterUpdateDTO;
+    await ctx.spindle.characters.update(ctx.characterId, patch, ctx.userId);
+    ctx.pushEdit({
+      op: "edit", surface: "character_field", surfaceId: ctx.characterId,
+      surfaceLabel: leaf.surfaceLabel, field: leaf.field, before: leaf.value, after: nextValue,
+    } satisfies EditRecord);
+    return;
+  }
+  if (leaf.surface === "alternate_greeting") {
+    const idx = parseInt(leaf.field, 10);
+    const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
+    if (!c) throw new Error("character not found");
+    const arr = [...(c.alternate_greetings ?? [])];
+    if (idx < 0 || idx >= arr.length) throw new Error(`alternate_greetings[${idx}] out of range`);
+    arr[idx] = nextValue;
+    await ctx.spindle.characters.update(ctx.characterId, { alternate_greetings: arr }, ctx.userId);
+    ctx.pushEdit({
+      op: "edit", surface: "alternate_greeting", surfaceId: ctx.characterId,
+      surfaceLabel: leaf.surfaceLabel, field: leaf.field, before: leaf.value, after: nextValue,
+    });
+    return;
+  }
+  if (leaf.surface === "extension") {
+    const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
+    if (!c) throw new Error("character not found");
+    const segs = parseExtensionPath(leaf.field);
+    const next = setAtPath(c.extensions ?? {}, segs, nextValue) as Record<string, unknown>;
+    await ctx.spindle.characters.update(ctx.characterId, { extensions: next }, ctx.userId);
+    ctx.pushEdit({
+      op: "edit", surface: "extension", surfaceId: ctx.characterId,
+      surfaceLabel: leaf.surfaceLabel, field: leaf.field, before: leaf.value, after: nextValue,
+    });
+    return;
+  }
+  if (leaf.surface === "regex_script") {
+    await ctx.spindle.regex_scripts.update(leaf.surfaceId, { [leaf.field]: nextValue } as RegexScriptUpdateDTO, ctx.userId);
+    ctx.pushEdit({
+      op: "edit", surface: "regex_script", surfaceId: leaf.surfaceId,
+      surfaceLabel: leaf.surfaceLabel, field: leaf.field, before: leaf.value, after: nextValue,
+    });
+    return;
+  }
+  if (leaf.surface === "world_book_entry") {
+    await ctx.spindle.world_books.entries.update(leaf.surfaceId, { [leaf.field]: nextValue } as WorldBookEntryUpdateDTO, ctx.userId);
+    ctx.pushEdit({
+      op: "edit", surface: "world_book_entry", surfaceId: leaf.surfaceId,
+      surfaceLabel: leaf.surfaceLabel, field: leaf.field, before: leaf.value, after: nextValue,
+    });
+    return;
+  }
+}
+
+// All editable string leaves on the character + extensions + regex + lorebook,
+// flat-listed by path. Used by the audit tool and (later) the path-based
+// list/glob tool.
+export async function* iterateAllLeaves(ctx: ToolCtx): AsyncGenerator<ResolvedLeaf> {
+  const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
+  if (!c) return;
+
+  for (const field of CHARACTER_STRING_FIELDS) {
+    const v = (c as unknown as Record<string, unknown>)[field];
+    if (typeof v === "string") {
+      yield { key: `char/${field}`, surface: "character_field", surfaceId: ctx.characterId, surfaceLabel: c.name, field, value: v };
+    }
+  }
+  if (Array.isArray(c.alternate_greetings)) {
+    for (let i = 0; i < c.alternate_greetings.length; i++) {
+      const v = c.alternate_greetings[i];
+      if (typeof v === "string") {
+        yield { key: `char/alternate_greetings/${i}`, surface: "alternate_greeting", surfaceId: ctx.characterId, surfaceLabel: `Greeting #${i}`, field: String(i), value: v };
+      }
+    }
+  }
+  // Walk extensions deep tree for every string leaf.
+  for (const leaf of walkStringLeaves(c.extensions ?? {}, "")) {
+    yield { key: `char/extensions/${leaf.path}`, surface: "extension", surfaceId: ctx.characterId, surfaceLabel: `extensions.${leaf.path}`, field: leaf.path, value: leaf.text };
+  }
+  // Regex scripts (character scope).
+  let rOff = 0;
+  while (true) {
+    const r = await ctx.spindle.regex_scripts.list({ scope: "character", scopeId: ctx.characterId, userId: ctx.userId, limit: 200, offset: rOff });
+    for (const s of r.data) {
+      if (typeof s.find_regex === "string") {
+        yield { key: `rx/${s.id}/find_regex`, surface: "regex_script", surfaceId: s.id, surfaceLabel: s.name, field: "find_regex", value: s.find_regex };
+      }
+      if (typeof s.replace_string === "string") {
+        yield { key: `rx/${s.id}/replace_string`, surface: "regex_script", surfaceId: s.id, surfaceLabel: s.name, field: "replace_string", value: s.replace_string };
+      }
+    }
+    if (r.data.length === 0 || rOff + r.data.length >= r.total) break;
+    rOff += r.data.length;
+  }
+  // World book entries (attached books only).
+  for (const wbId of c.world_book_ids ?? []) {
+    let wOff = 0;
+    while (true) {
+      const r = await ctx.spindle.world_books.entries.list(wbId, { limit: 500, userId: ctx.userId, offset: wOff });
+      for (const e of r.data) {
+        if (typeof e.content === "string") {
+          yield { key: `wb/${e.id}/content`, surface: "world_book_entry", surfaceId: e.id, surfaceLabel: wbLabel(e), field: "content", value: e.content };
+        }
+        if (typeof e.comment === "string" && e.comment.length > 0) {
+          yield { key: `wb/${e.id}/comment`, surface: "world_book_entry", surfaceId: e.id, surfaceLabel: wbLabel(e), field: "comment", value: e.comment };
+        }
+      }
+      if (r.data.length === 0 || wOff + r.data.length >= r.total) break;
+      wOff += r.data.length;
+    }
+  }
+}
+
+// Local copy of the extension string-leaf walker. _walk.ts has an iterator
+// version we could share; duplicating to avoid a dependency cycle while we
+// migrate.
+function* walkStringLeaves(value: unknown, prefix: string): Generator<{ path: string; text: string }> {
+  if (typeof value === "string") {
+    yield { path: prefix, text: value };
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) {
+      yield* walkStringLeaves(value[i], prefix.length === 0 ? `[${i}]` : `${prefix}[${i}]`);
+    }
+    return;
+  }
+  if (value && typeof value === "object") {
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      yield* walkStringLeaves(v, prefix.length === 0 ? k : `${prefix}.${k}`);
+    }
+  }
+}
