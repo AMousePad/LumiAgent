@@ -45,7 +45,7 @@ export function encodeAssistantTurn(content: string, toolCalls: readonly ToolCal
   const parts: LlmMessagePart[] = [];
   if (content.length > 0) parts.push({ type: "text", text: content });
   for (const tc of toolCalls) {
-    parts.push({ type: "tool_use", id: tc.call_id, name: tc.name, input: tc.args ?? {} });
+    parts.push({ type: "tool_use", id: tc.call_id, name: tc.name, input: tc.args ?? {}, ...(tc.thought_signature ? { thought_signature: tc.thought_signature } : {}) });
   }
   return { role: "assistant", content: parts };
 }

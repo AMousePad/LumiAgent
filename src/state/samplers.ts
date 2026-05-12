@@ -57,7 +57,7 @@ export function coerceSamplerBag(input: unknown): SamplerBag {
 const SAMPLER_WIRE_KEYS: Readonly<Record<SamplerKey, string>> = {
   temperature: "temperature",
   maxTokens: "max_tokens",
-  contextSize: "context_size",
+  contextSize: "max_context_length",
   topP: "top_p",
   minP: "min_p",
   topK: "top_k",

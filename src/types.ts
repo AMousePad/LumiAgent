@@ -9,7 +9,7 @@ export type LlmMessagePart =
   | { type: "text"; text: string; cache_control?: Record<string, unknown> }
   | { type: "image"; data: string; mime_type: string; cache_control?: Record<string, unknown> }
   | { type: "audio"; data: string; mime_type: string; cache_control?: Record<string, unknown> }
-  | { type: "tool_use"; id: string; name: string; input: Record<string, unknown>; cache_control?: Record<string, unknown> }
+  | { type: "tool_use"; id: string; name: string; input: Record<string, unknown>; cache_control?: Record<string, unknown>; thought_signature?: string }
   | { type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean; cache_control?: Record<string, unknown> };
 
 export interface LlmMessage {
@@ -26,7 +26,7 @@ export interface TodoItem {
   readonly status: TodoStatus;
 }
 export type ToolSchema = ToolSchemaDTO;
-export type ToolCall = ToolCallDTO;
+export type ToolCall = ToolCallDTO & { thought_signature?: string };
 
 export interface ToolResult {
   readonly call_id: string;
@@ -215,14 +215,14 @@ export type FrontendToBackend =
   | { type: "revert_edit"; characterId: string; editId: string; force?: boolean | undefined; sessionId?: string | undefined }
   | { type: "revert_edits_bulk"; characterId: string; editIds: readonly string[]; sessionId?: string | undefined }
   | { type: "revert_session"; sessionId: string }
-  | { type: "edit_user_message"; sessionId: string; messageId: string; newContent: string; editsAction: "keep" | "revert" }
-  | { type: "regenerate_assistant_message"; sessionId: string; assistantMessageId: string; editsAction: "keep" | "revert" }
+  | { type: "edit_user_message"; sessionId: string; messageId: string; newContent: string; editsAction: "keep" | "revert"; connectionId?: string | undefined }
+  | { type: "regenerate_assistant_message"; sessionId: string; assistantMessageId: string; editsAction: "keep" | "revert"; connectionId?: string | undefined }
   | { type: "delete_message"; sessionId: string; messageId: string; editsAction: "keep" | "revert" }
   | { type: "free_tool_result"; sessionId: string; callId: string }
   | { type: "list_chats"; characterId: string; sessionId?: string | undefined }
   | { type: "set_pinned_chat"; sessionId: string; chatId: string | null }
   | { type: "get_settings" }
-  | { type: "update_settings"; persona: string; systemPromptOverride: string | null; samplers: Readonly<Record<string, number | null>>; jailbreak: string; jailbreakPlacement: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes: number | null; toolOutputCapTokens: number | null; connectionSupportsPromptCaching?: boolean; cacheMode?: "off" | "system_only" | "full" }
+  | { type: "update_settings"; persona: string; systemPromptOverride: string | null; samplers: Readonly<Record<string, number | null>>; jailbreak: string; jailbreakPlacement: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes: number | null; toolOutputCapTokens: number | null; connectionSupportsPromptCaching?: boolean; autoFreeOldToolResults?: boolean; cacheMode?: "off" | "system_only" | "full" }
   | { type: "get_ui_prefs" }
   | { type: "update_ui_prefs"; connectionId: string | null; lastSessionId: string | null }
   | { type: "ws_list"; path: string }
@@ -262,7 +262,7 @@ export type BackendToFrontend =
   | { type: "session_truncated"; sessionId: string; messages: readonly ChatMessage[]; edits: readonly EditLogEntry[] }
   | { type: "chats_pushed"; characterId: string; chats: readonly ChatSummary[]; pinnedChatId: string | null }
   | { type: "pinned_chat_set"; sessionId: string; chatId: string | null }
-  | { type: "settings_pushed"; persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody: string; samplers: Readonly<Record<string, number | null>>; jailbreak: string; jailbreakPlacement: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes: number | null; workspaceCapDefaultBytes: number; workspaceFileCapBytes: number; toolOutputCapTokens: number | null; toolOutputCapDefaultTokens: number; connectionSupportsPromptCaching: boolean; cacheMode: "off" | "system_only" | "full" }
+  | { type: "settings_pushed"; persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody: string; samplers: Readonly<Record<string, number | null>>; jailbreak: string; jailbreakPlacement: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes: number | null; workspaceCapDefaultBytes: number; workspaceFileCapBytes: number; toolOutputCapTokens: number | null; toolOutputCapDefaultTokens: number; connectionSupportsPromptCaching: boolean; autoFreeOldToolResults: boolean; cacheMode: "off" | "system_only" | "full" }
   | { type: "ui_prefs_pushed"; connectionId: string | null; lastSessionId: string | null }
   | { type: "ws_listed"; path: string; entries: readonly WorkspaceEntry[] }
   | { type: "ws_text_pushed"; path: string; content: string; sizeBytes: number }

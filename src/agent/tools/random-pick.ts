@@ -14,7 +14,7 @@ export const randomPickTool = defineTool({
   jsonSchema: {
     type: "object",
     properties: {
-      items: { type: "array", description: "The list to pick from." },
+      items: { type: "array", items: { type: "string" }, description: "The list to pick from." },
       count: { type: "number", description: "How many to pick. Default 1." },
       replacement: { type: "boolean", description: "If true, the same item can be picked more than once. Default false." },
     },
