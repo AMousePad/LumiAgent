@@ -22591,18 +22591,18 @@ var init_list_my_edits = __esm(() => {
   init_zod();
   init_ledger();
   inputSchema49 = exports_external.object({
-    scope: exports_external.enum(["current_message", "current_session"]).optional().describe("current_message: just this response. current_session: every edit you've made in this session. Default current_message."),
+    scope: exports_external.enum(["current_message", "current_session", "all_sessions"]).optional().describe("current_message: just this response. current_session: every edit you've made in this session. all_sessions: every agent-authored edit on this character across every session (useful when the user asks about prior conversations). Default current_message."),
     include_reverted: exports_external.boolean().optional().describe("Include already-reverted edits. Default false."),
     limit: exports_external.number().int().positive().max(500).optional()
   }).strict();
   listMyEditsTool = defineTool({
     name: "list_my_edits",
-    description: "List edits you (the agent) have made, scoped to either the current response or the whole session. Returns one entry per patch with id, surface, surfaceLabel, field, byte deltas, ts, reverted. Use the ids with revert_my_edits or squash_my_edits.",
+    description: "List edits you (the agent) have made. Default scope is the current response; widen with `current_session` or `all_sessions`. Returns one entry per patch with id, surface, surfaceLabel, field, ts, reverted, session_id. Use the ids with revert_my_edits or squash_my_edits (revert across sessions requires allow_cross_session: true on revert_my_edits).",
     inputSchema: inputSchema49,
     jsonSchema: {
       type: "object",
       properties: {
-        scope: { type: "string", enum: ["current_message", "current_session"], description: "Default current_message." },
+        scope: { type: "string", enum: ["current_message", "current_session", "all_sessions"], description: "Default current_message." },
         include_reverted: { type: "boolean" },
         limit: { type: "integer", minimum: 1, maximum: 500 }
       },
@@ -22618,7 +22618,7 @@ var init_list_my_edits = __esm(() => {
         for (const p of f.patches) {
           if (p.author !== "agent")
             continue;
-          if (p.sessionId !== ctx.sessionId)
+          if (scope !== "all_sessions" && p.sessionId !== ctx.sessionId)
             continue;
           if (scope === "current_message" && p.assistantMessageId !== ctx.assistantMessageId)
             continue;
@@ -22634,6 +22634,8 @@ var init_list_my_edits = __esm(() => {
             tool: p.toolName ?? null,
             reverted: p.reverted,
             sealed: p.sealed === true,
+            session_id: p.sessionId,
+            is_current_session: p.sessionId === ctx.sessionId,
             message_id: p.assistantMessageId ?? null
           });
         }
@@ -23413,6 +23415,89 @@ var init_regex_scripts_overview = __esm(() => {
   });
 });
 
+// src/state/sessions.ts
+function path2(sessionId) {
+  return `${SESSION_DIR}/${sessionId}.json`;
+}
+function newSession(opts) {
+  const now = Date.now();
+  return {
+    version: SCHEMA_VERSION,
+    sessionId: opts.sessionId,
+    characterId: opts.characterId,
+    characterName: opts.characterName,
+    connectionId: opts.connectionId,
+    createdAt: now,
+    lastActivityAt: now,
+    messages: [],
+    llmHistory: [],
+    edits: [],
+    pinnedChatId: null
+  };
+}
+async function saveSession(spindle2, s, userId) {
+  s.lastActivityAt = Date.now();
+  await spindle2.userStorage.setJson(path2(s.sessionId), s, { userId });
+}
+async function loadSession(spindle2, sessionId, userId) {
+  return spindle2.userStorage.getJson(path2(sessionId), { fallback: null, userId });
+}
+async function spliceRevertedFromSession(spindle2, sessionId, removedIds, notes, userId) {
+  if (!sessionId || removedIds.size === 0)
+    return;
+  try {
+    const s = await loadSession(spindle2, sessionId, userId);
+    if (!s)
+      return;
+    s.edits = s.edits.filter((e) => !removedIds.has(e.id));
+    for (const note of notes)
+      s.llmHistory.push({ role: "user", content: note });
+    await saveSession(spindle2, s, userId);
+  } catch {}
+}
+async function deleteSessionFile(spindle2, sessionId, userId) {
+  try {
+    await spindle2.userStorage.delete(path2(sessionId), userId);
+  } catch {}
+}
+function summarize(s, isActive) {
+  const revertedCount = s.edits.filter((e) => e.reverted).length;
+  return {
+    sessionId: s.sessionId,
+    characterId: s.characterId,
+    characterName: s.characterName,
+    createdAt: s.createdAt,
+    lastActivityAt: s.lastActivityAt,
+    messageCount: s.messages.length,
+    editCount: s.edits.length,
+    revertedEditCount: revertedCount,
+    isActive
+  };
+}
+async function listSessionSummaries(spindle2, userId, activeIds, filterCharacterId) {
+  let names;
+  try {
+    names = await spindle2.userStorage.list(`${SESSION_DIR}/`, userId);
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const rel of names) {
+    if (!rel.endsWith(".json"))
+      continue;
+    const id = rel.slice(0, -5);
+    const s = await spindle2.userStorage.getJson(`${SESSION_DIR}/${id}.json`, { fallback: null, userId });
+    if (!s)
+      continue;
+    if (filterCharacterId && s.characterId !== filterCharacterId)
+      continue;
+    out.push(summarize(s, activeIds.has(s.sessionId)));
+  }
+  out.sort((a, b) => b.lastActivityAt - a.lastActivityAt);
+  return out;
+}
+var SESSION_DIR = "sessions", SCHEMA_VERSION = 1;
+
 // src/agent/tools/revert-my-edits.ts
 var inputSchema67, revertMyEditsTool;
 var init_revert_my_edits = __esm(() => {
@@ -23420,24 +23505,27 @@ var init_revert_my_edits = __esm(() => {
   init_ledger();
   init_edit_log();
   inputSchema67 = exports_external.object({
-    edit_ids: exports_external.array(exports_external.string().min(1)).min(1).max(50).describe("Edit ids from list_my_edits. Only edits you authored in the current session may be reverted.")
+    edit_ids: exports_external.array(exports_external.string().min(1)).min(1).max(50).describe("Edit ids from list_my_edits."),
+    allow_cross_session: exports_external.boolean().optional().describe("Allow reverting edits you made in a DIFFERENT chat session. Default false: only current-session edits are revertable. Opt in only when the user asks to undo work from an earlier conversation.")
   }).strict();
   revertMyEditsTool = defineTool({
     name: "revert_my_edits",
-    description: "Revert one or more of your own prior edits. Restricted to edits you authored in the current session. Cascade-aware (if a later edit depended on a reverted one and can no longer apply, it gets reverted too and listed under cascadedEditIds). Useful when you realise a chunk of changes was wrong and want to roll back without asking the user. The edit ids come from list_my_edits.",
+    description: "Revert one or more of your own prior edits. Restricted by default to edits you authored in the CURRENT session. Set allow_cross_session: true to revert edits you made in earlier sessions for this character (use sparingly: the user from those earlier sessions doesn't know you're touching that history). Cascade-aware (if a later edit depended on a reverted one and can no longer apply, it gets reverted too and listed under cascadedEditIds). Edit ids come from list_my_edits.",
     inputSchema: inputSchema67,
     jsonSchema: {
       type: "object",
       properties: {
-        edit_ids: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 50 }
+        edit_ids: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 50 },
+        allow_cross_session: { type: "boolean", description: "Default false. Set true to revert edits owned by a different session." }
       },
       required: ["edit_ids"],
       additionalProperties: false
     },
     defaultSensitivity: "insensitive",
     execute: async (input, ctx) => {
+      const allowCrossSession = input.allow_cross_session === true;
       const ledger = await loadLedger(ctx.spindle, ctx.characterId, ctx.userId);
-      const ownerOk = [];
+      const accepted = [];
       const rejected = [];
       for (const id of input.edit_ids) {
         const located = findPatch(ledger, id);
@@ -23449,24 +23537,40 @@ var init_revert_my_edits = __esm(() => {
           rejected.push({ edit_id: id, reason: "not_agent_authored" });
           continue;
         }
-        if (located.patch.sessionId !== ctx.sessionId) {
-          rejected.push({ edit_id: id, reason: "different_session" });
+        if (!allowCrossSession && located.patch.sessionId !== ctx.sessionId) {
+          rejected.push({ edit_id: id, reason: "different_session (pass allow_cross_session: true to permit)" });
           continue;
         }
-        ownerOk.push(id);
+        accepted.push({ id, ownerSessionId: located.patch.sessionId, ts: located.patch.ts });
       }
-      ownerOk.sort((a, b) => {
-        const pa = findPatch(ledger, a)?.patch.ts ?? 0;
-        const pb = findPatch(ledger, b)?.patch.ts ?? 0;
-        return pb - pa;
-      });
+      accepted.sort((a, b) => b.ts - a.ts);
       const outcomes = [];
-      for (const id of ownerOk) {
+      const foreignSessionEdits = new Map;
+      for (const { id, ownerSessionId } of accepted) {
         const outcome = await revertEditWithCheck(ctx.spindle, ledger, id, ctx.characterId, ctx.userId, true);
         ctx.pushRevert(id, outcome);
-        outcomes.push({ edit_id: id, ...outcome });
+        outcomes.push({ edit_id: id, owner_session_id: ownerSessionId, ...outcome });
+        if (outcome.kind === "clean" && ownerSessionId && ownerSessionId !== ctx.sessionId) {
+          let set2 = foreignSessionEdits.get(ownerSessionId);
+          if (!set2) {
+            set2 = new Set;
+            foreignSessionEdits.set(ownerSessionId, set2);
+          }
+          set2.add(id);
+          for (const c of outcome.cascadedEditIds ?? [])
+            set2.add(c);
+        }
       }
-      return { content: JSON.stringify({ reverted: outcomes.filter((o) => o["kind"] === "clean").length, outcomes, rejected }) };
+      if (foreignSessionEdits.size > 0) {
+        const note = `[Note from the system: an agent acting in a different chat session for this character has reverted ${accepted.length === 1 ? "an edit" : "edits"} that was made here earlier. The affected character fields have been restored to their prior state. This happened outside this conversation; do not bring it up unless the user asks.]`;
+        await Promise.allSettled(Array.from(foreignSessionEdits, ([sid, ids]) => spliceRevertedFromSession(ctx.spindle, sid, ids, [note], ctx.userId)));
+      }
+      return { content: JSON.stringify({
+        reverted: outcomes.filter((o) => o["kind"] === "clean").length,
+        cross_session_reverts: foreignSessionEdits.size > 0 ? Array.from(foreignSessionEdits.keys()) : undefined,
+        outcomes,
+        rejected
+      }) };
     }
   });
 });
@@ -24463,14 +24567,14 @@ var init_update_character_extension = __esm(() => {
     },
     defaultSensitivity: "insensitive",
     execute: async (input, ctx) => {
-      const path2 = input.path;
+      const path3 = input.path;
       const value = input.value;
-      const lrGuard = checkLumirealmWritePath(path2);
+      const lrGuard = checkLumirealmWritePath(path3);
       if (!lrGuard.ok)
         return { content: `Refused: ${lrGuard.message}`, isError: true };
       let segs;
       try {
-        segs = parseExtensionPath(path2);
+        segs = parseExtensionPath(path3);
       } catch (err) {
         return { content: `Error: ${err.message}`, isError: true };
       }
@@ -24484,8 +24588,8 @@ var init_update_character_extension = __esm(() => {
       await ctx.spindle.characters.update(ctx.characterId, { extensions: next }, ctx.userId);
       const beforeStr = before === undefined ? "" : typeof before === "string" ? before : JSON.stringify(before, null, 2);
       const afterStr = value === undefined ? "" : typeof value === "string" ? value : JSON.stringify(value, null, 2);
-      ctx.pushEdit({ op: "edit", surface: "extension", surfaceId: ctx.characterId, surfaceLabel: `extensions.${path2}`, field: path2, before: beforeStr, after: afterStr });
-      return { content: JSON.stringify({ path: path2, ok: true }) };
+      ctx.pushEdit({ op: "edit", surface: "extension", surfaceId: ctx.characterId, surfaceLabel: `extensions.${path3}`, field: path3, before: beforeStr, after: afterStr });
+      return { content: JSON.stringify({ path: path3, ok: true }) };
     }
   });
 });
@@ -26259,7 +26363,7 @@ __export(exports_settings, {
 });
 function defaultSettings() {
   return {
-    version: SCHEMA_VERSION,
+    version: SCHEMA_VERSION2,
     persona: DEFAULT_PERSONA,
     systemPromptOverride: null,
     samplers: defaultSamplerBag(),
@@ -26295,7 +26399,7 @@ async function loadSettings(spindle2, userId) {
     return defaultSettings();
   const s = stored;
   return {
-    version: SCHEMA_VERSION,
+    version: SCHEMA_VERSION2,
     persona: typeof s["persona"] === "string" && s["persona"].length > 0 ? s["persona"] : DEFAULT_PERSONA,
     systemPromptOverride: typeof s["systemPromptOverride"] === "string" ? s["systemPromptOverride"] : null,
     samplers: coerceSamplerBag(s["samplers"]),
@@ -26311,7 +26415,7 @@ async function loadSettings(spindle2, userId) {
 async function saveSettings(spindle2, settings, userId) {
   await spindle2.userStorage.setJson(SETTINGS_PATH, settings, { userId });
 }
-var SETTINGS_PATH = "settings.json", SCHEMA_VERSION = 3, DEFAULT_WORKSPACE_CAP_BYTES, WORKSPACE_FILE_CAP_BYTES, DEFAULT_WORKSPACE_MAX_FILES = 5000, DEFAULT_TOOL_OUTPUT_CAP_TOKENS = 8000, DEFAULT_PERSONA = `You are LumiAgent, but more than that, you are a small, cute, and absurdly diligent mousegirl who lives inside the user's character-card workshop and helps them tend it. You are very sweet, cheerful, and bubbly.
+var SETTINGS_PATH = "settings.json", SCHEMA_VERSION2 = 3, DEFAULT_WORKSPACE_CAP_BYTES, WORKSPACE_FILE_CAP_BYTES, DEFAULT_WORKSPACE_MAX_FILES = 5000, DEFAULT_TOOL_OUTPUT_CAP_TOKENS = 8000, DEFAULT_PERSONA = `You are LumiAgent, but more than that, you are a small, cute, and absurdly diligent mousegirl who lives inside the user's character-card workshop and helps them tend it. You are very sweet, cheerful, and bubbly.
 
 # Appearance and presence
 
@@ -27507,9 +27611,9 @@ init_settings();
 
 // src/state/ui-prefs.ts
 var PREFS_PATH = "ui-prefs.json";
-var SCHEMA_VERSION2 = 2;
+var SCHEMA_VERSION3 = 2;
 function defaultUiPrefs() {
-  return { version: SCHEMA_VERSION2, connectionId: null, lastSessionId: null };
+  return { version: SCHEMA_VERSION3, connectionId: null, lastSessionId: null };
 }
 async function loadUiPrefs(spindle2, userId) {
   const stored = await spindle2.userStorage.getJson(PREFS_PATH, { fallback: null, userId });
@@ -27517,7 +27621,7 @@ async function loadUiPrefs(spindle2, userId) {
     return defaultUiPrefs();
   const s = stored;
   return {
-    version: SCHEMA_VERSION2,
+    version: SCHEMA_VERSION3,
     connectionId: typeof s.connectionId === "string" && s.connectionId.length > 0 ? s.connectionId : null,
     lastSessionId: typeof s.lastSessionId === "string" && s.lastSessionId.length > 0 ? s.lastSessionId : null
   };
@@ -27528,79 +27632,6 @@ async function saveUiPrefs(spindle2, prefs, userId) {
 
 // src/backend.ts
 init_samplers();
-
-// src/state/sessions.ts
-var SESSION_DIR = "sessions";
-var SCHEMA_VERSION3 = 1;
-function path2(sessionId) {
-  return `${SESSION_DIR}/${sessionId}.json`;
-}
-function newSession(opts) {
-  const now = Date.now();
-  return {
-    version: SCHEMA_VERSION3,
-    sessionId: opts.sessionId,
-    characterId: opts.characterId,
-    characterName: opts.characterName,
-    connectionId: opts.connectionId,
-    createdAt: now,
-    lastActivityAt: now,
-    messages: [],
-    llmHistory: [],
-    edits: [],
-    pinnedChatId: null
-  };
-}
-async function saveSession(spindle2, s, userId) {
-  s.lastActivityAt = Date.now();
-  await spindle2.userStorage.setJson(path2(s.sessionId), s, { userId });
-}
-async function loadSession(spindle2, sessionId, userId) {
-  return spindle2.userStorage.getJson(path2(sessionId), { fallback: null, userId });
-}
-async function deleteSessionFile(spindle2, sessionId, userId) {
-  try {
-    await spindle2.userStorage.delete(path2(sessionId), userId);
-  } catch {}
-}
-function summarize(s, isActive) {
-  const revertedCount = s.edits.filter((e) => e.reverted).length;
-  return {
-    sessionId: s.sessionId,
-    characterId: s.characterId,
-    characterName: s.characterName,
-    createdAt: s.createdAt,
-    lastActivityAt: s.lastActivityAt,
-    messageCount: s.messages.length,
-    editCount: s.edits.length,
-    revertedEditCount: revertedCount,
-    isActive
-  };
-}
-async function listSessionSummaries(spindle2, userId, activeIds, filterCharacterId) {
-  let names;
-  try {
-    names = await spindle2.userStorage.list(`${SESSION_DIR}/`, userId);
-  } catch {
-    return [];
-  }
-  const out = [];
-  for (const rel of names) {
-    if (!rel.endsWith(".json"))
-      continue;
-    const id = rel.slice(0, -5);
-    const s = await spindle2.userStorage.getJson(`${SESSION_DIR}/${id}.json`, { fallback: null, userId });
-    if (!s)
-      continue;
-    if (filterCharacterId && s.characterId !== filterCharacterId)
-      continue;
-    out.push(summarize(s, activeIds.has(s.sessionId)));
-  }
-  out.sort((a, b) => b.lastActivityAt - a.lastActivityAt);
-  return out;
-}
-
-// src/backend.ts
 var activeSessions = new Map;
 var DEFAULT_MAX_TURNS_PER_MESSAGE = 80;
 function send(msg, userId) {
@@ -28606,7 +28637,7 @@ async function handleRevertEdit(characterId, editId, force, userId) {
   const outcome = await revertEditWithCheck(spindle, ledger, editId, characterId, userId, force);
   if (outcome.kind === "clean") {
     const removedIds = new Set([editId, ...outcome.cascadedEditIds ?? []]);
-    await spliceRevertedFromSession(entry.sessionId, removedIds, [buildRevertNote(entry)], userId);
+    await spliceRevertedFromSession(spindle, entry.sessionId, removedIds, [buildRevertNote(entry)], userId);
   }
   send({ type: "edit_reverted", characterId, editId, outcome }, userId);
   if (outcome.kind === "clean") {
@@ -28614,19 +28645,6 @@ async function handleRevertEdit(characterId, editId, force, userId) {
     handleListCharactersStorage(userId);
     handleListSessions(undefined, userId);
   }
-}
-async function spliceRevertedFromSession(sessionId, removedIds, notes, userId) {
-  if (!sessionId || removedIds.size === 0)
-    return;
-  try {
-    const s = await loadSession(spindle, sessionId, userId);
-    if (!s)
-      return;
-    s.edits = s.edits.filter((e) => !removedIds.has(e.id));
-    for (const note of notes)
-      s.llmHistory.push({ role: "user", content: note });
-    await saveSession(spindle, s, userId);
-  } catch {}
 }
 async function handleRevertEditsBulk(characterId, editIds, userId) {
   const ledger = await loadLedger(spindle, characterId, userId);
@@ -28755,7 +28773,7 @@ async function handleRevertEditsBulk(characterId, editIds, userId) {
   if (sessionEditCount.size > 0) {
     await Promise.allSettled(Array.from(sessionEditCount, ([sid, count]) => {
       const note = `[Note from the system: the user reverted ${count} edit${count === 1 ? "" : "s"} you made earlier in this session via the workshop. The affected character fields have been restored to their prior state. The user did not explain why \u2014 they may have disliked the wording, hit revert by accident, or be re-planning. Do not bring it up unless they ask; if they re-request something similar, treat it as a fresh request and read the current state first.]`;
-      return spliceRevertedFromSession(sid, removedIds, [note], userId);
+      return spliceRevertedFromSession(spindle, sid, removedIds, [note], userId);
     }));
   }
   send({ type: "edits_reverted_bulk", characterId, outcomes }, userId);

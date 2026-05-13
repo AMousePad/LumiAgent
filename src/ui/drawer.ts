@@ -99,6 +99,9 @@ interface UiState {
   // indicator. The indicator itself lives inside the bubble; this flag just
   // gates re-toggles so we don't churn DOM nodes on every event.
   loading: boolean;
+  // Message id whose bubble currently hosts an inline edit textarea.
+  // rerenderThread preserves that bubble while this is set.
+  editingMessageId: string | null;
 }
 
 function makeId(prefix: string): string {
@@ -162,6 +165,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     workshopFocusCharacterId: null,
     workshopFocusCharacterName: null,
     loading: false,
+    editingMessageId: null,
   };
 
   const header = el("header", "la-header");
@@ -708,9 +712,10 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     if (thread.contains(emptyState)) thread.removeChild(emptyState);
     renderEditIndex = buildEditIndex(state.edits);
     // Evict every cached message so revert / edit-id splices propagate to
-    // the per-message "Edits" cards. The streaming node is re-resolved
-    // via the renderMessage callback and stays identity-stable.
-    virtualizer.clear();
+    // the per-message "Edits" cards. Preserve a bubble in inline-edit mode
+    // so its live textarea's focus and cursor survive the re-sync.
+    if (state.editingMessageId) virtualizer.clearExcept(state.editingMessageId);
+    else virtualizer.clear();
     virtualizer.setCount();
   };
 
@@ -778,6 +783,9 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       onRegenerateAssistant: async (assistantMessageId: string, editsAction: "keep" | "revert") => {
         if (!state.sessionId) return;
         sendBackend({ type: "regenerate_assistant_message", sessionId: state.sessionId, assistantMessageId, editsAction, ...(state.connectionId ? { connectionId: state.connectionId } : {}) });
+      },
+      onEditingChange: (messageId: string | null) => {
+        state.editingMessageId = messageId;
       },
       onDeleteMessage: async (messageId: string, editsAction: "keep" | "revert") => {
         if (!state.sessionId) return;

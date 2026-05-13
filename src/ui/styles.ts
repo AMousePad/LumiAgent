@@ -485,8 +485,10 @@ ${LOADERS_CSS}
 .la-msg-action-btn-danger { color: var(--lumiverse-danger); border-color: var(--lumiverse-border); }
 .la-msg-action-btn-danger:hover { background: var(--lumiverse-danger-015); border-color: var(--lumiverse-danger-050); color: var(--lumiverse-danger); }
 
-/* Inline-edit textarea inside a user message bubble. */
-.la-msg-user .la-msg-bubble.is-editing { padding: 8px; }
+/* Inline-edit textarea inside a user message bubble. Bubble claims the full
+   80% lane (vs the content-driven width when not editing) so short messages
+   get room to grow. */
+.la-msg-user .la-msg-bubble.is-editing { padding: 8px; width: 80%; box-sizing: border-box; }
 .la-msg-edit-textarea {
   width: 100%;
   background: transparent;

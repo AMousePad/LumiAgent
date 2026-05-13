@@ -19,7 +19,7 @@ import { systemMessageWithCache } from "./agent/cache-control";
 import { applyAutoFree } from "./agent/auto-free";
 import { buildGeneralSystemPrompt, type LumiRealmContext } from "./tasks/general";
 import { revertEditWithCheck, revertEdit, writeFieldValue } from "./state/edit-log";
-import { appendEntries, entriesView, findEntry, loadLedger, persistLedgerNow, purgeAllRevertedInMemory, purgeIdsInMemory, squashMessage } from "./state/ledger";
+import { appendEntries, entriesView, findEntry, loadLedger, persistLedgerNow, purgeAllRevertedInMemory, squashMessage } from "./state/ledger";
 import { applySinglePatch, sha256 as patchSha256 } from "./state/patch-stack";
 import { type AgentSettings, DEFAULT_PERSONA, loadSettings, saveSettings, resolveWorkspaceCap, resolveToolOutputCapTokens, WORKSPACE_FILE_CAP_BYTES, DEFAULT_WORKSPACE_MAX_FILES, DEFAULT_TOOL_OUTPUT_CAP_TOKENS } from "./state/settings";
 import { loadUiPrefs, saveUiPrefs } from "./state/ui-prefs";
@@ -33,6 +33,7 @@ import {
   saveSession,
   deleteSessionFile,
   listSessionSummaries,
+  spliceRevertedFromSession as spliceReverted,
   type PersistedSession,
 } from "./state/sessions";
 
@@ -1066,7 +1067,7 @@ async function handleRevertEdit(characterId: string, editId: string, force: bool
 
   if (outcome.kind === "clean") {
     const removedIds = new Set<string>([editId, ...(outcome.cascadedEditIds ?? [])]);
-    await spliceRevertedFromSession(entry.sessionId, removedIds, [buildRevertNote(entry)], userId);
+    await spliceReverted(spindle, entry.sessionId, removedIds, [buildRevertNote(entry)], userId);
   }
   send({ type: "edit_reverted", characterId, editId, outcome }, userId);
   // Push fresh workshop view (reverted entries no longer appear).
@@ -1075,19 +1076,6 @@ async function handleRevertEdit(characterId: string, editId: string, force: bool
     void handleListCharactersStorage(userId);
     void handleListSessions(undefined, userId);
   }
-}
-
-// Splice the reverted ids out of an owning session's `s.edits`, append the
-// system notes to `s.llmHistory`, save. No-op if the session can't be loaded.
-async function spliceRevertedFromSession(sessionId: string, removedIds: ReadonlySet<string>, notes: readonly string[], userId: string): Promise<void> {
-  if (!sessionId || removedIds.size === 0) return;
-  try {
-    const s = await loadSession(spindle, sessionId, userId);
-    if (!s) return;
-    s.edits = s.edits.filter((e) => !removedIds.has(e.id));
-    for (const note of notes) s.llmHistory.push({ role: "user", content: note });
-    await saveSession(spindle, s, userId);
-  } catch { /* session may be gone; ledger is authoritative */ }
 }
 
 // Fast-path bulk revert. Groups requested edit ids by FileState, marks each
@@ -1220,7 +1208,7 @@ async function handleRevertEditsBulk(characterId: string, editIds: readonly stri
   if (sessionEditCount.size > 0) {
     await Promise.allSettled(Array.from(sessionEditCount, ([sid, count]) => {
       const note = `[Note from the system: the user reverted ${count} edit${count === 1 ? "" : "s"} you made earlier in this session via the workshop. The affected character fields have been restored to their prior state. The user did not explain why — they may have disliked the wording, hit revert by accident, or be re-planning. Do not bring it up unless they ask; if they re-request something similar, treat it as a fresh request and read the current state first.]`;
-      return spliceRevertedFromSession(sid, removedIds, [note], userId);
+      return spliceReverted(spindle, sid, removedIds, [note], userId);
     }));
   }
 
@@ -1463,12 +1451,10 @@ async function handleRegenerateAssistant(sessionId: string, assistantMessageId: 
   void handleSendMessageInternal(s, userId, connectionId);
 }
 
-// Canonical generation loop. Caller is responsible for ensuring s.llmHistory
-// already ends with the user message we're replying to (send_message pushes
-// it; edit/regenerate truncate then call). `connectionIdOverride` is the
-// user's currently-selected dropdown value: if present and different from
-// the stored session value, it wins. Single source of truth for the heal,
-// so every entry path (send/edit/regenerate) honors the latest selection.
+// Canonical generation loop. Callers must ensure s.llmHistory already ends
+// with the user message we're replying to. connectionIdOverride is the
+// user's current dropdown value, applied here as the single heal point so
+// every entry path (send, edit, regenerate, continue) picks up the latest.
 async function handleSendMessageInternal(s: PersistedSession, userId: string, connectionIdOverride: string | undefined): Promise<void> {
   if (connectionIdOverride && s.connectionId !== connectionIdOverride) {
     s.connectionId = connectionIdOverride;

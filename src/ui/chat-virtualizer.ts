@@ -110,6 +110,19 @@ export class ChatVirtualizer {
     this.nodeByKey.clear();
   }
 
+  // Drop every cached node except the one keyed by `messageId`. Used when a
+  // message is in inline edit mode. Preserves the live textarea's focus and
+  // cursor across a re-sync.
+  clearExcept(messageId: string): void {
+    const keep = this.nodeByKey.get(messageId);
+    for (const [key, node] of this.nodeByKey) {
+      if (key === messageId) continue;
+      if (node.parentElement) node.remove();
+    }
+    this.nodeByKey.clear();
+    if (keep) this.nodeByKey.set(messageId, keep);
+  }
+
   scrollToBottom(): void {
     const count = this.deps.getMessages().length;
     if (count === 0) return;
@@ -172,8 +185,10 @@ export class ChatVirtualizer {
     }
 
     const messages = this.deps.getMessages();
-    // Append in render order so document flow positions items correctly
-    // relative to each other under the translated inner block.
+    // Only move nodes whose DOM position is wrong. Re-attaching an already
+    // positioned child detaches and reattaches it, blurring any focused
+    // descendant (e.g. the inline-edit textarea on every ResizeObserver tick).
+    let cursor: ChildNode | null = this.inner.firstChild;
     for (const item of items) {
       const key = String(item.key);
       const msg = messages[item.index];
@@ -189,9 +204,13 @@ export class ChatVirtualizer {
       // back to its item. Refresh every sync since splices can shift indices
       // while keys stay stable.
       node.setAttribute("data-index", String(item.index));
-      // appendChild on an already-attached child re-orders to the end, which
-      // is exactly what we want when items shift positions.
-      this.inner.appendChild(node);
+      if (node === cursor) {
+        cursor = node.nextSibling;
+      } else {
+        // insertBefore(node, null) acts as appendChild.
+        this.inner.insertBefore(node, cursor);
+        cursor = node.nextSibling;
+      }
       this.virt.measureElement(node);
     }
 

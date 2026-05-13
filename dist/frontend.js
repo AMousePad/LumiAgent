@@ -1181,8 +1181,10 @@ ${LOADERS_CSS}
 .la-msg-action-btn-danger { color: var(--lumiverse-danger); border-color: var(--lumiverse-border); }
 .la-msg-action-btn-danger:hover { background: var(--lumiverse-danger-015); border-color: var(--lumiverse-danger-050); color: var(--lumiverse-danger); }
 
-/* Inline-edit textarea inside a user message bubble. */
-.la-msg-user .la-msg-bubble.is-editing { padding: 8px; }
+/* Inline-edit textarea inside a user message bubble. Bubble claims the full
+   80% lane (vs the content-driven width when not editing) so short messages
+   get room to grow. */
+.la-msg-user .la-msg-bubble.is-editing { padding: 8px; width: 80%; box-sizing: border-box; }
 .la-msg-edit-textarea {
   width: 100%;
   background: transparent;
@@ -3952,19 +3954,23 @@ function renderUserMessage(msg, deps) {
       editBtn.setAttribute("aria-label", "Edit message");
       editBtn.title = "Edit message";
       editBtn.addEventListener("click", async () => {
-        const editor = enterEditMode(bubble, msg.content);
-        const result = await editor;
-        if (result === null)
-          return;
-        const liveEdits = deps.liveEditsAfterUserMessage?.(msg.id) ?? 0;
-        let action = "keep";
-        if (liveEdits > 0 && deps.promptEditsAction) {
-          const choice = await deps.promptEditsAction({ liveEditCount: liveEdits, action: "edit" });
-          if (choice === "cancel")
+        deps.onEditingChange?.(msg.id);
+        try {
+          const result = await enterEditMode(bubble, msg.content);
+          if (result === null)
             return;
-          action = choice;
+          const liveEdits = deps.liveEditsAfterUserMessage?.(msg.id) ?? 0;
+          let action = "keep";
+          if (liveEdits > 0 && deps.promptEditsAction) {
+            const choice = await deps.promptEditsAction({ liveEditCount: liveEdits, action: "edit" });
+            if (choice === "cancel")
+              return;
+            action = choice;
+          }
+          await deps.onEditUserMessage(msg.id, result, action);
+        } finally {
+          deps.onEditingChange?.(null);
         }
-        await deps.onEditUserMessage(msg.id, result, action);
       });
       actions.appendChild(editBtn);
     }
@@ -3996,9 +4002,9 @@ function enterEditMode(bubble, current) {
     if (renderedHeight > 0)
       ta.style.minHeight = `${Math.ceil(renderedHeight)}px`;
     const autoGrow = () => {
-      ta.style.height = "auto";
-      const next = Math.max(renderedHeight, ta.scrollHeight);
-      ta.style.height = `${Math.ceil(next)}px`;
+      if (ta.scrollHeight > ta.clientHeight) {
+        ta.style.height = `${ta.scrollHeight}px`;
+      }
     };
     const actions = el2("div", "la-msg-edit-actions");
     const cancelBtn = el2("button", "la-btn la-btn-mini la-btn-ghost", "Cancel");
@@ -5290,6 +5296,18 @@ class ChatVirtualizer {
     }
     this.nodeByKey.clear();
   }
+  clearExcept(messageId) {
+    const keep = this.nodeByKey.get(messageId);
+    for (const [key, node] of this.nodeByKey) {
+      if (key === messageId)
+        continue;
+      if (node.parentElement)
+        node.remove();
+    }
+    this.nodeByKey.clear();
+    if (keep)
+      this.nodeByKey.set(messageId, keep);
+  }
   scrollToBottom() {
     const count = this.deps.getMessages().length;
     if (count === 0)
@@ -5346,6 +5364,7 @@ class ChatVirtualizer {
       }
     }
     const messages = this.deps.getMessages();
+    let cursor = this.inner.firstChild;
     for (const item of items) {
       const key = String(item.key);
       const msg = messages[item.index];
@@ -5359,7 +5378,12 @@ class ChatVirtualizer {
       }
       this.normaliseItemStyle(node);
       node.setAttribute("data-index", String(item.index));
-      this.inner.appendChild(node);
+      if (node === cursor) {
+        cursor = node.nextSibling;
+      } else {
+        this.inner.insertBefore(node, cursor);
+        cursor = node.nextSibling;
+      }
       this.virt.measureElement(node);
     }
     const stickBottom = () => {
@@ -6616,7 +6640,8 @@ function mountDrawer(ctx) {
     charactersPanel: null,
     workshopFocusCharacterId: null,
     workshopFocusCharacterName: null,
-    loading: false
+    loading: false,
+    editingMessageId: null
   };
   const header = el8("header", "la-header");
   const rowChar = el8("div", "la-header-row la-header-row-char");
@@ -7097,7 +7122,10 @@ Force-revert anyway (this overwrites the external change)?`;
     if (thread.contains(emptyState))
       thread.removeChild(emptyState);
     renderEditIndex = buildEditIndex(state.edits);
-    virtualizer.clear();
+    if (state.editingMessageId)
+      virtualizer.clearExcept(state.editingMessageId);
+    else
+      virtualizer.clear();
     virtualizer.setCount();
   };
   const liveEditsForAssistantMessage = (assistantMessageId) => {
@@ -7166,6 +7194,9 @@ Revert those edits to the character now, or leave them applied?`;
         if (!state.sessionId)
           return;
         sendBackend({ type: "regenerate_assistant_message", sessionId: state.sessionId, assistantMessageId, editsAction, ...state.connectionId ? { connectionId: state.connectionId } : {} });
+      },
+      onEditingChange: (messageId) => {
+        state.editingMessageId = messageId;
       },
       onDeleteMessage: async (messageId, editsAction) => {
         if (!state.sessionId)

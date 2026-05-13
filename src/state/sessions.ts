@@ -67,6 +67,26 @@ export async function loadSession(spindle: SpindleAPI, sessionId: string, userId
   return spindle.userStorage.getJson<PersistedSession | null>(path(sessionId), { fallback: null, userId });
 }
 
+// Mark a set of edit ids reverted in their owning session and append system
+// notes to its llmHistory. Lets a revert originating from one session keep
+// the OWNING session's persisted view in sync.
+export async function spliceRevertedFromSession(
+  spindle: SpindleAPI,
+  sessionId: string,
+  removedIds: ReadonlySet<string>,
+  notes: readonly string[],
+  userId: string,
+): Promise<void> {
+  if (!sessionId || removedIds.size === 0) return;
+  try {
+    const s = await loadSession(spindle, sessionId, userId);
+    if (!s) return;
+    s.edits = s.edits.filter((e) => !removedIds.has(e.id));
+    for (const note of notes) s.llmHistory.push({ role: "user", content: note });
+    await saveSession(spindle, s, userId);
+  } catch { /* session may be gone; ledger is authoritative */ }
+}
+
 export async function deleteSessionFile(spindle: SpindleAPI, sessionId: string, userId: string): Promise<void> {
   try {
     await spindle.userStorage.delete(path(sessionId), userId);

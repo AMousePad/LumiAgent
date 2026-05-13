@@ -26,6 +26,9 @@ export interface ChatThreadDeps {
   promptEditsAction?(opts: { liveEditCount: number; action: "edit" | "regenerate" | "delete" }): Promise<"keep" | "revert" | "cancel">;
   liveEditsForAssistantMessage?(assistantMessageId: string): number;
   liveEditsAfterUserMessage?(messageId: string): number;
+  // Fires on inline edit entry and exit. Drawer uses it to preserve the
+  // edited bubble across rerenders.
+  onEditingChange?(messageId: string | null): void;
 }
 
 export interface AssistantHandle {
@@ -364,17 +367,21 @@ export function renderUserMessage(msg: ChatUserMessage, deps?: ChatThreadDeps): 
       editBtn.setAttribute("aria-label", "Edit message");
       editBtn.title = "Edit message";
       editBtn.addEventListener("click", async () => {
-        const editor = enterEditMode(bubble, msg.content);
-        const result = await editor;
-        if (result === null) return;
-        const liveEdits = deps.liveEditsAfterUserMessage?.(msg.id) ?? 0;
-        let action: "keep" | "revert" = "keep";
-        if (liveEdits > 0 && deps.promptEditsAction) {
-          const choice = await deps.promptEditsAction({ liveEditCount: liveEdits, action: "edit" });
-          if (choice === "cancel") return;
-          action = choice;
+        deps.onEditingChange?.(msg.id);
+        try {
+          const result = await enterEditMode(bubble, msg.content);
+          if (result === null) return;
+          const liveEdits = deps.liveEditsAfterUserMessage?.(msg.id) ?? 0;
+          let action: "keep" | "revert" = "keep";
+          if (liveEdits > 0 && deps.promptEditsAction) {
+            const choice = await deps.promptEditsAction({ liveEditCount: liveEdits, action: "edit" });
+            if (choice === "cancel") return;
+            action = choice;
+          }
+          await deps.onEditUserMessage!(msg.id, result, action);
+        } finally {
+          deps.onEditingChange?.(null);
         }
-        await deps.onEditUserMessage!(msg.id, result, action);
       });
       actions.appendChild(editBtn);
     }
@@ -396,9 +403,9 @@ export function renderUserMessage(msg: ChatUserMessage, deps?: ChatThreadDeps): 
 function enterEditMode(bubble: HTMLElement, current: string): Promise<string | null> {
   return new Promise((resolve) => {
     const original = bubble.textContent ?? "";
-    // Snapshot the rendered bubble height BEFORE we wipe its contents so
-    // the textarea can match it. Without this, a one-line message that
-    // soft-wraps to four visual lines collapses to a tiny 2-row editor.
+    // Snapshot rendered height BEFORE wiping so the textarea preserves the
+    // soft-wrapped line count from the static bubble. Width is owned by CSS:
+    // `.is-editing` claims the full 80% lane.
     const renderedHeight = bubble.getBoundingClientRect().height;
     bubble.innerHTML = "";
     bubble.classList.add("is-editing");
@@ -407,10 +414,12 @@ function enterEditMode(bubble: HTMLElement, current: string): Promise<string | n
     ta.value = current;
     ta.rows = Math.max(2, Math.min(10, current.split("\n").length));
     if (renderedHeight > 0) ta.style.minHeight = `${Math.ceil(renderedHeight)}px`;
+    // Grow-only. Resetting height to "auto" before measuring scrollHeight
+    // briefly collapses the textarea to its row default for one frame.
     const autoGrow = (): void => {
-      ta.style.height = "auto";
-      const next = Math.max(renderedHeight, ta.scrollHeight);
-      ta.style.height = `${Math.ceil(next)}px`;
+      if (ta.scrollHeight > ta.clientHeight) {
+        ta.style.height = `${ta.scrollHeight}px`;
+      }
     };
     const actions = el("div", "la-msg-edit-actions");
     const cancelBtn = el("button", "la-btn la-btn-mini la-btn-ghost", "Cancel");
