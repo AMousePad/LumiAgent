@@ -27,19 +27,21 @@ export const updateExternalItemTool = defineTool({
   defaultSensitivity: "insensitive",
   execute: async (input, ctx) => {
     const { provider_id: providerId, surface_id: surfaceId, item_id: itemId, field, value } = input;
-    const { discoverProviders, findSurface } = await import("../../external/registry");
-    const providers = await discoverProviders(ctx.spindle);
+    const { discoverProviders, findSurface } = await import("../../phoneline/registry");
+    const { makeConsentPromptFn } = await import("../../phoneline/consent");
+    const promptFn = makeConsentPromptFn(ctx.callFrontend ?? (async () => ({ denied: true })));
+    const providers = await discoverProviders(ctx.spindle, ctx.userId, promptFn);
     const match = findSurface(providers, providerId, surfaceId);
     if (!match) return { content: `Error: unknown provider/surface: ${providerId}/${surfaceId}`, isError: true };
     const surfaceLabel = match.surface.label;
     const providerName = match.provider.manifest.extension.name;
-    const { callExternalRead, callExternalWrite } = await import("../../external/transport");
-    const readRes = await callExternalRead(ctx.spindle, providerId, {
+    const { dialReadItem, dialWriteField } = await import("../../phoneline/transport");
+    const readRes = await dialReadItem(ctx.spindle, providerId, {
       userId: ctx.userId, surfaceId, itemId, field,
     });
     const beforeStr = readRes.value === undefined ? "" : typeof readRes.value === "string" ? readRes.value : JSON.stringify(readRes.value, null, 2);
     const afterStr = value === undefined ? "" : typeof value === "string" ? value : JSON.stringify(value, null, 2);
-    const writeRes = await callExternalWrite(ctx.spindle, providerId, {
+    const writeRes = await dialWriteField(ctx.spindle, providerId, {
       userId: ctx.userId, surfaceId, itemId, field, value,
     });
     if (!writeRes.ok) return { content: `Error: write failed: ${writeRes.error ?? "unknown"}`, isError: true };

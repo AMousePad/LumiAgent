@@ -1797,32 +1797,49 @@ var init_ledger = __esm(() => {
   ledgerCache = new Map;
 });
 
-// src/external/transport.ts
+// src/phoneline/protocol.ts
+var PHONELINE_ENDPOINT = (extId) => `${extId}.phoneline`, PHONELINE_REQUEST_CHANNEL = "phoneline_request";
+
+// src/phoneline/transport.ts
 var exports_transport = {};
 __export(exports_transport, {
-  callExternalWrite: () => callExternalWrite,
-  callExternalRead: () => callExternalRead,
-  callExternalList: () => callExternalList
+  dialWriteField: () => dialWriteField,
+  dialSystemPrompt: () => dialSystemPrompt,
+  dialReadItem: () => dialReadItem,
+  dialListItems: () => dialListItems,
+  dialDescribe: () => dialDescribe,
+  dialCheckWrite: () => dialCheckWrite
 });
 function makeCallId() {
   callIdCounter++;
-  return `ext_${Date.now().toString(36)}_${callIdCounter}`;
+  return `pl_${Date.now().toString(36)}_${callIdCounter}`;
 }
-async function call(spindle2, providerId, request) {
-  const enriched = { ...request, callId: request.callId ?? makeCallId() };
-  spindle2.rpcPool.sync("agent_request_envelope", enriched);
-  return await spindle2.rpcPool.read(`${providerId}.lumiagent.execute`);
+async function dial(spindle2, extId, request) {
+  const existing = request.callId;
+  const enriched = { ...request, callId: existing ?? makeCallId() };
+  spindle2.rpcPool.sync(PHONELINE_REQUEST_CHANNEL, enriched);
+  return await spindle2.rpcPool.read(PHONELINE_ENDPOINT(extId));
 }
-function callExternalList(spindle2, providerId, req) {
-  return call(spindle2, providerId, { ...req, op: "list_items" });
+function dialDescribe(spindle2, extId) {
+  return dial(spindle2, extId, { op: "describe" });
 }
-function callExternalRead(spindle2, providerId, req) {
-  return call(spindle2, providerId, { ...req, op: "read_item" });
+function dialSystemPrompt(spindle2, extId, userId, characterId) {
+  return dial(spindle2, extId, { op: "system_prompt", userId, characterId });
 }
-function callExternalWrite(spindle2, providerId, req) {
-  return call(spindle2, providerId, { ...req, op: "write_field" });
+function dialCheckWrite(spindle2, extId, userId, characterId, extPath) {
+  return dial(spindle2, extId, { op: "check_write", userId, characterId, extPath });
+}
+function dialListItems(spindle2, extId, req) {
+  return dial(spindle2, extId, { op: "list_items", ...req });
+}
+function dialReadItem(spindle2, extId, req) {
+  return dial(spindle2, extId, { op: "read_item", ...req });
+}
+function dialWriteField(spindle2, extId, req) {
+  return dial(spindle2, extId, { op: "write_field", ...req });
 }
 var callIdCounter = 0;
+var init_transport = () => {};
 
 // src/state/edit-log.ts
 function sample(s) {
@@ -1978,9 +1995,9 @@ async function revertEdit(spindle2, entry, characterId, userId) {
   const r = entry.record;
   try {
     if (r.op === "edit" && r.surface === "external") {
-      const { callExternalWrite: callExternalWrite2 } = await Promise.resolve().then(() => exports_transport);
+      const { dialWriteField: dialWriteField2 } = await Promise.resolve().then(() => (init_transport(), exports_transport));
       const beforeValue = parseExternalValue(r.before);
-      const res = await callExternalWrite2(spindle2, r.providerId, {
+      const res = await dialWriteField2(spindle2, r.providerId, {
         userId,
         surfaceId: r.externalSurfaceId,
         itemId: r.itemId,
@@ -18603,8 +18620,8 @@ function validateManifest(raw) {
     const s = stepsRaw[i];
     if (!s || typeof s !== "object")
       throw new Error(`step[${i}] must be an object`);
-    const call2 = s["call"];
-    if (typeof call2 !== "string")
+    const call = s["call"];
+    if (typeof call !== "string")
       throw new Error(`step[${i}].call must be a string`);
     const args = s["args"];
     if (args !== undefined && (typeof args !== "object" || args === null || Array.isArray(args))) {
@@ -18614,7 +18631,7 @@ function validateManifest(raw) {
     if (saveAs !== undefined && (typeof saveAs !== "string" || !/^[a-z][a-z0-9_]*$/i.test(saveAs))) {
       throw new Error(`step[${i}].save_as must be a short identifier`);
     }
-    const step = { call: call2 };
+    const step = { call };
     if (args !== undefined)
       step.args = args;
     if (saveAs !== undefined)
@@ -19353,87 +19370,194 @@ ${draftReuseNote(handle, replace.length, "replace")}`, isError: true };
   });
 });
 
-// src/agent/tools/_lumirealm-gates.ts
-function checkLumirealmWritePath(extPath) {
-  if (extPath !== "lumirealm" && !extPath.startsWith("lumirealm.") && !extPath.startsWith("lumirealm[")) {
+// src/phoneline/consent.ts
+var exports_consent = {};
+__export(exports_consent, {
+  savePairing: () => savePairing,
+  resolvePairing: () => resolvePairing,
+  makeConsentPromptFn: () => makeConsentPromptFn,
+  loadPairing: () => loadPairing,
+  loadAllPairings: () => loadAllPairings,
+  hashManifest: () => hashManifest,
+  deletePairing: () => deletePairing
+});
+async function sha2562(text) {
+  const buf = new TextEncoder().encode(text);
+  const digest = await crypto.subtle.digest("SHA-256", buf);
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+async function hashManifest(manifest) {
+  return sha2562(JSON.stringify(manifest));
+}
+async function loadFile(spindle2, userId) {
+  try {
+    const raw = await spindle2.userStorage.read(STORAGE_PATH, userId);
+    if (typeof raw !== "string" || raw.length === 0)
+      return { version: 1, pairings: {} };
+    const parsed = JSON.parse(raw);
+    if (parsed?.version === 1 && parsed.pairings && typeof parsed.pairings === "object")
+      return parsed;
+    return { version: 1, pairings: {} };
+  } catch {
+    return { version: 1, pairings: {} };
+  }
+}
+async function saveFile(spindle2, userId, file2) {
+  await spindle2.userStorage.write(STORAGE_PATH, JSON.stringify(file2), userId);
+}
+async function loadAllPairings(spindle2, userId) {
+  return (await loadFile(spindle2, userId)).pairings;
+}
+async function loadPairing(spindle2, userId, identifier) {
+  const all = await loadAllPairings(spindle2, userId);
+  return all[identifier] ?? null;
+}
+async function savePairing(spindle2, userId, decision) {
+  const file2 = await loadFile(spindle2, userId);
+  const pairings = { ...file2.pairings, [decision.identifier]: decision };
+  await saveFile(spindle2, userId, { version: 1, pairings });
+}
+async function deletePairing(spindle2, userId, identifier) {
+  const file2 = await loadFile(spindle2, userId);
+  if (!(identifier in file2.pairings))
+    return;
+  const pairings = { ...file2.pairings };
+  delete pairings[identifier];
+  await saveFile(spindle2, userId, { version: 1, pairings });
+}
+async function resolvePairing(spindle2, userId, manifest, prompt) {
+  const identifier = manifest.extension.id;
+  const displayName = manifest.extension.name;
+  const currentHash = await hashManifest(manifest);
+  const stored = await loadPairing(spindle2, userId, identifier);
+  if (stored && stored.manifestHash === currentHash)
+    return stored;
+  const allowed = await prompt({
+    identifier,
+    displayName,
+    version: manifest.extension.version,
+    kind: stored ? "revalidate" : "initial"
+  });
+  const decision = {
+    identifier,
+    displayName,
+    allowed,
+    manifestHash: currentHash,
+    decidedAt: Date.now()
+  };
+  await savePairing(spindle2, userId, decision);
+  return decision;
+}
+function makeConsentPromptFn(callFrontend, timeoutMs = 10 * 60000) {
+  return async (input) => {
+    try {
+      const result = await callFrontend("phoneline_consent", input, timeoutMs);
+      if (typeof result !== "object" || result === null)
+        return false;
+      const r = result;
+      return r.allowed === true;
+    } catch {
+      return false;
+    }
+  };
+}
+var STORAGE_PATH = "phoneline-pairings.json";
+
+// src/phoneline/registry.ts
+var exports_registry = {};
+__export(exports_registry, {
+  invalidate: () => invalidate,
+  getCached: () => getCached,
+  findSurface: () => findSurface,
+  discoverProviders: () => discoverProviders,
+  KNOWN_PHONELINES: () => KNOWN_PHONELINES
+});
+async function discoverProviders(spindle2, userId, promptFn) {
+  if (cache)
+    return cache;
+  if (pending)
+    return pending;
+  pending = (async () => {
+    const found = [];
+    for (const entry of KNOWN_PHONELINES) {
+      let manifest;
+      try {
+        manifest = await dialDescribe(spindle2, entry.identifier);
+      } catch {
+        continue;
+      }
+      if (!manifest || !manifest.extension || !Array.isArray(manifest.surfaces))
+        continue;
+      if (manifest.extension.name !== entry.name) {
+        try {
+          spindle2.log.warn(`phoneline: "${entry.identifier}" returned unexpected name "${manifest.extension.name}" ` + `(expected "${entry.name}"). Skipping. Legitimate rename requires a LumiAgent whitelist update.`);
+        } catch {}
+        continue;
+      }
+      const trusted = {
+        ...manifest,
+        extension: { ...manifest.extension, id: entry.identifier, name: entry.name }
+      };
+      const decision = await resolvePairing(spindle2, userId, trusted, promptFn);
+      if (!decision.allowed)
+        continue;
+      found.push({ id: entry.identifier, manifest: trusted });
+    }
+    cache = found;
+    pending = null;
+    return found;
+  })();
+  return pending;
+}
+function invalidate() {
+  cache = null;
+  pending = null;
+}
+function getCached() {
+  return cache ?? [];
+}
+function findSurface(providers, providerId, surfaceId) {
+  const provider = providers.find((p) => p.id === providerId);
+  if (!provider)
+    return null;
+  const surface = provider.manifest.surfaces.find((s) => s.id === surfaceId);
+  if (!surface)
+    return null;
+  return { provider, surface };
+}
+var KNOWN_PHONELINES, cache = null, pending = null;
+var init_registry = __esm(() => {
+  init_transport();
+  KNOWN_PHONELINES = [
+    { identifier: "lumirealm", name: "LumiRealm" }
+  ];
+});
+
+// src/phoneline/gate.ts
+function firstSegment(extPath) {
+  const m = /^([A-Za-z_][A-Za-z0-9_]*)/.exec(extPath);
+  return m ? m[1] : null;
+}
+async function checkExtensionWrite(spindle2, userId, characterId, extPath, promptFn) {
+  const seg = firstSegment(extPath);
+  if (!seg)
+    return { ok: true };
+  const providers = await discoverProviders(spindle2, userId, promptFn);
+  const provider = providers.find((p) => p.id === seg);
+  if (!provider)
+    return { ok: true };
+  try {
+    const res = await dialCheckWrite(spindle2, provider.id, userId, characterId, extPath);
+    if (typeof res?.ok !== "boolean")
+      return { ok: true };
+    return res.message !== undefined ? { ok: res.ok, message: res.message } : { ok: res.ok };
+  } catch {
     return { ok: true };
   }
-  if (extPath === "lumirealm.source" || extPath.startsWith("lumirealm.source.") || extPath.startsWith("lumirealm.source[")) {
-    return {
-      ok: false,
-      message: `lumirealm.source.* is a FROZEN .charx import snapshot. It is the input to the translator pipeline, never the authoring surface. The translator regenerates payload.* and the top-level regex_scripts from it on every schema bump; writes here are pointless and the wrong layer to reach for.
-
-` + `Use the AUTHORING surface that matches your content kind:
-` + `- HTML / status panel CSS \u2192 edit lumirealm.payload.background_html_source
-` + `- Trigger Lua / JS \u2192 edit lumirealm.payload.triggers[i].effect[k].code on the effect whose type is 'triggerlua' or 'triggercode'
-` + `- Character-scoped regex \u2192 edit top-level regex_scripts via edit_regex_script_field / update_regex_script
-` + `- Lorebook \u2192 edit top-level world_book entries via edit_world_book_entry / update_world_book_entry
-` + `- Canonical character fields (first_mes, description, etc.) \u2192 edit top-level character via update_character / edit_character_field / rewrite_alternate_greeting
-
-` + COUPLING_REMINDER
-    };
-  }
-  if (extPath === "lumirealm.regex_scripts" || extPath.startsWith("lumirealm.regex_scripts.") || extPath.startsWith("lumirealm.regex_scripts[")) {
-    return {
-      ok: false,
-      message: `lumirealm.regex_scripts is a translator-projection CACHE; it is not what fires at runtime. The LIVE regex scripts that actually run live at the top-level regex_scripts.* surface. Use list_regex_scripts, read_regex_script_field, edit_regex_script_field, update_regex_script. Edits to this cache get clobbered on the next translator schema bump.
-
-` + COUPLING_REMINDER
-    };
-  }
-  if (extPath === "lumirealm.payload.background_html") {
-    return {
-      ok: false,
-      message: `lumirealm.payload.background_html is the TRANSLATED runtime output; LumiRealm regenerates it from lumirealm.payload.background_html_source on every save and on every translator schema bump. Edits here are clobbered.
-
-` + `Edit lumirealm.payload.background_html_source instead (use edit_character_extension or update_character_extension on that path). If background_html_source does not yet exist on this card, write to it anyway \u2014 LumiRealm seeds it from the card-side baseline on first edit.
-
-` + "Bg-html / CSS content is the most cross-coupled surface on the card. " + COUPLING_REMINDER
-    };
-  }
-  if (extPath === "lumirealm.payload.lua_scripts" || extPath.startsWith("lumirealm.payload.lua_scripts.") || extPath.startsWith("lumirealm.payload.lua_scripts[")) {
-    return {
-      ok: false,
-      message: `lumirealm.payload.lua_scripts is a .charx import artifact (Risu module libraries). LumiRealm's Viewer does not let the user edit it; it is not an authoring surface.
-
-` + `User-authored Lua lives on a specific TRIGGER's effect array: lumirealm.payload.triggers[i].effect[k].code where effect.type === 'triggerlua' (or 'triggercode' for JS). Find the trigger that owns the function you want to change and edit its effect.code.
-
-` + "If the same function appears in BOTH lua_scripts and a triggerlua effect, those are TWO COPIES of conceptually-the-same code; the trigger copy is the one that runs in trigger context. Edits to lua_scripts alone will not change trigger behaviour. " + COUPLING_REMINDER
-    };
-  }
-  for (const f of CANONICAL_MIRROR_FIELDS) {
-    if (extPath === `lumirealm.payload.${f}`) {
-      return {
-        ok: false,
-        message: `lumirealm.payload.${f} is a translator-output mirror of the canonical character field. The LIVE field that the LLM actually sees in the prompt is character.${f} at the top level.
-
-` + `Use update_character({ patch: { ${f}: <new text> } }) for wholesale replacement, or edit_character_field({ field: '${f}', find, replace }) for find/replace.
-
-` + (f === "first_mes" ? `For greetings: first_mes is greeting #1; alternate_greetings[0..N-2] are #2..#N. Use rewrite_alternate_greeting for whole-greeting overwrites.
-
-` : "") + COUPLING_REMINDER
-      };
-    }
-  }
-  if (extPath === "lumirealm.user_overrides" || extPath.startsWith("lumirealm.user_overrides.") || extPath.startsWith("lumirealm.user_overrides[")) {
-    return {
-      ok: false,
-      message: "lumirealm.user_overrides.* is per-user UI configuration (default-variable overrides, attached module IDs, portal decisions, low-level-access consent). The user manages these through the LumiRealm UI; never edit them in response to a translation, refactor, or content request."
-    };
-  }
-  return { ok: true };
 }
-var CANONICAL_MIRROR_FIELDS, COUPLING_REMINDER = "REMEMBER: card content is deeply coupled across surfaces. A change here may propagate to UI (bg-html, status panels, portals), Lore (world book entries that key on names or phrases), Prose (greetings, mes_example, persona-facing fields), and Regex (find_regex patterns that anchor on shape, replace_string content that injects HTML or text). After ANY edit, scan for collisions with: regex find_regex patterns, world book key arrays, alternate_greetings parallel forms, payload.additional_assets references, portal_candidates, and any in-bg CSS classes referenced by regex display rules.";
-var init__lumirealm_gates = __esm(() => {
-  CANONICAL_MIRROR_FIELDS = [
-    "first_mes",
-    "description",
-    "personality",
-    "scenario",
-    "system_prompt",
-    "post_history_instructions",
-    "mes_example"
-  ];
+var init_gate = __esm(() => {
+  init_registry();
+  init_transport();
 });
 
 // src/agent/tools/edit-character-extension.ts
@@ -19444,7 +19568,7 @@ var init_edit_character_extension = __esm(() => {
   init__patch();
   init__gates();
   init__drafts();
-  init__lumirealm_gates();
+  init_gate();
   inputSchema19 = exports_external.object({
     path: exports_external.string().min(1),
     find: exports_external.string().min(1),
@@ -19485,9 +19609,11 @@ var init_edit_character_extension = __esm(() => {
       }
       if (replace === undefined)
         return { content: "Error: provide either replace or replace_handle.", isError: true };
-      const lrGuard = checkLumirealmWritePath(input.path);
-      if (!lrGuard.ok)
-        return { content: `Refused: ${lrGuard.message}`, isError: true };
+      const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
+      const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
+      const guard = await checkExtensionWrite(ctx.spindle, ctx.userId, ctx.characterId, input.path, promptFn);
+      if (!guard.ok)
+        return { content: `Refused: ${guard.message ?? "extension declined this write."}`, isError: true };
       const gateError = ensureRecentRead(ctx, gate2, input);
       if (gateError !== null) {
         const h = await stashDraft(ctx, `edit_character_extension:${input.path}`, replace);
@@ -19631,69 +19757,6 @@ ${draftReuseNote(h, replace.length, "replace")}`, isError: true };
   });
 });
 
-// src/external/protocol.ts
-var ENDPOINTS;
-var init_protocol = __esm(() => {
-  ENDPOINTS = {
-    describe: (extId) => `${extId}.lumiagent.describe`,
-    list: (extId) => `${extId}.lumiagent.list_items`,
-    read: (extId) => `${extId}.lumiagent.read_item`,
-    write: (extId) => `${extId}.lumiagent.write_field`
-  };
-});
-
-// src/external/registry.ts
-var exports_registry = {};
-__export(exports_registry, {
-  invalidate: () => invalidate,
-  getCached: () => getCached,
-  findSurface: () => findSurface,
-  discoverProviders: () => discoverProviders,
-  KNOWN_PROVIDER_IDS: () => KNOWN_PROVIDER_IDS
-});
-async function discoverProviders(spindle2) {
-  if (cache)
-    return cache;
-  if (pending)
-    return pending;
-  pending = (async () => {
-    const found = [];
-    await Promise.all(KNOWN_PROVIDER_IDS.map(async (id) => {
-      try {
-        const manifest = await spindle2.rpcPool.read(ENDPOINTS.describe(id));
-        if (manifest && manifest.extension && Array.isArray(manifest.surfaces)) {
-          found.push({ id, manifest });
-        }
-      } catch {}
-    }));
-    cache = found;
-    pending = null;
-    return found;
-  })();
-  return pending;
-}
-function invalidate() {
-  cache = null;
-  pending = null;
-}
-function getCached() {
-  return cache ?? [];
-}
-function findSurface(providers, providerId, surfaceId) {
-  const prov = providers.find((p) => p.id === providerId);
-  if (!prov)
-    return null;
-  const surf = prov.manifest.surfaces.find((s) => s.id === surfaceId);
-  if (!surf)
-    return null;
-  return { provider: prov, surface: surf };
-}
-var KNOWN_PROVIDER_IDS, cache = null, pending = null;
-var init_registry = __esm(() => {
-  init_protocol();
-  KNOWN_PROVIDER_IDS = ["lumirealm"];
-});
-
 // src/agent/tools/edit-external-item.ts
 var inputSchema21, gate4, editExternalItemTool;
 var init_edit_external_item = __esm(() => {
@@ -19761,14 +19824,16 @@ var init_edit_external_item = __esm(() => {
 ${draftReuseNote(h, replace.length, "replace")}`, isError: true };
       }
       const { discoverProviders: discoverProviders2, findSurface: findSurface2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
-      const providers = await discoverProviders2(ctx.spindle);
+      const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
+      const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
+      const providers = await discoverProviders2(ctx.spindle, ctx.userId, promptFn);
       const match = findSurface2(providers, input.provider_id, input.surface_id);
       if (!match)
         return { content: `Error: unknown provider/surface: ${input.provider_id}/${input.surface_id}`, isError: true };
       const surfaceLabel = match.surface.label;
       const providerName = match.provider.manifest.extension.name;
-      const { callExternalRead: callExternalRead2, callExternalWrite: callExternalWrite2 } = await Promise.resolve().then(() => exports_transport);
-      const readRes = await callExternalRead2(ctx.spindle, input.provider_id, {
+      const { dialReadItem: dialReadItem2, dialWriteField: dialWriteField2 } = await Promise.resolve().then(() => (init_transport(), exports_transport));
+      const readRes = await dialReadItem2(ctx.spindle, input.provider_id, {
         userId: ctx.userId,
         surfaceId: input.surface_id,
         itemId: input.item_id,
@@ -19788,7 +19853,7 @@ ${draftReuseNote(h, replace.length, "replace")}`, isError: true };
 
 ${draftReuseNote(h, replace.length, "replace")}`, isError: true };
       }
-      const writeRes = await callExternalWrite2(ctx.spindle, input.provider_id, {
+      const writeRes = await dialWriteField2(ctx.spindle, input.provider_id, {
         userId: ctx.userId,
         surfaceId: input.surface_id,
         itemId: input.item_id,
@@ -22534,12 +22599,14 @@ var init_list_external_items = __esm(() => {
     defaultSensitivity: "insensitive",
     execute: async (input, ctx) => {
       const { discoverProviders: discoverProviders2, findSurface: findSurface2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
-      const providers = await discoverProviders2(ctx.spindle);
+      const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
+      const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
+      const providers = await discoverProviders2(ctx.spindle, ctx.userId, promptFn);
       const match = findSurface2(providers, input.provider_id, input.surface_id);
       if (!match)
         return { content: `Error: unknown provider/surface: ${input.provider_id}/${input.surface_id}`, isError: true };
-      const { callExternalList: callExternalList2 } = await Promise.resolve().then(() => exports_transport);
-      const res = await callExternalList2(ctx.spindle, input.provider_id, {
+      const { dialListItems: dialListItems2 } = await Promise.resolve().then(() => (init_transport(), exports_transport));
+      const res = await dialListItems2(ctx.spindle, input.provider_id, {
         userId: ctx.userId,
         surfaceId: input.surface_id,
         ...match.surface.scope.kind === "per_character" ? { characterId: ctx.characterId } : {}
@@ -22556,13 +22623,15 @@ var init_list_external_providers = __esm(() => {
   inputSchema48 = exports_external.object({}).strict();
   listExternalProvidersTool = defineTool({
     name: "list_external_providers",
-    description: "List third-party extensions that have opted in to exposing data through the lumiagent surface protocol. Returns each provider's id, display name, and the surfaces it offers (with descriptions, field schemas, scope). Call this FIRST when the user asks about data not in the character's canonical surfaces (e.g. LumiRealm modules, other extensions' stored items). The agent then uses list_external_items / read_external_item / edit_external_item / update_external_item to interact with each surface.",
+    description: "List third-party extensions that have opted in to exposing data through the phone-line protocol. Returns each provider's id, display name, and the surfaces it offers (with descriptions, field schemas, scope). Call this FIRST when the user asks about data not in the character's canonical surfaces. The agent then uses list_external_items / read_external_item / edit_external_item / update_external_item to interact with each surface.",
     inputSchema: inputSchema48,
     jsonSchema: { type: "object", properties: {}, required: [] },
     defaultSensitivity: "insensitive",
     execute: async (_input, ctx) => {
       const { discoverProviders: discoverProviders2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
-      const providers = await discoverProviders2(ctx.spindle);
+      const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
+      const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
+      const providers = await discoverProviders2(ctx.spindle, ctx.userId, promptFn);
       return {
         content: JSON.stringify({
           count: providers.length,
@@ -23137,8 +23206,15 @@ var init_read_external_item = __esm(() => {
     },
     defaultSensitivity: "sensitive",
     execute: async (input, ctx) => {
-      const { callExternalRead: callExternalRead2 } = await Promise.resolve().then(() => exports_transport);
-      const res = await callExternalRead2(ctx.spindle, input.provider_id, {
+      const { discoverProviders: discoverProviders2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
+      const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
+      const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
+      const providers = await discoverProviders2(ctx.spindle, ctx.userId, promptFn);
+      const provider = providers.find((p) => p.id === input.provider_id);
+      if (!provider)
+        return { content: `Error: unknown provider: ${input.provider_id}`, isError: true };
+      const { dialReadItem: dialReadItem2 } = await Promise.resolve().then(() => (init_transport(), exports_transport));
+      const res = await dialReadItem2(ctx.spindle, input.provider_id, {
         userId: ctx.userId,
         surfaceId: input.surface_id,
         itemId: input.item_id,
@@ -24548,7 +24624,7 @@ var init_update_character = __esm(() => {
 var inputSchema80, updateCharacterExtensionTool;
 var init_update_character_extension = __esm(() => {
   init_zod();
-  init__lumirealm_gates();
+  init_gate();
   inputSchema80 = exports_external.object({
     path: exports_external.string().min(1),
     value: exports_external.unknown()
@@ -24569,9 +24645,11 @@ var init_update_character_extension = __esm(() => {
     execute: async (input, ctx) => {
       const path3 = input.path;
       const value = input.value;
-      const lrGuard = checkLumirealmWritePath(path3);
-      if (!lrGuard.ok)
-        return { content: `Refused: ${lrGuard.message}`, isError: true };
+      const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
+      const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
+      const guard = await checkExtensionWrite(ctx.spindle, ctx.userId, ctx.characterId, path3, promptFn);
+      if (!guard.ok)
+        return { content: `Refused: ${guard.message ?? "extension declined this write."}`, isError: true };
       let segs;
       try {
         segs = parseExtensionPath(path3);
@@ -24624,14 +24702,16 @@ var init_update_external_item = __esm(() => {
     execute: async (input, ctx) => {
       const { provider_id: providerId, surface_id: surfaceId, item_id: itemId, field, value } = input;
       const { discoverProviders: discoverProviders2, findSurface: findSurface2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
-      const providers = await discoverProviders2(ctx.spindle);
+      const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
+      const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
+      const providers = await discoverProviders2(ctx.spindle, ctx.userId, promptFn);
       const match = findSurface2(providers, providerId, surfaceId);
       if (!match)
         return { content: `Error: unknown provider/surface: ${providerId}/${surfaceId}`, isError: true };
       const surfaceLabel = match.surface.label;
       const providerName = match.provider.manifest.extension.name;
-      const { callExternalRead: callExternalRead2, callExternalWrite: callExternalWrite2 } = await Promise.resolve().then(() => exports_transport);
-      const readRes = await callExternalRead2(ctx.spindle, providerId, {
+      const { dialReadItem: dialReadItem2, dialWriteField: dialWriteField2 } = await Promise.resolve().then(() => (init_transport(), exports_transport));
+      const readRes = await dialReadItem2(ctx.spindle, providerId, {
         userId: ctx.userId,
         surfaceId,
         itemId,
@@ -24639,7 +24719,7 @@ var init_update_external_item = __esm(() => {
       });
       const beforeStr = readRes.value === undefined ? "" : typeof readRes.value === "string" ? readRes.value : JSON.stringify(readRes.value, null, 2);
       const afterStr = value === undefined ? "" : typeof value === "string" ? value : JSON.stringify(value, null, 2);
-      const writeRes = await callExternalWrite2(ctx.spindle, providerId, {
+      const writeRes = await dialWriteField2(ctx.spindle, providerId, {
         userId: ctx.userId,
         surfaceId,
         itemId,
@@ -26444,6 +26524,35 @@ var init_settings = __esm(() => {
   WORKSPACE_FILE_CAP_BYTES = 1024 * 1024 * 1024;
 });
 
+// src/phoneline/prompt.ts
+var exports_prompt = {};
+__export(exports_prompt, {
+  fetchSystemPromptContributions: () => fetchSystemPromptContributions
+});
+async function fetchSystemPromptContributions(spindle2, userId, characterId, promptFn) {
+  const providers = await discoverProviders(spindle2, userId, promptFn);
+  if (providers.length === 0)
+    return "";
+  const contributions = new Map;
+  await Promise.all(providers.map(async (p) => {
+    try {
+      const res = await dialSystemPrompt(spindle2, p.id, userId, characterId);
+      if (res && typeof res.text === "string" && res.text.trim().length > 0) {
+        contributions.set(p.id, res.text);
+      }
+    } catch {}
+  }));
+  if (contributions.size === 0)
+    return "";
+  return [...contributions.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([, text]) => text).join(`
+
+`);
+}
+var init_prompt = __esm(() => {
+  init_registry();
+  init_transport();
+});
+
 // src/agent/protocol.ts
 var MAX_RESULT_CHARS = 48000;
 function clipStructured(s) {
@@ -27273,9 +27382,9 @@ function isPureToolResult2(m) {
 
 // src/tasks/general.ts
 function buildGeneralSystemPrompt(params) {
-  const lumirealmProvider = params.externalProviders.find((p) => p.id === "lumirealm");
-  const hasModuleEnvelopeSurface = !!lumirealmProvider?.surfaces.some((s) => s.id === "module_envelope");
-  const realm = params.lumirealm ? buildLumiRealmSection(params.lumirealm, hasModuleEnvelopeSurface) : "";
+  const extensionSection = params.extensionSystemPrompts.trim().length > 0 ? `
+
+${params.extensionSystemPrompts.trim()}` : "";
   const chatSection = params.pinnedChat ? `
 
 # Pinned chat
@@ -27314,7 +27423,7 @@ Do not invent tools that are not in this list and not loaded at the top of the p
 
 # External providers (other extensions)
 
-The following extensions have opted in to expose data through the lumiagent surface protocol. Use \`list_external_providers\` for full field schemas, then \`list_external_items\` / \`read_external_item\` / \`edit_external_item\` / \`update_external_item\` to interact.
+The following extensions have opted in to expose data through the phone-line protocol. Use \`list_external_providers\` for full field schemas, then \`list_external_items\` / \`read_external_item\` / \`edit_external_item\` / \`update_external_item\` to interact.
 
 ` + params.externalProviders.map((p) => {
     const surfaceLines = p.surfaces.map((s) => `    - \`${s.id}\` \u2014 ${s.label} (${s.scope}): ${s.description.slice(0, 240)}${s.description.length > 240 ? "..." : ""}`).join(`
@@ -27332,7 +27441,7 @@ ${surfaceLines}`;
   const body = params.systemPromptOverride !== null && params.systemPromptOverride.trim().length > 0 ? params.systemPromptOverride : BUILTIN_PROMPT_BODY;
   return `${personaBlock}${contextLine}
 
-${body}${realm}${chatSection}${externalSection}${customToolsSection}${agentNotesSection}${deferredToolsSection}
+${body}${extensionSection}${chatSection}${externalSection}${customToolsSection}${agentNotesSection}${deferredToolsSection}
 
 # When to stop
 
@@ -27347,7 +27456,7 @@ Every editable string on the card has a path. ONE \`read\` and ONE \`edit\` cove
 Path grammar (forward slashes; first segment names the surface):
 - \`char/<field>\` \u2014 top-level string (description, first_mes, scenario, personality, mes_example, system_prompt, post_history_instructions, creator_notes, creator, name)
 - \`char/alternate_greetings/<idx>\` \u2014 one greeting by 0-based index
-- \`char/extensions/<dotted>\` \u2014 any string leaf under \`character.extensions.*\`. Dotted with brackets, e.g. \`lumirealm.payload.lua_scripts[0].code\`
+- \`char/extensions/<dotted>\` \u2014 any string leaf under \`character.extensions.*\`. Dotted with brackets, e.g. \`<extId>.<group>.<item>[0].code\`
 - \`rx/<scriptId>/find_regex\` or \`rx/<scriptId>/replace_string\` \u2014 regex script
 - \`wb/<entryId>/content\` or \`wb/<entryId>/comment\` \u2014 lorebook entry
 
@@ -27367,7 +27476,7 @@ The card has many surfaces; you only see a fraction of any given one at once. A 
 
 1. **Audit, then \`grep\` before declaring anything.** Run \`audit_card_coverage({source_lang: "ko" | "ja" | "zh" | "cjk" | \u2026})\` before claiming a translation task complete \u2014 every non-zero leaf that isn't on your explicit \`exclude_paths\` list means NOT done. AND, whenever you assert a structural fact you can't see in your current viewport \u2014 "this is bilingual via lang::N", "this value flows through \`getText()\`", "\`subject_translation_keys\` translates these subjects", "the match on line 52 is a comment" \u2014 \`grep\` for the identifier or marker in the same leaf BEFORE writing the assertion. Common trap: a translation table or lookup function exists in the file but is never actually called; the agent infers a call site from the name. Confirm the call site. One grep settles it cheaper than the rework after a wrong guess.
 
-2. **Code leaves: full \`read\` per classification, no carry-over credit.** A leaf is "code" when its path sits under \`lumirealm.payload.lua_scripts[*]\` or \`lumirealm.payload.triggers[*].effect[*]\`, ends in \`.code\`, or carries \`must_read_in_full: true\` in the audit. Page through it end-to-end with \`read\` (and \`tmp_read\` over the spill handle) WITHIN the same audit-classify phase before writing a verdict on it. The phase runs from when you call \`audit_card_coverage\` to when you commit a classification (\`finish\`, "leaf X: skip", \`apply_glossary\`, etc.). Reads from earlier turns don't satisfy this. Grep \`truncated_at\` is never clearance. Sampling misses by construction what code hides: table keys (\`["\uAD6D\uC5B4"]=...\`), equality branches (\`if subject == "\uC218\uD559"\`), render paths that bypass \`getText()\` (\`<div>"..raw..."</div>\`), default fallbacks. Pay 20\u201340k tokens once for verification, not 10\xD7 for rework.
+2. **Code leaves: full \`read\` per classification, no carry-over credit.** A leaf is "code" when it ends in \`.code\` or carries \`must_read_in_full: true\` in the audit. Page through it end-to-end with \`read\` (and \`tmp_read\` over the spill handle) WITHIN the same audit-classify phase before writing a verdict on it. The phase runs from when you call \`audit_card_coverage\` to when you commit a classification (\`finish\`, "leaf X: skip", \`apply_glossary\`, etc.). Reads from earlier turns don't satisfy this. Grep \`truncated_at\` is never clearance. Sampling misses by construction what code hides: table keys (\`["\uAD6D\uC5B4"]=...\`), equality branches (\`if subject == "\uC218\uD559"\`), render paths that bypass \`getText()\` (\`<div>"..raw..."</div>\`), default fallbacks. Pay 20\u201340k tokens once for verification, not 10\xD7 for rework.
 
 3. **Trace values end-to-end; verify lookups are complete.** When a sample shows a Korean run, follow the value to BOTH where it's stored and where it's rendered. "Internal lookup key", "already bilingual", "developer comment" \u2014 each label is only legitimate after you've grepped for the call site that justifies it. After patching a render path to route Korean values through a translation lookup, enumerate every distinct Korean literal that can reach the patched site (grep the producing functions for their string literals) and confirm each has an entry in the lookup. Half-populated lookups are regressions, not fixes: the connected values now show English; the missing ones still render Korean. List the inputs, list the table entries, confirm the sets match, then declare done.
 
@@ -27424,7 +27533,7 @@ When the user reports a problem ("this isn't matching", "where is X coming from"
 - **Personas** \u2014 the active persona's \`description\` is injected as {{user}}. Personas can carry their own attached world book.
 - **Databanks** \u2014 RAG document collections (global / character / chat). Their content gets pulled in at retrieval time.
 - **Chat memory** \u2014 \`get_chat_memories\` shows the vector chunks Lumiverse pulls into the prompt.
-- **External-provider modules** (LumiRealm) \u2014 attached modules carry their own lorebook + regex + triggers + lua + background HTML, separate from the character. Use \`list_external_items({provider_id, surface_id: 'module_envelope'})\`.
+- **External-provider data** \u2014 extensions that expose data through the phone-line protocol carry their own surfaces (lorebooks, regex projections, scripts, custom blobs) separate from the canonical character. Use \`list_external_providers\` to discover them, then \`list_external_items\` / \`read_external_item\`.
 - **Macros** \u2014 \`{{macro}}\` placeholders resolve from variables, character/chat context, and extension-defined handlers. \`resolve_macros({template})\` to expand a sample, \`list_variables\`/\`read_variable\` for what's stored.
 - **Lumiverse's own assembly layer** \u2014 the host wraps everything in its own template (preset, generation parameters, persona injection, world info ordering, memory placement). \`dry_run_prompt\` produces the exact final messages array Lumiverse would send.
 
@@ -27483,7 +27592,7 @@ Reading a 50k-char field blind blows your context. **Always _stats / _overview f
 - \`world_book_stats\` \u2192 before list_world_book_entries. \`world_book_entry_stats(id)\` \u2192 before read_world_book_entry.
 - \`regex_scripts_overview\` \u2192 before list_regex_scripts. \`regex_script_stats(id)\` \u2192 before read_regex_script_field.
 - \`character_field_stats(field)\` \u2192 before read_character_field on anything not known small.
-- \`character_extension_stats(path)\` \u2192 before read_character_extension. ESSENTIAL for LumiRealm payload paths (background_html, lua_scripts, triggers, scriptstate_defaults).
+- \`character_extension_stats(path)\` \u2192 before read_character_extension. ESSENTIAL for any large extension-stored payload (HTML blobs, embedded scripts, trigger arrays).
 
 After stats: tiny \u2192 read; medium \u2192 offset/limit; big with target \u2192 grep_card / tmp_grep; too big and no target \u2192 ask the user. Spilled output \u2192 \`tmp_stat\` / \`tmp_grep\` / \`tmp_read\` on the handle. Never trade accuracy for tokens \u2014 read what you need to read.
 
@@ -27536,72 +27645,6 @@ User-numbering 1..N maps to: 1st greeting = \`first_mes\` (single string on the 
 - Don't mass-rewrite fields you haven't read end-to-end.
 
 Edits are diffed and revertable per-edit or per-session. Edit fearlessly but deliberately \u2014 every call has a clear purpose.`;
-function buildLumiRealmSection(c, hasModuleEnvelopeSurface) {
-  const lines = [];
-  lines.push(`
-
-# LumiRealm card \u2014 write to the authoring layer, not the projection`);
-  lines.push("");
-  lines.push("This character was imported from Risu. LumiRealm runs a translator pipeline: a frozen `source.*` snapshot \u2192 a `payload.*` runtime layer \u2192 top-level canonical character fields and `regex_scripts.*`. Multiple layers carry related content; only ONE per content kind is the authoring surface. Every other layer is regenerated and clobbers your edit on the next translator schema bump.");
-  lines.push("");
-  lines.push("## Authoring surface, by content kind");
-  lines.push("");
-  lines.push("| Content | Edit here (authoring) | Do NOT edit (derived / cached / frozen) |");
-  lines.push("|---|---|---|");
-  lines.push("| Bg-HTML / status panel HTML+CSS | `lumirealm.payload.background_html_source` via `edit_character_extension` | `lumirealm.payload.background_html`, `lumirealm.source.card.data.extensions.risuai.backgroundHTML` |");
-  lines.push("| Trigger Lua / JS | `lumirealm.payload.triggers[i].effect[k].code` where `effect.type == 'triggerlua'` or `'triggercode'` (use `read_character_extension` to locate, then `edit_character_extension` on that exact path) | `lumirealm.payload.lua_scripts[*]` (.charx library, not user-authored; LumiRealm's Viewer does not edit it), `lumirealm.source.*` |");
-  lines.push("| Character-scoped regex (incl. CSS injected via `replace_string`) | top-level `regex_scripts.*` via `edit_regex_script_field` / `update_regex_script` | `lumirealm.regex_scripts`, `lumirealm.source.card.data.extensions.risuai.customScripts`, `lumirealm.source.module.regex` |");
-  lines.push("| Module-scoped regex / lorebook / triggers / lua (when attached) | module envelope via `edit_external_item` on `provider_id='lumirealm', surface_id='module_envelope'` (e.g. `module.regex[i].out`) | the installed top-level mirrors when the question is migration-safety, but for runtime-only edits the live mirrors are also fine |");
-  lines.push("| Lorebook entries | top-level world books via `edit_world_book_entry` / `update_world_book_entry` | any `_book` array under `lumirealm.source.*` |");
-  lines.push(`| Canonical character fields (${LUMIREALM_DUAL_KEYS_LIST}, alternate_greetings) | top-level character via \`update_character\` / \`edit_character_field\` / \`rewrite_alternate_greeting\` | \`lumirealm.payload.<same>\`, \`lumirealm.source.card.data.<same>\` |`);
-  lines.push("| `lumirealm.payload.scriptstate_defaults` | itself (use `update_character_extension`; user overrides live at `lumirealm.user_overrides.default_variables_overrides` and are off-limits) | \u2014 |");
-  lines.push("| Per-user UI configuration | (none \u2014 `lumirealm.user_overrides.*` is managed by the LumiRealm UI, never the agent) | `lumirealm.user_overrides.*` |");
-  lines.push("");
-  lines.push("Writes to a refused path are blocked with a hard error pointing you at the correct authoring surface. If you reach for `lumirealm.payload.background_html` or `lumirealm.regex_scripts[i]` or anything under `lumirealm.source.*`, you are on the wrong layer.");
-  lines.push("");
-  lines.push("## Cross-surface coupling \u2014 the part that always bites");
-  lines.push("");
-  lines.push("Card content is **deeply interconnected**. UI \u2194 Lore \u2194 Prose \u2194 Regex all share strings, names, CSS classes, and conventions, and editing one surface can break or silently de-sync another. After ANY edit (even a one-line replace), check for propagation across:");
-  lines.push("");
-  lines.push("- **UI (bg-html, status panels, portals)** \u2014 CSS class names referenced from regex `replace_string`, asset URLs in `payload.additional_assets`, portal targets in `payload.portal_candidates`, `risu-trigger` / `risu-btn` attributes that match trigger comments.");
-  lines.push("- **Lore (world book entries)** \u2014 `key` arrays match on character names / phrases / status labels that appear in greetings, persona, bg-html status panels. Renaming an entity in prose without updating the keys silently disables the entry. Decorator tokens (`@@position`, `@@depth`, `@@role`) on entries also gate activation.");
-  lines.push("- **Prose (first_mes, alternate_greetings, description, mes_example)** \u2014 alternate greetings often share a name / tone / opening pattern; translating one and not the others leaves the chat picker inconsistent. Greetings are also referenced by regex `find_regex` patterns that depend on shape (asterisks, brackets, quoted speech, language markers).");
-  lines.push("- **Regex (find_regex AND replace_string)** \u2014 find_regex anchors to content shape; replace_string can inject HTML, CSS, button markup, even Lua-bridge calls. A prose rename or HTML class rename without updating coupled regex breaks display rules. A regex translation that touches `find_regex` instead of `replace_string` breaks matching entirely.");
-  lines.push("- **Lua / triggers** \u2014 function names in `lua_scripts` get called from triggers' `effect[].code`; renaming a function in one without the other breaks callers. Lua reads/writes chat variables that templates and macros expect by name; renaming a variable propagates to `payload.scriptstate_defaults` keys, regex `replace_string` references, and `{{getvar::NAME}}` macro usages in prose / lorebook / bg-html.");
-  lines.push("");
-  lines.push('Workflow rule: **before declaring an edit done, grep the card for every other place the touched token appears.** `grep_card` walks character fields + world books + regex scripts + extensions in one pass. For translation work, `survey_cjk({scopes:["character","world_books","regex_scripts","extensions"]})` gives you the cross-surface map up front. `apply_glossary` performs a coordinated multi-surface replace in one call \u2014 prefer it over hand-rolled chained `edit_*` for any >5 replacements on the same token.');
-  lines.push("");
-  if (c.hasBgHtmlSource) {
-    lines.push("This card has `payload.background_html_source` populated \u2014 that's the right authoring target.");
-  } else if (c.hasBgHtml) {
-    lines.push("This card has `payload.background_html` but no `_source` yet. Edits to `payload.background_html_source` will be seeded automatically on first write \u2014 LumiRealm handles that.");
-  }
-  if (c.hasTriggers) {
-    lines.push("`payload.triggers` exists. Per-trigger Lua/JS lives on each trigger's `effect[]` as a `triggerlua` or `triggercode` effect; read the trigger first, then `edit_character_extension` on the exact `triggers[i].effect[k].code` path.");
-  }
-  if (c.hasLuaScripts) {
-    lines.push("`payload.lua_scripts` exists, but it is a .charx import artifact (Risu module libraries) and is read-only on the agent side. If you need to change function bodies the user authored, the authoring location is a trigger's `triggerlua` effect. If a function name in `lua_scripts` is called from a trigger, you cannot rename it here \u2014 change the call site instead.");
-  }
-  if (c.hasScriptstateDefaults) {
-    lines.push("`payload.scriptstate_defaults` is a flat string->string map for chat-state seeds. Read it, mutate it locally, write it back with `update_character_extension`. Coupled to: `{{getvar::KEY}}` macros, Lua `getState/setState` calls, regex `replace_string` references.");
-  }
-  if (c.payloadDualKeys.length > 0) {
-    lines.push(`Canonical character fields with payload mirrors on this card: ${c.payloadDualKeys.join(", ")}. Edit the canonical (top-level) side; the payload mirror is a translator output and is refused.`);
-  }
-  if (c.attachedModuleCount > 0 && hasModuleEnvelopeSurface) {
-    lines.push("");
-    lines.push("## Attached modules");
-    lines.push("");
-    lines.push(`${c.attachedModuleCount} module(s) attached. Module-scoped content (lorebook, regex, triggers, lua, bg-html, scriptstate defaults) lives in separate envelopes; the lorebook + regex are also installed as top-level mirrors editable via the normal tools. For migration-safe edits, use the envelope: \`list_external_items / read_external_item / edit_external_item / update_external_item\` with \`provider_id='lumirealm', surface_id='module_envelope'\`. When the user mentions content you cannot find on this character's surfaces, check the attached modules before saying it is missing.`);
-  }
-  if (c.translatorSchemaVersion !== null) {
-    lines.push("");
-    lines.push(`Stored translator schema version: ${c.translatorSchemaVersion}.`);
-  }
-  return lines.join(`
-`);
-}
-var LUMIREALM_DUAL_KEYS_LIST = "first_mes, description, personality, scenario, system_prompt, post_history_instructions, mes_example";
 
 // src/backend.ts
 init_edit_log();
@@ -27770,10 +27813,12 @@ async function loadAgentNotes(userId) {
     return null;
   }
 }
-async function resolveExternalProviders() {
+async function resolveExternalProviders(userId) {
   try {
     const { discoverProviders: discoverProviders2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
-    const providers = await discoverProviders2(spindle);
+    const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
+    const promptFn = makeConsentPromptFn2((op, args, timeoutMs) => callFrontend(userId, op, args, timeoutMs));
+    const providers = await discoverProviders2(spindle, userId, promptFn);
     return providers.map((p) => ({
       id: p.id,
       name: p.manifest.extension.name,
@@ -27786,9 +27831,56 @@ async function resolveExternalProviders() {
       }))
     }));
   } catch (err) {
-    log("warn", `external provider discovery failed: ${err.message}`);
+    log("warn", `phoneline discovery failed: ${err.message}`);
     return [];
   }
+}
+async function resolveExtensionSystemPrompts(userId, characterId) {
+  try {
+    const { fetchSystemPromptContributions: fetchSystemPromptContributions2 } = await Promise.resolve().then(() => (init_prompt(), exports_prompt));
+    const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
+    const promptFn = makeConsentPromptFn2((op, args, timeoutMs) => callFrontend(userId, op, args, timeoutMs));
+    return await fetchSystemPromptContributions2(spindle, userId, characterId, promptFn);
+  } catch (err) {
+    log("warn", `phoneline system prompt fetch failed: ${err.message}`);
+    return "";
+  }
+}
+async function handleGetPhonelinePairings(userId) {
+  try {
+    const { discoverProviders: discoverProviders2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
+    const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
+    const promptFn = makeConsentPromptFn2((op, args, timeoutMs) => callFrontend(userId, op, args, timeoutMs));
+    await discoverProviders2(spindle, userId, promptFn);
+  } catch (err) {
+    log("warn", `phoneline discovery during pairings refresh failed: ${err.message}`);
+  }
+  const { loadAllPairings: loadAllPairings2 } = await Promise.resolve().then(() => exports_consent);
+  const all = await loadAllPairings2(spindle, userId);
+  const pairings = Object.values(all).map((p) => ({
+    identifier: p.identifier,
+    displayName: p.displayName,
+    allowed: p.allowed,
+    decidedAt: p.decidedAt
+  }));
+  send({ type: "phoneline_pairings_pushed", pairings }, userId);
+}
+async function handleSetPhonelinePairing(userId, identifier, allowed) {
+  const { loadPairing: loadPairing2, savePairing: savePairing2 } = await Promise.resolve().then(() => exports_consent);
+  const existing = await loadPairing2(spindle, userId, identifier);
+  if (!existing)
+    return;
+  await savePairing2(spindle, userId, { ...existing, allowed, decidedAt: Date.now() });
+  const { invalidate: invalidate2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
+  invalidate2();
+  await handleGetPhonelinePairings(userId);
+}
+async function handleRevokePhonelinePairing(userId, identifier) {
+  const { deletePairing: deletePairing2 } = await Promise.resolve().then(() => exports_consent);
+  await deletePairing2(spindle, userId, identifier);
+  const { invalidate: invalidate2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
+  invalidate2();
+  await handleGetPhonelinePairings(userId);
 }
 async function resolvePinnedChat(pinnedChatId, userId) {
   if (!pinnedChatId)
@@ -27807,9 +27899,9 @@ async function buildSessionSystemMessage(c, s, settings, userId) {
   let prompt = buildGeneralSystemPrompt({
     characterName: c.name,
     worldBookIds: c.world_book_ids,
-    lumirealm: detectLumiRealmContext(c),
     pinnedChat: await resolvePinnedChat(s.pinnedChatId, userId),
-    externalProviders: await resolveExternalProviders(),
+    externalProviders: await resolveExternalProviders(userId),
+    extensionSystemPrompts: await resolveExtensionSystemPrompts(userId, c.id),
     persona: settings.persona,
     systemPromptOverride: settings.systemPromptOverride,
     customToolsIndex: await loadCustomToolsIndex(userId),
@@ -28480,51 +28572,6 @@ async function handleLoadSession(sessionId, userId) {
     edits: s.edits
   }, userId);
 }
-var LUMIREALM_DUAL_KEYS = ["first_mes", "description", "personality", "scenario", "system_prompt", "post_history_instructions", "mes_example"];
-function detectLumiRealmContext(c) {
-  const ext = c.extensions ?? {};
-  const lumi = ext["lumirealm"];
-  if (!lumi || typeof lumi !== "object")
-    return null;
-  const payload = lumi["payload"] ?? null;
-  const dualKeys = [];
-  let hasBgHtml = false;
-  let hasBgHtmlSource = false;
-  let hasTriggers = false;
-  let hasLuaScripts = false;
-  let hasScriptstateDefaults = false;
-  if (payload && typeof payload === "object") {
-    for (const k of LUMIREALM_DUAL_KEYS) {
-      if (typeof payload[k] === "string" && payload[k].length > 0)
-        dualKeys.push(k);
-    }
-    hasBgHtml = typeof payload["background_html"] === "string" && payload["background_html"].length > 0;
-    hasBgHtmlSource = typeof payload["background_html_source"] === "string" && payload["background_html_source"].length > 0;
-    hasTriggers = Array.isArray(payload["triggers"]) && payload["triggers"].length > 0;
-    hasLuaScripts = Array.isArray(payload["lua_scripts"]) && payload["lua_scripts"].length > 0;
-    const ssd = payload["scriptstate_defaults"];
-    hasScriptstateDefaults = ssd !== null && typeof ssd === "object" && Object.keys(ssd).length > 0;
-  }
-  const overrides = lumi["user_overrides"] ?? null;
-  const attachedModuleCount = overrides && Array.isArray(overrides["attached_module_ids"]) ? overrides["attached_module_ids"].length : 0;
-  const tsv = lumi["translator_schema_version"];
-  const translatorSchemaVersion = typeof tsv === "number" ? tsv : null;
-  const storedRegex = lumi["regex_scripts"];
-  const storedRegexScriptCount = Array.isArray(storedRegex) ? storedRegex.length : 0;
-  return {
-    present: true,
-    payloadDualKeys: dualKeys,
-    hasBgHtml,
-    hasBgHtmlSource,
-    hasTriggers,
-    hasLuaScripts,
-    hasScriptstateDefaults,
-    attachedModuleCount,
-    translatorSchemaVersion,
-    storedRegexScriptCount,
-    hasUserOverrides: overrides !== null && typeof overrides === "object" && Object.keys(overrides).length > 0
-  };
-}
 async function handleStartSession(sessionId, characterId, connectionId, userId) {
   log("info", `start_session sessionId=${sessionId} characterId=${characterId}`);
   try {
@@ -28555,10 +28602,6 @@ async function handleStartSession(sessionId, characterId, connectionId, userId) 
       characterName: c.name,
       createdAt: s.createdAt
     }, userId);
-    const realm = detectLumiRealmContext(c);
-    if (realm) {
-      spindle.toast.info(`LumiRealm card detected (\u02F6\u1D54 \u1D55 \u1D54\u02F6)/~`, { title: "LumiAgent", duration: 4000 });
-    }
     handleListSessions(undefined, userId);
   } catch (err) {
     const msg = err.message;
@@ -29344,6 +29387,15 @@ spindle.onFrontendMessage(async (raw, userId) => {
         return;
       case "ws_download_zip":
         await handleWsDownloadZip(msg.paths, userId);
+        return;
+      case "get_phoneline_pairings":
+        await handleGetPhonelinePairings(userId);
+        return;
+      case "set_phoneline_pairing":
+        await handleSetPhonelinePairing(userId, msg.identifier, msg.allowed);
+        return;
+      case "revoke_phoneline_pairing":
+        await handleRevokePhonelinePairing(userId, msg.identifier);
         return;
       case "frontend_rpc_response":
         resolveFrontendRpc(msg.rpcId, msg.result, msg.error);

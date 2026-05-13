@@ -243,6 +243,9 @@ export type FrontendToBackend =
   | { type: "squash_character"; characterId: string }
   | { type: "revert_character_all"; characterId: string }
   | { type: "load_character_workshop"; characterId: string }
+  | { type: "get_phoneline_pairings" }
+  | { type: "set_phoneline_pairing"; identifier: string; allowed: boolean }
+  | { type: "revoke_phoneline_pairing"; identifier: string }
   | { type: "frontend_rpc_response"; rpcId: string; result?: unknown; error?: string };
 
 export type BackendToFrontend =
@@ -277,6 +280,7 @@ export type BackendToFrontend =
   | { type: "compaction_completed"; sessionId: string; handoffPath: string; promptTokens: number; contextTokens: number }
   | { type: "characters_storage_pushed"; entries: readonly CharacterStorageEntry[]; workspaceUsedBytes: number; workspaceCapBytes: number }
   | { type: "character_squashed"; characterId: string; ledgerCleared: boolean }
+  | { type: "phoneline_pairings_pushed"; pairings: ReadonlyArray<{ identifier: string; displayName: string; allowed: boolean; decidedAt: number }> }
   | { type: "frontend_rpc_request"; rpcId: string; op: string; args: unknown };
 
 export interface CharacterStorageEntry {

@@ -26,8 +26,14 @@ export const readExternalItemTool = defineTool({
   },
   defaultSensitivity: "sensitive",
   execute: async (input, ctx) => {
-    const { callExternalRead } = await import("../../external/transport");
-    const res = await callExternalRead(ctx.spindle, input.provider_id, {
+    const { discoverProviders } = await import("../../phoneline/registry");
+    const { makeConsentPromptFn } = await import("../../phoneline/consent");
+    const promptFn = makeConsentPromptFn(ctx.callFrontend ?? (async () => ({ denied: true })));
+    const providers = await discoverProviders(ctx.spindle, ctx.userId, promptFn);
+    const provider = providers.find((p) => p.id === input.provider_id);
+    if (!provider) return { content: `Error: unknown provider: ${input.provider_id}`, isError: true };
+    const { dialReadItem } = await import("../../phoneline/transport");
+    const res = await dialReadItem(ctx.spindle, input.provider_id, {
       userId: ctx.userId,
       surfaceId: input.surface_id,
       itemId: input.item_id,

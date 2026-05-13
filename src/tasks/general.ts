@@ -1,17 +1,3 @@
-export interface LumiRealmContext {
-  readonly present: true;
-  readonly payloadDualKeys: readonly string[];
-  readonly hasBgHtml: boolean;
-  readonly hasBgHtmlSource: boolean;
-  readonly hasTriggers: boolean;
-  readonly hasLuaScripts: boolean;
-  readonly hasScriptstateDefaults: boolean;
-  readonly attachedModuleCount: number;
-  readonly translatorSchemaVersion: number | null;
-  readonly storedRegexScriptCount: number;
-  readonly hasUserOverrides: boolean;
-}
-
 export interface ExternalProviderSummary {
   readonly id: string;
   readonly name: string;
@@ -27,12 +13,16 @@ export interface ExternalProviderSummary {
 export interface GeneralPromptParams {
   readonly characterName: string;
   readonly worldBookIds: readonly string[];
-  readonly lumirealm: LumiRealmContext | null;
   readonly pinnedChat: { id: string; name: string } | null;
   readonly externalProviders: readonly ExternalProviderSummary[];
+  // Already-concatenated system-prompt fragments fetched from each discovered
+  // phone-line provider's `op: "system_prompt"`. Empty string when no provider
+  // contributed. The agent loop fetches this per-send, so any extension can
+  // condition its contribution on the active character's state.
+  readonly extensionSystemPrompts: string;
   readonly persona: string;
   // null → use the built-in technical body. Non-null replaces only the body;
-  // the LumiRealm / chat / external sections are still appended.
+  // the chat / external / extension-contributed sections are still appended.
   readonly systemPromptOverride: string | null;
   // Contents of workspace/custom_tools/tools.md, preloaded so the agent has
   // a cheap index of its own recipes without an upfront fs_read call.
@@ -48,9 +38,9 @@ export interface GeneralPromptParams {
 }
 
 export function buildGeneralSystemPrompt(params: GeneralPromptParams): string {
-  const lumirealmProvider = params.externalProviders.find((p) => p.id === "lumirealm");
-  const hasModuleEnvelopeSurface = !!lumirealmProvider?.surfaces.some((s) => s.id === "module_envelope");
-  const realm = params.lumirealm ? buildLumiRealmSection(params.lumirealm, hasModuleEnvelopeSurface) : "";
+  const extensionSection = params.extensionSystemPrompts.trim().length > 0
+    ? `\n\n${params.extensionSystemPrompts.trim()}`
+    : "";
   const chatSection = params.pinnedChat
     ? `\n\n# Pinned chat\n\nThe user has pinned chat "${params.pinnedChat.name}" (id: ${params.pinnedChat.id}) for context. Use \`read_pinned_chat_messages\` to load its messages when the user references "this chat", "the conversation", "what just happened", etc. Treat messages as read-only context unless the user explicitly asks you to edit them.`
     : `\n\n# Pinned chat\n\nNo chat is pinned to this session. If the user references "this chat", "the conversation", or asks you to read message history, tell them to click the chat-pin button next to the character selector and choose a chat first. Without a pinned chat, the read_pinned_chat_messages tool will return nothing useful.`;
@@ -69,7 +59,7 @@ export function buildGeneralSystemPrompt(params: GeneralPromptParams): string {
 
   const externalSection = params.externalProviders.length === 0
     ? ""
-    : `\n\n# External providers (other extensions)\n\nThe following extensions have opted in to expose data through the lumiagent surface protocol. Use \`list_external_providers\` for full field schemas, then \`list_external_items\` / \`read_external_item\` / \`edit_external_item\` / \`update_external_item\` to interact.\n\n` + params.externalProviders.map((p) => {
+    : `\n\n# External providers (other extensions)\n\nThe following extensions have opted in to expose data through the phone-line protocol. Use \`list_external_providers\` for full field schemas, then \`list_external_items\` / \`read_external_item\` / \`edit_external_item\` / \`update_external_item\` to interact.\n\n` + params.externalProviders.map((p) => {
         const surfaceLines = p.surfaces.map((s) =>
           `    - \`${s.id}\` — ${s.label} (${s.scope}): ${s.description.slice(0, 240)}${s.description.length > 240 ? "..." : ""}`,
         ).join("\n");
@@ -80,7 +70,7 @@ export function buildGeneralSystemPrompt(params: GeneralPromptParams): string {
   //   1. Persona (always present, defines the agent's character)
   //   2. Active-character context line
   //   3. Body, either the built-in technical prompt or the user's override
-  //   4. Dynamic sections (LumiRealm / chat / external), always appended
+  //   4. Dynamic sections (chat / external / extension contributions), always appended
   // The dynamic sections describe the current character's CONTEXT, not behaviour,
   // so they're appended regardless of whether the user has overridden the body.
   const personaBlock = params.persona && params.persona.trim().length > 0
@@ -95,7 +85,7 @@ export function buildGeneralSystemPrompt(params: GeneralPromptParams): string {
 
   return `${personaBlock}${contextLine}
 
-${body}${realm}${chatSection}${externalSection}${customToolsSection}${agentNotesSection}${deferredToolsSection}
+${body}${extensionSection}${chatSection}${externalSection}${customToolsSection}${agentNotesSection}${deferredToolsSection}
 
 # When to stop
 
@@ -111,7 +101,7 @@ Every editable string on the card has a path. ONE \`read\` and ONE \`edit\` cove
 Path grammar (forward slashes; first segment names the surface):
 - \`char/<field>\` — top-level string (description, first_mes, scenario, personality, mes_example, system_prompt, post_history_instructions, creator_notes, creator, name)
 - \`char/alternate_greetings/<idx>\` — one greeting by 0-based index
-- \`char/extensions/<dotted>\` — any string leaf under \`character.extensions.*\`. Dotted with brackets, e.g. \`lumirealm.payload.lua_scripts[0].code\`
+- \`char/extensions/<dotted>\` — any string leaf under \`character.extensions.*\`. Dotted with brackets, e.g. \`<extId>.<group>.<item>[0].code\`
 - \`rx/<scriptId>/find_regex\` or \`rx/<scriptId>/replace_string\` — regex script
 - \`wb/<entryId>/content\` or \`wb/<entryId>/comment\` — lorebook entry
 
@@ -131,7 +121,7 @@ The card has many surfaces; you only see a fraction of any given one at once. A 
 
 1. **Audit, then \`grep\` before declaring anything.** Run \`audit_card_coverage({source_lang: "ko" | "ja" | "zh" | "cjk" | …})\` before claiming a translation task complete — every non-zero leaf that isn't on your explicit \`exclude_paths\` list means NOT done. AND, whenever you assert a structural fact you can't see in your current viewport — "this is bilingual via lang::N", "this value flows through \`getText()\`", "\`subject_translation_keys\` translates these subjects", "the match on line 52 is a comment" — \`grep\` for the identifier or marker in the same leaf BEFORE writing the assertion. Common trap: a translation table or lookup function exists in the file but is never actually called; the agent infers a call site from the name. Confirm the call site. One grep settles it cheaper than the rework after a wrong guess.
 
-2. **Code leaves: full \`read\` per classification, no carry-over credit.** A leaf is "code" when its path sits under \`lumirealm.payload.lua_scripts[*]\` or \`lumirealm.payload.triggers[*].effect[*]\`, ends in \`.code\`, or carries \`must_read_in_full: true\` in the audit. Page through it end-to-end with \`read\` (and \`tmp_read\` over the spill handle) WITHIN the same audit-classify phase before writing a verdict on it. The phase runs from when you call \`audit_card_coverage\` to when you commit a classification (\`finish\`, "leaf X: skip", \`apply_glossary\`, etc.). Reads from earlier turns don't satisfy this. Grep \`truncated_at\` is never clearance. Sampling misses by construction what code hides: table keys (\`["국어"]=...\`), equality branches (\`if subject == "수학"\`), render paths that bypass \`getText()\` (\`<div>"..raw..."</div>\`), default fallbacks. Pay 20–40k tokens once for verification, not 10× for rework.
+2. **Code leaves: full \`read\` per classification, no carry-over credit.** A leaf is "code" when it ends in \`.code\` or carries \`must_read_in_full: true\` in the audit. Page through it end-to-end with \`read\` (and \`tmp_read\` over the spill handle) WITHIN the same audit-classify phase before writing a verdict on it. The phase runs from when you call \`audit_card_coverage\` to when you commit a classification (\`finish\`, "leaf X: skip", \`apply_glossary\`, etc.). Reads from earlier turns don't satisfy this. Grep \`truncated_at\` is never clearance. Sampling misses by construction what code hides: table keys (\`["국어"]=...\`), equality branches (\`if subject == "수학"\`), render paths that bypass \`getText()\` (\`<div>"..raw..."</div>\`), default fallbacks. Pay 20–40k tokens once for verification, not 10× for rework.
 
 3. **Trace values end-to-end; verify lookups are complete.** When a sample shows a Korean run, follow the value to BOTH where it's stored and where it's rendered. "Internal lookup key", "already bilingual", "developer comment" — each label is only legitimate after you've grepped for the call site that justifies it. After patching a render path to route Korean values through a translation lookup, enumerate every distinct Korean literal that can reach the patched site (grep the producing functions for their string literals) and confirm each has an entry in the lookup. Half-populated lookups are regressions, not fixes: the connected values now show English; the missing ones still render Korean. List the inputs, list the table entries, confirm the sets match, then declare done.
 
@@ -188,7 +178,7 @@ When the user reports a problem ("this isn't matching", "where is X coming from"
 - **Personas** — the active persona's \`description\` is injected as {{user}}. Personas can carry their own attached world book.
 - **Databanks** — RAG document collections (global / character / chat). Their content gets pulled in at retrieval time.
 - **Chat memory** — \`get_chat_memories\` shows the vector chunks Lumiverse pulls into the prompt.
-- **External-provider modules** (LumiRealm) — attached modules carry their own lorebook + regex + triggers + lua + background HTML, separate from the character. Use \`list_external_items({provider_id, surface_id: 'module_envelope'})\`.
+- **External-provider data** — extensions that expose data through the phone-line protocol carry their own surfaces (lorebooks, regex projections, scripts, custom blobs) separate from the canonical character. Use \`list_external_providers\` to discover them, then \`list_external_items\` / \`read_external_item\`.
 - **Macros** — \`{{macro}}\` placeholders resolve from variables, character/chat context, and extension-defined handlers. \`resolve_macros({template})\` to expand a sample, \`list_variables\`/\`read_variable\` for what's stored.
 - **Lumiverse's own assembly layer** — the host wraps everything in its own template (preset, generation parameters, persona injection, world info ordering, memory placement). \`dry_run_prompt\` produces the exact final messages array Lumiverse would send.
 
@@ -247,7 +237,7 @@ Reading a 50k-char field blind blows your context. **Always _stats / _overview f
 - \`world_book_stats\` → before list_world_book_entries. \`world_book_entry_stats(id)\` → before read_world_book_entry.
 - \`regex_scripts_overview\` → before list_regex_scripts. \`regex_script_stats(id)\` → before read_regex_script_field.
 - \`character_field_stats(field)\` → before read_character_field on anything not known small.
-- \`character_extension_stats(path)\` → before read_character_extension. ESSENTIAL for LumiRealm payload paths (background_html, lua_scripts, triggers, scriptstate_defaults).
+- \`character_extension_stats(path)\` → before read_character_extension. ESSENTIAL for any large extension-stored payload (HTML blobs, embedded scripts, trigger arrays).
 
 After stats: tiny → read; medium → offset/limit; big with target → grep_card / tmp_grep; too big and no target → ask the user. Spilled output → \`tmp_stat\` / \`tmp_grep\` / \`tmp_read\` on the handle. Never trade accuracy for tokens — read what you need to read.
 
@@ -300,68 +290,3 @@ User-numbering 1..N maps to: 1st greeting = \`first_mes\` (single string on the 
 - Don't mass-rewrite fields you haven't read end-to-end.
 
 Edits are diffed and revertable per-edit or per-session. Edit fearlessly but deliberately — every call has a clear purpose.`;
-
-function buildLumiRealmSection(c: LumiRealmContext, hasModuleEnvelopeSurface: boolean): string {
-  const lines: string[] = [];
-  lines.push("\n\n# LumiRealm card — write to the authoring layer, not the projection");
-  lines.push("");
-  lines.push("This character was imported from Risu. LumiRealm runs a translator pipeline: a frozen `source.*` snapshot → a `payload.*` runtime layer → top-level canonical character fields and `regex_scripts.*`. Multiple layers carry related content; only ONE per content kind is the authoring surface. Every other layer is regenerated and clobbers your edit on the next translator schema bump.");
-  lines.push("");
-  lines.push("## Authoring surface, by content kind");
-  lines.push("");
-  lines.push("| Content | Edit here (authoring) | Do NOT edit (derived / cached / frozen) |");
-  lines.push("|---|---|---|");
-  lines.push("| Bg-HTML / status panel HTML+CSS | `lumirealm.payload.background_html_source` via `edit_character_extension` | `lumirealm.payload.background_html`, `lumirealm.source.card.data.extensions.risuai.backgroundHTML` |");
-  lines.push("| Trigger Lua / JS | `lumirealm.payload.triggers[i].effect[k].code` where `effect.type == 'triggerlua'` or `'triggercode'` (use `read_character_extension` to locate, then `edit_character_extension` on that exact path) | `lumirealm.payload.lua_scripts[*]` (.charx library, not user-authored; LumiRealm's Viewer does not edit it), `lumirealm.source.*` |");
-  lines.push("| Character-scoped regex (incl. CSS injected via `replace_string`) | top-level `regex_scripts.*` via `edit_regex_script_field` / `update_regex_script` | `lumirealm.regex_scripts`, `lumirealm.source.card.data.extensions.risuai.customScripts`, `lumirealm.source.module.regex` |");
-  lines.push("| Module-scoped regex / lorebook / triggers / lua (when attached) | module envelope via `edit_external_item` on `provider_id='lumirealm', surface_id='module_envelope'` (e.g. `module.regex[i].out`) | the installed top-level mirrors when the question is migration-safety, but for runtime-only edits the live mirrors are also fine |");
-  lines.push("| Lorebook entries | top-level world books via `edit_world_book_entry` / `update_world_book_entry` | any `_book` array under `lumirealm.source.*` |");
-  lines.push(`| Canonical character fields (${LUMIREALM_DUAL_KEYS_LIST}, alternate_greetings) | top-level character via \`update_character\` / \`edit_character_field\` / \`rewrite_alternate_greeting\` | \`lumirealm.payload.<same>\`, \`lumirealm.source.card.data.<same>\` |`);
-  lines.push("| `lumirealm.payload.scriptstate_defaults` | itself (use `update_character_extension`; user overrides live at `lumirealm.user_overrides.default_variables_overrides` and are off-limits) | — |");
-  lines.push("| Per-user UI configuration | (none — `lumirealm.user_overrides.*` is managed by the LumiRealm UI, never the agent) | `lumirealm.user_overrides.*` |");
-  lines.push("");
-  lines.push("Writes to a refused path are blocked with a hard error pointing you at the correct authoring surface. If you reach for `lumirealm.payload.background_html` or `lumirealm.regex_scripts[i]` or anything under `lumirealm.source.*`, you are on the wrong layer.");
-  lines.push("");
-  lines.push("## Cross-surface coupling — the part that always bites");
-  lines.push("");
-  lines.push("Card content is **deeply interconnected**. UI ↔ Lore ↔ Prose ↔ Regex all share strings, names, CSS classes, and conventions, and editing one surface can break or silently de-sync another. After ANY edit (even a one-line replace), check for propagation across:");
-  lines.push("");
-  lines.push("- **UI (bg-html, status panels, portals)** — CSS class names referenced from regex `replace_string`, asset URLs in `payload.additional_assets`, portal targets in `payload.portal_candidates`, `risu-trigger` / `risu-btn` attributes that match trigger comments.");
-  lines.push("- **Lore (world book entries)** — `key` arrays match on character names / phrases / status labels that appear in greetings, persona, bg-html status panels. Renaming an entity in prose without updating the keys silently disables the entry. Decorator tokens (`@@position`, `@@depth`, `@@role`) on entries also gate activation.");
-  lines.push("- **Prose (first_mes, alternate_greetings, description, mes_example)** — alternate greetings often share a name / tone / opening pattern; translating one and not the others leaves the chat picker inconsistent. Greetings are also referenced by regex `find_regex` patterns that depend on shape (asterisks, brackets, quoted speech, language markers).");
-  lines.push("- **Regex (find_regex AND replace_string)** — find_regex anchors to content shape; replace_string can inject HTML, CSS, button markup, even Lua-bridge calls. A prose rename or HTML class rename without updating coupled regex breaks display rules. A regex translation that touches `find_regex` instead of `replace_string` breaks matching entirely.");
-  lines.push("- **Lua / triggers** — function names in `lua_scripts` get called from triggers' `effect[].code`; renaming a function in one without the other breaks callers. Lua reads/writes chat variables that templates and macros expect by name; renaming a variable propagates to `payload.scriptstate_defaults` keys, regex `replace_string` references, and `{{getvar::NAME}}` macro usages in prose / lorebook / bg-html.");
-  lines.push("");
-  lines.push("Workflow rule: **before declaring an edit done, grep the card for every other place the touched token appears.** `grep_card` walks character fields + world books + regex scripts + extensions in one pass. For translation work, `survey_cjk({scopes:[\"character\",\"world_books\",\"regex_scripts\",\"extensions\"]})` gives you the cross-surface map up front. `apply_glossary` performs a coordinated multi-surface replace in one call — prefer it over hand-rolled chained `edit_*` for any >5 replacements on the same token.");
-  lines.push("");
-  if (c.hasBgHtmlSource) {
-    lines.push("This card has `payload.background_html_source` populated — that's the right authoring target.");
-  } else if (c.hasBgHtml) {
-    lines.push("This card has `payload.background_html` but no `_source` yet. Edits to `payload.background_html_source` will be seeded automatically on first write — LumiRealm handles that.");
-  }
-  if (c.hasTriggers) {
-    lines.push("`payload.triggers` exists. Per-trigger Lua/JS lives on each trigger's `effect[]` as a `triggerlua` or `triggercode` effect; read the trigger first, then `edit_character_extension` on the exact `triggers[i].effect[k].code` path.");
-  }
-  if (c.hasLuaScripts) {
-    lines.push("`payload.lua_scripts` exists, but it is a .charx import artifact (Risu module libraries) and is read-only on the agent side. If you need to change function bodies the user authored, the authoring location is a trigger's `triggerlua` effect. If a function name in `lua_scripts` is called from a trigger, you cannot rename it here — change the call site instead.");
-  }
-  if (c.hasScriptstateDefaults) {
-    lines.push("`payload.scriptstate_defaults` is a flat string->string map for chat-state seeds. Read it, mutate it locally, write it back with `update_character_extension`. Coupled to: `{{getvar::KEY}}` macros, Lua `getState/setState` calls, regex `replace_string` references.");
-  }
-  if (c.payloadDualKeys.length > 0) {
-    lines.push(`Canonical character fields with payload mirrors on this card: ${c.payloadDualKeys.join(", ")}. Edit the canonical (top-level) side; the payload mirror is a translator output and is refused.`);
-  }
-  if (c.attachedModuleCount > 0 && hasModuleEnvelopeSurface) {
-    lines.push("");
-    lines.push("## Attached modules");
-    lines.push("");
-    lines.push(`${c.attachedModuleCount} module(s) attached. Module-scoped content (lorebook, regex, triggers, lua, bg-html, scriptstate defaults) lives in separate envelopes; the lorebook + regex are also installed as top-level mirrors editable via the normal tools. For migration-safe edits, use the envelope: \`list_external_items / read_external_item / edit_external_item / update_external_item\` with \`provider_id='lumirealm', surface_id='module_envelope'\`. When the user mentions content you cannot find on this character's surfaces, check the attached modules before saying it is missing.`);
-  }
-  if (c.translatorSchemaVersion !== null) {
-    lines.push("");
-    lines.push(`Stored translator schema version: ${c.translatorSchemaVersion}.`);
-  }
-  return lines.join("\n");
-}
-
-const LUMIREALM_DUAL_KEYS_LIST = "first_mes, description, personality, scenario, system_prompt, post_history_instructions, mes_example";

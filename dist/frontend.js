@@ -310,6 +310,78 @@ function showAskUserQuestion(input) {
 }
 var OTHER_LABEL = "Other";
 
+// src/ui/phoneline-consent-modal.ts
+var exports_phoneline_consent_modal = {};
+__export(exports_phoneline_consent_modal, {
+  showPhonelineConsent: () => showPhonelineConsent
+});
+function el8(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls)
+    e.className = cls;
+  if (text !== undefined)
+    e.textContent = text;
+  return e;
+}
+function showPhonelineConsent(input) {
+  return new Promise((resolve) => {
+    const overlay = el8("div", "la-modal-overlay la-phoneline-overlay");
+    const modal = el8("div", "la-modal la-phoneline-modal");
+    overlay.appendChild(modal);
+    const isRevalidate = input.kind === "revalidate";
+    const header = el8("div", "la-phoneline-header");
+    header.appendChild(el8("div", "la-phoneline-title", isRevalidate ? `Revalidate "${input.displayName}"?` : `Connect to "${input.displayName}"?`));
+    modal.appendChild(header);
+    const body = el8("div", "la-phoneline-body");
+    const meta = el8("div", "la-phoneline-meta");
+    const addRow = (label, value) => {
+      const row = el8("div", "la-phoneline-meta-row");
+      row.appendChild(el8("div", "la-phoneline-meta-label", label));
+      row.appendChild(el8("div", "la-phoneline-meta-value", value));
+      meta.appendChild(row);
+    };
+    addRow("Display name:", input.displayName);
+    addRow("Namespace:", input.identifier);
+    if (input.version)
+      addRow("Version:", input.version);
+    body.appendChild(meta);
+    body.appendChild(el8("div", "la-phoneline-notice", isRevalidate ? `Tool descriptions changed on extension update. Revalidate "${input.displayName}"?` : `This will allow LumiAgent and "${input.displayName}" to communicate freely.`));
+    const quote = el8("label", "la-phoneline-quote");
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.className = "la-phoneline-cb";
+    quote.appendChild(cb);
+    quote.appendChild(el8("span", "la-phoneline-quote-text", "These two extensions inherit each other's permissions. Allow?"));
+    body.appendChild(quote);
+    body.appendChild(el8("div", "la-phoneline-foot", "You can access this in the LumiAgent settings."));
+    modal.appendChild(body);
+    const actions = el8("div", "la-phoneline-actions");
+    const denyBtn = el8("button", "la-btn la-btn-secondary", "Deny");
+    const allowBtn = el8("button", "la-btn la-btn-primary", "Allow");
+    allowBtn.disabled = true;
+    actions.appendChild(denyBtn);
+    actions.appendChild(allowBtn);
+    modal.appendChild(actions);
+    cb.addEventListener("change", () => {
+      allowBtn.disabled = !cb.checked;
+    });
+    let resolved = false;
+    const settle = (r) => {
+      if (resolved)
+        return;
+      resolved = true;
+      overlay.remove();
+      resolve(r);
+    };
+    denyBtn.addEventListener("click", () => settle({ allowed: false }));
+    allowBtn.addEventListener("click", () => {
+      if (cb.checked)
+        settle({ allowed: true });
+    });
+    document.body.appendChild(overlay);
+  });
+}
+
 // src/ui/loaders.ts
 var LOADER_VARIANTS = [
   "la-ld-1",
@@ -1469,6 +1541,52 @@ ${LOADERS_CSS}
 }
 
 /* ask_user_question modal */
+.la-phoneline-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 10000;
+  padding: 20px;
+}
+.la-phoneline-modal {
+  background: var(--lumiverse-bg);
+  border: 1px solid var(--lumiverse-border);
+  border-radius: var(--lumiverse-radius);
+  width: min(420px, 92vw);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
+  display: flex; flex-direction: column;
+}
+.la-phoneline-header { padding: 14px 18px 8px; }
+.la-phoneline-title { font-size: 15px; font-weight: 600; color: var(--lumiverse-text); }
+.la-phoneline-body { padding: 4px 18px 14px; display: flex; flex-direction: column; gap: 10px; }
+.la-phoneline-meta { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; font-size: 12px; }
+.la-phoneline-meta-row { display: contents; }
+.la-phoneline-meta-label { color: var(--lumiverse-text-muted); }
+.la-phoneline-meta-value { color: var(--lumiverse-text); font-family: var(--lumiverse-font-mono, monospace); word-break: break-all; }
+.la-phoneline-notice { font-size: 13px; color: var(--lumiverse-text); line-height: 1.45; }
+.la-phoneline-quote {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--lumiverse-primary);
+  background: var(--lumiverse-bg-subtle);
+  border-radius: 0 4px 4px 0;
+  cursor: pointer;
+}
+.la-phoneline-quote:hover { background: var(--lumiverse-bg-hover); }
+.la-phoneline-cb { flex-shrink: 0; }
+.la-phoneline-quote-text { font-size: 13px; color: var(--lumiverse-text); }
+.la-phoneline-foot { font-size: 11px; color: var(--lumiverse-text-muted); line-height: 1.4; }
+.la-phoneline-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 8px 18px 14px; }
+
+.la-pairings-panel { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.la-pairings-empty { font-size: 12px; color: var(--lumiverse-text-muted); padding: 8px 0; }
+.la-pairing-row { padding: 8px 12px; border: 1px solid var(--lumiverse-border-subtle); border-radius: 6px; display: flex; align-items: center; gap: 12px; }
+.la-pairing-name-col { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.la-pairing-name { font-size: 13px; font-weight: 600; color: var(--lumiverse-text); }
+.la-pairing-id { font-family: var(--lumiverse-font-mono, monospace); font-size: 11px; color: var(--lumiverse-text-muted); }
+.la-pairing-toggle { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.la-pairing-toggle-label { font-size: 12px; color: var(--lumiverse-text-muted); }
+
 .la-ask-overlay {
   position: fixed; inset: 0;
   background: rgba(0, 0, 0, 0.55);
@@ -6714,7 +6832,7 @@ function resolveDisplayName() {
 function makeId(prefix) {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
-function el8(tag, cls, text) {
+function el9(tag, cls, text) {
   const e = document.createElement(tag);
   if (cls)
     e.className = cls;
@@ -6772,38 +6890,38 @@ function mountDrawer(ctx) {
     loading: false,
     editingMessageId: null
   };
-  const header = el8("header", "la-header");
-  const rowChar = el8("div", "la-header-row la-header-row-char");
-  const charLabel = el8("label", "la-header-label", "Character");
-  const charComboRoot = el8("div", "la-combo-host la-combo-host-full");
+  const header = el9("header", "la-header");
+  const rowChar = el9("div", "la-header-row la-header-row-char");
+  const charLabel = el9("label", "la-header-label", "Character");
+  const charComboRoot = el9("div", "la-combo-host la-combo-host-full");
   charComboRoot.setAttribute("aria-label", "Character");
   const charCombo = mountCombo(charComboRoot);
   charCombo.setPlaceholder("Pick character");
-  const chatPinBtn = el8("button", "la-btn la-icon-btn la-chat-pin-btn");
+  const chatPinBtn = el9("button", "la-btn la-icon-btn la-chat-pin-btn");
   chatPinBtn.setAttribute("aria-label", "Pin a chat to share with the agent");
   chatPinBtn.title = "Pin a chat (gives the agent message-history access)";
   chatPinBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
   rowChar.append(charLabel, charComboRoot, chatPinBtn);
-  const rowMeta = el8("div", "la-header-row la-header-row-meta");
+  const rowMeta = el9("div", "la-header-row la-header-row-meta");
   const connSelect = document.createElement("select");
   connSelect.className = "la-select la-conn-select";
   connSelect.setAttribute("aria-label", "Connection");
   connSelect.title = "Connection";
-  const metaSpacer = el8("span", "la-flex-spacer");
-  const editsBadge = el8("button", "la-btn la-changes-btn", "Workshop");
+  const metaSpacer = el9("span", "la-flex-spacer");
+  const editsBadge = el9("button", "la-btn la-changes-btn", "Workshop");
   editsBadge.setAttribute("aria-label", "Open diff viewer");
-  const editsCount = el8("span", "la-changes-count", "0");
+  const editsCount = el9("span", "la-changes-count", "0");
   editsBadge.appendChild(editsCount);
-  const newSessionBtn = el8("button", "la-btn", "+ New");
+  const newSessionBtn = el9("button", "la-btn", "+ New");
   newSessionBtn.setAttribute("aria-label", "Start a new chat session");
-  const menuBtn = el8("button", "la-btn la-icon-btn");
+  const menuBtn = el9("button", "la-btn la-icon-btn");
   menuBtn.setAttribute("aria-label", "More");
   menuBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>';
   rowMeta.append(connSelect, metaSpacer, editsBadge, newSessionBtn, menuBtn);
   header.append(rowChar, rowMeta);
-  const thread = el8("div", "la-thread");
-  const emptyState = el8("div", "la-empty");
-  emptyState.append(Object.assign(el8("h3"), { textContent: "What can I do?" }), Object.assign(el8("p"), { textContent: "Pick a character and ask me to translate, refactor, audit, add lorebook entries, or anything else. Every edit shows as a diff you can review and revert. Here are some examples:" }));
+  const thread = el9("div", "la-thread");
+  const emptyState = el9("div", "la-empty");
+  emptyState.append(Object.assign(el9("h3"), { textContent: "What can I do?" }), Object.assign(el9("p"), { textContent: "Pick a character and ask me to translate, refactor, audit, add lorebook entries, or anything else. Every edit shows as a diff you can review and revert. Here are some examples:" }));
   const SUGGESTIONS = [
     {
       label: "Translate the greeting messages of this card",
@@ -6844,9 +6962,9 @@ Start by calling survey_cjk with scopes=['regex_scripts','extensions'] — that 
 4. After I confirm, apply. apply_glossary is the right tool for the pronoun pass — but be careful with single-character CJK keys (banned by default for substring-collision safety). Pronouns, possessives, honorifics, and gendered nouns all need to flip consistently.`
     }
   ];
-  const suggestions = el8("div", "la-empty-suggestions");
+  const suggestions = el9("div", "la-empty-suggestions");
   for (const item of SUGGESTIONS) {
-    const s = el8("button", "la-empty-suggestion", item.label);
+    const s = el9("button", "la-empty-suggestion", item.label);
     s.title = item.send;
     s.addEventListener("click", () => {
       textarea.value = item.send;
@@ -6856,28 +6974,28 @@ Start by calling survey_cjk with scopes=['regex_scripts','extensions'] — that 
     suggestions.appendChild(s);
   }
   emptyState.appendChild(suggestions);
-  const composer = el8("div", "la-composer");
+  const composer = el9("div", "la-composer");
   const mouseyImg = document.createElement("img");
   mouseyImg.className = "la-mousey";
   mouseyImg.src = resolveMouseyImageUrl();
   mouseyImg.alt = "";
   mouseyImg.setAttribute("aria-hidden", "true");
   composer.appendChild(mouseyImg);
-  const composerInner = el8("div", "la-composer-inner");
-  const composerArea = el8("div", "la-composer-area");
+  const composerInner = el9("div", "la-composer-inner");
+  const composerArea = el9("div", "la-composer-area");
   const textarea = document.createElement("textarea");
   textarea.className = "la-textarea";
   textarea.rows = 1;
   textarea.placeholder = "Ask anything";
-  const composerActions = el8("div", "la-composer-actions");
-  const sendBtn = el8("button", "la-send-btn");
+  const composerActions = el9("div", "la-composer-actions");
+  const sendBtn = el9("button", "la-send-btn");
   sendBtn.setAttribute("aria-label", "Send");
   sendBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>';
-  const cancelBtn = el8("button", "la-cancel-btn");
+  const cancelBtn = el9("button", "la-cancel-btn");
   cancelBtn.setAttribute("aria-label", "Stop");
   cancelBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>';
   cancelBtn.style.display = "none";
-  const compactBtn = el8("button", "la-compact-btn");
+  const compactBtn = el9("button", "la-compact-btn");
   compactBtn.type = "button";
   compactBtn.setAttribute("aria-label", "Compact context");
   const compactRing = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -6888,14 +7006,14 @@ Start by calling survey_cjk with scopes=['regex_scripts','extensions'] — that 
     <circle class="la-compact-fill" cx="18" cy="18" r="15" fill="none" stroke-width="3" stroke-dasharray="94.2 94.2" stroke-dashoffset="94.2" transform="rotate(-90 18 18)" stroke-linecap="round"/>
   `;
   compactBtn.appendChild(compactRing);
-  const compactTip = el8("div", "la-compact-tooltip");
-  const compactTipMain = el8("div", "la-compact-tooltip-main", "Context fully available.");
-  const compactTipSub = el8("div", "la-compact-tooltip-sub", "Click to compact now.");
+  const compactTip = el9("div", "la-compact-tooltip");
+  const compactTipMain = el9("div", "la-compact-tooltip-main", "Context fully available.");
+  const compactTipSub = el9("div", "la-compact-tooltip-sub", "Click to compact now.");
   compactTip.append(compactTipMain, compactTipSub);
   compactBtn.appendChild(compactTip);
   composerActions.append(compactBtn, sendBtn, cancelBtn);
   composerArea.append(textarea, composerActions);
-  const composerStatus = el8("div", "la-composer-status");
+  const composerStatus = el9("div", "la-composer-status");
   composerInner.append(composerArea, composerStatus);
   composer.appendChild(composerInner);
   const dumpGeometry = () => {
@@ -6998,6 +7116,7 @@ Start by calling survey_cjk with scopes=['regex_scripts','extensions'] — that 
     sendBackend({ type: "list_connections" });
     sendBackend({ type: "list_sessions" });
     sendBackend({ type: "get_ui_prefs" });
+    sendBackend({ type: "get_phoneline_pairings" });
   };
   const renderCharOptions = () => {
     if (state.characters.length === 0) {
@@ -7231,8 +7350,8 @@ Force-revert anyway (this overwrites the external change)?`;
       if (anchorId !== null && msg.id === anchorId) {
         const wrap = document.createElement("div");
         wrap.appendChild(node);
-        const divider = el8("div", "la-cache-divider");
-        divider.appendChild(el8("span", "la-cache-divider-label", "messages above this line are cached"));
+        const divider = el9("div", "la-cache-divider");
+        divider.appendChild(el9("span", "la-cache-divider-label", "messages above this line are cached"));
         wrap.appendChild(divider);
         return wrap;
       }
@@ -7502,28 +7621,28 @@ Revert those edits to the character now, or leave them applied?`;
     }
     sendBackend({ type: "list_chats", characterId: state.characterId, ...state.sessionId ? { sessionId: state.sessionId } : {} });
     const handle = ctx.ui.showModal({ title: "Pin a chat", width: 520, maxHeight: 560 });
-    const note = el8("p", "la-modal-note", "Pick a chat to give the agent read access to its message history. The agent uses the pinned chat when you reference 'this chat', 'the conversation', etc. Pin nothing to keep the agent isolated from your chat data.");
-    const list = el8("div", "la-sessions-modal-list");
+    const note = el9("p", "la-modal-note", "Pick a chat to give the agent read access to its message history. The agent uses the pinned chat when you reference 'this chat', 'the conversation', etc. Pin nothing to keep the agent isolated from your chat data.");
+    const list = el9("div", "la-sessions-modal-list");
     const render2 = () => {
       list.innerHTML = "";
-      const unpin = el8("button", `la-session-item ${state.pinnedChatId === null ? "is-active" : ""}`);
-      unpin.append(Object.assign(el8("div"), { textContent: "(No chat pinned)" }), el8("div", "la-session-item-meta", "Agent has no message-history access."));
+      const unpin = el9("button", `la-session-item ${state.pinnedChatId === null ? "is-active" : ""}`);
+      unpin.append(Object.assign(el9("div"), { textContent: "(No chat pinned)" }), el9("div", "la-session-item-meta", "Agent has no message-history access."));
       unpin.addEventListener("click", () => {
         pinChatOrQueue(null);
         handle.dismiss();
       });
       list.appendChild(unpin);
       if (state.chatsForCharacter.length === 0) {
-        list.appendChild(el8("div", "la-diff-pane-empty", "No chats yet for this character."));
+        list.appendChild(el9("div", "la-diff-pane-empty", "No chats yet for this character."));
         return;
       }
       for (const c of state.chatsForCharacter) {
-        const row = el8("div", `la-session-item ${c.isPinned ? "is-active" : ""}`);
-        const main = el8("div");
-        const title = el8("div");
+        const row = el9("div", `la-session-item ${c.isPinned ? "is-active" : ""}`);
+        const main = el9("div");
+        const title = el9("div");
         title.textContent = c.name + (c.isActive ? "  (currently open)" : "");
         main.append(title);
-        main.append(el8("div", "la-session-item-meta", `updated ${new Date(c.updatedAt).toLocaleString()}`));
+        main.append(el9("div", "la-session-item-meta", `updated ${new Date(c.updatedAt).toLocaleString()}`));
         row.appendChild(main);
         row.addEventListener("click", () => {
           pinChatOrQueue(c.id);
@@ -7558,20 +7677,20 @@ Revert those edits to the character now, or leave them applied?`;
   chatPinBtn.addEventListener("click", () => openChatPickerModal());
   const openSessionsModal = () => {
     const handle = ctx.ui.showModal({ title: "Sessions", width: 520 });
-    const list = el8("div", "la-sessions-modal-list");
+    const list = el9("div", "la-sessions-modal-list");
     handle.root.appendChild(list);
     const render2 = () => {
       list.innerHTML = "";
       if (state.sessions.length === 0) {
-        list.appendChild(el8("div", "la-diff-pane-empty", "No sessions yet."));
+        list.appendChild(el9("div", "la-diff-pane-empty", "No sessions yet."));
         return;
       }
       for (const s of state.sessions) {
-        const row = el8("div", `la-session-item ${s.sessionId === state.sessionId ? "is-active" : ""}`);
-        const main = el8("div", "la-session-item-main");
-        main.append(el8("div", undefined, `${s.characterName}`));
-        main.append(el8("div", "la-session-item-meta", `${s.messageCount} msg . ${s.editCount} edits${s.revertedEditCount ? ` (${s.revertedEditCount} reverted)` : ""} . ${new Date(s.lastActivityAt).toLocaleString()}`));
-        const delBtn = el8("button", "la-session-item-delete");
+        const row = el9("div", `la-session-item ${s.sessionId === state.sessionId ? "is-active" : ""}`);
+        const main = el9("div", "la-session-item-main");
+        main.append(el9("div", undefined, `${s.characterName}`));
+        main.append(el9("div", "la-session-item-meta", `${s.messageCount} msg . ${s.editCount} edits${s.revertedEditCount ? ` (${s.revertedEditCount} reverted)` : ""} . ${new Date(s.lastActivityAt).toLocaleString()}`));
+        const delBtn = el9("button", "la-session-item-delete");
         delBtn.type = "button";
         delBtn.title = "Delete session";
         delBtn.setAttribute("aria-label", "Delete session");
@@ -7651,46 +7770,46 @@ Revert those edits to the character now, or leave them applied?`;
   const openAgentSettingsModal = () => {
     sendBackend({ type: "get_settings" });
     const handle = ctx.ui.showModal({ title: "Agent settings", width: 1360, maxHeight: 1080 });
-    const wrap = el8("div", "la-agent-settings");
-    wrap.appendChild(el8("p", "la-modal-note", "Customize how LumiAgent behaves. Saved per-user; applies to your next message."));
-    wrap.appendChild(el8("label", "la-settings-label", "Persona"));
-    wrap.appendChild(el8("div", "la-settings-hint", "Defines who the agent is. Prepended above the technical instructions. Default = the LumiAgent mousegirl persona."));
+    const wrap = el9("div", "la-agent-settings");
+    wrap.appendChild(el9("p", "la-modal-note", "Customize how LumiAgent behaves. Saved per-user; applies to your next message."));
+    wrap.appendChild(el9("label", "la-settings-label", "Persona"));
+    wrap.appendChild(el9("div", "la-settings-hint", "Defines who the agent is. Prepended above the technical instructions. Default = the LumiAgent mousegirl persona."));
     const personaArea = document.createElement("textarea");
     personaArea.className = "la-settings-textarea";
     personaArea.rows = 8;
     wrap.appendChild(personaArea);
-    const personaResetRow = el8("div", "la-settings-reset-row");
-    const personaResetBtn = el8("button", "la-btn la-btn-mini la-btn-ghost", "Reset to default");
+    const personaResetRow = el9("div", "la-settings-reset-row");
+    const personaResetBtn = el9("button", "la-btn la-btn-mini la-btn-ghost", "Reset to default");
     personaResetRow.appendChild(personaResetBtn);
     wrap.appendChild(personaResetRow);
-    wrap.appendChild(el8("label", "la-settings-label", "System prompt body"));
-    wrap.appendChild(el8("div", "la-settings-hint", "The technical body. Tool guidance, working principles, edit discipline. The persona, LumiRealm, pinned-chat, and external-provider sections are appended automatically; you only own this body."));
+    wrap.appendChild(el9("label", "la-settings-label", "System prompt body"));
+    wrap.appendChild(el9("div", "la-settings-hint", "The technical body. Tool guidance, working principles, edit discipline. The persona, LumiRealm, pinned-chat, and external-provider sections are appended automatically; you only own this body."));
     const promptArea = document.createElement("textarea");
     promptArea.className = "la-settings-textarea la-settings-textarea-tall";
     promptArea.rows = 12;
     wrap.appendChild(promptArea);
-    const promptResetRow = el8("div", "la-settings-reset-row");
-    const promptResetBtn = el8("button", "la-btn la-btn-mini la-btn-ghost", "Reset to default");
+    const promptResetRow = el9("div", "la-settings-reset-row");
+    const promptResetBtn = el9("button", "la-btn la-btn-mini la-btn-ghost", "Reset to default");
     promptResetRow.appendChild(promptResetBtn);
     wrap.appendChild(promptResetRow);
-    wrap.appendChild(el8("label", "la-settings-label", "Samplers"));
-    wrap.appendChild(el8("div", "la-settings-hint", "Drag a slider to set, double-click to reset that sampler, empty number = inherit from the connection's preset."));
-    const samplersList = el8("div", "la-samplers-list");
+    wrap.appendChild(el9("label", "la-settings-label", "Samplers"));
+    wrap.appendChild(el9("div", "la-settings-hint", "Drag a slider to set, double-click to reset that sampler, empty number = inherit from the connection's preset."));
+    const samplersList = el9("div", "la-samplers-list");
     wrap.appendChild(samplersList);
-    const samplersResetRow = el8("div", "la-settings-reset-row");
-    const samplersResetBtn = el8("button", "la-btn la-btn-mini la-btn-ghost", "Reset all");
+    const samplersResetRow = el9("div", "la-settings-reset-row");
+    const samplersResetBtn = el9("button", "la-btn la-btn-mini la-btn-ghost", "Reset all");
     samplersResetRow.appendChild(samplersResetBtn);
     wrap.appendChild(samplersResetRow);
-    const jbHead = el8("div", "la-settings-section-head");
-    jbHead.append(el8("label", "la-settings-label", "Jailbreak / prefill"));
+    const jbHead = el9("div", "la-settings-section-head");
+    jbHead.append(el9("label", "la-settings-label", "Jailbreak / prefill"));
     wrap.appendChild(jbHead);
-    wrap.appendChild(el8("div", "la-settings-hint", "Optional text injected per message. Leave empty to disable."));
+    wrap.appendChild(el9("div", "la-settings-hint", "Optional text injected per message. Leave empty to disable."));
     const jbArea = document.createElement("textarea");
     jbArea.className = "la-settings-textarea";
     jbArea.rows = 4;
     wrap.appendChild(jbArea);
-    const jbPlacementRow = el8("div", "la-settings-row");
-    jbPlacementRow.append(el8("label", "la-settings-row-label", "Placement"));
+    const jbPlacementRow = el9("div", "la-settings-row");
+    jbPlacementRow.append(el9("label", "la-settings-row-label", "Placement"));
     const jbPlacement = document.createElement("select");
     jbPlacement.className = "la-select";
     for (const [val, lbl] of [
@@ -7705,20 +7824,20 @@ Revert those edits to the character now, or leave them applied?`;
     }
     jbPlacementRow.appendChild(jbPlacement);
     wrap.appendChild(jbPlacementRow);
-    wrap.appendChild(el8("label", "la-settings-label", "Agent notes"));
-    wrap.appendChild(el8("div", "la-settings-hint", "Long-term memory file the agent reads at the start of every session. Anything you put there is preloaded into context."));
-    const notesRow = el8("div", "la-settings-row");
-    const notesBtn = el8("button", "la-btn la-btn-mini", "Open agent notes");
+    wrap.appendChild(el9("label", "la-settings-label", "Agent notes"));
+    wrap.appendChild(el9("div", "la-settings-hint", "Long-term memory file the agent reads at the start of every session. Anything you put there is preloaded into context."));
+    const notesRow = el9("div", "la-settings-row");
+    const notesBtn = el9("button", "la-btn la-btn-mini", "Open agent notes");
     notesBtn.addEventListener("click", () => {
       handle.dismiss();
       openWorkshopOnFile("agent/agent.md");
     });
     notesRow.appendChild(notesBtn);
     wrap.appendChild(notesRow);
-    wrap.appendChild(el8("label", "la-settings-label", "Storage limits"));
-    wrap.appendChild(el8("div", "la-settings-hint", "Per-user storage cap for the workspace."));
-    const wsCapRow = el8("div", "la-settings-row");
-    wsCapRow.append(el8("label", "la-settings-row-label", "Workspace cap (MB)"));
+    wrap.appendChild(el9("label", "la-settings-label", "Storage limits"));
+    wrap.appendChild(el9("div", "la-settings-hint", "Per-user storage cap for the workspace."));
+    const wsCapRow = el9("div", "la-settings-row");
+    wsCapRow.append(el9("label", "la-settings-row-label", "Workspace cap (MB)"));
     const wsCapInput = document.createElement("input");
     wsCapInput.type = "number";
     wsCapInput.className = "la-slider-input";
@@ -7726,10 +7845,10 @@ Revert those edits to the character now, or leave them applied?`;
     wsCapInput.step = "1";
     wsCapRow.appendChild(wsCapInput);
     wrap.appendChild(wsCapRow);
-    wrap.appendChild(el8("label", "la-settings-label", "Tool output cap"));
-    wrap.appendChild(el8("div", "la-settings-hint", "Set to dump any single tool result over that many tokens to a tmp file the agent can grep/read to avoid blowing up context."));
-    const toolCapRow = el8("div", "la-settings-row");
-    toolCapRow.append(el8("label", "la-settings-row-label", "Tool output cap (tk)"));
+    wrap.appendChild(el9("label", "la-settings-label", "Tool output cap"));
+    wrap.appendChild(el9("div", "la-settings-hint", "Set to dump any single tool result over that many tokens to a tmp file the agent can grep/read to avoid blowing up context."));
+    const toolCapRow = el9("div", "la-settings-row");
+    toolCapRow.append(el9("label", "la-settings-row-label", "Tool output cap (tk)"));
     const toolCapInput = document.createElement("input");
     toolCapInput.type = "number";
     toolCapInput.className = "la-slider-input";
@@ -7737,10 +7856,10 @@ Revert those edits to the character now, or leave them applied?`;
     toolCapInput.step = "1";
     toolCapRow.appendChild(toolCapInput);
     wrap.appendChild(toolCapRow);
-    wrap.appendChild(el8("label", "la-settings-label", "Prompt caching"));
-    wrap.appendChild(el8("div", "la-settings-hint", "Marks parts of every request as cacheable so supported providers (Anthropic, OpenAI, Bedrock, Gemini) charge a fraction on cache reads. Full mode caches two turns behind the latest message. System only caches the system prompt. Off attaches no markers."));
-    const cacheModeRow = el8("div", "la-settings-row");
-    cacheModeRow.append(el8("label", "la-settings-row-label", "Cache mode"));
+    wrap.appendChild(el9("label", "la-settings-label", "Prompt caching"));
+    wrap.appendChild(el9("div", "la-settings-hint", "Marks parts of every request as cacheable so supported providers (Anthropic, OpenAI, Bedrock, Gemini) charge a fraction on cache reads. Full mode caches two turns behind the latest message. System only caches the system prompt. Off attaches no markers."));
+    const cacheModeRow = el9("div", "la-settings-row");
+    cacheModeRow.append(el9("label", "la-settings-row-label", "Cache mode"));
     const cacheModeSelect = document.createElement("select");
     cacheModeSelect.className = "la-select";
     for (const [val, label] of [["full", "Full"], ["system_only", "System only"], ["off", "Off"]]) {
@@ -7751,27 +7870,67 @@ Revert those edits to the character now, or leave them applied?`;
     }
     cacheModeRow.appendChild(cacheModeSelect);
     wrap.appendChild(cacheModeRow);
-    const cacheSupportRow = el8("div", "la-settings-row");
-    cacheSupportRow.append(el8("label", "la-settings-row-label", "Connection supports caching"));
+    const cacheSupportRow = el9("div", "la-settings-row");
+    cacheSupportRow.append(el9("label", "la-settings-row-label", "Connection supports caching"));
     const cacheSupportInput = document.createElement("input");
     cacheSupportInput.type = "checkbox";
     cacheSupportInput.className = "la-checkbox";
     cacheSupportRow.appendChild(cacheSupportInput);
     wrap.appendChild(cacheSupportRow);
-    wrap.appendChild(el8("div", "la-settings-hint", "Leave ON for Anthropic, OpenAI, Bedrock, Gemini, OpenRouter (Anthropic routes). Turn OFF for proxies or local models that don't honour cache_control."));
-    const autoFreeRow = el8("div", "la-settings-row");
-    autoFreeRow.append(el8("label", "la-settings-row-label", "Auto-free old tool results"));
+    wrap.appendChild(el9("div", "la-settings-hint", "Leave ON for Anthropic, OpenAI, Bedrock, Gemini, OpenRouter (Anthropic routes). Turn OFF for proxies or local models that don't honour cache_control."));
+    const autoFreeRow = el9("div", "la-settings-row");
+    autoFreeRow.append(el9("label", "la-settings-row-label", "Auto-free old tool results"));
     const autoFreeInput = document.createElement("input");
     autoFreeInput.type = "checkbox";
     autoFreeInput.className = "la-checkbox";
     autoFreeRow.appendChild(autoFreeInput);
     wrap.appendChild(autoFreeRow);
-    wrap.appendChild(el8("div", "la-settings-hint", "Stub-replace insensitive tool results after 10 user turns to save context. Off by default. Turn on if you're on a provider that doesn't honour cache markers AND you see context grow unchecked."));
-    const status = el8("div", "la-composer-status");
+    wrap.appendChild(el9("div", "la-settings-hint", "Stub-replace insensitive tool results after 10 user turns to save context. Off by default. Turn on if you're on a provider that doesn't honour cache markers AND you see context grow unchecked."));
+    wrap.appendChild(el9("label", "la-settings-label", "Extension pairings"));
+    wrap.appendChild(el9("div", "la-settings-hint", "Other extensions that can communicate with LumiAgent."));
+    const pairingsPanel = el9("div", "la-pairings-panel");
+    pairingsPanel.appendChild(el9("div", "la-pairings-empty", "Loading..."));
+    wrap.appendChild(pairingsPanel);
+    const renderPairings = (pairings) => {
+      while (pairingsPanel.firstChild)
+        pairingsPanel.removeChild(pairingsPanel.firstChild);
+      if (pairings.length === 0) {
+        pairingsPanel.appendChild(el9("div", "la-pairings-empty", "No pairings yet."));
+        return;
+      }
+      for (const p of pairings) {
+        const row = el9("div", "la-pairing-row");
+        const nameCol = el9("div", "la-pairing-name-col");
+        nameCol.appendChild(el9("div", "la-pairing-name", p.displayName));
+        nameCol.appendChild(el9("div", "la-pairing-id", p.identifier));
+        row.appendChild(nameCol);
+        const toggleLabel = el9("label", "la-pairing-toggle");
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.className = "la-checkbox";
+        cb.checked = p.allowed;
+        cb.addEventListener("change", () => {
+          sendBackend({ type: "set_phoneline_pairing", identifier: p.identifier, allowed: cb.checked });
+        });
+        toggleLabel.appendChild(cb);
+        toggleLabel.appendChild(el9("span", "la-pairing-toggle-label", "Allowed"));
+        row.appendChild(toggleLabel);
+        const revokeBtn = el9("button", "la-btn la-btn-mini la-btn-ghost", "Forget");
+        revokeBtn.addEventListener("click", () => {
+          sendBackend({ type: "revoke_phoneline_pairing", identifier: p.identifier });
+        });
+        row.appendChild(revokeBtn);
+        pairingsPanel.appendChild(row);
+      }
+    };
+    const unregisterPairings = pairingsListeners.push((p) => renderPairings(p));
+    handle.onDismiss(unregisterPairings);
+    sendBackend({ type: "get_phoneline_pairings" });
+    const status = el9("div", "la-composer-status");
     wrap.appendChild(status);
-    const actions = el8("div", "la-settings-actions");
-    const cancelBtn2 = el8("button", "la-btn", "Cancel");
-    const saveBtn = el8("button", "la-btn la-btn-primary", "Save");
+    const actions = el9("div", "la-settings-actions");
+    const cancelBtn2 = el9("button", "la-btn", "Cancel");
+    const saveBtn = el9("button", "la-btn la-btn-primary", "Save");
     actions.append(cancelBtn2, saveBtn);
     wrap.appendChild(actions);
     let samplerBag = {
@@ -7828,9 +7987,9 @@ Revert those edits to the character now, or leave them applied?`;
       { key: "repetitionPenalty", label: "Rep Penalty", type: "float", min: 0, max: 2, step: 0.01, defaultHint: 0 }
     ];
     const buildSamplerSlider = (def) => {
-      const row = el8("div", "la-slider-row");
-      const header2 = el8("div", "la-slider-header");
-      const label = el8("span", "la-slider-label", def.label);
+      const row = el9("div", "la-slider-row");
+      const header2 = el9("div", "la-slider-header");
+      const label = el9("span", "la-slider-label", def.label);
       const numInput = document.createElement("input");
       numInput.type = "number";
       numInput.className = "la-slider-input";
@@ -7839,10 +7998,10 @@ Revert those edits to the character now, or leave them applied?`;
       numInput.step = String(def.step);
       numInput.placeholder = String(def.defaultHint);
       header2.append(label, numInput);
-      const track = el8("div", "la-slider-track");
+      const track = el9("div", "la-slider-track");
       track.title = "Drag to set, double-click to reset";
-      const fill = el8("div", "la-slider-fill");
-      const thumb = el8("div", "la-slider-thumb");
+      const fill = el9("div", "la-slider-fill");
+      const thumb = el9("div", "la-slider-thumb");
       track.append(fill, thumb);
       row.append(header2, track);
       const decimals = (String(def.step).split(".")[1] || "").length;
@@ -7984,6 +8143,15 @@ Revert those edits to the character now, or leave them applied?`;
     });
     handle.root.appendChild(wrap);
   };
+  const pairingsListeners = {
+    handlers: [],
+    push(h) {
+      this.handlers.push(h);
+      return () => {
+        this.handlers = this.handlers.filter((x) => x !== h);
+      };
+    }
+  };
   const settingsListeners = {
     handlers: [],
     push(h) {
@@ -7996,14 +8164,14 @@ Revert those edits to the character now, or leave them applied?`;
   const MAX_MOUSEY_BYTES = 4 * 1024 * 1024;
   const openIconSettingsModal = () => {
     const handle = ctx.ui.showModal({ title: "Visuals & display name", width: 520, maxHeight: 720 });
-    const wrap = el8("div", "la-icon-settings");
-    const note = el8("p", "la-modal-note", "Customise the drawer icon, the sitting character image, and the display name. Stored in your browser. Reload the tab to apply.");
+    const wrap = el9("div", "la-icon-settings");
+    const note = el9("p", "la-modal-note", "Customise the drawer icon, the sitting character image, and the display name. Stored in your browser. Reload the tab to apply.");
     wrap.appendChild(note);
-    const status = el8("div", "la-composer-status");
-    const nameHead = el8("div", "la-settings-section-head");
-    nameHead.append(el8("label", "la-settings-label", "Display name"));
+    const status = el9("div", "la-composer-status");
+    const nameHead = el9("div", "la-settings-section-head");
+    nameHead.append(el9("label", "la-settings-label", "Display name"));
     wrap.appendChild(nameHead);
-    wrap.appendChild(el8("div", "la-settings-hint", "What this extension calls itself in the drawer tab + sidebar. Default: LumiAgent."));
+    wrap.appendChild(el9("div", "la-settings-hint", "What this extension calls itself in the drawer tab + sidebar. Default: LumiAgent."));
     const nameInput = document.createElement("input");
     nameInput.type = "text";
     nameInput.className = "la-input";
@@ -8012,9 +8180,9 @@ Revert those edits to the character now, or leave them applied?`;
     nameInput.placeholder = DEFAULT_DISPLAY_NAME;
     nameInput.maxLength = 40;
     wrap.appendChild(nameInput);
-    const nameActions = el8("div", "la-icon-settings-actions");
-    const nameSaveBtn = el8("button", "la-btn la-btn-primary", "Save name");
-    const nameResetBtn = el8("button", "la-btn", "Reset");
+    const nameActions = el9("div", "la-icon-settings-actions");
+    const nameSaveBtn = el9("button", "la-btn la-btn-primary", "Save name");
+    const nameResetBtn = el9("button", "la-btn", "Reset");
     nameActions.append(nameSaveBtn, nameResetBtn);
     wrap.appendChild(nameActions);
     nameSaveBtn.addEventListener("click", () => {
@@ -8036,21 +8204,21 @@ Revert those edits to the character now, or leave them applied?`;
       status.textContent = "Display name reset. Reload to apply.";
       status.classList.remove("is-error");
     });
-    const iconHead = el8("div", "la-settings-section-head");
-    iconHead.append(el8("label", "la-settings-label", "Drawer icon"));
+    const iconHead = el9("div", "la-settings-section-head");
+    iconHead.append(el9("label", "la-settings-label", "Drawer icon"));
     wrap.appendChild(iconHead);
-    wrap.appendChild(el8("div", "la-settings-hint", "Replaces the icon shown in the Lumiverse sidebar."));
-    const iconPreview = el8("div", "la-icon-settings-preview");
+    wrap.appendChild(el9("div", "la-settings-hint", "Replaces the icon shown in the Lumiverse sidebar."));
+    const iconPreview = el9("div", "la-icon-settings-preview");
     const iconImg = document.createElement("img");
     iconImg.src = resolveDrawerIconUrl();
     iconImg.alt = "current icon";
     iconImg.className = "la-icon-settings-image";
-    const iconCaption = el8("div", "la-icon-settings-caption", "Current");
+    const iconCaption = el9("div", "la-icon-settings-caption", "Current");
     iconPreview.append(iconCaption, iconImg);
     wrap.appendChild(iconPreview);
-    const iconActions = el8("div", "la-icon-settings-actions");
-    const iconPickBtn = el8("button", "la-btn la-btn-primary", "Choose image...");
-    const iconResetBtn = el8("button", "la-btn la-btn-danger", "Reset to default");
+    const iconActions = el9("div", "la-icon-settings-actions");
+    const iconPickBtn = el9("button", "la-btn la-btn-primary", "Choose image...");
+    const iconResetBtn = el9("button", "la-btn la-btn-danger", "Reset to default");
     iconActions.append(iconPickBtn, iconResetBtn);
     wrap.appendChild(iconActions);
     iconPickBtn.addEventListener("click", async () => {
@@ -8091,21 +8259,21 @@ Revert those edits to the character now, or leave them applied?`;
       status.textContent = "Icon reset. Reload to apply.";
       status.classList.remove("is-error");
     });
-    const mouseyHead = el8("div", "la-settings-section-head");
-    mouseyHead.append(el8("label", "la-settings-label", "Sitting character image"));
+    const mouseyHead = el9("div", "la-settings-section-head");
+    mouseyHead.append(el9("label", "la-settings-label", "Sitting character image"));
     wrap.appendChild(mouseyHead);
-    wrap.appendChild(el8("div", "la-settings-hint", "The image perched on the composer ledge. Transparent PNG works best. For correct positioning the figure should be sitting around 2/3 of the way down the image."));
-    const mouseyPreview = el8("div", "la-icon-settings-preview");
+    wrap.appendChild(el9("div", "la-settings-hint", "The image perched on the composer ledge. Transparent PNG works best. For correct positioning the figure should be sitting around 2/3 of the way down the image."));
+    const mouseyPreview = el9("div", "la-icon-settings-preview");
     const mouseyImgPreview = document.createElement("img");
     mouseyImgPreview.src = resolveMouseyImageUrl();
     mouseyImgPreview.alt = "current sitting image";
     mouseyImgPreview.className = "la-icon-settings-image la-icon-settings-image-tall";
-    const mouseyCaption = el8("div", "la-icon-settings-caption", "Current");
+    const mouseyCaption = el9("div", "la-icon-settings-caption", "Current");
     mouseyPreview.append(mouseyCaption, mouseyImgPreview);
     wrap.appendChild(mouseyPreview);
-    const mouseyActions = el8("div", "la-icon-settings-actions");
-    const mouseyPickBtn = el8("button", "la-btn la-btn-primary", "Choose image...");
-    const mouseyResetBtn = el8("button", "la-btn la-btn-danger", "Reset to default");
+    const mouseyActions = el9("div", "la-icon-settings-actions");
+    const mouseyPickBtn = el9("button", "la-btn la-btn-primary", "Choose image...");
+    const mouseyResetBtn = el9("button", "la-btn la-btn-danger", "Reset to default");
     mouseyActions.append(mouseyPickBtn, mouseyResetBtn);
     wrap.appendChild(mouseyActions);
     mouseyPickBtn.addEventListener("click", async () => {
@@ -8421,9 +8589,9 @@ Revert those edits to the character now, or leave them applied?`;
         handleAgentEvent(msg.event, agentEventCtx);
         break;
       case "auto_freed": {
-        const notice = el8("div", "la-error-banner");
-        notice.appendChild(el8("div", "la-error-banner-title", "Old tool results auto-freed"));
-        notice.appendChild(el8("pre", "la-error-banner-body", `Freed ${msg.count} insensitive tool result${msg.count === 1 ? "" : "s"} (${Math.round(msg.bytes / 1024)} KB) to keep context small. Turn 'Auto-free old tool results' off in Agent Settings to disable.`));
+        const notice = el9("div", "la-error-banner");
+        notice.appendChild(el9("div", "la-error-banner-title", "Old tool results auto-freed"));
+        notice.appendChild(el9("pre", "la-error-banner-body", `Freed ${msg.count} insensitive tool result${msg.count === 1 ? "" : "s"} (${Math.round(msg.bytes / 1024)} KB) to keep context small. Turn 'Auto-free old tool results' off in Agent Settings to disable.`));
         thread.appendChild(notice);
         setTimeout(() => notice.remove(), 8000);
         break;
@@ -8448,17 +8616,17 @@ Revert those edits to the character now, or leave them applied?`;
         state.pendingMessageId = null;
         finalizeAssistantTurn("errored");
         rerenderThread();
-        const errBlock = el8("div", "la-error-banner");
-        const errHeader = el8("div", "la-error-banner-header");
-        const errTitle = el8("div", "la-error-banner-title", "Generation failed");
-        const errDismiss = el8("button", "la-error-banner-dismiss", "✕");
+        const errBlock = el9("div", "la-error-banner");
+        const errHeader = el9("div", "la-error-banner-header");
+        const errTitle = el9("div", "la-error-banner-title", "Generation failed");
+        const errDismiss = el9("button", "la-error-banner-dismiss", "✕");
         errDismiss.setAttribute("aria-label", "Dismiss error");
         errDismiss.title = "Dismiss";
         errDismiss.addEventListener("click", () => {
           errBlock.remove();
         });
         errHeader.append(errTitle, errDismiss);
-        const errBody = el8("pre", "la-error-banner-body", msg.error);
+        const errBody = el9("pre", "la-error-banner-body", msg.error);
         errBlock.append(errHeader, errBody);
         thread.appendChild(errBlock);
         virtualizer.scrollToBottom();
@@ -8567,6 +8735,10 @@ Revert those edits to the character now, or leave them applied?`;
         for (const h of settingsListeners.handlers)
           h();
         break;
+      case "phoneline_pairings_pushed":
+        for (const h of pairingsListeners.handlers)
+          h(msg.pairings);
+        break;
       case "ui_prefs_pushed":
         state.connectionId = msg.connectionId;
         if (state.connections.length > 0)
@@ -8628,6 +8800,9 @@ Revert those edits to the character now, or leave them applied?`;
             } else if (msg.op === "ask_user_question") {
               const { showAskUserQuestion: showAskUserQuestion2 } = await Promise.resolve().then(() => exports_ask_user_modal);
               result = await showAskUserQuestion2(msg.args);
+            } else if (msg.op === "phoneline_consent") {
+              const { showPhonelineConsent: showPhonelineConsent2 } = await Promise.resolve().then(() => exports_phoneline_consent_modal);
+              result = await showPhonelineConsent2(msg.args);
             } else {
               sendBackend({ type: "frontend_rpc_response", rpcId: msg.rpcId, error: `unknown rpc op '${msg.op}'` });
               return;

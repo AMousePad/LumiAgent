@@ -64,15 +64,17 @@ export const editExternalItemTool = defineTool({
       return { content: `${gateError}\n\n${draftReuseNote(h, replace.length, "replace")}`, isError: true };
     }
 
-    const { discoverProviders, findSurface } = await import("../../external/registry");
-    const providers = await discoverProviders(ctx.spindle);
+    const { discoverProviders, findSurface } = await import("../../phoneline/registry");
+    const { makeConsentPromptFn } = await import("../../phoneline/consent");
+    const promptFn = makeConsentPromptFn(ctx.callFrontend ?? (async () => ({ denied: true })));
+    const providers = await discoverProviders(ctx.spindle, ctx.userId, promptFn);
     const match = findSurface(providers, input.provider_id, input.surface_id);
     if (!match) return { content: `Error: unknown provider/surface: ${input.provider_id}/${input.surface_id}`, isError: true };
     const surfaceLabel = match.surface.label;
     const providerName = match.provider.manifest.extension.name;
 
-    const { callExternalRead, callExternalWrite } = await import("../../external/transport");
-    const readRes = await callExternalRead(ctx.spindle, input.provider_id, {
+    const { dialReadItem, dialWriteField } = await import("../../phoneline/transport");
+    const readRes = await dialReadItem(ctx.spindle, input.provider_id, {
       userId: ctx.userId, surfaceId: input.surface_id, itemId: input.item_id, field: input.field,
     });
     const current = readRes.value;
@@ -89,7 +91,7 @@ export const editExternalItemTool = defineTool({
       return { content: `Error: ${(err as Error).message}\n\n${draftReuseNote(h, replace.length, "replace")}`, isError: true };
     }
 
-    const writeRes = await callExternalWrite(ctx.spindle, input.provider_id, {
+    const writeRes = await dialWriteField(ctx.spindle, input.provider_id, {
       userId: ctx.userId, surfaceId: input.surface_id, itemId: input.item_id, field: input.field, value: outcome.result,
     });
     if (!writeRes.ok) return { content: `Error: write failed: ${writeRes.error ?? "unknown"}`, isError: true };

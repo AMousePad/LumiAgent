@@ -17,7 +17,7 @@ import { runAgent } from "./agent/loop";
 import { listDeferredToolNames, makeDeferredToolSchemaMap, makeInitialToolSchemas, makeToolDispatch } from "./agent/tools";
 import { systemMessageWithCache } from "./agent/cache-control";
 import { applyAutoFree } from "./agent/auto-free";
-import { buildGeneralSystemPrompt, type LumiRealmContext } from "./tasks/general";
+import { buildGeneralSystemPrompt } from "./tasks/general";
 import { revertEditWithCheck, revertEdit, writeFieldValue } from "./state/edit-log";
 import { appendEntries, entriesView, findEntry, loadLedger, persistLedgerNow, purgeAllRevertedInMemory, squashMessage } from "./state/ledger";
 import { applySinglePatch, sha256 as patchSha256 } from "./state/patch-stack";
@@ -180,10 +180,12 @@ async function loadAgentNotes(userId: string): Promise<string | null> {
   } catch { return null; }
 }
 
-async function resolveExternalProviders(): Promise<import("./tasks/general").ExternalProviderSummary[]> {
+async function resolveExternalProviders(userId: string): Promise<import("./tasks/general").ExternalProviderSummary[]> {
   try {
-    const { discoverProviders } = await import("./external/registry");
-    const providers = await discoverProviders(spindle);
+    const { discoverProviders } = await import("./phoneline/registry");
+    const { makeConsentPromptFn } = await import("./phoneline/consent");
+    const promptFn = makeConsentPromptFn((op, args, timeoutMs) => callFrontend(userId, op, args, timeoutMs));
+    const providers = await discoverProviders(spindle, userId, promptFn);
     return providers.map((p) => ({
       id: p.id,
       name: p.manifest.extension.name,
@@ -196,9 +198,62 @@ async function resolveExternalProviders(): Promise<import("./tasks/general").Ext
       })),
     }));
   } catch (err) {
-    log("warn", `external provider discovery failed: ${(err as Error).message}`);
+    log("warn", `phoneline discovery failed: ${(err as Error).message}`);
     return [];
   }
+}
+
+async function resolveExtensionSystemPrompts(userId: string, characterId: string): Promise<string> {
+  try {
+    const { fetchSystemPromptContributions } = await import("./phoneline/prompt");
+    const { makeConsentPromptFn } = await import("./phoneline/consent");
+    const promptFn = makeConsentPromptFn((op, args, timeoutMs) => callFrontend(userId, op, args, timeoutMs));
+    return await fetchSystemPromptContributions(spindle, userId, characterId, promptFn);
+  } catch (err) {
+    log("warn", `phoneline system prompt fetch failed: ${(err as Error).message}`);
+    return "";
+  }
+}
+
+async function handleGetPhonelinePairings(userId: string): Promise<void> {
+  // Run discovery first. For any known phoneline without a stored decision
+  // this triggers the consent modal via the FE rpc channel. We swallow errors
+  // so the pairings list still flushes even if a provider misbehaves.
+  try {
+    const { discoverProviders } = await import("./phoneline/registry");
+    const { makeConsentPromptFn } = await import("./phoneline/consent");
+    const promptFn = makeConsentPromptFn((op, args, timeoutMs) => callFrontend(userId, op, args, timeoutMs));
+    await discoverProviders(spindle, userId, promptFn);
+  } catch (err) {
+    log("warn", `phoneline discovery during pairings refresh failed: ${(err as Error).message}`);
+  }
+  const { loadAllPairings } = await import("./phoneline/consent");
+  const all = await loadAllPairings(spindle, userId);
+  const pairings = Object.values(all).map((p) => ({
+    identifier: p.identifier,
+    displayName: p.displayName,
+    allowed: p.allowed,
+    decidedAt: p.decidedAt,
+  }));
+  send({ type: "phoneline_pairings_pushed", pairings }, userId);
+}
+
+async function handleSetPhonelinePairing(userId: string, identifier: string, allowed: boolean): Promise<void> {
+  const { loadPairing, savePairing } = await import("./phoneline/consent");
+  const existing = await loadPairing(spindle, userId, identifier);
+  if (!existing) return; // user shouldn't be able to toggle a pairing that isn't already known
+  await savePairing(spindle, userId, { ...existing, allowed, decidedAt: Date.now() });
+  const { invalidate } = await import("./phoneline/registry");
+  invalidate();
+  await handleGetPhonelinePairings(userId);
+}
+
+async function handleRevokePhonelinePairing(userId: string, identifier: string): Promise<void> {
+  const { deletePairing } = await import("./phoneline/consent");
+  await deletePairing(spindle, userId, identifier);
+  const { invalidate } = await import("./phoneline/registry");
+  invalidate();
+  await handleGetPhonelinePairings(userId);
 }
 
 async function resolvePinnedChat(pinnedChatId: string | null | undefined, userId: string): Promise<{ id: string; name: string } | null> {
@@ -222,9 +277,9 @@ async function buildSessionSystemMessage(
   let prompt = buildGeneralSystemPrompt({
     characterName: c.name,
     worldBookIds: c.world_book_ids,
-    lumirealm: detectLumiRealmContext(c),
     pinnedChat: await resolvePinnedChat(s.pinnedChatId, userId),
-    externalProviders: await resolveExternalProviders(),
+    externalProviders: await resolveExternalProviders(userId),
+    extensionSystemPrompts: await resolveExtensionSystemPrompts(userId, c.id),
     persona: settings.persona,
     systemPromptOverride: settings.systemPromptOverride,
     customToolsIndex: await loadCustomToolsIndex(userId),
@@ -882,55 +937,6 @@ async function handleLoadSession(sessionId: string, userId: string): Promise<voi
   }, userId);
 }
 
-// Canonical CharacterDTO string fields that have parallel mirrors in
-// extensions.lumirealm.payload.* (translator outputs vs original Risu source).
-const LUMIREALM_DUAL_KEYS = ["first_mes", "description", "personality", "scenario", "system_prompt", "post_history_instructions", "mes_example"] as const;
-
-function detectLumiRealmContext(c: CharacterDTO): LumiRealmContext | null {
-  const ext = c.extensions ?? {};
-  const lumi = (ext as Record<string, unknown>)["lumirealm"] as Record<string, unknown> | undefined;
-  if (!lumi || typeof lumi !== "object") return null;
-  const payload = (lumi["payload"] ?? null) as Record<string, unknown> | null;
-  const dualKeys: string[] = [];
-  let hasBgHtml = false;
-  let hasBgHtmlSource = false;
-  let hasTriggers = false;
-  let hasLuaScripts = false;
-  let hasScriptstateDefaults = false;
-  if (payload && typeof payload === "object") {
-    for (const k of LUMIREALM_DUAL_KEYS) {
-      if (typeof payload[k] === "string" && (payload[k] as string).length > 0) dualKeys.push(k);
-    }
-    hasBgHtml = typeof payload["background_html"] === "string" && (payload["background_html"] as string).length > 0;
-    hasBgHtmlSource = typeof payload["background_html_source"] === "string" && (payload["background_html_source"] as string).length > 0;
-    hasTriggers = Array.isArray(payload["triggers"]) && (payload["triggers"] as unknown[]).length > 0;
-    hasLuaScripts = Array.isArray(payload["lua_scripts"]) && (payload["lua_scripts"] as unknown[]).length > 0;
-    const ssd = payload["scriptstate_defaults"];
-    hasScriptstateDefaults = ssd !== null && typeof ssd === "object" && Object.keys(ssd as Record<string, unknown>).length > 0;
-  }
-  const overrides = (lumi["user_overrides"] ?? null) as Record<string, unknown> | null;
-  const attachedModuleCount = overrides && Array.isArray(overrides["attached_module_ids"])
-    ? (overrides["attached_module_ids"] as unknown[]).length
-    : 0;
-  const tsv = lumi["translator_schema_version"];
-  const translatorSchemaVersion = typeof tsv === "number" ? tsv : null;
-  const storedRegex = lumi["regex_scripts"];
-  const storedRegexScriptCount = Array.isArray(storedRegex) ? storedRegex.length : 0;
-  return {
-    present: true,
-    payloadDualKeys: dualKeys,
-    hasBgHtml,
-    hasBgHtmlSource,
-    hasTriggers,
-    hasLuaScripts,
-    hasScriptstateDefaults,
-    attachedModuleCount,
-    translatorSchemaVersion,
-    storedRegexScriptCount,
-    hasUserOverrides: overrides !== null && typeof overrides === "object" && Object.keys(overrides).length > 0,
-  };
-}
-
 async function handleStartSession(sessionId: string, characterId: string, connectionId: string | undefined, userId: string): Promise<void> {
   log("info", `start_session sessionId=${sessionId} characterId=${characterId}`);
   try {
@@ -966,16 +972,6 @@ async function handleStartSession(sessionId: string, characterId: string, connec
       createdAt: s.createdAt,
     }, userId);
 
-    // LumiRealm context is baked into the system prompt (built per send_message),
-    // not surfaced to the user in chat. Toast a quiet info if we detect one so
-    // the user knows the agent has the right context.
-    const realm = detectLumiRealmContext(c);
-    if (realm) {
-      spindle.toast.info(
-        `LumiRealm card detected (˶ᵔ ᵕ ᵔ˶)/~`,
-        { title: "LumiAgent", duration: 4000 },
-      );
-    }
 
     void handleListSessions(undefined, userId);
   } catch (err) {
@@ -1679,6 +1675,9 @@ spindle.onFrontendMessage(async (raw: unknown, userId: string) => {
       case "ws_mkdir": await handleWsMkdir(msg.path, userId); return;
       case "ws_download": await handleWsDownload(msg.path, userId); return;
       case "ws_download_zip": await handleWsDownloadZip(msg.paths, userId); return;
+      case "get_phoneline_pairings": await handleGetPhonelinePairings(userId); return;
+      case "set_phoneline_pairing": await handleSetPhonelinePairing(userId, msg.identifier, msg.allowed); return;
+      case "revoke_phoneline_pairing": await handleRevokePhonelinePairing(userId, msg.identifier); return;
       case "frontend_rpc_response": resolveFrontendRpc(msg.rpcId, msg.result, msg.error); return;
       default:
         log("warn", `unknown frontend message type=${(msg as { type?: string }).type ?? "?"}`);

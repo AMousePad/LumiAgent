@@ -20,12 +20,14 @@ export const listExternalItemsTool = defineTool({
   },
   defaultSensitivity: "insensitive",
   execute: async (input, ctx) => {
-    const { discoverProviders, findSurface } = await import("../../external/registry");
-    const providers = await discoverProviders(ctx.spindle);
+    const { discoverProviders, findSurface } = await import("../../phoneline/registry");
+    const { makeConsentPromptFn } = await import("../../phoneline/consent");
+    const promptFn = makeConsentPromptFn(ctx.callFrontend ?? (async () => ({ denied: true })));
+    const providers = await discoverProviders(ctx.spindle, ctx.userId, promptFn);
     const match = findSurface(providers, input.provider_id, input.surface_id);
     if (!match) return { content: `Error: unknown provider/surface: ${input.provider_id}/${input.surface_id}`, isError: true };
-    const { callExternalList } = await import("../../external/transport");
-    const res = await callExternalList(ctx.spindle, input.provider_id, {
+    const { dialListItems } = await import("../../phoneline/transport");
+    const res = await dialListItems(ctx.spindle, input.provider_id, {
       userId: ctx.userId,
       surfaceId: input.surface_id,
       ...(match.surface.scope.kind === "per_character" ? { characterId: ctx.characterId } : {}),

@@ -205,12 +205,12 @@ export async function revertEdit(
   const r = entry.record;
   try {
     if (r.op === "edit" && r.surface === "external") {
-      // External provider revert — route through the lumiagent.execute endpoint
-      // on the owning extension. Done before the EditEdit branch since EditEdit
-      // excludes surface === "external" via the type union.
-      const { callExternalWrite } = await import("../external/transport");
+      // External provider revert routes through the owning extension's phone
+      // line. Branch sits before the EditEdit one since EditEdit excludes
+      // surface === "external" via the type union.
+      const { dialWriteField } = await import("../phoneline/transport");
       const beforeValue = parseExternalValue(r.before);
-      const res = await callExternalWrite(spindle, r.providerId, {
+      const res = await dialWriteField(spindle, r.providerId, {
         userId,
         surfaceId: r.externalSurfaceId,
         itemId: r.itemId,

@@ -5,7 +5,7 @@ import { buildEditPatch } from "./_patch";
 import { ensureRecentRead } from "./_gates";
 import { parseExtensionPath, getAtPath, setAtPath } from "./_paths";
 import { stashDraft, loadDraft, draftReuseNote } from "./_drafts";
-import { checkLumirealmWritePath } from "./_lumirealm-gates";
+import { checkExtensionWrite } from "../../phoneline/gate";
 
 const inputSchema = z.object({
   path: z.string().min(1),
@@ -48,8 +48,10 @@ export const editCharacterExtensionTool = defineTool({
     }
     if (replace === undefined) return { content: "Error: provide either replace or replace_handle.", isError: true };
 
-    const lrGuard = checkLumirealmWritePath(input.path);
-    if (!lrGuard.ok) return { content: `Refused: ${lrGuard.message}`, isError: true };
+    const { makeConsentPromptFn } = await import("../../phoneline/consent");
+    const promptFn = makeConsentPromptFn(ctx.callFrontend ?? (async () => ({ denied: true })));
+    const guard = await checkExtensionWrite(ctx.spindle, ctx.userId, ctx.characterId, input.path, promptFn);
+    if (!guard.ok) return { content: `Refused: ${guard.message ?? "extension declined this write."}`, isError: true };
 
     const gateError = ensureRecentRead(ctx, gate, input as unknown as Record<string, unknown>);
     if (gateError !== null) {

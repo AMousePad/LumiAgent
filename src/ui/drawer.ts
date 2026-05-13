@@ -428,6 +428,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     sendBackend({ type: "list_connections" });
     sendBackend({ type: "list_sessions" });
     sendBackend({ type: "get_ui_prefs" });
+    sendBackend({ type: "get_phoneline_pairings" });
   };
 
   const renderCharOptions = () => {
@@ -1272,6 +1273,46 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     wrap.appendChild(autoFreeRow);
     wrap.appendChild(el("div", "la-settings-hint", "Stub-replace insensitive tool results after 10 user turns to save context. Off by default. Turn on if you're on a provider that doesn't honour cache markers AND you see context grow unchecked."));
 
+    wrap.appendChild(el("label", "la-settings-label", "Extension pairings"));
+    wrap.appendChild(el("div", "la-settings-hint", "Other extensions that can communicate with LumiAgent."));
+    const pairingsPanel = el("div", "la-pairings-panel");
+    pairingsPanel.appendChild(el("div", "la-pairings-empty", "Loading..."));
+    wrap.appendChild(pairingsPanel);
+    const renderPairings = (pairings: readonly PairingWire[]): void => {
+      while (pairingsPanel.firstChild) pairingsPanel.removeChild(pairingsPanel.firstChild);
+      if (pairings.length === 0) {
+        pairingsPanel.appendChild(el("div", "la-pairings-empty", "No pairings yet."));
+        return;
+      }
+      for (const p of pairings) {
+        const row = el("div", "la-pairing-row");
+        const nameCol = el("div", "la-pairing-name-col");
+        nameCol.appendChild(el("div", "la-pairing-name", p.displayName));
+        nameCol.appendChild(el("div", "la-pairing-id", p.identifier));
+        row.appendChild(nameCol);
+        const toggleLabel = el("label", "la-pairing-toggle");
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.className = "la-checkbox";
+        cb.checked = p.allowed;
+        cb.addEventListener("change", () => {
+          sendBackend({ type: "set_phoneline_pairing", identifier: p.identifier, allowed: cb.checked });
+        });
+        toggleLabel.appendChild(cb);
+        toggleLabel.appendChild(el("span", "la-pairing-toggle-label", "Allowed"));
+        row.appendChild(toggleLabel);
+        const revokeBtn = el("button", "la-btn la-btn-mini la-btn-ghost", "Forget") as HTMLButtonElement;
+        revokeBtn.addEventListener("click", () => {
+          sendBackend({ type: "revoke_phoneline_pairing", identifier: p.identifier });
+        });
+        row.appendChild(revokeBtn);
+        pairingsPanel.appendChild(row);
+      }
+    };
+    const unregisterPairings = pairingsListeners.push((p) => renderPairings(p));
+    handle.onDismiss(unregisterPairings);
+    sendBackend({ type: "get_phoneline_pairings" });
+
     const status = el("div", "la-composer-status");
     wrap.appendChild(status);
 
@@ -1466,6 +1507,12 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     });
 
     handle.root.appendChild(wrap);
+  };
+
+  type PairingWire = { identifier: string; displayName: string; allowed: boolean; decidedAt: number };
+  const pairingsListeners: { handlers: Array<(p: readonly PairingWire[]) => void>; push(h: (p: readonly PairingWire[]) => void): () => void } = {
+    handlers: [],
+    push(h) { this.handlers.push(h); return () => { this.handlers = this.handlers.filter((x) => x !== h); }; },
   };
 
   const settingsListeners: { handlers: Array<() => void>; push(h: () => void): () => void } = {
@@ -2064,6 +2111,9 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         };
         for (const h of settingsListeners.handlers) h();
         break;
+      case "phoneline_pairings_pushed":
+        for (const h of pairingsListeners.handlers) h(msg.pairings);
+        break;
       case "ui_prefs_pushed":
         // Apply the stored selection once it arrives from the backend.
         // renderConnOptions has its own current-value / default fallback,
@@ -2140,6 +2190,9 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
             } else if (msg.op === "ask_user_question") {
               const { showAskUserQuestion } = await import("./ask-user-modal");
               result = await showAskUserQuestion(msg.args as Parameters<typeof showAskUserQuestion>[0]);
+            } else if (msg.op === "phoneline_consent") {
+              const { showPhonelineConsent } = await import("./phoneline-consent-modal");
+              result = await showPhonelineConsent(msg.args as Parameters<typeof showPhonelineConsent>[0]);
             } else {
               sendBackend({ type: "frontend_rpc_response", rpcId: msg.rpcId, error: `unknown rpc op '${msg.op}'` });
               return;

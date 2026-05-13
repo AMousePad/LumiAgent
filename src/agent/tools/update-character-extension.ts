@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import { parseExtensionPath, getAtPath, setAtPath } from "./_paths";
-import { checkLumirealmWritePath } from "./_lumirealm-gates";
+import { checkExtensionWrite } from "../../phoneline/gate";
 
 const inputSchema = z.object({
   path: z.string().min(1),
@@ -25,8 +25,10 @@ export const updateCharacterExtensionTool = defineTool({
     const path = input.path;
     const value = input.value;
 
-    const lrGuard = checkLumirealmWritePath(path);
-    if (!lrGuard.ok) return { content: `Refused: ${lrGuard.message}`, isError: true };
+    const { makeConsentPromptFn } = await import("../../phoneline/consent");
+    const promptFn = makeConsentPromptFn(ctx.callFrontend ?? (async () => ({ denied: true })));
+    const guard = await checkExtensionWrite(ctx.spindle, ctx.userId, ctx.characterId, path, promptFn);
+    if (!guard.ok) return { content: `Refused: ${guard.message ?? "extension declined this write."}`, isError: true };
 
     let segs;
     try {

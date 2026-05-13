@@ -773,6 +773,52 @@ ${LOADERS_CSS}
 }
 
 /* ask_user_question modal */
+.la-phoneline-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 10000;
+  padding: 20px;
+}
+.la-phoneline-modal {
+  background: var(--lumiverse-bg);
+  border: 1px solid var(--lumiverse-border);
+  border-radius: var(--lumiverse-radius);
+  width: min(420px, 92vw);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
+  display: flex; flex-direction: column;
+}
+.la-phoneline-header { padding: 14px 18px 8px; }
+.la-phoneline-title { font-size: 15px; font-weight: 600; color: var(--lumiverse-text); }
+.la-phoneline-body { padding: 4px 18px 14px; display: flex; flex-direction: column; gap: 10px; }
+.la-phoneline-meta { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; font-size: 12px; }
+.la-phoneline-meta-row { display: contents; }
+.la-phoneline-meta-label { color: var(--lumiverse-text-muted); }
+.la-phoneline-meta-value { color: var(--lumiverse-text); font-family: var(--lumiverse-font-mono, monospace); word-break: break-all; }
+.la-phoneline-notice { font-size: 13px; color: var(--lumiverse-text); line-height: 1.45; }
+.la-phoneline-quote {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--lumiverse-primary);
+  background: var(--lumiverse-bg-subtle);
+  border-radius: 0 4px 4px 0;
+  cursor: pointer;
+}
+.la-phoneline-quote:hover { background: var(--lumiverse-bg-hover); }
+.la-phoneline-cb { flex-shrink: 0; }
+.la-phoneline-quote-text { font-size: 13px; color: var(--lumiverse-text); }
+.la-phoneline-foot { font-size: 11px; color: var(--lumiverse-text-muted); line-height: 1.4; }
+.la-phoneline-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 8px 18px 14px; }
+
+.la-pairings-panel { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.la-pairings-empty { font-size: 12px; color: var(--lumiverse-text-muted); padding: 8px 0; }
+.la-pairing-row { padding: 8px 12px; border: 1px solid var(--lumiverse-border-subtle); border-radius: 6px; display: flex; align-items: center; gap: 12px; }
+.la-pairing-name-col { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.la-pairing-name { font-size: 13px; font-weight: 600; color: var(--lumiverse-text); }
+.la-pairing-id { font-family: var(--lumiverse-font-mono, monospace); font-size: 11px; color: var(--lumiverse-text-muted); }
+.la-pairing-toggle { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.la-pairing-toggle-label { font-size: 12px; color: var(--lumiverse-text-muted); }
+
 .la-ask-overlay {
   position: fixed; inset: 0;
   background: rgba(0, 0, 0, 0.55);
