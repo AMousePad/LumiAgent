@@ -22832,7 +22832,7 @@ var init_random_pick = __esm(() => {
     jsonSchema: {
       type: "object",
       properties: {
-        items: { type: "array", description: "The list to pick from." },
+        items: { type: "array", items: { type: "string" }, description: "The list to pick from." },
         count: { type: "number", description: "How many to pick. Default 1." },
         replacement: { type: "boolean", description: "If true, the same item can be picked more than once. Default false." }
       },
@@ -26227,7 +26227,7 @@ var init_samplers = __esm(() => {
   SAMPLER_WIRE_KEYS = {
     temperature: "temperature",
     maxTokens: "max_tokens",
-    contextSize: "context_size",
+    contextSize: "max_context_length",
     topP: "top_p",
     minP: "min_p",
     topK: "top_k",
@@ -26268,6 +26268,7 @@ function defaultSettings() {
     workspaceCapBytes: null,
     toolOutputCapTokens: null,
     connectionSupportsPromptCaching: true,
+    autoFreeOldToolResults: false,
     cacheMode: "full"
   };
 }
@@ -26303,6 +26304,7 @@ async function loadSettings(spindle2, userId) {
     workspaceCapBytes: coercePositiveInt(s["workspaceCapBytes"]),
     toolOutputCapTokens: coercePositiveInt(s["toolOutputCapTokens"]),
     connectionSupportsPromptCaching: typeof s["connectionSupportsPromptCaching"] === "boolean" ? s["connectionSupportsPromptCaching"] : true,
+    autoFreeOldToolResults: typeof s["autoFreeOldToolResults"] === "boolean" ? s["autoFreeOldToolResults"] : false,
     cacheMode: coerceCacheMode(s["cacheMode"])
   };
 }
@@ -26389,7 +26391,7 @@ function encodeAssistantTurn(content, toolCalls) {
   if (content.length > 0)
     parts.push({ type: "text", text: content });
   for (const tc of toolCalls) {
-    parts.push({ type: "tool_use", id: tc.call_id, name: tc.name, input: tc.args ?? {} });
+    parts.push({ type: "tool_use", id: tc.call_id, name: tc.name, input: tc.args ?? {}, ...tc.thought_signature ? { thought_signature: tc.thought_signature } : {} });
   }
   return { role: "assistant", content: parts };
 }
@@ -27817,6 +27819,7 @@ async function handleGetSettings(userId) {
     toolOutputCapTokens: settings.toolOutputCapTokens,
     toolOutputCapDefaultTokens: DEFAULT_TOOL_OUTPUT_CAP_TOKENS,
     connectionSupportsPromptCaching: settings.connectionSupportsPromptCaching,
+    autoFreeOldToolResults: settings.autoFreeOldToolResults,
     cacheMode: settings.cacheMode
   }, userId);
 }
@@ -27843,7 +27846,7 @@ async function resolveModelForConnection(connectionId, userId) {
     return;
   }
 }
-async function handleUpdateSettings(persona, systemPromptOverride, samplers, jailbreak, jailbreakPlacement, workspaceCapBytes, toolOutputCapTokens, connectionSupportsPromptCaching, cacheMode, userId) {
+async function handleUpdateSettings(persona, systemPromptOverride, samplers, jailbreak, jailbreakPlacement, workspaceCapBytes, toolOutputCapTokens, connectionSupportsPromptCaching, autoFreeOldToolResults, cacheMode, userId) {
   await saveSettings(spindle, {
     version: 3,
     persona: persona.length > 0 ? persona : DEFAULT_PERSONA,
@@ -27854,6 +27857,7 @@ async function handleUpdateSettings(persona, systemPromptOverride, samplers, jai
     workspaceCapBytes,
     toolOutputCapTokens,
     connectionSupportsPromptCaching,
+    autoFreeOldToolResults,
     cacheMode
   }, userId);
   await handleGetSettings(userId);
@@ -28522,7 +28526,7 @@ async function handleStartSession(sessionId, characterId, connectionId, userId) 
     }, userId);
     const realm = detectLumiRealmContext(c);
     if (realm) {
-      spindle.toast.info(`LumiRealm card detected: agent knows about extensions.lumirealm.payload, attached modules (${realm.attachedModuleCount}), and the translator pipeline.`, { title: "LumiAgent", duration: 4000 });
+      spindle.toast.info(`LumiRealm card detected (\u02F6\u1D54 \u1D55 \u1D54\u02F6)/~`, { title: "LumiAgent", duration: 4000 });
     }
     handleListSessions(undefined, userId);
   } catch (err) {
@@ -28545,12 +28549,7 @@ async function handleContinueSession(sessionId, connectionId, userId) {
     send({ type: "generation_error", sessionId, error: "nothing to continue: last message is not a user message" }, userId);
     return;
   }
-  if (connectionId !== undefined && connectionId !== null && s.connectionId !== connectionId) {
-    s.connectionId = connectionId;
-    await saveSession(spindle, s, userId);
-  }
-  const lastUser = s.messages[s.messages.length - 1];
-  handleSendMessageInternal(s, lastUser.content, userId, lastUser.id);
+  handleSendMessageInternal(s, userId, connectionId);
 }
 async function handleSendMessage(sessionId, userMessageId, content, connectionId, userId) {
   log("info", `send_message sessionId=${sessionId} userMessageId=${userMessageId} contentLen=${content.length}`);
@@ -28563,219 +28562,11 @@ async function handleSendMessage(sessionId, userMessageId, content, connectionId
     send({ type: "generation_error", sessionId, error: `session ${sessionId} not found` }, userId);
     return;
   }
-  const c = await spindle.characters.get(s.characterId, userId);
-  if (!c) {
-    send({ type: "generation_error", sessionId, error: `character ${s.characterId} not found` }, userId);
-    return;
-  }
-  if (connectionId !== undefined && connectionId !== null && s.connectionId !== connectionId) {
-    s.connectionId = connectionId;
-  }
-  const ac = new AbortController;
-  activeSessions.set(sessionId, ac);
-  const userMsg = {
-    id: userMessageId,
-    role: "user",
-    ts: Date.now(),
-    content
-  };
+  const userMsg = { id: userMessageId, role: "user", ts: Date.now(), content };
   s.messages.push(userMsg);
   s.llmHistory.push({ role: "user", content });
   await saveSession(spindle, s, userId);
-  const settings = await loadSettings(spindle, userId);
-  const autoFree = applyAutoFree(s.llmHistory, s.messages, !settings.connectionSupportsPromptCaching, s.sensitivityOverrides);
-  if (autoFree.freedCount > 0) {
-    s.llmHistory = autoFree.llmHistory;
-    s.messages = autoFree.messages;
-    await saveSession(spindle, s, userId);
-    send({ type: "auto_freed", sessionId, count: autoFree.freedCount, bytes: autoFree.freedBytes }, userId);
-  }
-  const systemMsg = await buildSessionSystemMessage(c, s, settings, userId);
-  const conv = [systemMsg, ...s.llmHistory];
-  applyJailbreakNonSystem(conv, settings);
-  const assistantId = makeId("msg");
-  const assistant = {
-    id: assistantId,
-    role: "assistant",
-    ts: Date.now(),
-    turn: 0,
-    blocks: [],
-    status: "streaming"
-  };
-  s.messages.push(assistant);
-  const tools = makeInitialToolSchemas();
-  const deferredToolSchemas = makeDeferredToolSchemaMap();
-  const dispatch = makeToolDispatch();
-  const effectiveConnId = connectionId ?? s.connectionId ?? undefined;
-  const samplerParams = samplersToWireWithRequired(settings.samplers);
-  let currentTextBlock = null;
-  let currentReasoningBlock = null;
-  const toolBlocks = new Map;
-  const turnsExecuted = 0;
-  let lastTurn = 0;
-  const flushText = () => {
-    currentTextBlock = null;
-  };
-  const flushReasoning = () => {
-    currentReasoningBlock = null;
-  };
-  let errored = false;
-  try {
-    for await (const ev of runAgent({
-      spindle,
-      userId,
-      sessionId,
-      characterId: s.characterId,
-      assistantMessageId: assistantId,
-      pinnedChatId: s.pinnedChatId ?? null,
-      conversation: conv,
-      tools,
-      deferredToolSchemas,
-      dispatch,
-      ...effectiveConnId !== undefined ? { connectionId: effectiveConnId } : {},
-      parameters: samplerParams,
-      ...settings.samplers.contextSize !== null ? { contextTokens: settings.samplers.contextSize } : {},
-      toolOutputCapTokens: resolveToolOutputCapTokens(settings),
-      tokenizerModelId: await resolveModelForConnection(s.connectionId, userId),
-      maxTurns: DEFAULT_MAX_TURNS_PER_MESSAGE,
-      startingTurn: lastTurn,
-      cacheMode: settings.cacheMode,
-      signal: ac.signal,
-      callFrontend: (op, args, timeoutMs) => callFrontend(userId, op, args, timeoutMs)
-    })) {
-      send({ type: "chat_event", sessionId, event: ev }, userId);
-      switch (ev.type) {
-        case "turn_started":
-          assistant.turn = ev.turn;
-          lastTurn = ev.turn;
-          flushText();
-          flushReasoning();
-          break;
-        case "llm_token": {
-          if (!currentTextBlock) {
-            currentTextBlock = { type: "text", content: ev.token };
-            assistant.blocks.push(currentTextBlock);
-          } else {
-            currentTextBlock.content += ev.token;
-          }
-          break;
-        }
-        case "llm_reasoning": {
-          if (!currentReasoningBlock) {
-            currentReasoningBlock = { type: "reasoning", content: ev.token };
-            assistant.blocks.push(currentReasoningBlock);
-          } else {
-            currentReasoningBlock.content += ev.token;
-          }
-          break;
-        }
-        case "tool_started": {
-          flushText();
-          flushReasoning();
-          const block = {
-            type: "tool",
-            call_id: ev.call_id,
-            name: ev.name,
-            args: ev.args,
-            edit_ids: []
-          };
-          assistant.blocks.push(block);
-          toolBlocks.set(ev.call_id, block);
-          break;
-        }
-        case "tool_finished": {
-          const block = toolBlocks.get(ev.call_id);
-          if (block) {
-            block.result = ev.result;
-            block.is_error = ev.is_error;
-            block.edit_ids = [...ev.edit_ids];
-            if (ev.sensitivity)
-              block.sensitivity = ev.sensitivity;
-          }
-          break;
-        }
-        case "edit_logged":
-          s.edits.push(ev.entry);
-          appendEntries(spindle, s.characterId, [ev.entry], userId).catch((e) => log("warn", `ledger append failed: ${e.message}`));
-          break;
-        case "revert_logged": {
-          if (ev.outcome.kind === "clean" || ev.outcome.kind === "noop_already_reverted") {
-            const idsToMark = new Set([ev.editId]);
-            if (ev.outcome.kind === "clean" && ev.outcome.cascadedEditIds) {
-              for (const c2 of ev.outcome.cascadedEditIds)
-                idsToMark.add(c2);
-            }
-            for (const e of s.edits) {
-              if (idsToMark.has(e.id) && !e.reverted) {
-                e.reverted = true;
-                e.revertedAt = Date.now();
-              }
-            }
-          }
-          send({ type: "edit_reverted", characterId: s.characterId, editId: ev.editId, outcome: ev.outcome }, userId);
-          break;
-        }
-        case "edits_resynced": {
-          loadLedger(spindle, s.characterId, userId).then((l) => send({ type: "character_edits_pushed", characterId: s.characterId, entries: entriesView(l) }, userId)).catch((e) => log("warn", `edits resync failed: ${e.message}`));
-          break;
-        }
-        case "sensitivity_override": {
-          if (!s.sensitivityOverrides)
-            s.sensitivityOverrides = {};
-          s.sensitivityOverrides[ev.call_id] = ev.sensitivity;
-          for (const m of s.messages) {
-            if (m.role !== "assistant")
-              continue;
-            for (const b of m.blocks) {
-              if (b.type === "tool" && b.call_id === ev.call_id)
-                b.sensitivity = ev.sensitivity;
-            }
-          }
-          break;
-        }
-        case "warning":
-          assistant.blocks.push({ type: "warning", message: ev.message });
-          break;
-        case "turn_completed":
-          assistant.finish_reason = ev.finish_reason;
-          if (ev.usage) {
-            assistant.usage = ev.usage;
-            s.lastPromptTokens = ev.usage.prompt;
-            emitContextUsage(s, resolveContextTokens(settings.samplers), userId);
-          }
-          if (ev.cleanedContent !== undefined)
-            replaceAssistantTextBlocks(assistant, ev.cleanedContent);
-          s.llmHistory = conv.slice(1);
-          await saveSession(spindle, s, userId).catch((e) => log("warn", `mid-stream save failed: ${e.message}`));
-          break;
-        case "paused_for_input":
-          assistant.status = "complete";
-          break;
-      }
-    }
-  } catch (err) {
-    errored = true;
-    assistant.status = "errored";
-    const msg = err.message;
-    log("error", `session ${sessionId} send_message threw: ${msg}`);
-    send({ type: "generation_error", sessionId, error: msg }, userId);
-  }
-  activeSessions.delete(sessionId);
-  s.llmHistory = conv.slice(1);
-  if (ac.signal.aborted && !errored) {
-    assistant.status = "cancelled";
-  }
-  await saveSession(spindle, s, userId);
-  await autosquashAndNotify(s.characterId, assistantId, userId);
-  if (ac.signal.aborted) {
-    send({ type: "generation_cancelled", sessionId }, userId);
-  } else if (!errored) {
-    send({ type: "generation_done", sessionId, turns: lastTurn - (turnsExecuted ? 0 : 0) }, userId);
-    if (shouldAutoCompact(s, settings.samplers)) {
-      compactSession(sessionId, userId, "auto");
-    }
-  }
-  handleListSessions(undefined, userId);
+  await handleSendMessageInternal(s, userId, connectionId);
 }
 function handleCancelGeneration(sessionId, userId) {
   const ac = activeSessions.get(sessionId);
@@ -29145,7 +28936,7 @@ async function handleFreeToolResult(sessionId, callId, userId) {
   await saveSession(spindle, s, userId);
   send({ type: "session_truncated", sessionId, messages: s.messages, edits: s.edits }, userId);
 }
-async function handleEditUserMessage(sessionId, messageId, newContent, editsAction, userId) {
+async function handleEditUserMessage(sessionId, messageId, newContent, editsAction, connectionId, userId) {
   if (activeSessions.has(sessionId)) {
     send({ type: "generation_error", sessionId, error: "wait for the current generation to finish" }, userId);
     return;
@@ -29175,9 +28966,9 @@ async function handleEditUserMessage(sessionId, messageId, newContent, editsActi
   s.llmHistory = rebuildLlmHistory(s.messages);
   await saveSession(spindle, s, userId);
   send({ type: "session_truncated", sessionId, messages: s.messages, edits: s.edits }, userId);
-  handleSendMessageInternal(s, newContent, userId, messageId);
+  handleSendMessageInternal(s, userId, connectionId);
 }
-async function handleRegenerateAssistant(sessionId, assistantMessageId, editsAction, userId) {
+async function handleRegenerateAssistant(sessionId, assistantMessageId, editsAction, connectionId, userId) {
   if (activeSessions.has(sessionId)) {
     send({ type: "generation_error", sessionId, error: "wait for the current generation to finish" }, userId);
     return;
@@ -29203,7 +28994,6 @@ async function handleRegenerateAssistant(sessionId, assistantMessageId, editsAct
     send({ type: "generation_error", sessionId, error: "no preceding user message to regenerate from" }, userId);
     return;
   }
-  const triggerMsg = s.messages[userIdx];
   const tailMessageIds = new Set(s.messages.slice(idx).filter((m) => m.role === "assistant").map((m) => m.id));
   const editsToReview = s.edits.filter((e) => e.assistantMessageId !== undefined && tailMessageIds.has(e.assistantMessageId) && !e.reverted);
   if (editsAction === "revert" && editsToReview.length > 0) {
@@ -29218,9 +29008,12 @@ async function handleRegenerateAssistant(sessionId, assistantMessageId, editsAct
   s.llmHistory = rebuildLlmHistory(s.messages);
   await saveSession(spindle, s, userId);
   send({ type: "session_truncated", sessionId, messages: s.messages, edits: s.edits }, userId);
-  handleSendMessageInternal(s, triggerMsg.content, userId, triggerMsg.id);
+  handleSendMessageInternal(s, userId, connectionId);
 }
-async function handleSendMessageInternal(s, _userMessageContent, userId, _userMessageId) {
+async function handleSendMessageInternal(s, userId, connectionIdOverride) {
+  if (connectionIdOverride && s.connectionId !== connectionIdOverride) {
+    s.connectionId = connectionIdOverride;
+  }
   const c = await spindle.characters.get(s.characterId, userId);
   if (!c) {
     send({ type: "generation_error", sessionId: s.sessionId, error: `character ${s.characterId} not found` }, userId);
@@ -29229,7 +29022,7 @@ async function handleSendMessageInternal(s, _userMessageContent, userId, _userMe
   const ac = new AbortController;
   activeSessions.set(s.sessionId, ac);
   const settings = await loadSettings(spindle, userId);
-  const autoFreeInternal = applyAutoFree(s.llmHistory, s.messages, !settings.connectionSupportsPromptCaching, s.sensitivityOverrides);
+  const autoFreeInternal = applyAutoFree(s.llmHistory, s.messages, settings.autoFreeOldToolResults, s.sensitivityOverrides);
   if (autoFreeInternal.freedCount > 0) {
     s.llmHistory = autoFreeInternal.llmHistory;
     s.messages = autoFreeInternal.messages;
@@ -29270,6 +29063,7 @@ async function handleSendMessageInternal(s, _userMessageContent, userId, _userMe
       tokenizerModelId: await resolveModelForConnection(s.connectionId, userId),
       maxTurns: DEFAULT_MAX_TURNS_PER_MESSAGE,
       startingTurn: lastTurn,
+      cacheMode: settings.cacheMode,
       signal: ac.signal,
       callFrontend: (op, args, timeoutMs) => callFrontend(userId, op, args, timeoutMs)
     })) {
@@ -29310,6 +29104,8 @@ async function handleSendMessageInternal(s, _userMessageContent, userId, _userMe
             block.result = ev.result;
             block.is_error = ev.is_error;
             block.edit_ids = [...ev.edit_ids];
+            if (ev.sensitivity)
+              block.sensitivity = ev.sensitivity;
           }
           break;
         }
@@ -29375,7 +29171,9 @@ async function handleSendMessageInternal(s, _userMessageContent, userId, _userMe
   } catch (err) {
     errored = true;
     assistant.status = "errored";
-    send({ type: "generation_error", sessionId: s.sessionId, error: err.message }, userId);
+    const msg = err.message;
+    log("error", `session ${s.sessionId} generation threw: ${msg}`);
+    send({ type: "generation_error", sessionId: s.sessionId, error: msg }, userId);
   }
   activeSessions.delete(s.sessionId);
   s.llmHistory = conv.slice(1);
@@ -29452,10 +29250,10 @@ spindle.onFrontendMessage(async (raw, userId) => {
         await handleRevertSession(msg.sessionId, userId);
         return;
       case "edit_user_message":
-        handleEditUserMessage(msg.sessionId, msg.messageId, msg.newContent, msg.editsAction, userId);
+        handleEditUserMessage(msg.sessionId, msg.messageId, msg.newContent, msg.editsAction, msg.connectionId, userId);
         return;
       case "regenerate_assistant_message":
-        handleRegenerateAssistant(msg.sessionId, msg.assistantMessageId, msg.editsAction, userId);
+        handleRegenerateAssistant(msg.sessionId, msg.assistantMessageId, msg.editsAction, msg.connectionId, userId);
         return;
       case "delete_message":
         handleDeleteMessage(msg.sessionId, msg.messageId, msg.editsAction, userId);
@@ -29473,7 +29271,7 @@ spindle.onFrontendMessage(async (raw, userId) => {
         await handleGetSettings(userId);
         return;
       case "update_settings":
-        await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.connectionSupportsPromptCaching ?? true, msg.cacheMode ?? "full", userId);
+        await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.connectionSupportsPromptCaching ?? true, msg.autoFreeOldToolResults ?? false, msg.cacheMode ?? "full", userId);
         return;
       case "get_ui_prefs":
         await handleGetUiPrefs(userId);

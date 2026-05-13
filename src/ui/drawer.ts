@@ -76,7 +76,7 @@ interface UiState {
   characterLedger: EditLogEntry[];
   chatsForCharacter: ChatSummary[];
   pinnedChatId: string | null;
-  settings: { persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody?: string; samplers?: Readonly<Record<string, number | null>>; jailbreak?: string; jailbreakPlacement?: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes?: number | null; workspaceCapDefaultBytes?: number; workspaceFileCapBytes?: number; toolOutputCapTokens?: number | null; toolOutputCapDefaultTokens?: number; connectionSupportsPromptCaching?: boolean; cacheMode?: "off" | "system_only" | "full" } | null;
+  settings: { persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody?: string; samplers?: Readonly<Record<string, number | null>>; jailbreak?: string; jailbreakPlacement?: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes?: number | null; workspaceCapDefaultBytes?: number; workspaceFileCapBytes?: number; toolOutputCapTokens?: number | null; toolOutputCapDefaultTokens?: number; connectionSupportsPromptCaching?: boolean; autoFreeOldToolResults?: boolean; cacheMode?: "off" | "system_only" | "full" } | null;
   pendingPinChatId: string | null;
   // Single-shot, reset after consume so a later list_chats won't re-pin after the user explicitly unpinned.
   autoPinNeeded: boolean;
@@ -773,11 +773,11 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
           });
           if (!c.confirmed) return;
         }
-        sendBackend({ type: "edit_user_message", sessionId: state.sessionId, messageId, newContent, editsAction });
+        sendBackend({ type: "edit_user_message", sessionId: state.sessionId, messageId, newContent, editsAction, ...(state.connectionId ? { connectionId: state.connectionId } : {}) });
       },
       onRegenerateAssistant: async (assistantMessageId: string, editsAction: "keep" | "revert") => {
         if (!state.sessionId) return;
-        sendBackend({ type: "regenerate_assistant_message", sessionId: state.sessionId, assistantMessageId, editsAction });
+        sendBackend({ type: "regenerate_assistant_message", sessionId: state.sessionId, assistantMessageId, editsAction, ...(state.connectionId ? { connectionId: state.connectionId } : {}) });
       },
       onDeleteMessage: async (messageId: string, editsAction: "keep" | "revert") => {
         if (!state.sessionId) return;
@@ -1235,7 +1235,16 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     cacheSupportInput.className = "la-checkbox";
     cacheSupportRow.appendChild(cacheSupportInput);
     wrap.appendChild(cacheSupportRow);
-    wrap.appendChild(el("div", "la-settings-hint", "Leave ON for Anthropic, OpenAI, Bedrock, Gemini. Turn OFF for proxies or local models that don't honour cache_control. When OFF, insensitive tool results auto-free after 10 user turns to keep context small."));
+    wrap.appendChild(el("div", "la-settings-hint", "Leave ON for Anthropic, OpenAI, Bedrock, Gemini, OpenRouter (Anthropic routes). Turn OFF for proxies or local models that don't honour cache_control."));
+
+    const autoFreeRow = el("div", "la-settings-row");
+    autoFreeRow.append(el("label", "la-settings-row-label", "Auto-free old tool results"));
+    const autoFreeInput = document.createElement("input");
+    autoFreeInput.type = "checkbox";
+    autoFreeInput.className = "la-checkbox";
+    autoFreeRow.appendChild(autoFreeInput);
+    wrap.appendChild(autoFreeRow);
+    wrap.appendChild(el("div", "la-settings-hint", "Stub-replace insensitive tool results after 10 user turns to save context. Off by default. Turn on if you're on a provider that doesn't honour cache markers AND you see context grow unchecked."));
 
     const status = el("div", "la-composer-status");
     wrap.appendChild(status);
@@ -1277,6 +1286,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       toolCapInput.value = s.toolOutputCapTokens ? String(s.toolOutputCapTokens) : "";
       cacheModeSelect.value = s.cacheMode ?? "full";
       cacheSupportInput.checked = s.connectionSupportsPromptCaching ?? true;
+      autoFreeInput.checked = s.autoFreeOldToolResults ?? false;
       renderSamplers();
     };
 
@@ -1421,6 +1431,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         workspaceCapBytes: parseCapMb(wsCapInput.value),
         toolOutputCapTokens: parsePosInt(toolCapInput.value),
         connectionSupportsPromptCaching: cacheSupportInput.checked,
+        autoFreeOldToolResults: autoFreeInput.checked,
         cacheMode: (cacheModeSelect.value as "off" | "system_only" | "full"),
       });
       status.textContent = "Saved.";
@@ -1989,7 +2000,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       case "auto_freed": {
         const notice = el("div", "la-error-banner");
         notice.appendChild(el("div", "la-error-banner-title", "Old tool results auto-freed"));
-        notice.appendChild(el("pre", "la-error-banner-body", `Freed ${msg.count} insensitive tool result${msg.count === 1 ? "" : "s"} (${Math.round(msg.bytes / 1024)} KB) to keep context small. Enable prompt caching in Agent Settings if your provider supports it; that disables auto-free.`));
+        notice.appendChild(el("pre", "la-error-banner-body", `Freed ${msg.count} insensitive tool result${msg.count === 1 ? "" : "s"} (${Math.round(msg.bytes / 1024)} KB) to keep context small. Turn 'Auto-free old tool results' off in Agent Settings to disable.`));
         thread.appendChild(notice);
         setTimeout(() => notice.remove(), 8000);
         break;
@@ -2112,6 +2123,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
           toolOutputCapTokens: msg.toolOutputCapTokens,
           toolOutputCapDefaultTokens: msg.toolOutputCapDefaultTokens,
           connectionSupportsPromptCaching: msg.connectionSupportsPromptCaching,
+          autoFreeOldToolResults: msg.autoFreeOldToolResults,
           cacheMode: msg.cacheMode,
         };
         for (const h of settingsListeners.handlers) h();

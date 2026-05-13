@@ -7160,12 +7160,12 @@ Revert those edits to the character now, or leave them applied?`;
           if (!c.confirmed)
             return;
         }
-        sendBackend({ type: "edit_user_message", sessionId: state.sessionId, messageId, newContent, editsAction });
+        sendBackend({ type: "edit_user_message", sessionId: state.sessionId, messageId, newContent, editsAction, ...state.connectionId ? { connectionId: state.connectionId } : {} });
       },
       onRegenerateAssistant: async (assistantMessageId, editsAction) => {
         if (!state.sessionId)
           return;
-        sendBackend({ type: "regenerate_assistant_message", sessionId: state.sessionId, assistantMessageId, editsAction });
+        sendBackend({ type: "regenerate_assistant_message", sessionId: state.sessionId, assistantMessageId, editsAction, ...state.connectionId ? { connectionId: state.connectionId } : {} });
       },
       onDeleteMessage: async (messageId, editsAction) => {
         if (!state.sessionId)
@@ -7501,7 +7501,7 @@ Revert those edits to the character now, or leave them applied?`;
     personaResetRow.appendChild(personaResetBtn);
     wrap.appendChild(personaResetRow);
     wrap.appendChild(el8("label", "la-settings-label", "System prompt body"));
-    wrap.appendChild(el8("div", "la-settings-hint", "Advanced. The technical body. Tool guidance, working principles, edit discipline. The persona, LumiRealm, pinned-chat, and external-provider sections are appended automatically; you only own this body. The default is shown so you can see what you're editing."));
+    wrap.appendChild(el8("div", "la-settings-hint", "The technical body. Tool guidance, working principles, edit discipline. The persona, LumiRealm, pinned-chat, and external-provider sections are appended automatically; you only own this body."));
     const promptArea = document.createElement("textarea");
     promptArea.className = "la-settings-textarea la-settings-textarea-tall";
     promptArea.rows = 12;
@@ -7553,7 +7553,7 @@ Revert those edits to the character now, or leave them applied?`;
     notesRow.appendChild(notesBtn);
     wrap.appendChild(notesRow);
     wrap.appendChild(el8("label", "la-settings-label", "Storage limits"));
-    wrap.appendChild(el8("div", "la-settings-hint", "Per-user storage cap for the workspace. Leave blank to use the default. Value in MB."));
+    wrap.appendChild(el8("div", "la-settings-hint", "Per-user storage cap for the workspace."));
     const wsCapRow = el8("div", "la-settings-row");
     wsCapRow.append(el8("label", "la-settings-row-label", "Workspace cap (MB)"));
     const wsCapInput = document.createElement("input");
@@ -7564,9 +7564,9 @@ Revert those edits to the character now, or leave them applied?`;
     wsCapRow.appendChild(wsCapInput);
     wrap.appendChild(wsCapRow);
     wrap.appendChild(el8("label", "la-settings-label", "Tool output cap"));
-    wrap.appendChild(el8("div", "la-settings-hint", "Opt-in. Set a positive number to dump any single tool result over that many tokens to a tmp file the agent can grep/read. Leave blank to disable — per-tool spill (chat reads, lorebook lists, etc.) still runs either way. 8000 is a reasonable starting value if you want to enable it."));
+    wrap.appendChild(el8("div", "la-settings-hint", "Set to dump any single tool result over that many tokens to a tmp file the agent can grep/read to avoid blowing up context."));
     const toolCapRow = el8("div", "la-settings-row");
-    toolCapRow.append(el8("label", "la-settings-row-label", "Tool output cap (tokens)"));
+    toolCapRow.append(el8("label", "la-settings-row-label", "Tool output cap (tk)"));
     const toolCapInput = document.createElement("input");
     toolCapInput.type = "number";
     toolCapInput.className = "la-slider-input";
@@ -7575,7 +7575,7 @@ Revert those edits to the character now, or leave them applied?`;
     toolCapRow.appendChild(toolCapInput);
     wrap.appendChild(toolCapRow);
     wrap.appendChild(el8("label", "la-settings-label", "Prompt caching"));
-    wrap.appendChild(el8("div", "la-settings-hint", "Marks parts of every request as cacheable so supported providers (Anthropic, OpenAI, Bedrock, Gemini) charge ~10% on cache reads instead of 100%. Full mode caches the system prompt + a rolling user-turn breakpoint two turns behind the latest. System only skips the rolling breakpoint. Off attaches no markers."));
+    wrap.appendChild(el8("div", "la-settings-hint", "Marks parts of every request as cacheable so supported providers (Anthropic, OpenAI, Bedrock, Gemini) charge a fraction on cache reads. Full mode caches two turns behind the latest message. System only caches the system prompt. Off attaches no markers."));
     const cacheModeRow = el8("div", "la-settings-row");
     cacheModeRow.append(el8("label", "la-settings-row-label", "Cache mode"));
     const cacheModeSelect = document.createElement("select");
@@ -7595,7 +7595,15 @@ Revert those edits to the character now, or leave them applied?`;
     cacheSupportInput.className = "la-checkbox";
     cacheSupportRow.appendChild(cacheSupportInput);
     wrap.appendChild(cacheSupportRow);
-    wrap.appendChild(el8("div", "la-settings-hint", "Leave ON for Anthropic, OpenAI, Bedrock, Gemini. Turn OFF for proxies or local models that don't honour cache_control. When OFF, insensitive tool results auto-free after 10 user turns to keep context small."));
+    wrap.appendChild(el8("div", "la-settings-hint", "Leave ON for Anthropic, OpenAI, Bedrock, Gemini, OpenRouter (Anthropic routes). Turn OFF for proxies or local models that don't honour cache_control."));
+    const autoFreeRow = el8("div", "la-settings-row");
+    autoFreeRow.append(el8("label", "la-settings-row-label", "Auto-free old tool results"));
+    const autoFreeInput = document.createElement("input");
+    autoFreeInput.type = "checkbox";
+    autoFreeInput.className = "la-checkbox";
+    autoFreeRow.appendChild(autoFreeInput);
+    wrap.appendChild(autoFreeRow);
+    wrap.appendChild(el8("div", "la-settings-hint", "Stub-replace insensitive tool results after 10 user turns to save context. Off by default. Turn on if you're on a provider that doesn't honour cache markers AND you see context grow unchecked."));
     const status = el8("div", "la-composer-status");
     wrap.appendChild(status);
     const actions = el8("div", "la-settings-actions");
@@ -7623,7 +7631,7 @@ Revert those edits to the character now, or leave them applied?`;
         return;
       }
       personaArea.value = s.persona;
-      personaArea.placeholder = "(empty — agent has no persona)";
+      personaArea.placeholder = "(empty: agent has no persona)";
       promptArea.value = s.systemPromptOverride ?? (s.defaultSystemPromptBody ?? "");
       if (s.samplers)
         samplerBag = { ...s.samplers };
@@ -7637,6 +7645,7 @@ Revert those edits to the character now, or leave them applied?`;
       toolCapInput.value = s.toolOutputCapTokens ? String(s.toolOutputCapTokens) : "";
       cacheModeSelect.value = s.cacheMode ?? "full";
       cacheSupportInput.checked = s.connectionSupportsPromptCaching ?? true;
+      autoFreeInput.checked = s.autoFreeOldToolResults ?? false;
       renderSamplers();
     };
     const resetAllSamplers = () => {
@@ -7803,6 +7812,7 @@ Revert those edits to the character now, or leave them applied?`;
         workspaceCapBytes: parseCapMb(wsCapInput.value),
         toolOutputCapTokens: parsePosInt(toolCapInput.value),
         connectionSupportsPromptCaching: cacheSupportInput.checked,
+        autoFreeOldToolResults: autoFreeInput.checked,
         cacheMode: cacheModeSelect.value
       });
       status.textContent = "Saved.";
@@ -8359,7 +8369,7 @@ Revert those edits to the character now, or leave them applied?`;
       case "auto_freed": {
         const notice = el8("div", "la-error-banner");
         notice.appendChild(el8("div", "la-error-banner-title", "Old tool results auto-freed"));
-        notice.appendChild(el8("pre", "la-error-banner-body", `Freed ${msg.count} insensitive tool result${msg.count === 1 ? "" : "s"} (${Math.round(msg.bytes / 1024)} KB) to keep context small. Enable prompt caching in Agent Settings if your provider supports it; that disables auto-free.`));
+        notice.appendChild(el8("pre", "la-error-banner-body", `Freed ${msg.count} insensitive tool result${msg.count === 1 ? "" : "s"} (${Math.round(msg.bytes / 1024)} KB) to keep context small. Turn 'Auto-free old tool results' off in Agent Settings to disable.`));
         thread.appendChild(notice);
         setTimeout(() => notice.remove(), 8000);
         break;
@@ -8489,6 +8499,7 @@ Revert those edits to the character now, or leave them applied?`;
           toolOutputCapTokens: msg.toolOutputCapTokens,
           toolOutputCapDefaultTokens: msg.toolOutputCapDefaultTokens,
           connectionSupportsPromptCaching: msg.connectionSupportsPromptCaching,
+          autoFreeOldToolResults: msg.autoFreeOldToolResults,
           cacheMode: msg.cacheMode
         };
         for (const h of settingsListeners.handlers)

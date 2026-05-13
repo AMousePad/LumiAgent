@@ -31,10 +31,11 @@ export interface AgentSettings {
   // null = inherit the default. Stored bytes, not megabytes.
   readonly workspaceCapBytes: number | null;
   readonly toolOutputCapTokens: number | null;
-  // When true, the active connection supports prompt caching (Anthropic,
-  // OpenAI, Bedrock-Claude, Google Gemini, etc.). Disables auto-free of
-  // insensitive tool results, since keeping them is cheap when cached.
+  // Drives only cache_control marker placement. Auto-free has its own toggle.
   readonly connectionSupportsPromptCaching: boolean;
+  // Stub-replace insensitive tool results after 10 user turns. Off by default.
+  // Path-based consolidation + 1h cache TTL made age-based trimming counterproductive.
+  readonly autoFreeOldToolResults: boolean;
   // "full"        = cache both the system message and the rolling user-turn breakpoint (default).
   // "system_only" = cache only the system message; skip the rolling user-turn breakpoint.
   // "off"         = attach no cache_control markers at all. Provider charges full rate.
@@ -76,6 +77,7 @@ export function defaultSettings(): AgentSettings {
     workspaceCapBytes: null,
     toolOutputCapTokens: null,
     connectionSupportsPromptCaching: true,
+    autoFreeOldToolResults: false,
     cacheMode: "full",
   };
 }
@@ -116,6 +118,7 @@ export async function loadSettings(spindle: SpindleAPI, userId: string): Promise
     workspaceCapBytes: coercePositiveInt(s["workspaceCapBytes"]),
     toolOutputCapTokens: coercePositiveInt(s["toolOutputCapTokens"]),
     connectionSupportsPromptCaching: typeof s["connectionSupportsPromptCaching"] === "boolean" ? (s["connectionSupportsPromptCaching"] as boolean) : true,
+    autoFreeOldToolResults: typeof s["autoFreeOldToolResults"] === "boolean" ? (s["autoFreeOldToolResults"] as boolean) : false,
     cacheMode: coerceCacheMode(s["cacheMode"]),
   };
 }
