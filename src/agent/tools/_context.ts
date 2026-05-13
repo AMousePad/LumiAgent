@@ -7,8 +7,8 @@ export interface ToolCtx {
   readonly sessionId: string;
   readonly characterId: string;
   // Id of the assistant message that owns this run. Set by the agent loop.
-  // Tools that need to scope work to "this response" (revert_my_edits,
-  // squash_my_edits) read it. Empty string only in synthetic/test contexts.
+  // Tools that need to scope work to "this response" (revert_session_edits,
+  // squash_session_edits) read it. Empty string only in synthetic/test contexts.
   readonly assistantMessageId: string;
   readonly pinnedChatId: string | null;
   readonly signal: AbortSignal;

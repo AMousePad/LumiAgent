@@ -62,43 +62,98 @@ function previewArgs(args: Record<string, unknown>): string {
   } catch { return "{…}"; }
 }
 
+function shortId(id: string): string {
+  return id.length > 8 ? `${id.slice(0, 8)}…` : id;
+}
+
+function truncate(s: string, max: number): string {
+  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+}
+
+// Leaf paths address one string-valued surface. Returns null when the path
+// looks like a container instead.
+function describePathLeaf(path: string): string | null {
+  let m = /^char\/alternate_greetings\/(\d+)$/.exec(path);
+  if (m) return `alternate greeting #${m[1]}`;
+  m = /^char\/extensions\/(.+)$/.exec(path);
+  if (m) return `extensions.${m[1]}`;
+  m = /^char\/([^/]+)$/.exec(path);
+  if (m) return m[1]!;
+  m = /^rx\/([^/]+)\/(find_regex|replace_string)$/.exec(path);
+  if (m) return `regex ${shortId(m[1]!)}.${m[2]}`;
+  m = /^wb\/([^/]+)\/(content|comment)$/.exec(path);
+  if (m) return `world book entry ${shortId(m[1]!)}.${m[2]}`;
+  return null;
+}
+
+// Container paths address a parent that holds many leaves. Used by `list`
+// and as a fallback for `inspect` paths that point at a regex script or
+// world book without a field segment.
+function describePathContainer(path: string): string | null {
+  if (path === "" || path === "char" || path === "character") return "character overview";
+  if (path === "char/alternate_greetings" || path === "alternate_greetings") return "alternate greetings";
+  if (path === "rx" || path === "regex_scripts") return "regex scripts";
+  if (path === "wb" || path === "world_books") return "world books";
+  if (path === "char/extensions" || path === "extensions") return "extensions";
+  let m = /^(?:wb|world_books)\/([^/]+)$/.exec(path);
+  if (m) return `world book ${shortId(m[1]!)}`;
+  m = /^(?:char\/)?extensions\/(.+)$/.exec(path);
+  if (m) return `extensions.${m[1]}`;
+  m = /^rx\/([^/]+)$/.exec(path);
+  if (m) return `regex ${shortId(m[1]!)}`;
+  return null;
+}
+
+function describePath(path: string | undefined): string {
+  if (!path) return "?";
+  return describePathLeaf(path) ?? describePathContainer(path) ?? path;
+}
+
+function describeExternalTarget(surfaceId: string | undefined, itemId: string | undefined, field: string | undefined): string {
+  const sid = surfaceId ?? "?";
+  const iid = itemId ? shortId(itemId) : "?";
+  const f = field ? `.${field}` : "";
+  return `${sid}/${iid}${f}`;
+}
+
 function describeToolActivity(name: string, args: Record<string, unknown>): { kind: "read" | "write" | "create" | "delete" | "search" | "test" | "finish"; verb: string; target: string } {
   const s = (k: string): string | undefined => typeof args[k] === "string" ? args[k] as string : undefined;
   const n = (k: string): number | undefined => typeof args[k] === "number" ? args[k] as number : undefined;
   switch (name) {
+    // Path-based read/edit/inspect/list/grep — the workhorses.
+    case "read": return { kind: "read", verb: "Reading", target: describePath(s("path")) };
+    case "inspect": return { kind: "read", verb: "Inspecting", target: describePath(s("path")) };
+    case "list": return { kind: "read", verb: "Listing", target: describePathContainer(s("path") ?? "") ?? describePath(s("path")) };
+    case "grep": { const p = s("pattern"); return { kind: "search", verb: "Searching", target: p ? `for ${JSON.stringify(truncate(p, 40))}` : "the card" }; }
+    case "edit": return { kind: "write", verb: "Editing", target: describePath(s("path")) };
+    case "rewrite": return { kind: "write", verb: "Rewriting", target: describePath(s("path")) };
+    case "set": return { kind: "write", verb: "Setting", target: describePath(s("path")) };
     case "list_characters": return { kind: "read", verb: "Listing", target: "characters" };
     case "list_connections": return { kind: "read", verb: "Listing", target: "connections" };
-    case "list_world_books": return { kind: "read", verb: "Listing", target: "world books" };
-    case "list_world_book_entries": return { kind: "read", verb: "Listing", target: "world book entries" };
-    case "list_regex_scripts": return { kind: "read", verb: "Listing", target: "regex scripts" };
-    case "list_alternate_greetings": return { kind: "read", verb: "Listing", target: "alternate greetings" };
-    case "list_extension_keys": { const p = s("path"); return { kind: "read", verb: "Inspecting", target: p ? `extensions.${p}` : "extensions" }; }
-    case "grep_card": return { kind: "search", verb: "Searching", target: `for ${JSON.stringify(s("pattern") ?? "")}` };
     case "survey_cjk": return { kind: "search", verb: "Surveying", target: "CJK runs across the card" };
-    case "read_character_field": return { kind: "read", verb: "Reading", target: s("field") ?? "character field" };
-    case "read_alternate_greeting": { const i = n("index"); return { kind: "read", verb: "Reading", target: `alternate_greetings[${i ?? "?"}]` }; }
-    case "read_world_book_entry": return { kind: "read", verb: "Reading", target: `world book entry ${s("entry_id") ?? "?"}` };
-    case "read_regex_script_meta": return { kind: "read", verb: "Reading", target: `regex script ${s("script_id") ?? "?"} metadata` };
-    case "read_regex_script_field": return { kind: "read", verb: "Reading", target: `regex script ${s("script_id") ?? "?"}.${s("field") ?? "?"}` };
-    case "read_character_extension": return { kind: "read", verb: "Reading", target: `extensions.${s("path") ?? "?"}` };
-    case "edit_character_field": return { kind: "write", verb: "Editing", target: s("field") ?? "character field" };
-    case "edit_alternate_greeting": { const i = n("index"); return { kind: "write", verb: "Editing", target: `alternate_greetings[${i ?? "?"}]` }; }
-    case "edit_world_book_entry": return { kind: "write", verb: "Editing", target: `world book entry ${s("entry_id") ?? "?"}` };
-    case "edit_regex_script_field": return { kind: "write", verb: "Editing", target: `regex script ${s("script_id") ?? "?"}.${s("field") ?? "?"}` };
-    case "edit_character_extension": return { kind: "write", verb: "Editing", target: `extensions.${s("path") ?? "?"}` };
+    case "audit_card_coverage": { const lang = s("source_lang") ?? "cjk"; return { kind: "search", verb: "Auditing", target: `${lang} coverage` }; }
     case "update_character": return { kind: "write", verb: "Updating", target: `character (${Object.keys((args["patch"] as Record<string, unknown>) ?? {}).join(", ")})` };
-    case "update_world_book_entry": return { kind: "write", verb: "Updating", target: `world book entry ${s("entry_id") ?? "?"}` };
-    case "update_regex_script": return { kind: "write", verb: "Updating", target: `regex script ${s("script_id") ?? "?"}` };
-    case "update_character_extension": return { kind: "write", verb: "Replacing", target: `extensions.${s("path") ?? "?"}` };
+    case "update_regex_script": return { kind: "write", verb: "Updating", target: `regex ${shortId(s("script_id") ?? "?")} metadata` };
+    case "update_world_book_entry": return { kind: "write", verb: "Updating", target: `world book entry ${shortId(s("entry_id") ?? "?")} metadata` };
     case "create_world_book_entry": return { kind: "create", verb: "Creating", target: `world book entry${s("comment") ? ` '${s("comment")}'` : ""}` };
-    case "delete_world_book_entry": return { kind: "delete", verb: "Deleting", target: `world book entry ${s("entry_id") ?? "?"}` };
+    case "delete_world_book_entry": return { kind: "delete", verb: "Deleting", target: `world book entry ${shortId(s("entry_id") ?? "?")}` };
     case "create_regex_script": return { kind: "create", verb: "Creating", target: `regex script${s("name") ? ` '${s("name")}'` : ""}` };
-    case "delete_regex_script": return { kind: "delete", verb: "Deleting", target: `regex script ${s("script_id") ?? "?"}` };
-    case "create_alternate_greeting": { const i = n("index"); return { kind: "create", verb: "Adding", target: i !== undefined ? `alternate_greetings[${i}]` : "alternate greeting" }; }
-    case "delete_alternate_greeting": { const i = n("index"); return { kind: "delete", verb: "Deleting", target: `alternate_greetings[${i ?? "?"}]` }; }
+    case "delete_regex_script": return { kind: "delete", verb: "Deleting", target: `regex script ${shortId(s("script_id") ?? "?")}` };
+    case "create_alternate_greeting": { const i = n("index"); return { kind: "create", verb: "Adding", target: i !== undefined ? `alternate greeting #${i}` : "alternate greeting" }; }
+    case "delete_alternate_greeting": { const i = n("index"); return { kind: "delete", verb: "Deleting", target: `alternate greeting #${i ?? "?"}` }; }
     case "apply_glossary": { const e = (args["entries"] as Record<string, unknown>) ?? {}; const dry = args["dry_run"] === true; return { kind: dry ? "search" : "write", verb: dry ? "Dry-running" : "Applying", target: `glossary (${Object.keys(e).length} entries)` }; }
     case "test_regex": return { kind: "test", verb: "Testing", target: "regex pattern" };
     case "count_cjk_chars": return { kind: "read", verb: "Counting", target: "CJK chars" };
+    // External provider surfaces (phone-line protocol).
+    case "list_external": { const sid = s("surface_id"); return { kind: "read", verb: "Listing", target: sid ? `${sid} items` : "external items" }; }
+    case "read_external": return { kind: "read", verb: "Reading", target: describeExternalTarget(s("surface_id"), s("item_id"), s("field")) };
+    case "edit_external": return { kind: "write", verb: "Editing", target: describeExternalTarget(s("surface_id"), s("item_id"), s("field")) };
+    case "update_external": return { kind: "write", verb: "Updating", target: describeExternalTarget(s("surface_id"), s("item_id"), s("field")) };
+    case "grep_external": { const p = s("pattern"); const sid = s("surface_id") ?? "?"; return { kind: "search", verb: "Searching", target: p ? `${sid} for ${JSON.stringify(truncate(p, 30))}` : sid }; }
+    // Ledger.
+    case "list_session_edits": { const sc = s("scope") ?? "current_message"; return { kind: "read", verb: "Listing", target: `edits (${sc.replace(/_/g, " ")})` }; }
+    case "revert_session_edits": { const ids = Array.isArray(args["edit_ids"]) ? (args["edit_ids"] as unknown[]).length : 0; return { kind: "write", verb: "Reverting", target: ids === 1 ? "1 edit" : `${ids} edits` }; }
+    case "squash_session_edits": return { kind: "write", verb: "Squashing", target: "session edits" };
     case "todo_write": {
       const todos = Array.isArray(args["todos"]) ? args["todos"] as TodoItem[] : [];
       const active = todos.find((t) => t && t.status === "in_progress");

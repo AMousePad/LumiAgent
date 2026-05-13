@@ -5,13 +5,19 @@ import { revertEditWithCheck } from "../../state/edit-log";
 import { spliceRevertedFromSession } from "../../state/sessions";
 
 const inputSchema = z.object({
-  edit_ids: z.array(z.string().min(1)).min(1).max(50).describe("Edit ids from list_my_edits."),
+  edit_ids: z.array(z.string().min(1)).min(1).max(50).describe("Edit ids from list_session_edits."),
   allow_cross_session: z.boolean().optional().describe("Allow reverting edits you made in a DIFFERENT chat session. Default false: only current-session edits are revertable. Opt in only when the user asks to undo work from an earlier conversation."),
 }).strict();
 
-export const revertMyEditsTool = defineTool({
-  name: "revert_my_edits",
-  description: "Revert one or more of your own prior edits. Restricted by default to edits you authored in the CURRENT session. Set allow_cross_session: true to revert edits you made in earlier sessions for this character (use sparingly: the user from those earlier sessions doesn't know you're touching that history). Cascade-aware (if a later edit depended on a reverted one and can no longer apply, it gets reverted too and listed under cascadedEditIds). Edit ids come from list_my_edits.",
+export const revertSessionEditsTool = defineTool({
+  name: "revert_session_edits",
+  description: `Reverts one or more agent-authored edits by id.
+
+Usage:
+- Restricted by default to edits authored in the CURRENT session.
+- Set \`allow_cross_session: true\` to revert edits from earlier sessions on this character. Use sparingly; the user from those earlier sessions doesn't know about the change.
+- Cascade-aware: if a later edit depended on a reverted one and can no longer apply, it gets reverted too and listed under \`cascadedEditIds\`.
+- Edit ids come from \`list_session_edits\`.`,
   inputSchema,
   jsonSchema: {
     type: "object",

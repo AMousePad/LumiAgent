@@ -24,6 +24,7 @@ export function showPhonelineConsent(input: PhonelineConsentInput): Promise<Phon
 
     const isRevalidate = input.kind === "revalidate";
     const header = el("div", "la-phoneline-header");
+    header.appendChild(el("div", "la-phoneline-eyebrow", "LumiAgent"));
     header.appendChild(el("div", "la-phoneline-title",
       isRevalidate ? `Revalidate "${input.displayName}"?` : `Connect to "${input.displayName}"?`));
     modal.appendChild(header);

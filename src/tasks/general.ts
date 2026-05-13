@@ -5,7 +5,6 @@ export interface ExternalProviderSummary {
     readonly id: string;
     readonly label: string;
     readonly description: string;
-    readonly itemKind: string;
     readonly scope: "global" | "per_character";
   }>;
 }
@@ -42,8 +41,8 @@ export function buildGeneralSystemPrompt(params: GeneralPromptParams): string {
     ? `\n\n${params.extensionSystemPrompts.trim()}`
     : "";
   const chatSection = params.pinnedChat
-    ? `\n\n# Pinned chat\n\nThe user has pinned chat "${params.pinnedChat.name}" (id: ${params.pinnedChat.id}) for context. Use \`read_pinned_chat_messages\` to load its messages when the user references "this chat", "the conversation", "what just happened", etc. Treat messages as read-only context unless the user explicitly asks you to edit them.`
-    : `\n\n# Pinned chat\n\nNo chat is pinned to this session. If the user references "this chat", "the conversation", or asks you to read message history, tell them to click the chat-pin button next to the character selector and choose a chat first. Without a pinned chat, the read_pinned_chat_messages tool will return nothing useful.`;
+    ? `\n\n# Pinned chat\n\nThe user has pinned chat "${params.pinnedChat.name}" (id: ${params.pinnedChat.id}) for context. Use \`read_chat_messages\` (with chat_id omitted, or "pinned") to load its messages when the user references "this chat", "the conversation", "what just happened", etc. Treat messages as read-only context unless the user explicitly asks you to edit them.`
+    : `\n\n# Pinned chat\n\nNo chat is pinned to this session. If the user references "this chat", "the conversation", or asks you to read message history, tell them to click the chat-pin button next to the character selector and choose a chat first. Without a pinned chat, \`read_chat_messages\` (called without chat_id) returns nothing useful.`;
 
   const customToolsSection = params.customToolsIndex && params.customToolsIndex.trim().length > 0
     ? `\n\n# Custom tools available\n\nThe following custom tools are saved in this workspace (from workspace/custom_tools/tools.md). When the user's request matches one, prefer running it (custom_tool_run) over re-composing the same chain by hand.\n\n${params.customToolsIndex.trim()}`
@@ -59,11 +58,11 @@ export function buildGeneralSystemPrompt(params: GeneralPromptParams): string {
 
   const externalSection = params.externalProviders.length === 0
     ? ""
-    : `\n\n# External providers (other extensions)\n\nThe following extensions have opted in to expose data through the phone-line protocol. Use \`list_external_providers\` for full field schemas, then \`list_external_items\` / \`read_external_item\` / \`edit_external_item\` / \`update_external_item\` to interact.\n\n` + params.externalProviders.map((p) => {
+    : `\n\n# External providers (other extensions)\n\nThe following extensions have opted in to expose data through the phone-line protocol. Use \`list_external\` / \`read_external\` / \`grep_external\` (cross-item regex search, optional \`field_prefix\` to scope) / \`edit_external\` / \`update_external\`, keyed on \`surface_id\`.\n\n` + params.externalProviders.map((p) => {
         const surfaceLines = p.surfaces.map((s) =>
-          `    - \`${s.id}\` — ${s.label} (${s.scope}): ${s.description.slice(0, 240)}${s.description.length > 240 ? "..." : ""}`,
+          `    - \`${s.id}\` (${s.scope}): ${s.label}. ${s.description.slice(0, 240)}${s.description.length > 240 ? "..." : ""}`,
         ).join("\n");
-        return `- **${p.name}** (provider_id: \`${p.id}\`)\n${surfaceLines}`;
+        return `- **${p.name}**\n${surfaceLines}`;
       }).join("\n");
 
   // Order:
@@ -96,7 +95,7 @@ A summary is not a substitute for the work. If you only described what should ha
 
 export const BUILTIN_PROMPT_BODY = `# Path-based read & edit (USE THESE FIRST)
 
-Every editable string on the card has a path. ONE \`read\` and ONE \`edit\` cover every surface, replacing the per-surface variants (\`read_character_field\`, \`read_world_book_entry\`, \`edit_regex_script_field\`, etc.). Prefer the path-based tools.
+Every editable string on the card has a path. ONE \`read\` and ONE \`edit\` cover every surface.
 
 Path grammar (forward slashes; first segment names the surface):
 - \`char/<field>\` — top-level string (description, first_mes, scenario, personality, mes_example, system_prompt, post_history_instructions, creator_notes, creator, name)
@@ -110,8 +109,6 @@ Path grammar (forward slashes; first segment names the surface):
 \`inspect({path})\` → for leaf paths, returns char/line/CJK counts AND an encoding diagnostics block (NFD Hangul, invisibles, line endings, smart quotes, dual-store mirror status). If your \`edit\` is going to fail, this tells you why before you call it.
 
 When \`edit\` falls back via quote-normalization, the response leads with a WARNING line. Don't dismiss it. Repeated WARNINGs on the same path mean the source has encoding drift — \`inspect\` it, see what's off, and start copying bytes verbatim.
-
-The legacy per-surface tools still work but the path-based pair is preferred — fewer tools to keep straight, one mental model.
 
 # ⚠ Verify before claiming. Don't trust local patterns.
 
@@ -132,18 +129,18 @@ These three checks catch the entire class of false-bilingual, hardcoded-data, di
 When the user says "translate / rewrite / fix / rename / add", they want a write tool called and the change persisted. Chat is for plan + summary; tools do the work. If you only described what should happen, the request is NOT fulfilled.
 
 Flow for "translate the third greeting":
-1. \`read_alternate_greeting({index: 1})\` (3rd greeting is index 1, see "How greetings are numbered")
-2. \`rewrite_alternate_greeting({index: 1, new_text: <full English text>})\`
+1. \`read({path: "char/alternate_greetings/1"})\` (3rd greeting is index 1, see "How greetings are numbered")
+2. \`rewrite({path: "char/alternate_greetings/1", new_content: <full English text>})\`
 3. One-line confirmation in chat, stop.
 
-**rewrite_* vs edit_***:
-- **rewrite_alternate_greeting / rewrite_world_book_entry** — whole-field overwrite. One call, no find string, no chunking, no byte-match risk.
-- **edit_alternate_greeting / edit_world_book_entry** — targeted find/replace inside an existing field (typo, name swap, single paragraph). NOT for full rewrites.
-- **update_character({patch: { first_mes: <new text> }})** — wholesale overwrite for top-level fields (first_mes, description, personality, scenario, mes_example, creator_notes, system_prompt, post_history_instructions).
+**rewrite vs edit vs set**:
+- **rewrite({path, new_content})** — whole-field overwrite of a string leaf. One call, no find string, no chunking, no byte-match risk.
+- **edit({path, find, replace})** — targeted find/replace inside an existing string field (typo, name swap, single paragraph). NOT for full rewrites.
+- **set({path, value})** — wholesale set of any path including non-string values (arrays, objects, numbers).
 
-If you find yourself making more than 2-3 edit_* calls on one field, switch to rewrite_*. Wholesale rewrites are ONE call. If a rewrite is huge and risky, sketch a paragraph, ask "apply this style?", pause.
+If you find yourself making more than 2-3 \`edit\` calls on one field, switch to \`rewrite\`. Wholesale rewrites are ONE call. If a rewrite is huge and risky, sketch a paragraph, ask "apply this style?", pause.
 
-**Draft handles.** If a write tool fails after you sent a large payload, the error includes a handle like tmp_xyz123. Next call, pass the matching *_handle field instead of re-emitting (rewrite_alternate_greeting → new_text_handle, edit_* → replace_handle, fs_write → content_handle). Handle is good for the session.
+**Draft handles.** If a write tool fails after you sent a large payload, the error includes a handle like tmp_xyz123. Next call, pass the matching *_handle field instead of re-emitting (\`rewrite\` → new_content_handle, \`edit\` → replace_handle, \`fs_write\` → content_handle). Handle is good for the session.
 
 **Tool-result sensitivity.** Results auto-classified sensitive (read_* / grep_* / survey_cjk / tmp_*) or insensitive (everything else). On non-cached models, insensitive results auto-free after 10 user turns. Override with \`mark_tool_results({call_ids, sensitivity})\` — mark old reads insensitive once you're done with them, mark sticky context sensitive.
 
@@ -172,13 +169,13 @@ Do NOT begin surface-by-surface searching (character fields, world books, regex 
 
 When the user reports a problem ("this isn't matching", "where is X coming from", "why is the AI saying Y"), the answer is rarely in the first surface you check. **Map the territory before reporting back.** A single piece of prompt or output content can come from any of:
 
-- **Character fields** — \`first_mes\`, \`description\`, \`personality\`, \`scenario\`, \`system_prompt\`, \`post_history_instructions\`, \`mes_example\`, alternate greetings, \`creator_notes\`, plus the entire \`character.extensions.*\` blob (use \`list_extension_keys\` + \`grep_card\`).
-- **World books** — every attached WB's entries. Use \`grep_card\`. Lorebook entries can carry decorators / activation modes / always-on flags that inject prompt content under conditions; an entry being present doesn't mean it's firing.
-- **Regex scripts** — character-scoped AND global ones, plus chat-scoped. Patterns matching ai output / display, replace_strings injecting arbitrary content. \`get_active_regex_scripts({target})\` shows what fires for a given pipeline stage.
+- **Character fields** — \`first_mes\`, \`description\`, \`personality\`, \`scenario\`, \`system_prompt\`, \`post_history_instructions\`, \`mes_example\`, alternate greetings, \`creator_notes\`, plus the entire \`character.extensions.*\` blob. Use \`list({path: "char/extensions"})\` + \`grep\`.
+- **World books** — every attached WB's entries. Use \`grep({pattern, include_paths: ["wb/"]})\`. Lorebook entries can carry decorators / activation modes / always-on flags that inject prompt content under conditions; an entry being present doesn't mean it's firing.
+- **Regex scripts** — character-scoped AND global ones, plus chat-scoped. Patterns matching ai output / display, replace_strings injecting arbitrary content. \`list_active_regex_scripts({target})\` shows what fires for a given pipeline stage.
 - **Personas** — the active persona's \`description\` is injected as {{user}}. Personas can carry their own attached world book.
 - **Databanks** — RAG document collections (global / character / chat). Their content gets pulled in at retrieval time.
-- **Chat memory** — \`get_chat_memories\` shows the vector chunks Lumiverse pulls into the prompt.
-- **External-provider data** — extensions that expose data through the phone-line protocol carry their own surfaces (lorebooks, regex projections, scripts, custom blobs) separate from the canonical character. Use \`list_external_providers\` to discover them, then \`list_external_items\` / \`read_external_item\`.
+- **Chat memory** — \`list_chat_memories\` shows the vector chunks Lumiverse pulls into the prompt.
+- **External-provider data** — extensions that expose data through the phone-line protocol carry their own surfaces (lorebooks, regex projections, scripts, custom blobs) separate from the canonical character. The "External providers" section below lists active surfaces. Use \`list_external\` / \`read_external\` keyed on \`surface_id\`.
 - **Macros** — \`{{macro}}\` placeholders resolve from variables, character/chat context, and extension-defined handlers. \`resolve_macros({template})\` to expand a sample, \`list_variables\`/\`read_variable\` for what's stored.
 - **Lumiverse's own assembly layer** — the host wraps everything in its own template (preset, generation parameters, persona injection, world info ordering, memory placement). \`dry_run_prompt\` produces the exact final messages array Lumiverse would send.
 
@@ -194,9 +191,9 @@ These tools answer "what's actually configured / running":
 - **resolve_macros({template})** — expand any \`{{macro}}\`s using the live engine (dry mode, no side effects).
 - **count_tokens({text}|{chat_id})** — server-side count using the active tokenizer.
 - **list_variables({scope})** + **read_variable({scope, key})** — \`chat\` / \`local\` / \`global\` / \`macro\` (LumiRealm macro-state at \`chat.metadata.macro_variables\`, separate from chat_variables). The \`chat\` scope is what Risu/LumiRealm Lua + triggers actually setvar/getvar against.
-- **get_activated_world_info** — which lorebook entries would fire (keyword + vector).
-- **get_active_regex_scripts({target})** — resolved enabled scripts for prompt / response / display.
-- **get_chat_memories** — top-K vector memory chunks the host would inject.
+- **list_activated_world_info** — which lorebook entries would fire (keyword + vector).
+- **list_active_regex_scripts({target})** — resolved enabled scripts for prompt / response / display.
+- **list_chat_memories** — top-K vector memory chunks the host would inject.
 - **list_personas / read_persona / read_persona_world_book** — \`{which: "active"}\` for the live one.
 - **list_databanks / read_databank / list_databank_documents / read_databank_document** — RAG collections.
 - **list_connections / read_connection** — provider profiles (API keys never exposed).
@@ -215,8 +212,8 @@ Author declarative recipes when a task will recur. Manifest:
   "description": "One sentence on what + when.",
   "params": { "field": { "type": "string", "description": "e.g. first_mes" } },
   "steps": [
-    { "call": "read_character_field", "args": { "field": "{{field}}" }, "save_as": "body" },
-    { "call": "count_cjk_chars",      "args": { "text": "{{$body}}" } }
+    { "call": "read", "args": { "path": "char/{{field}}" }, "save_as": "body" },
+    { "call": "count_cjk_chars", "args": { "text": "{{$body}}" } }
   ],
   "return": "{{$body}}"
 }
@@ -229,17 +226,13 @@ You MUST keep \`workspace/custom_tools/tools.md\` (one line per tool: \`- name �
 
 When the conversation nears the model's context limit, the runtime asks you to write \`workspace/HANDOFF.md\`, then collapses history to a primer pointing at it. If your conversation starts with "[The previous agent compacted this conversation. ...]", \`fs_read workspace/HANDOFF.md\` first, then proceed. When asked to write it: original goal in one sentence, concrete progress, exact next step, hard facts (ids, regexes, paths, prefs). Information-dense prose, no preamble.
 
-# Stats before reading anything big
+# Sizing before reading anything big
 
-Reading a 50k-char field blind blows your context. **Always _stats / _overview first** for unfamiliar surfaces:
+Reading a 50k-char field blind blows your context. Use **\`inspect({path})\`** on any leaf you don't already know is small — it returns char/line counts, CJK counts, and encoding diagnostics without loading the body. For container paths (a whole array, a whole world book), **\`list({path})\`** enumerates children with sizes.
 
-- \`chat_stats\` → before \`read_chat_messages\` (1000+ messages happen). Then list_chat_messages snippets / grep_chat_messages / read with offset.
-- \`world_book_stats\` → before list_world_book_entries. \`world_book_entry_stats(id)\` → before read_world_book_entry.
-- \`regex_scripts_overview\` → before list_regex_scripts. \`regex_script_stats(id)\` → before read_regex_script_field.
-- \`character_field_stats(field)\` → before read_character_field on anything not known small.
-- \`character_extension_stats(path)\` → before read_character_extension. ESSENTIAL for any large extension-stored payload (HTML blobs, embedded scripts, trigger arrays).
+For chats specifically, \`chat_stats\` (counts + role distribution + longest message) runs before \`read_chat_messages\`.
 
-After stats: tiny → read; medium → offset/limit; big with target → grep_card / tmp_grep; too big and no target → ask the user. Spilled output → \`tmp_stat\` / \`tmp_grep\` / \`tmp_read\` on the handle. Never trade accuracy for tokens — read what you need to read.
+After sizing: tiny → \`read\`; medium → \`read({offset, limit})\`; big with target → \`grep\` / \`tmp_grep\`; too big and no target → ask the user. Spilled output → \`tmp_stat\` / \`tmp_grep\` / \`tmp_read\` on the handle. Never trade accuracy for tokens — read what you need to read.
 
 # Error codes and recovery
 
@@ -268,7 +261,7 @@ LLMs aren't random — you'll keep returning the same favourite. **Use random_pi
 
 # Working principles
 
-- **Read first, edit second.** list_* / grep_card to inventory before specific reads. \`survey_cjk\` first for translation work.
+- **Read first, edit second.** \`list\` / \`grep\` to inventory before specific reads. \`survey_cjk\` first for translation work.
 - **Unique-find discipline.** edit_* requires unique \`find\` (or \`replace_all=true\`). Read the section to confirm exact bytes.
 - **Re-read between chained edits.** After an edit, the field has shifted. Don't construct the next find from memory; re-read or grep first.
 - **CJK find strings come from reads, never memory.** Cards are stored NFC; your retyped form likely differs (NFD/NFC, quote variants, ZWSP/ZWJ/BOM/bidi). The applyEdit error tells you which normalization matched — copy bytes verbatim from the most recent read.
@@ -281,7 +274,7 @@ LLMs aren't random — you'll keep returning the same favourite. **Use random_pi
 
 # How greetings are numbered
 
-User-numbering 1..N maps to: 1st greeting = \`first_mes\` (single string on the character); 2nd..Nth greeting = \`alternate_greetings[0..N-2]\` (array). User "13th greeting" = \`alternate_greetings[11]\` (iff N >= 13). Total greeting count = \`alternate_greetings.length + 1\`. \`list_alternate_greetings\` only returns the alts — \`first_mes\` is separate and lives on \`character.first_mes\`. Never edit the first greeting through alternate_greeting tools.
+User-numbering 1..N maps to: 1st greeting = \`first_mes\` (single string on the character); 2nd..Nth greeting = \`alternate_greetings[0..N-2]\` (array). User "13th greeting" = \`alternate_greetings[11]\` (iff N >= 13). Total greeting count = \`alternate_greetings.length + 1\`. \`first_mes\` lives at \`char/first_mes\`; alternates live at \`char/alternate_greetings/<idx>\`.
 
 # What to leave alone
 

@@ -1807,6 +1807,7 @@ __export(exports_transport, {
   dialSystemPrompt: () => dialSystemPrompt,
   dialReadItem: () => dialReadItem,
   dialListItems: () => dialListItems,
+  dialGrepItems: () => dialGrepItems,
   dialDescribe: () => dialDescribe,
   dialCheckWrite: () => dialCheckWrite
 });
@@ -1837,6 +1838,9 @@ function dialReadItem(spindle2, extId, req) {
 }
 function dialWriteField(spindle2, extId, req) {
   return dial(spindle2, extId, { op: "write_field", ...req });
+}
+function dialGrepItems(spindle2, extId, req) {
+  return dial(spindle2, extId, { op: "grep_items", ...req });
 }
 var callIdCounter = 0;
 var init_transport = () => {};
@@ -17115,13 +17119,10 @@ var init_zod = __esm(() => {
 function isCharacterStringField(s) {
   return CHARACTER_STRING_FIELDS.includes(s);
 }
-function isRegexScriptBigField(s) {
-  return REGEX_SCRIPT_BIG_FIELDS.includes(s);
-}
 function wbLabel(e) {
   return e.comment || (e.key.length > 0 ? e.key.join("|") : `entry ${e.id}`);
 }
-var CHARACTER_STRING_FIELDS, REGEX_SCRIPT_BIG_FIELDS;
+var CHARACTER_STRING_FIELDS;
 var init__surfaces = __esm(() => {
   CHARACTER_STRING_FIELDS = [
     "name",
@@ -17135,7 +17136,6 @@ var init__surfaces = __esm(() => {
     "post_history_instructions",
     "creator"
   ];
-  REGEX_SCRIPT_BIG_FIELDS = ["find_regex", "replace_string"];
 });
 
 // src/agent/tools/_paths.ts
@@ -17206,7 +17206,11 @@ function setAtPath2(root, segments, value) {
 }
 
 // src/agent/tools/_walk.ts
-function* walkStringLeaves(obj, prefix = "") {
+var exports__walk = {};
+__export(exports__walk, {
+  walkStringLeaves: () => walkStringLeaves
+});
+function* walkStringLeaves(obj, prefix = "", skip) {
   if (typeof obj === "string") {
     if (obj.length > 0)
       yield { path: prefix || "(root)", text: obj };
@@ -17216,7 +17220,10 @@ function* walkStringLeaves(obj, prefix = "") {
     return;
   if (Array.isArray(obj)) {
     for (let i = 0;i < obj.length; i++) {
-      yield* walkStringLeaves(obj[i], `${prefix}[${i}]`);
+      const childPath = `${prefix}[${i}]`;
+      if (skip && skip(childPath))
+        continue;
+      yield* walkStringLeaves(obj[i], childPath, skip);
     }
     return;
   }
@@ -17224,9 +17231,260 @@ function* walkStringLeaves(obj, prefix = "") {
     const safeKey = /^[A-Za-z_$][\w$]*$/.test(k) ? k : JSON.stringify(k);
     const isIdent = safeKey === k;
     const seg = isIdent ? prefix === "" ? k : `.${k}` : `[${safeKey}]`;
-    yield* walkStringLeaves(v, prefix + seg);
+    const childPath = prefix + seg;
+    if (skip && skip(childPath))
+      continue;
+    yield* walkStringLeaves(v, childPath, skip);
   }
 }
+
+// src/phoneline/consent.ts
+var exports_consent = {};
+__export(exports_consent, {
+  savePairing: () => savePairing,
+  resolvePairing: () => resolvePairing,
+  makeConsentPromptFn: () => makeConsentPromptFn,
+  loadPairing: () => loadPairing,
+  loadAllPairings: () => loadAllPairings,
+  hashManifest: () => hashManifest,
+  deletePairing: () => deletePairing
+});
+async function sha2562(text) {
+  const buf = new TextEncoder().encode(text);
+  const digest = await crypto.subtle.digest("SHA-256", buf);
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+async function hashManifest(manifest) {
+  return sha2562(JSON.stringify(manifest));
+}
+async function loadFile(spindle2, userId) {
+  try {
+    const raw = await spindle2.userStorage.read(STORAGE_PATH, userId);
+    if (typeof raw !== "string" || raw.length === 0)
+      return { version: 1, pairings: {} };
+    const parsed = JSON.parse(raw);
+    if (parsed?.version === 1 && parsed.pairings && typeof parsed.pairings === "object")
+      return parsed;
+    return { version: 1, pairings: {} };
+  } catch {
+    return { version: 1, pairings: {} };
+  }
+}
+async function saveFile(spindle2, userId, file2) {
+  await spindle2.userStorage.write(STORAGE_PATH, JSON.stringify(file2), userId);
+}
+async function loadAllPairings(spindle2, userId) {
+  return (await loadFile(spindle2, userId)).pairings;
+}
+async function loadPairing(spindle2, userId, identifier) {
+  const all = await loadAllPairings(spindle2, userId);
+  return all[identifier] ?? null;
+}
+async function savePairing(spindle2, userId, decision) {
+  const file2 = await loadFile(spindle2, userId);
+  const pairings = { ...file2.pairings, [decision.identifier]: decision };
+  await saveFile(spindle2, userId, { version: 1, pairings });
+}
+async function deletePairing(spindle2, userId, identifier) {
+  const file2 = await loadFile(spindle2, userId);
+  if (!(identifier in file2.pairings))
+    return;
+  const pairings = { ...file2.pairings };
+  delete pairings[identifier];
+  await saveFile(spindle2, userId, { version: 1, pairings });
+}
+async function resolvePairing(spindle2, userId, manifest, prompt) {
+  const identifier = manifest.extension.id;
+  const displayName = manifest.extension.name;
+  const currentHash = await hashManifest(manifest);
+  const stored = await loadPairing(spindle2, userId, identifier);
+  if (stored && stored.manifestHash === currentHash)
+    return stored;
+  const allowed = await prompt({
+    identifier,
+    displayName,
+    version: manifest.extension.version,
+    kind: stored ? "revalidate" : "initial"
+  });
+  const decision = {
+    identifier,
+    displayName,
+    allowed,
+    manifestHash: currentHash,
+    decidedAt: Date.now()
+  };
+  await savePairing(spindle2, userId, decision);
+  return decision;
+}
+function makeConsentPromptFn(callFrontend, timeoutMs = 10 * 60000) {
+  return async (input) => {
+    try {
+      const result = await callFrontend("phoneline_consent", input, timeoutMs);
+      if (typeof result !== "object" || result === null)
+        return false;
+      const r = result;
+      return r.allowed === true;
+    } catch {
+      return false;
+    }
+  };
+}
+var STORAGE_PATH = "phoneline-pairings.json";
+
+// src/phoneline/registry.ts
+var exports_registry = {};
+__export(exports_registry, {
+  invalidate: () => invalidate,
+  getCached: () => getCached,
+  findSurface: () => findSurface,
+  discoverProviders: () => discoverProviders,
+  KNOWN_PHONELINES: () => KNOWN_PHONELINES
+});
+function normaliseSurface(s) {
+  if (!s || typeof s !== "object")
+    return null;
+  const raw = s;
+  if (typeof raw["id"] !== "string" || typeof raw["label"] !== "string")
+    return null;
+  const description = typeof raw["description"] === "string" ? raw["description"] : "";
+  let scope;
+  if (raw["scope"] === "global" || raw["scope"] === "per_character") {
+    scope = raw["scope"];
+  } else if (raw["scope"] && typeof raw["scope"] === "object") {
+    const k = raw["scope"]["kind"];
+    if (k === "global" || k === "per_character")
+      scope = k;
+    else
+      return null;
+  } else {
+    return null;
+  }
+  return { id: raw["id"], label: raw["label"], description, scope };
+}
+function normaliseManifest(raw) {
+  if (!raw || typeof raw !== "object")
+    return null;
+  const m = raw;
+  const ext = m["extension"];
+  if (!ext || typeof ext !== "object")
+    return null;
+  const extRec = ext;
+  if (typeof extRec["id"] !== "string" || typeof extRec["name"] !== "string")
+    return null;
+  if (!Array.isArray(m["surfaces"]))
+    return null;
+  const surfaces = [];
+  for (const s of m["surfaces"]) {
+    const normalised = normaliseSurface(s);
+    if (normalised !== null)
+      surfaces.push(normalised);
+  }
+  const out = {
+    extension: {
+      id: extRec["id"],
+      name: extRec["name"],
+      ...typeof extRec["version"] === "string" ? { version: extRec["version"] } : {}
+    },
+    surfaces,
+    ...Array.isArray(m["excludeFromSearch"]) ? { excludeFromSearch: m["excludeFromSearch"].filter((x) => typeof x === "string") } : {}
+  };
+  return out;
+}
+async function discoverProviders(spindle2, userId, promptFn) {
+  if (cache)
+    return cache;
+  if (pending)
+    return pending;
+  pending = (async () => {
+    const found = [];
+    for (const entry of KNOWN_PHONELINES) {
+      let rawManifest;
+      try {
+        rawManifest = await dialDescribe(spindle2, entry.identifier);
+      } catch {
+        continue;
+      }
+      const manifest = normaliseManifest(rawManifest);
+      if (!manifest)
+        continue;
+      if (manifest.extension.name !== entry.name) {
+        try {
+          spindle2.log.warn(`phoneline: "${entry.identifier}" returned unexpected name "${manifest.extension.name}" ` + `(expected "${entry.name}"). Skipping. Legitimate rename requires a LumiAgent whitelist update.`);
+        } catch {}
+        continue;
+      }
+      const trusted = {
+        ...manifest,
+        extension: { ...manifest.extension, id: entry.identifier, name: entry.name }
+      };
+      const decision = await resolvePairing(spindle2, userId, trusted, promptFn);
+      if (!decision.allowed)
+        continue;
+      found.push({ id: entry.identifier, manifest: trusted });
+    }
+    cache = found;
+    pending = null;
+    return found;
+  })();
+  return pending;
+}
+function invalidate() {
+  cache = null;
+  pending = null;
+}
+function getCached() {
+  return cache ?? [];
+}
+function findSurface(providers, surfaceId) {
+  const matches = providers.map((p) => {
+    const surface = p.manifest.surfaces.find((s) => s.id === surfaceId);
+    return surface ? { provider: p, surface } : null;
+  }).filter((m) => m !== null);
+  if (matches.length === 0)
+    return null;
+  return matches[0];
+}
+var KNOWN_PHONELINES, cache = null, pending = null;
+var init_registry = __esm(() => {
+  init_transport();
+  KNOWN_PHONELINES = [
+    { identifier: "lumirealm", name: "LumiRealm" }
+  ];
+});
+
+// src/phoneline/search-excludes.ts
+var exports_search_excludes = {};
+__export(exports_search_excludes, {
+  makePathSkipFn: () => makePathSkipFn,
+  buildExtensionsSearchSkip: () => buildExtensionsSearchSkip
+});
+function makePathSkipFn(prefixes) {
+  if (prefixes.length === 0)
+    return () => false;
+  return (path2) => {
+    for (const p of prefixes) {
+      if (path2 === p)
+        return true;
+      if (path2.startsWith(`${p}.`))
+        return true;
+      if (path2.startsWith(`${p}[`))
+        return true;
+    }
+    return false;
+  };
+}
+async function buildExtensionsSearchSkip(spindle2, userId, promptFn) {
+  try {
+    const providers = await discoverProviders(spindle2, userId, promptFn);
+    const all = providers.flatMap((p) => p.manifest.excludeFromSearch ?? []);
+    return makePathSkipFn(all);
+  } catch {
+    return () => false;
+  }
+}
+var init_search_excludes = __esm(() => {
+  init_registry();
+});
 
 // src/agent/tools/apply-glossary.ts
 async function loadAllRegexScripts(ctx) {
@@ -17427,7 +17685,11 @@ Scopes (default: character + world_books + regex_scripts.replace_string + extens
         const beforeExt = c.extensions ?? {};
         let nextExt = beforeExt;
         const changedLeaves = [];
-        for (const leaf of walkStringLeaves(beforeExt, "")) {
+        const { buildExtensionsSearchSkip: buildExtensionsSearchSkip2 } = await Promise.resolve().then(() => (init_search_excludes(), exports_search_excludes));
+        const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
+        const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
+        const skip = await buildExtensionsSearchSkip2(ctx.spindle, ctx.userId, promptFn);
+        for (const leaf of walkStringLeaves(beforeExt, "", skip)) {
           const { out, perEntry } = applyAll(leaf.text);
           let hits = 0;
           for (const [k, n] of Object.entries(perEntry)) {
@@ -17587,8 +17849,11 @@ async function resolveRead(ctx, path2) {
         throw new PathError(path2, "alternate_greetings requires an index");
       const idx = parseInt(idxStr, 10);
       const arr = c.alternate_greetings ?? [];
-      if (!Number.isFinite(idx) || idx < 0 || idx >= arr.length) {
-        throw new PathError(path2, `index ${idxStr} out of range (have ${arr.length})`);
+      if (!Number.isFinite(idx) || idx < 0) {
+        throw new PathError(path2, `index '${idxStr}' is not a non-negative integer`);
+      }
+      if (idx >= arr.length) {
+        throw new OutOfRangeError(path2, `alternate_greetings index ${idx} is past the end (length ${arr.length}). \`list({path: "char/alternate_greetings"})\` shows valid indices.`);
       }
       const value = arr[idx] ?? "";
       return {
@@ -17780,7 +18045,12 @@ async function* iterateAllLeaves(ctx) {
       }
     }
   }
-  for (const leaf of walkStringLeaves2(c.extensions ?? {}, "")) {
+  const { walkStringLeaves: walk } = await Promise.resolve().then(() => exports__walk);
+  const { buildExtensionsSearchSkip: buildExtensionsSearchSkip2 } = await Promise.resolve().then(() => (init_search_excludes(), exports_search_excludes));
+  const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
+  const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
+  const skip = await buildExtensionsSearchSkip2(ctx.spindle, ctx.userId, promptFn);
+  for (const leaf of walk(c.extensions ?? {}, "", skip)) {
     yield { key: `char/extensions/${leaf.path}`, surface: "extension", surfaceId: ctx.characterId, surfaceLabel: `extensions.${leaf.path}`, field: leaf.path, value: leaf.text };
   }
   let rOff = 0;
@@ -17816,24 +18086,7 @@ async function* iterateAllLeaves(ctx) {
     }
   }
 }
-function* walkStringLeaves2(value, prefix) {
-  if (typeof value === "string") {
-    yield { path: prefix, text: value };
-    return;
-  }
-  if (Array.isArray(value)) {
-    for (let i = 0;i < value.length; i++) {
-      yield* walkStringLeaves2(value[i], prefix.length === 0 ? `[${i}]` : `${prefix}[${i}]`);
-    }
-    return;
-  }
-  if (value && typeof value === "object") {
-    for (const [k, v] of Object.entries(value)) {
-      yield* walkStringLeaves2(v, prefix.length === 0 ? k : `${prefix}.${k}`);
-    }
-  }
-}
-var PathError;
+var PathError, OutOfRangeError;
 var init__path_v2 = __esm(() => {
   init__surfaces();
   PathError = class PathError extends Error {
@@ -17842,6 +18095,14 @@ var init__path_v2 = __esm(() => {
       super(`Path '${path2}': ${msg}`);
       this.path = path2;
       this.name = "PathError";
+    }
+  };
+  OutOfRangeError = class OutOfRangeError extends Error {
+    path;
+    constructor(path2, msg) {
+      super(`Path '${path2}': ${msg}`);
+      this.path = path2;
+      this.name = "OutOfRangeError";
     }
   };
 });
@@ -18160,123 +18421,6 @@ Sorted by match_chars descending so the worst offenders surface first.`,
   });
 });
 
-// src/agent/tools/character-extension-stats.ts
-var inputSchema4, characterExtensionStatsTool;
-var init_character_extension_stats = __esm(() => {
-  init_zod();
-  inputSchema4 = exports_external.object({
-    path: exports_external.string()
-  });
-  characterExtensionStatsTool = defineTool({
-    name: "character_extension_stats",
-    description: "[LEGACY \u2014 superseded by the inspect tool with path char/extensions/<dotted>. Kept for back-compat; prefer the named successor.] Cheap orientation for a path under character.extensions. For strings: char/line counts + peek. For arrays: length + per-item type/size summary. For objects: top-level key list with per-key type/size summary. Call this before read_character_extension on anything you don't already know is small (e.g. lumirealm.payload).",
-    inputSchema: inputSchema4,
-    jsonSchema: {
-      type: "object",
-      properties: { path: { type: "string", description: "Path relative to character.extensions, e.g. 'lumirealm.payload' or 'lumirealm.payload.background_html'." } },
-      required: ["path"]
-    },
-    defaultSensitivity: "insensitive",
-    execute: async (input, ctx) => {
-      let segs;
-      try {
-        segs = parseExtensionPath(input.path);
-      } catch (e) {
-        return { content: `Error: ${e.message}`, isError: true };
-      }
-      const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
-      if (!c)
-        return { content: `Error: character ${ctx.characterId} not found`, isError: true };
-      const val = getAtPath2(c.extensions ?? {}, segs);
-      if (val === undefined)
-        return { content: `Error: extensions.${input.path} does not exist`, isError: true };
-      const summarize = (v) => {
-        if (v === null)
-          return { type: "null" };
-        if (typeof v === "string")
-          return { type: "string", chars: v.length, lines: v === "" ? 0 : v.split(`
-`).length, peek: v.slice(0, 80) };
-        if (typeof v === "number" || typeof v === "boolean")
-          return { type: typeof v };
-        if (Array.isArray(v)) {
-          const s = JSON.stringify(v);
-          return { type: "array", length: v.length, chars: s.length };
-        }
-        if (typeof v === "object") {
-          const keys = Object.keys(v);
-          const s = JSON.stringify(v);
-          return { type: "object", keys: keys.length, chars: s.length };
-        }
-        return { type: typeof v };
-      };
-      if (typeof val === "string") {
-        return {
-          content: JSON.stringify({
-            path: input.path,
-            type: "string",
-            chars: val.length,
-            lines: val === "" ? 0 : val.split(`
-`).length,
-            peek: val.slice(0, 200)
-          }, null, 2)
-        };
-      }
-      if (Array.isArray(val)) {
-        const items = val.map((item, i) => ({ index: i, ...summarize(item) }));
-        return { content: JSON.stringify({ path: input.path, type: "array", length: val.length, items: items.slice(0, 60), truncated: items.length > 60 }, null, 2) };
-      }
-      if (val !== null && typeof val === "object") {
-        const obj = val;
-        const keys = Object.keys(obj);
-        const perKey = keys.map((k) => ({ key: k, ...summarize(obj[k]) }));
-        const totalChars = JSON.stringify(obj).length;
-        return { content: JSON.stringify({ path: input.path, type: "object", key_count: keys.length, total_chars: totalChars, keys: perKey }, null, 2) };
-      }
-      return { content: JSON.stringify({ path: input.path, type: typeof val, value: val }, null, 2) };
-    }
-  });
-});
-
-// src/agent/tools/character-field-stats.ts
-var inputSchema5, characterFieldStatsTool;
-var init_character_field_stats = __esm(() => {
-  init_zod();
-  init__surfaces();
-  inputSchema5 = exports_external.object({
-    field: exports_external.enum(CHARACTER_STRING_FIELDS)
-  });
-  characterFieldStatsTool = defineTool({
-    name: "character_field_stats",
-    description: "[LEGACY \u2014 superseded by the inspect tool with path char/<field>. Kept for back-compat; prefer the named successor.] Cheap orientation for one of the character's string fields. Returns char count, line count, and a 200-char peek. Call this before read_character_field if you suspect the field is large.",
-    inputSchema: inputSchema5,
-    jsonSchema: {
-      type: "object",
-      properties: { field: { type: "string", enum: [...CHARACTER_STRING_FIELDS] } },
-      required: ["field"]
-    },
-    defaultSensitivity: "insensitive",
-    execute: async (input, ctx) => {
-      if (!isCharacterStringField(input.field))
-        return { content: `Error: unknown field '${input.field}'`, isError: true };
-      const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
-      if (!c)
-        return { content: `Error: character ${ctx.characterId} not found`, isError: true };
-      const text = c[input.field];
-      if (typeof text !== "string")
-        return { content: `Error: field '${input.field}' is not a string`, isError: true };
-      return {
-        content: JSON.stringify({
-          field: input.field,
-          chars: text.length,
-          lines: text === "" ? 0 : text.split(`
-`).length,
-          peek: text.slice(0, 200)
-        }, null, 2)
-      };
-    }
-  });
-});
-
 // src/agent/tools/chat-stats.ts
 function resolveChatId(input, ctx) {
   if (input.chat_id)
@@ -18285,16 +18429,16 @@ function resolveChatId(input, ctx) {
     return { error: "No chat_id provided and no chat is pinned. Either pass chat_id or have the user pin a chat." };
   return ctx.pinnedChatId;
 }
-var inputSchema6, chatStatsTool;
+var inputSchema4, chatStatsTool;
 var init_chat_stats = __esm(() => {
   init_zod();
-  inputSchema6 = exports_external.object({
+  inputSchema4 = exports_external.object({
     chat_id: exports_external.string().optional()
   });
   chatStatsTool = defineTool({
     name: "chat_stats",
     description: "ALWAYS CALL THIS FIRST when the user references a chat. Cheap orientation: returns total_messages, total_chars, longest_message_chars, by_role counts, first_ts, last_ts. Use the result to choose between read_chat_messages (small), list_chat_messages (skim), or grep_chat_messages (search). Omit chat_id to use the pinned chat.",
-    inputSchema: inputSchema6,
+    inputSchema: inputSchema4,
     jsonSchema: {
       type: "object",
       properties: { chat_id: { type: "string", description: "Optional. Omit to use the pinned chat." } },
@@ -18350,7 +18494,7 @@ function classifyChar(code) {
       return label;
   return null;
 }
-var CJK_RANGES, inputSchema7, countCjkCharsTool;
+var CJK_RANGES, inputSchema5, countCjkCharsTool;
 var init_count_cjk_chars = __esm(() => {
   init_zod();
   CJK_RANGES = [
@@ -18365,11 +18509,11 @@ var init_count_cjk_chars = __esm(() => {
     [63744, 64255, "cjk_compat"],
     [65382, 65439, "halfwidth_kana"]
   ];
-  inputSchema7 = exports_external.object({ text: exports_external.string() });
+  inputSchema5 = exports_external.object({ text: exports_external.string() });
   countCjkCharsTool = defineTool({
     name: "count_cjk_chars",
     description: "Count Korean / Japanese / Chinese characters in a string, broken down by script.",
-    inputSchema: inputSchema7,
+    inputSchema: inputSchema5,
     jsonSchema: {
       type: "object",
       properties: { text: { type: "string" } },
@@ -18395,17 +18539,17 @@ var init_count_cjk_chars = __esm(() => {
 });
 
 // src/agent/tools/create-alternate-greeting.ts
-var inputSchema8, createAlternateGreetingTool;
+var inputSchema6, createAlternateGreetingTool;
 var init_create_alternate_greeting = __esm(() => {
   init_zod();
-  inputSchema8 = exports_external.object({
+  inputSchema6 = exports_external.object({
     content: exports_external.string(),
     index: exports_external.number().optional()
   });
   createAlternateGreetingTool = defineTool({
     name: "create_alternate_greeting",
     description: "Append a new alternate greeting to the character's alternate_greetings array, OR insert at a specific index. Returns the new index. Revert removes the inserted greeting.",
-    inputSchema: inputSchema8,
+    inputSchema: inputSchema6,
     jsonSchema: {
       type: "object",
       properties: {
@@ -18438,10 +18582,10 @@ var init_create_alternate_greeting = __esm(() => {
 });
 
 // src/agent/tools/create-regex-script.ts
-var inputSchema9, createRegexScriptTool;
+var inputSchema7, createRegexScriptTool;
 var init_create_regex_script = __esm(() => {
   init_zod();
-  inputSchema9 = exports_external.object({
+  inputSchema7 = exports_external.object({
     name: exports_external.string().min(1),
     find_regex: exports_external.string().min(1),
     replace_string: exports_external.string().optional(),
@@ -18454,7 +18598,7 @@ var init_create_regex_script = __esm(() => {
   createRegexScriptTool = defineTool({
     name: "create_regex_script",
     description: "Create a new regex script scoped to the active character. Returns the new script's id.",
-    inputSchema: inputSchema9,
+    inputSchema: inputSchema7,
     jsonSchema: {
       type: "object",
       properties: {
@@ -18498,11 +18642,11 @@ var init_create_regex_script = __esm(() => {
 });
 
 // src/agent/tools/create-world-book-entry.ts
-var inputSchema10, createWorldBookEntryTool;
+var inputSchema8, createWorldBookEntryTool;
 var init_create_world_book_entry = __esm(() => {
   init_zod();
   init__surfaces();
-  inputSchema10 = exports_external.object({
+  inputSchema8 = exports_external.object({
     world_book_id: exports_external.string().optional(),
     key: exports_external.array(exports_external.string()).optional(),
     keysecondary: exports_external.array(exports_external.string()).optional(),
@@ -18517,7 +18661,7 @@ var init_create_world_book_entry = __esm(() => {
   createWorldBookEntryTool = defineTool({
     name: "create_world_book_entry",
     description: "Create a new world book entry. Defaults to the character's first attached world book; specify world_book_id to target a different one. Returns the new entry's id.",
-    inputSchema: inputSchema10,
+    inputSchema: inputSchema8,
     jsonSchema: {
       type: "object",
       properties: {
@@ -18819,16 +18963,16 @@ var init_custom_tools = __esm(() => {
 });
 
 // src/agent/tools/custom-tool-delete.ts
-var inputSchema11, customToolDeleteTool;
+var inputSchema9, customToolDeleteTool;
 var init_custom_tool_delete = __esm(() => {
   init_zod();
-  inputSchema11 = exports_external.object({
+  inputSchema9 = exports_external.object({
     name: exports_external.string().min(1)
   });
   customToolDeleteTool = defineTool({
     name: "custom_tool_delete",
     description: "Delete a custom tool manifest. Also remember to remove its line from workspace/custom_tools/tools.md.",
-    inputSchema: inputSchema11,
+    inputSchema: inputSchema9,
     jsonSchema: {
       type: "object",
       properties: { name: { type: "string" } },
@@ -18844,14 +18988,14 @@ var init_custom_tool_delete = __esm(() => {
 });
 
 // src/agent/tools/custom-tool-list.ts
-var inputSchema12, customToolListTool;
+var inputSchema10, customToolListTool;
 var init_custom_tool_list = __esm(() => {
   init_zod();
-  inputSchema12 = exports_external.object({});
+  inputSchema10 = exports_external.object({});
   customToolListTool = defineTool({
     name: "custom_tool_list",
     description: "List every custom tool the agent has authored in this workspace. Returns name, description, param count, step count. Cheap; call this whenever you suspect a recipe already exists for the user's request.",
-    inputSchema: inputSchema12,
+    inputSchema: inputSchema10,
     jsonSchema: { type: "object", properties: {}, required: [] },
     defaultSensitivity: "insensitive",
     execute: async (_input, ctx) => {
@@ -18863,17 +19007,17 @@ var init_custom_tool_list = __esm(() => {
 });
 
 // src/agent/tools/custom-tool-run.ts
-var inputSchema13, customToolRunTool;
+var inputSchema11, customToolRunTool;
 var init_custom_tool_run = __esm(() => {
   init_zod();
-  inputSchema13 = exports_external.object({
+  inputSchema11 = exports_external.object({
     name: exports_external.string().min(1),
     args: exports_external.record(exports_external.string(), exports_external.unknown()).optional()
   });
   customToolRunTool = defineTool({
     name: "custom_tool_run",
     description: "Execute a saved custom tool. The runtime substitutes params/vars into each step's args and dispatches the chain of built-in tools. Step budget is 50 calls per run; recursive custom tools are allowed up to depth 4. Returns whatever the manifest's `return` template yields, or the final step's parsed result if no `return` is set.",
-    inputSchema: inputSchema13,
+    inputSchema: inputSchema11,
     jsonSchema: {
       type: "object",
       properties: {
@@ -18912,16 +19056,16 @@ var init_custom_tool_run = __esm(() => {
 });
 
 // src/agent/tools/custom-tool-save.ts
-var inputSchema14, customToolSaveTool;
+var inputSchema12, customToolSaveTool;
 var init_custom_tool_save = __esm(() => {
   init_zod();
-  inputSchema14 = exports_external.object({
+  inputSchema12 = exports_external.object({
     manifest: exports_external.record(exports_external.string(), exports_external.unknown())
   });
   customToolSaveTool = defineTool({
     name: "custom_tool_save",
     description: "Save (or overwrite) a custom tool manifest. The manifest must declare a name (a-z, 0-9, _), a description, a params object, and an ordered steps array. Each step calls a built-in tool with args that can reference `{{param_name}}` (from inputs) or `{{$var_name}}` (from earlier `save_as` bindings). After saving, you MUST also update workspace/custom_tools/tools.md to keep the index in sync.",
-    inputSchema: inputSchema14,
+    inputSchema: inputSchema12,
     jsonSchema: {
       type: "object",
       properties: {
@@ -18949,16 +19093,16 @@ var init_custom_tool_save = __esm(() => {
 });
 
 // src/agent/tools/delete-alternate-greeting.ts
-var inputSchema15, deleteAlternateGreetingTool;
+var inputSchema13, deleteAlternateGreetingTool;
 var init_delete_alternate_greeting = __esm(() => {
   init_zod();
-  inputSchema15 = exports_external.object({
+  inputSchema13 = exports_external.object({
     index: exports_external.number()
   });
   deleteAlternateGreetingTool = defineTool({
     name: "delete_alternate_greeting",
     description: "Delete the alternate greeting at the given 0-based index. The greeting's content is captured in the edit log; revert re-inserts it at the same position.",
-    inputSchema: inputSchema15,
+    inputSchema: inputSchema13,
     jsonSchema: {
       type: "object",
       properties: { index: { type: "number" } },
@@ -18989,16 +19133,16 @@ var init_delete_alternate_greeting = __esm(() => {
 });
 
 // src/agent/tools/delete-regex-script.ts
-var inputSchema16, deleteRegexScriptTool;
+var inputSchema14, deleteRegexScriptTool;
 var init_delete_regex_script = __esm(() => {
   init_zod();
-  inputSchema16 = exports_external.object({
+  inputSchema14 = exports_external.object({
     script_id: exports_external.string().min(1)
   });
   deleteRegexScriptTool = defineTool({
     name: "delete_regex_script",
     description: "Delete a regex script by id. The script's full state is captured in the edit log so it can be restored via revert.",
-    inputSchema: inputSchema16,
+    inputSchema: inputSchema14,
     jsonSchema: {
       type: "object",
       properties: { script_id: { type: "string" } },
@@ -19018,17 +19162,17 @@ var init_delete_regex_script = __esm(() => {
 });
 
 // src/agent/tools/delete-world-book-entry.ts
-var inputSchema17, deleteWorldBookEntryTool;
+var inputSchema15, deleteWorldBookEntryTool;
 var init_delete_world_book_entry = __esm(() => {
   init_zod();
   init__surfaces();
-  inputSchema17 = exports_external.object({
+  inputSchema15 = exports_external.object({
     entry_id: exports_external.string().min(1)
   });
   deleteWorldBookEntryTool = defineTool({
     name: "delete_world_book_entry",
     description: "Delete a world book entry by id. The entry's full state is captured in the edit log so it can be restored via revert.",
-    inputSchema: inputSchema17,
+    inputSchema: inputSchema15,
     jsonSchema: {
       type: "object",
       properties: { entry_id: { type: "string" } },
@@ -19270,503 +19414,15 @@ var init__drafts = __esm(() => {
   init_tmp_store();
 });
 
-// src/agent/tools/edit-alternate-greeting.ts
-var inputSchema18, gate, editAlternateGreetingTool;
-var init_edit_alternate_greeting = __esm(() => {
+// src/agent/tools/edit-external.ts
+var inputSchema16, gate, editExternalTool;
+var init_edit_external = __esm(() => {
   init_zod();
   init__edit();
   init__patch();
   init__gates();
   init__drafts();
-  inputSchema18 = exports_external.object({
-    index: exports_external.number().int().nonnegative().describe("0-indexed position in alternate_greetings"),
-    find: exports_external.string().min(1).describe("Exact text in the greeting to replace. Copy verbatim from a recent read_alternate_greeting."),
-    replace: exports_external.string().optional().describe("Text to substitute for `find`. Either this or replace_handle is required."),
-    replace_handle: exports_external.string().optional().describe("Handle of a previously-stashed draft. Use instead of replace to avoid re-emitting."),
-    replace_all: exports_external.boolean().optional().describe("Replace every occurrence instead of requiring uniqueness. Default false.")
-  }).refine((d) => d.replace !== undefined || d.replace_handle !== undefined, {
-    message: "either replace or replace_handle is required"
-  });
-  gate = {
-    surface: (input) => `alternate_greeting:${input["index"] ?? "?"}`,
-    hint: (key) => `Call read_alternate_greeting with index=${key.split(":")[1]} first.`
-  };
-  editAlternateGreetingTool = defineTool({
-    name: "edit_alternate_greeting",
-    description: "[LEGACY \u2014 superseded by the edit tool with path char/alternate_greetings/<idx>. Kept for back-compat; prefer the named successor.] Find/replace within one alternate_greetings entry by 0-indexed position. Requires a recent read_alternate_greeting on the same index in this turn.",
-    inputSchema: inputSchema18,
-    jsonSchema: {
-      type: "object",
-      properties: {
-        index: { type: "integer", minimum: 0, description: "0-indexed position in alternate_greetings" },
-        find: { type: "string", description: "Exact text in the greeting to replace. Copy verbatim from a recent read_alternate_greeting." },
-        replace: { type: "string", description: "Text to substitute for `find`. May be empty (deletion)." },
-        replace_handle: { type: "string", description: "Handle of a previously-stashed draft. Use instead of replace to avoid re-emitting." },
-        replace_all: { type: "boolean", description: "Replace every occurrence instead of requiring uniqueness. Default false." }
-      },
-      required: ["index", "find"]
-    },
-    requiresRecentRead: gate,
-    defaultSensitivity: "insensitive",
-    execute: async (input, ctx) => {
-      let replace = input.replace;
-      if (replace === undefined && input.replace_handle) {
-        const loaded = await loadDraft(ctx, input.replace_handle);
-        if (loaded === null)
-          return { content: `Error: draft handle '${input.replace_handle}' not found or expired. Re-send replace literally.`, isError: true };
-        replace = loaded;
-      }
-      if (replace === undefined) {
-        return { content: "Error: provide either replace or replace_handle.", isError: true };
-      }
-      const gateError = ensureRecentRead(ctx, gate, input);
-      if (gateError !== null) {
-        const handle = await stashDraft(ctx, `edit_alternate_greeting:${input.index}`, replace);
-        return { content: `${gateError}
-
-${draftReuseNote(handle, replace.length, "replace")}`, isError: true };
-      }
-      const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
-      if (!c)
-        return { content: `Error: character ${ctx.characterId} not found`, isError: true };
-      const arr = [...c.alternate_greetings ?? []];
-      if (input.index >= arr.length) {
-        return { content: `Error: index ${input.index} out of range (0..${arr.length - 1})`, isError: true };
-      }
-      const current = arr[input.index] ?? "";
-      let outcome;
-      try {
-        outcome = applyEdit(current, input.find, replace, input.replace_all ?? false);
-      } catch (err) {
-        const handle = await stashDraft(ctx, `edit_alternate_greeting:${input.index}`, replace);
-        return { content: `Error: ${err.message}
-
-${draftReuseNote(handle, replace.length, "replace")}`, isError: true };
-      }
-      arr[input.index] = outcome.result;
-      await ctx.spindle.characters.update(ctx.characterId, { alternate_greetings: arr }, ctx.userId);
-      ctx.pushEdit({
-        op: "edit",
-        surface: "alternate_greeting",
-        surfaceId: String(input.index),
-        surfaceLabel: `alternate_greetings[${input.index}]`,
-        field: String(input.index),
-        before: current,
-        after: outcome.result
-      });
-      const patch = buildEditPatch(`alternate_greetings[${input.index}]`, current, outcome.result);
-      const payload = {
-        index: input.index,
-        replacements: outcome.count,
-        snippet: outcome.firstSnippet,
-        patch: { additions: patch.additions, deletions: patch.deletions, hunks: patch.hunks }
-      };
-      if (outcome.recoveredVia) {
-        payload["recovered_via"] = outcome.recoveredVia;
-        payload["note"] = `Your 'find' string did not match byte-exactly. The edit was applied using a ${outcome.recoveredVia} fallback. Future calls on this field should copy bytes verbatim from a recent read_*/grep_* output.`;
-      }
-      return { content: JSON.stringify(payload) };
-    }
-  });
-});
-
-// src/phoneline/consent.ts
-var exports_consent = {};
-__export(exports_consent, {
-  savePairing: () => savePairing,
-  resolvePairing: () => resolvePairing,
-  makeConsentPromptFn: () => makeConsentPromptFn,
-  loadPairing: () => loadPairing,
-  loadAllPairings: () => loadAllPairings,
-  hashManifest: () => hashManifest,
-  deletePairing: () => deletePairing
-});
-async function sha2562(text) {
-  const buf = new TextEncoder().encode(text);
-  const digest = await crypto.subtle.digest("SHA-256", buf);
-  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-async function hashManifest(manifest) {
-  return sha2562(JSON.stringify(manifest));
-}
-async function loadFile(spindle2, userId) {
-  try {
-    const raw = await spindle2.userStorage.read(STORAGE_PATH, userId);
-    if (typeof raw !== "string" || raw.length === 0)
-      return { version: 1, pairings: {} };
-    const parsed = JSON.parse(raw);
-    if (parsed?.version === 1 && parsed.pairings && typeof parsed.pairings === "object")
-      return parsed;
-    return { version: 1, pairings: {} };
-  } catch {
-    return { version: 1, pairings: {} };
-  }
-}
-async function saveFile(spindle2, userId, file2) {
-  await spindle2.userStorage.write(STORAGE_PATH, JSON.stringify(file2), userId);
-}
-async function loadAllPairings(spindle2, userId) {
-  return (await loadFile(spindle2, userId)).pairings;
-}
-async function loadPairing(spindle2, userId, identifier) {
-  const all = await loadAllPairings(spindle2, userId);
-  return all[identifier] ?? null;
-}
-async function savePairing(spindle2, userId, decision) {
-  const file2 = await loadFile(spindle2, userId);
-  const pairings = { ...file2.pairings, [decision.identifier]: decision };
-  await saveFile(spindle2, userId, { version: 1, pairings });
-}
-async function deletePairing(spindle2, userId, identifier) {
-  const file2 = await loadFile(spindle2, userId);
-  if (!(identifier in file2.pairings))
-    return;
-  const pairings = { ...file2.pairings };
-  delete pairings[identifier];
-  await saveFile(spindle2, userId, { version: 1, pairings });
-}
-async function resolvePairing(spindle2, userId, manifest, prompt) {
-  const identifier = manifest.extension.id;
-  const displayName = manifest.extension.name;
-  const currentHash = await hashManifest(manifest);
-  const stored = await loadPairing(spindle2, userId, identifier);
-  if (stored && stored.manifestHash === currentHash)
-    return stored;
-  const allowed = await prompt({
-    identifier,
-    displayName,
-    version: manifest.extension.version,
-    kind: stored ? "revalidate" : "initial"
-  });
-  const decision = {
-    identifier,
-    displayName,
-    allowed,
-    manifestHash: currentHash,
-    decidedAt: Date.now()
-  };
-  await savePairing(spindle2, userId, decision);
-  return decision;
-}
-function makeConsentPromptFn(callFrontend, timeoutMs = 10 * 60000) {
-  return async (input) => {
-    try {
-      const result = await callFrontend("phoneline_consent", input, timeoutMs);
-      if (typeof result !== "object" || result === null)
-        return false;
-      const r = result;
-      return r.allowed === true;
-    } catch {
-      return false;
-    }
-  };
-}
-var STORAGE_PATH = "phoneline-pairings.json";
-
-// src/phoneline/registry.ts
-var exports_registry = {};
-__export(exports_registry, {
-  invalidate: () => invalidate,
-  getCached: () => getCached,
-  findSurface: () => findSurface,
-  discoverProviders: () => discoverProviders,
-  KNOWN_PHONELINES: () => KNOWN_PHONELINES
-});
-async function discoverProviders(spindle2, userId, promptFn) {
-  if (cache)
-    return cache;
-  if (pending)
-    return pending;
-  pending = (async () => {
-    const found = [];
-    for (const entry of KNOWN_PHONELINES) {
-      let manifest;
-      try {
-        manifest = await dialDescribe(spindle2, entry.identifier);
-      } catch {
-        continue;
-      }
-      if (!manifest || !manifest.extension || !Array.isArray(manifest.surfaces))
-        continue;
-      if (manifest.extension.name !== entry.name) {
-        try {
-          spindle2.log.warn(`phoneline: "${entry.identifier}" returned unexpected name "${manifest.extension.name}" ` + `(expected "${entry.name}"). Skipping. Legitimate rename requires a LumiAgent whitelist update.`);
-        } catch {}
-        continue;
-      }
-      const trusted = {
-        ...manifest,
-        extension: { ...manifest.extension, id: entry.identifier, name: entry.name }
-      };
-      const decision = await resolvePairing(spindle2, userId, trusted, promptFn);
-      if (!decision.allowed)
-        continue;
-      found.push({ id: entry.identifier, manifest: trusted });
-    }
-    cache = found;
-    pending = null;
-    return found;
-  })();
-  return pending;
-}
-function invalidate() {
-  cache = null;
-  pending = null;
-}
-function getCached() {
-  return cache ?? [];
-}
-function findSurface(providers, providerId, surfaceId) {
-  const provider = providers.find((p) => p.id === providerId);
-  if (!provider)
-    return null;
-  const surface = provider.manifest.surfaces.find((s) => s.id === surfaceId);
-  if (!surface)
-    return null;
-  return { provider, surface };
-}
-var KNOWN_PHONELINES, cache = null, pending = null;
-var init_registry = __esm(() => {
-  init_transport();
-  KNOWN_PHONELINES = [
-    { identifier: "lumirealm", name: "LumiRealm" }
-  ];
-});
-
-// src/phoneline/gate.ts
-function firstSegment(extPath) {
-  const m = /^([A-Za-z_][A-Za-z0-9_]*)/.exec(extPath);
-  return m ? m[1] : null;
-}
-async function checkExtensionWrite(spindle2, userId, characterId, extPath, promptFn) {
-  const seg = firstSegment(extPath);
-  if (!seg)
-    return { ok: true };
-  const providers = await discoverProviders(spindle2, userId, promptFn);
-  const provider = providers.find((p) => p.id === seg);
-  if (!provider)
-    return { ok: true };
-  try {
-    const res = await dialCheckWrite(spindle2, provider.id, userId, characterId, extPath);
-    if (typeof res?.ok !== "boolean")
-      return { ok: true };
-    return res.message !== undefined ? { ok: res.ok, message: res.message } : { ok: res.ok };
-  } catch {
-    return { ok: true };
-  }
-}
-var init_gate = __esm(() => {
-  init_registry();
-  init_transport();
-});
-
-// src/agent/tools/edit-character-extension.ts
-var inputSchema19, gate2, editCharacterExtensionTool;
-var init_edit_character_extension = __esm(() => {
-  init_zod();
-  init__edit();
-  init__patch();
-  init__gates();
-  init__drafts();
-  init_gate();
-  inputSchema19 = exports_external.object({
-    path: exports_external.string().min(1),
-    find: exports_external.string().min(1),
-    replace: exports_external.string().optional(),
-    replace_handle: exports_external.string().optional(),
-    replace_all: exports_external.boolean().optional()
-  }).refine((d) => d.replace !== undefined || d.replace_handle !== undefined, {
-    message: "either replace or replace_handle is required"
-  });
-  gate2 = {
-    surface: (input) => `character_extension:${input["path"] ?? "?"}`,
-    hint: (key) => `Call read_character_extension with path='${key.split(":").slice(1).join(":")}' first.`
-  };
-  editCharacterExtensionTool = defineTool({
-    name: "edit_character_extension",
-    description: "[LEGACY \u2014 superseded by the edit tool with path char/extensions/<dotted>. Kept for back-compat; prefer the named successor.] Find/replace within a string value at a path inside character.extensions. Requires a recent read_character_extension on the same path in this turn. Same unique-find discipline as edit_character_field.",
-    inputSchema: inputSchema19,
-    jsonSchema: {
-      type: "object",
-      properties: {
-        path: { type: "string" },
-        find: { type: "string" },
-        replace: { type: "string" },
-        replace_handle: { type: "string", description: "Handle of a previously-stashed draft. Use instead of replace to avoid re-emitting." },
-        replace_all: { type: "boolean" }
-      },
-      required: ["path", "find"]
-    },
-    requiresRecentRead: gate2,
-    defaultSensitivity: "insensitive",
-    execute: async (input, ctx) => {
-      let replace = input.replace;
-      if (replace === undefined && input.replace_handle) {
-        const loaded = await loadDraft(ctx, input.replace_handle);
-        if (loaded === null)
-          return { content: `Error: draft handle '${input.replace_handle}' not found or expired. Re-send replace literally.`, isError: true };
-        replace = loaded;
-      }
-      if (replace === undefined)
-        return { content: "Error: provide either replace or replace_handle.", isError: true };
-      const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
-      const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
-      const guard = await checkExtensionWrite(ctx.spindle, ctx.userId, ctx.characterId, input.path, promptFn);
-      if (!guard.ok)
-        return { content: `Refused: ${guard.message ?? "extension declined this write."}`, isError: true };
-      const gateError = ensureRecentRead(ctx, gate2, input);
-      if (gateError !== null) {
-        const h = await stashDraft(ctx, `edit_character_extension:${input.path}`, replace);
-        return { content: `${gateError}
-
-${draftReuseNote(h, replace.length, "replace")}`, isError: true };
-      }
-      let segs;
-      try {
-        segs = parseExtensionPath(input.path);
-      } catch (err) {
-        return { content: `Error: ${err.message}`, isError: true };
-      }
-      if (segs.length === 0)
-        return { content: "Error: path must be non-empty (relative to character.extensions)", isError: true };
-      const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
-      if (!c)
-        return { content: `Error: character ${ctx.characterId} not found`, isError: true };
-      const current = getAtPath2(c.extensions ?? {}, segs);
-      if (typeof current !== "string") {
-        const got = current === undefined ? "undefined" : Array.isArray(current) ? "array" : typeof current;
-        return { content: `Error: extensions.${input.path} is not a string (got ${got}).`, isError: true };
-      }
-      let outcome;
-      try {
-        outcome = applyEdit(current, input.find, replace, input.replace_all ?? false);
-      } catch (err) {
-        const h = await stashDraft(ctx, `edit_character_extension:${input.path}`, replace);
-        return { content: `Error: ${err.message}
-
-${draftReuseNote(h, replace.length, "replace")}`, isError: true };
-      }
-      const next = setAtPath2(c.extensions ?? {}, segs, outcome.result);
-      await ctx.spindle.characters.update(ctx.characterId, { extensions: next }, ctx.userId);
-      ctx.pushEdit({ op: "edit", surface: "extension", surfaceId: ctx.characterId, surfaceLabel: `extensions.${input.path}`, field: input.path, before: current, after: outcome.result });
-      const diffPatch = buildEditPatch(`extensions.${input.path}`, current, outcome.result);
-      const payload = {
-        path: input.path,
-        replacements: outcome.count,
-        snippet: outcome.firstSnippet,
-        patch: { additions: diffPatch.additions, deletions: diffPatch.deletions, hunks: diffPatch.hunks }
-      };
-      if (outcome.recoveredVia) {
-        payload["recovered_via"] = outcome.recoveredVia;
-        payload["note"] = `Your 'find' string did not match byte-exactly. The edit was applied using a ${outcome.recoveredVia} fallback. Future calls on this field should copy bytes verbatim from a recent read_*/grep_* output.`;
-      }
-      return { content: JSON.stringify(payload) };
-    }
-  });
-});
-
-// src/agent/tools/edit-character-field.ts
-var inputSchema20, gate3, editCharacterFieldTool;
-var init_edit_character_field = __esm(() => {
-  init_zod();
-  init__edit();
-  init__patch();
-  init__gates();
-  init__surfaces();
-  init__drafts();
-  inputSchema20 = exports_external.object({
-    field: exports_external.enum(CHARACTER_STRING_FIELDS),
-    find: exports_external.string().min(1),
-    replace: exports_external.string().optional(),
-    replace_handle: exports_external.string().optional(),
-    replace_all: exports_external.boolean().optional()
-  }).refine((d) => d.replace !== undefined || d.replace_handle !== undefined, {
-    message: "either replace or replace_handle is required"
-  });
-  gate3 = {
-    surface: (input) => `character_field:${input["field"] ?? "?"}`,
-    hint: (key) => `Call read_character_field with field='${key.split(":")[1]}' first.`
-  };
-  editCharacterFieldTool = defineTool({
-    name: "edit_character_field",
-    description: `[LEGACY \u2014 superseded by the edit tool with path char/<field>. Kept for back-compat; prefer the named successor.] Find/replace within one string field on the character. Requires a recent read_character_field on the same field in this turn. Valid fields: ${CHARACTER_STRING_FIELDS.join(", ")}.`,
-    inputSchema: inputSchema20,
-    jsonSchema: {
-      type: "object",
-      properties: {
-        field: { type: "string", enum: [...CHARACTER_STRING_FIELDS] },
-        find: { type: "string" },
-        replace: { type: "string" },
-        replace_handle: { type: "string", description: "Handle of a previously-stashed draft. Use instead of replace to avoid re-emitting." },
-        replace_all: { type: "boolean" }
-      },
-      required: ["field", "find"]
-    },
-    requiresRecentRead: gate3,
-    defaultSensitivity: "insensitive",
-    execute: async (input, ctx) => {
-      let replace = input.replace;
-      if (replace === undefined && input.replace_handle) {
-        const loaded = await loadDraft(ctx, input.replace_handle);
-        if (loaded === null)
-          return { content: `Error: draft handle '${input.replace_handle}' not found or expired. Re-send replace literally.`, isError: true };
-        replace = loaded;
-      }
-      if (replace === undefined)
-        return { content: "Error: provide either replace or replace_handle.", isError: true };
-      const gateError = ensureRecentRead(ctx, gate3, input);
-      if (gateError !== null) {
-        const h = await stashDraft(ctx, `edit_character_field:${input.field}`, replace);
-        return { content: `${gateError}
-
-${draftReuseNote(h, replace.length, "replace")}`, isError: true };
-      }
-      if (!isCharacterStringField(input.field))
-        return { content: `Error: unknown field '${input.field}'`, isError: true };
-      const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
-      if (!c)
-        return { content: `Error: character ${ctx.characterId} not found`, isError: true };
-      const current = c[input.field];
-      if (typeof current !== "string")
-        return { content: `Error: field '${input.field}' is not a string`, isError: true };
-      let outcome;
-      try {
-        outcome = applyEdit(current, input.find, replace, input.replace_all ?? false);
-      } catch (err) {
-        const h = await stashDraft(ctx, `edit_character_field:${input.field}`, replace);
-        return { content: `Error: ${err.message}
-
-${draftReuseNote(h, replace.length, "replace")}`, isError: true };
-      }
-      const patch = { [input.field]: outcome.result };
-      await ctx.spindle.characters.update(ctx.characterId, patch, ctx.userId);
-      ctx.pushEdit({ op: "edit", surface: "character_field", surfaceId: ctx.characterId, surfaceLabel: c.name, field: input.field, before: current, after: outcome.result });
-      const diffPatch = buildEditPatch(`character.${input.field}`, current, outcome.result);
-      const payload = {
-        field: input.field,
-        replacements: outcome.count,
-        snippet: outcome.firstSnippet,
-        patch: { additions: diffPatch.additions, deletions: diffPatch.deletions, hunks: diffPatch.hunks }
-      };
-      if (outcome.recoveredVia) {
-        payload["recovered_via"] = outcome.recoveredVia;
-        payload["note"] = `Your 'find' string did not match byte-exactly. The edit was applied using a ${outcome.recoveredVia} fallback. Future calls on this field should copy bytes verbatim from a recent read_*/grep_* output.`;
-      }
-      return { content: JSON.stringify(payload) };
-    }
-  });
-});
-
-// src/agent/tools/edit-external-item.ts
-var inputSchema21, gate4, editExternalItemTool;
-var init_edit_external_item = __esm(() => {
-  init_zod();
-  init__edit();
-  init__patch();
-  init__gates();
-  init__drafts();
-  inputSchema21 = exports_external.object({
-    provider_id: exports_external.string().min(1),
+  inputSchema16 = exports_external.object({
     surface_id: exports_external.string().min(1),
     item_id: exports_external.string().min(1),
     field: exports_external.string().min(1),
@@ -19777,22 +19433,27 @@ var init_edit_external_item = __esm(() => {
   }).refine((d) => d.replace !== undefined || d.replace_handle !== undefined, {
     message: "either replace or replace_handle is required"
   });
-  gate4 = {
-    surface: (input) => `external_item:${input["provider_id"] ?? "?"}/${input["surface_id"] ?? "?"}/${input["item_id"] ?? "?"}/${input["field"] ?? "?"}`,
+  gate = {
+    surface: (input) => `external_item:${input["surface_id"] ?? "?"}/${input["item_id"] ?? "?"}/${input["field"] ?? "?"}`,
     hint: (key) => {
       const [, ref] = key.split(":");
-      const [pid, sid, iid, field] = (ref ?? "").split("/");
-      return `Call read_external_item with provider_id='${pid}' surface_id='${sid}' item_id='${iid}' field='${field}' first.`;
+      const [sid, iid, field] = (ref ?? "").split("/");
+      return `Call read_external with surface_id='${sid}' item_id='${iid}' field='${field}' first.`;
     }
   };
-  editExternalItemTool = defineTool({
-    name: "edit_external_item",
-    description: "Find/replace inside a string field at a path inside an external provider's item. Requires a recent read_external_item on the same provider/surface/item/field in this turn. For non-string values or wholesale replacement use update_external_item.",
-    inputSchema: inputSchema21,
+  editExternalTool = defineTool({
+    name: "edit_external",
+    description: `Performs exact string replacement inside one field of an external provider's item.
+
+Usage:
+- You must call \`read_external\` with the same surface/item/field first. This tool will error if you have not.
+- The edit will FAIL if \`find\` is not unique in the field. Either provide more surrounding context to make it unique or set \`replace_all: true\`.
+- For non-string values or wholesale replacement, use \`update_external\`.
+- If a prior call returned a draft handle, pass \`replace_handle\` instead of re-emitting the literal replacement.`,
+    inputSchema: inputSchema16,
     jsonSchema: {
       type: "object",
       properties: {
-        provider_id: { type: "string" },
         surface_id: { type: "string" },
         item_id: { type: "string" },
         field: { type: "string" },
@@ -19801,12 +19462,12 @@ var init_edit_external_item = __esm(() => {
         replace_handle: { type: "string", description: "Handle of a previously-stashed draft. Use instead of replace to avoid re-emitting." },
         replace_all: { type: "boolean" }
       },
-      required: ["provider_id", "surface_id", "item_id", "field", "find"]
+      required: ["surface_id", "item_id", "field", "find"]
     },
-    requiresRecentRead: gate4,
+    requiresRecentRead: gate,
     defaultSensitivity: "insensitive",
     execute: async (input, ctx) => {
-      const draftOrigin = `edit_external_item:${input.provider_id}/${input.surface_id}/${input.item_id}/${input.field}`;
+      const draftOrigin = `edit_external:${input.surface_id}/${input.item_id}/${input.field}`;
       let replace = input.replace;
       if (replace === undefined && input.replace_handle) {
         const loaded = await loadDraft(ctx, input.replace_handle);
@@ -19816,7 +19477,7 @@ var init_edit_external_item = __esm(() => {
       }
       if (replace === undefined)
         return { content: "Error: provide either replace or replace_handle.", isError: true };
-      const gateError = ensureRecentRead(ctx, gate4, input);
+      const gateError = ensureRecentRead(ctx, gate, input);
       if (gateError !== null) {
         const h = await stashDraft(ctx, draftOrigin, replace);
         return { content: `${gateError}
@@ -19827,13 +19488,13 @@ ${draftReuseNote(h, replace.length, "replace")}`, isError: true };
       const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
       const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
       const providers = await discoverProviders2(ctx.spindle, ctx.userId, promptFn);
-      const match = findSurface2(providers, input.provider_id, input.surface_id);
+      const match = findSurface2(providers, input.surface_id);
       if (!match)
-        return { content: `Error: unknown provider/surface: ${input.provider_id}/${input.surface_id}`, isError: true };
+        return { content: `Error: unknown surface: ${input.surface_id}`, isError: true };
       const surfaceLabel = match.surface.label;
       const providerName = match.provider.manifest.extension.name;
       const { dialReadItem: dialReadItem2, dialWriteField: dialWriteField2 } = await Promise.resolve().then(() => (init_transport(), exports_transport));
-      const readRes = await dialReadItem2(ctx.spindle, input.provider_id, {
+      const readRes = await dialReadItem2(ctx.spindle, match.provider.id, {
         userId: ctx.userId,
         surfaceId: input.surface_id,
         itemId: input.item_id,
@@ -19842,7 +19503,15 @@ ${draftReuseNote(h, replace.length, "replace")}`, isError: true };
       const current = readRes.value;
       if (typeof current !== "string") {
         const got = current === null ? "null" : Array.isArray(current) ? "array" : typeof current;
-        return { content: `Error: ${input.provider_id}/${input.surface_id}.${input.field} is not a string (got ${got}). Use update_external_item for non-string fields.`, isError: true };
+        return { content: `Error: ${input.surface_id}.${input.field} is not a string (got ${got}). Use update_external for non-string fields.`, isError: true };
+      }
+      const gateKey = `external_item:${input.surface_id}/${input.item_id}/${input.field}`;
+      const freshError = ensureFreshRead(ctx, gateKey, current);
+      if (freshError !== null) {
+        const h = await stashDraft(ctx, draftOrigin, replace);
+        return { content: `${freshError}
+
+${draftReuseNote(h, replace.length, "replace")}`, isError: true };
       }
       let outcome;
       try {
@@ -19853,7 +19522,7 @@ ${draftReuseNote(h, replace.length, "replace")}`, isError: true };
 
 ${draftReuseNote(h, replace.length, "replace")}`, isError: true };
       }
-      const writeRes = await dialWriteField2(ctx.spindle, input.provider_id, {
+      const writeRes = await dialWriteField2(ctx.spindle, match.provider.id, {
         userId: ctx.userId,
         surfaceId: input.surface_id,
         itemId: input.item_id,
@@ -19862,22 +19531,22 @@ ${draftReuseNote(h, replace.length, "replace")}`, isError: true };
       });
       if (!writeRes.ok)
         return { content: `Error: write failed: ${writeRes.error ?? "unknown"}`, isError: true };
+      refreshReadHash(ctx, gateKey, outcome.result);
       ctx.pushEdit({
         op: "edit",
         surface: "external",
-        providerId: input.provider_id,
+        providerId: match.provider.id,
         providerName,
         externalSurfaceId: input.surface_id,
         itemId: input.item_id,
-        surfaceId: `${input.provider_id}:${input.surface_id}:${input.item_id}`,
+        surfaceId: `${match.provider.id}:${input.surface_id}:${input.item_id}`,
         surfaceLabel: `${providerName} / ${surfaceLabel} / ${input.item_id}`,
         field: input.field,
         before: current,
         after: outcome.result
       });
-      const diffPatch = buildEditPatch(`${input.provider_id}/${input.surface_id}/${input.item_id}.${input.field}`, current, outcome.result);
+      const diffPatch = buildEditPatch(`${input.surface_id}/${input.item_id}.${input.field}`, current, outcome.result);
       const payload = {
-        provider_id: input.provider_id,
         surface_id: input.surface_id,
         item_id: input.item_id,
         field: input.field,
@@ -19887,190 +19556,7 @@ ${draftReuseNote(h, replace.length, "replace")}`, isError: true };
       };
       if (outcome.recoveredVia) {
         payload["recovered_via"] = outcome.recoveredVia;
-        payload["note"] = `Your 'find' string did not match byte-exactly. The edit was applied using a ${outcome.recoveredVia} fallback. Future calls on this field should copy bytes verbatim from a recent read_external_item output.`;
-      }
-      return { content: JSON.stringify(payload) };
-    }
-  });
-});
-
-// src/agent/tools/edit-regex-script-field.ts
-var inputSchema22, gate5, editRegexScriptFieldTool;
-var init_edit_regex_script_field = __esm(() => {
-  init_zod();
-  init__edit();
-  init__patch();
-  init__gates();
-  init__surfaces();
-  init__drafts();
-  inputSchema22 = exports_external.object({
-    script_id: exports_external.string().min(1),
-    field: exports_external.enum(REGEX_SCRIPT_BIG_FIELDS),
-    find: exports_external.string().min(1),
-    replace: exports_external.string().optional(),
-    replace_handle: exports_external.string().optional(),
-    replace_all: exports_external.boolean().optional()
-  }).refine((d) => d.replace !== undefined || d.replace_handle !== undefined, {
-    message: "either replace or replace_handle is required"
-  });
-  gate5 = {
-    surface: (input) => `regex_script_field:${input["script_id"] ?? "?"}/${input["field"] ?? "?"}`,
-    hint: (key) => {
-      const [, ref] = key.split(":");
-      const [id, field] = (ref ?? "").split("/");
-      return `Call read_regex_script_field with script_id='${id}' and field='${field}' first.`;
-    }
-  };
-  editRegexScriptFieldTool = defineTool({
-    name: "edit_regex_script_field",
-    description: `[LEGACY \u2014 superseded by the edit tool with path rx/<id>/<field>. Kept for back-compat; prefer the named successor.] Find/replace within a regex script's find_regex or replace_string. Requires a recent read_regex_script_field on the same script_id/field in this turn.`,
-    inputSchema: inputSchema22,
-    jsonSchema: {
-      type: "object",
-      properties: {
-        script_id: { type: "string" },
-        field: { type: "string", enum: [...REGEX_SCRIPT_BIG_FIELDS] },
-        find: { type: "string" },
-        replace: { type: "string" },
-        replace_handle: { type: "string", description: "Handle of a previously-stashed draft. Use instead of replace to avoid re-emitting." },
-        replace_all: { type: "boolean" }
-      },
-      required: ["script_id", "field", "find"]
-    },
-    requiresRecentRead: gate5,
-    defaultSensitivity: "insensitive",
-    execute: async (input, ctx) => {
-      let replace = input.replace;
-      if (replace === undefined && input.replace_handle) {
-        const loaded = await loadDraft(ctx, input.replace_handle);
-        if (loaded === null)
-          return { content: `Error: draft handle '${input.replace_handle}' not found or expired. Re-send replace literally.`, isError: true };
-        replace = loaded;
-      }
-      if (replace === undefined)
-        return { content: "Error: provide either replace or replace_handle.", isError: true };
-      const gateError = ensureRecentRead(ctx, gate5, input);
-      if (gateError !== null) {
-        const h = await stashDraft(ctx, `edit_regex_script_field:${input.script_id}/${input.field}`, replace);
-        return { content: `${gateError}
-
-${draftReuseNote(h, replace.length, "replace")}`, isError: true };
-      }
-      if (!isRegexScriptBigField(input.field))
-        return { content: `Error: field must be one of ${REGEX_SCRIPT_BIG_FIELDS.join(", ")}`, isError: true };
-      const r = await ctx.spindle.regex_scripts.get(input.script_id, ctx.userId);
-      if (!r)
-        return { content: `Error: regex script ${input.script_id} not found`, isError: true };
-      const current = r[input.field];
-      let outcome;
-      try {
-        outcome = applyEdit(current, input.find, replace, input.replace_all ?? false);
-      } catch (err) {
-        const h = await stashDraft(ctx, `edit_regex_script_field:${input.script_id}/${input.field}`, replace);
-        return { content: `Error: ${err.message}
-
-${draftReuseNote(h, replace.length, "replace")}`, isError: true };
-      }
-      const patch = { [input.field]: outcome.result };
-      await ctx.spindle.regex_scripts.update(input.script_id, patch, ctx.userId);
-      ctx.pushEdit({ op: "edit", surface: "regex_script", surfaceId: input.script_id, surfaceLabel: r.name, field: input.field, before: current, after: outcome.result });
-      const diffPatch = buildEditPatch(`regex_script[${input.script_id}].${input.field}`, current, outcome.result);
-      const payload = {
-        script_id: input.script_id,
-        field: input.field,
-        replacements: outcome.count,
-        snippet: outcome.firstSnippet,
-        patch: { additions: diffPatch.additions, deletions: diffPatch.deletions, hunks: diffPatch.hunks }
-      };
-      if (outcome.recoveredVia) {
-        payload["recovered_via"] = outcome.recoveredVia;
-        payload["note"] = `Your 'find' string did not match byte-exactly. The edit was applied using a ${outcome.recoveredVia} fallback. Future calls on this field should copy bytes verbatim from a recent read_*/grep_* output.`;
-      }
-      return { content: JSON.stringify(payload) };
-    }
-  });
-});
-
-// src/agent/tools/edit-world-book-entry.ts
-var inputSchema23, gate6, editWorldBookEntryTool;
-var init_edit_world_book_entry = __esm(() => {
-  init_zod();
-  init__edit();
-  init__patch();
-  init__gates();
-  init__surfaces();
-  init__drafts();
-  inputSchema23 = exports_external.object({
-    entry_id: exports_external.string().min(1),
-    find: exports_external.string().min(1),
-    replace: exports_external.string().optional(),
-    replace_handle: exports_external.string().optional(),
-    replace_all: exports_external.boolean().optional()
-  }).refine((d) => d.replace !== undefined || d.replace_handle !== undefined, {
-    message: "either replace or replace_handle is required"
-  });
-  gate6 = {
-    surface: (input) => `world_book_entry:${input["entry_id"] ?? "?"}`,
-    hint: (key) => `Call read_world_book_entry with entry_id='${key.split(":")[1]}' first.`
-  };
-  editWorldBookEntryTool = defineTool({
-    name: "edit_world_book_entry",
-    description: "[LEGACY \u2014 superseded by the edit tool with path wb/<id>/content. Kept for back-compat; prefer the named successor.] Find/replace within a world book entry's content. Requires a recent read_world_book_entry on the same entry in this turn. For metadata edits use update_world_book_entry.",
-    inputSchema: inputSchema23,
-    jsonSchema: {
-      type: "object",
-      properties: {
-        entry_id: { type: "string" },
-        find: { type: "string" },
-        replace: { type: "string" },
-        replace_handle: { type: "string", description: "Handle of a previously-stashed draft. Use instead of replace to avoid re-emitting." },
-        replace_all: { type: "boolean" }
-      },
-      required: ["entry_id", "find"]
-    },
-    requiresRecentRead: gate6,
-    defaultSensitivity: "insensitive",
-    execute: async (input, ctx) => {
-      let replace = input.replace;
-      if (replace === undefined && input.replace_handle) {
-        const loaded = await loadDraft(ctx, input.replace_handle);
-        if (loaded === null)
-          return { content: `Error: draft handle '${input.replace_handle}' not found or expired. Re-send replace literally.`, isError: true };
-        replace = loaded;
-      }
-      if (replace === undefined)
-        return { content: "Error: provide either replace or replace_handle.", isError: true };
-      const gateError = ensureRecentRead(ctx, gate6, input);
-      if (gateError !== null) {
-        const h = await stashDraft(ctx, `edit_world_book_entry:${input.entry_id}`, replace);
-        return { content: `${gateError}
-
-${draftReuseNote(h, replace.length, "replace")}`, isError: true };
-      }
-      const e = await ctx.spindle.world_books.entries.get(input.entry_id, ctx.userId);
-      if (!e)
-        return { content: `Error: world book entry ${input.entry_id} not found`, isError: true };
-      let outcome;
-      try {
-        outcome = applyEdit(e.content, input.find, replace, input.replace_all ?? false);
-      } catch (err) {
-        const h = await stashDraft(ctx, `edit_world_book_entry:${input.entry_id}`, replace);
-        return { content: `Error: ${err.message}
-
-${draftReuseNote(h, replace.length, "replace")}`, isError: true };
-      }
-      await ctx.spindle.world_books.entries.update(input.entry_id, { content: outcome.result }, ctx.userId);
-      ctx.pushEdit({ op: "edit", surface: "world_book_entry", surfaceId: input.entry_id, surfaceLabel: wbLabel(e), field: "content", before: e.content, after: outcome.result });
-      const diffPatch = buildEditPatch(`world_book_entry[${input.entry_id}].content`, e.content, outcome.result);
-      const payload = {
-        entry_id: input.entry_id,
-        replacements: outcome.count,
-        snippet: outcome.firstSnippet,
-        patch: { additions: diffPatch.additions, deletions: diffPatch.deletions, hunks: diffPatch.hunks }
-      };
-      if (outcome.recoveredVia) {
-        payload["recovered_via"] = outcome.recoveredVia;
-        payload["note"] = `Your 'find' string did not match byte-exactly. The edit was applied using a ${outcome.recoveredVia} fallback. Future calls on this field should copy bytes verbatim from a recent read_*/grep_* output.`;
+        payload["note"] = `Your 'find' string did not match byte-exactly. The edit was applied using a ${outcome.recoveredVia} fallback. Future calls on this field should copy bytes verbatim from a recent read_external output.`;
       }
       return { content: JSON.stringify(payload) };
     }
@@ -20078,7 +19564,7 @@ ${draftReuseNote(h, replace.length, "replace")}`, isError: true };
 });
 
 // src/agent/tools/edit.ts
-var inputSchema24, gate7, editTool;
+var inputSchema17, gate2, editTool;
 var init_edit = __esm(() => {
   init_zod();
   init__edit();
@@ -20086,7 +19572,7 @@ var init_edit = __esm(() => {
   init__gates();
   init__drafts();
   init__path_v2();
-  inputSchema24 = exports_external.object({
+  inputSchema17 = exports_external.object({
     path: exports_external.string().min(3).describe("Slash-separated path. Same grammar as `read`."),
     find: exports_external.string().min(1).describe("Exact substring to locate. Must be unique unless replace_all=true."),
     replace: exports_external.string().optional().describe("Replacement text. Mutually exclusive with replace_handle."),
@@ -20095,13 +19581,13 @@ var init_edit = __esm(() => {
   }).strict().refine((d) => d.replace !== undefined || d.replace_handle !== undefined, {
     message: "either `replace` or `replace_handle` is required"
   });
-  gate7 = {
+  gate2 = {
     surface: (input) => String(input["path"] ?? "?"),
     hint: (key) => `Call \`read\` on '${key}' first.`
   };
   editTool = defineTool({
     name: "edit",
-    description: `Find/replace within ONE string-valued surface, by path. Replaces edit_character_field, edit_alternate_greeting, edit_world_book_entry, edit_regex_script_field, edit_character_extension.
+    description: `Find/replace within a string-valued surface, by path.
 
 Rules:
 1. Recent-read gate: \`read\` must have run on the SAME path in this turn. Surface keys match byte-for-byte. If you read 'char/description' the gate fails for 'char/extensions/...'.
@@ -20110,7 +19596,7 @@ Rules:
 4. Failure stashes the replacement payload as a draft handle the next call can pass via \`replace_handle\`.
 
 Path grammar: same as \`read\`. Examples: 'char/first_mes', 'rx/<id>/replace_string', 'wb/<id>/comment', 'char/extensions/lumirealm.payload.background_html'.`,
-    inputSchema: inputSchema24,
+    inputSchema: inputSchema17,
     jsonSchema: {
       type: "object",
       properties: {
@@ -20123,7 +19609,7 @@ Path grammar: same as \`read\`. Examples: 'char/first_mes', 'rx/<id>/replace_str
       required: ["path", "find"],
       additionalProperties: false
     },
-    requiresRecentRead: gate7,
+    requiresRecentRead: gate2,
     defaultSensitivity: "insensitive",
     execute: async (input, ctx) => {
       let replace = input.replace;
@@ -20139,11 +19625,13 @@ Path grammar: same as \`read\`. Examples: 'char/first_mes', 'rx/<id>/replace_str
       try {
         leaf = await resolveRead(ctx, input.path);
       } catch (err) {
+        if (err instanceof OutOfRangeError)
+          return { content: `Error: [OUT_OF_RANGE] ${err.message}`, isError: true };
         if (err instanceof PathError)
           return { content: `Error: [PATH_NOT_FOUND] ${err.message}`, isError: true };
         return { content: `Error: ${err.message}`, isError: true };
       }
-      const gateError = ensureRecentRead(ctx, gate7, { path: leaf.key });
+      const gateError = ensureRecentRead(ctx, gate2, { path: leaf.key });
       if (gateError !== null) {
         const h = await stashDraft(ctx, `edit:${leaf.key}`, replace);
         return { content: `${gateError}
@@ -20192,16 +19680,16 @@ ${body}`;
 });
 
 // src/agent/tools/finish.ts
-var inputSchema25, finishTool;
+var inputSchema18, finishTool;
 var init_finish = __esm(() => {
   init_zod();
-  inputSchema25 = exports_external.object({
+  inputSchema18 = exports_external.object({
     summary: exports_external.string().min(1)
   });
   finishTool = defineTool({
     name: "finish",
     description: "Declare the entire task complete. Use ONLY when the user explicitly indicates everything is done. Normally just stop without calling a tool and the conversation will pause for the user's next message.",
-    inputSchema: inputSchema25,
+    inputSchema: inputSchema18,
     jsonSchema: {
       type: "object",
       properties: { summary: { type: "string" } },
@@ -20328,7 +19816,7 @@ var init_system_files = __esm(() => {
       field: { type: "string", description: "Field name, e.g. first_mes / description / personality." }
     },
     steps: [
-      { call: "read_character_field", args: { field: "{{field}}" }, save_as: "body" },
+      { call: "read", args: { path: "char/{{field}}" }, save_as: "body" },
       { call: "count_cjk_chars", args: { text: "{{$body}}" } }
     ],
     return: "{{$body}}"
@@ -20549,17 +20037,17 @@ var init_workspace = __esm(() => {
 });
 
 // src/agent/tools/fs-delete.ts
-var inputSchema26, fsDeleteTool;
+var inputSchema19, fsDeleteTool;
 var init_fs_delete = __esm(() => {
   init_zod();
-  inputSchema26 = exports_external.object({
+  inputSchema19 = exports_external.object({
     path: exports_external.string().min(1),
     recursive: exports_external.boolean().optional()
   });
   fsDeleteTool = defineTool({
     name: "fs_delete",
     description: "Delete a workspace file or directory. Directories must be empty unless recursive=true.",
-    inputSchema: inputSchema26,
+    inputSchema: inputSchema19,
     jsonSchema: {
       type: "object",
       properties: {
@@ -20587,14 +20075,14 @@ var init_fs_delete = __esm(() => {
 });
 
 // src/agent/tools/fs-edit.ts
-var inputSchema27, gate8, fsEditTool;
+var inputSchema20, gate3, fsEditTool;
 var init_fs_edit = __esm(() => {
   init_zod();
   init__edit();
   init__patch();
   init__gates();
   init__drafts();
-  inputSchema27 = exports_external.object({
+  inputSchema20 = exports_external.object({
     path: exports_external.string().min(1),
     find: exports_external.string().min(1),
     replace: exports_external.string().optional(),
@@ -20603,14 +20091,14 @@ var init_fs_edit = __esm(() => {
   }).refine((d) => d.replace !== undefined || d.replace_handle !== undefined, {
     message: "either replace or replace_handle is required"
   });
-  gate8 = {
+  gate3 = {
     surface: (input) => `fs:${input["path"] ?? "?"}`,
     hint: (key) => `Call fs_read with path='${key.split(":").slice(1).join(":")}' first.`
   };
   fsEditTool = defineTool({
     name: "fs_edit",
     description: "Find/replace inside a workspace text file. Requires a recent fs_read on the same path in this turn. Same unique-find discipline as the card edit tools.",
-    inputSchema: inputSchema27,
+    inputSchema: inputSchema20,
     jsonSchema: {
       type: "object",
       properties: {
@@ -20622,7 +20110,7 @@ var init_fs_edit = __esm(() => {
       },
       required: ["path", "find"]
     },
-    requiresRecentRead: gate8,
+    requiresRecentRead: gate3,
     defaultSensitivity: "insensitive",
     execute: async (input, ctx) => {
       let replace = input.replace;
@@ -20634,7 +20122,7 @@ var init_fs_edit = __esm(() => {
       }
       if (replace === undefined)
         return { content: "Error: provide either replace or replace_handle.", isError: true };
-      const gateError = ensureRecentRead(ctx, gate8, input);
+      const gateError = ensureRecentRead(ctx, gate3, input);
       if (gateError !== null) {
         const h = await stashDraft(ctx, `fs_edit:${input.path}`, replace);
         return { content: `${gateError}
@@ -20673,16 +20161,16 @@ ${draftReuseNote(h, replace.length, "replace")}`, isError: true };
 });
 
 // src/agent/tools/fs-list.ts
-var inputSchema28, fsListTool;
+var inputSchema21, fsListTool;
 var init_fs_list = __esm(() => {
   init_zod();
-  inputSchema28 = exports_external.object({
+  inputSchema21 = exports_external.object({
     path: exports_external.string().optional()
   });
   fsListTool = defineTool({
     name: "fs_list",
     description: "List entries in the agent's workspace at a given directory. Pass an empty path for the root. Returns [{name, path, isDirectory, sizeBytes, modifiedAt}]. The workspace persists across sessions and is shared with the user via the Files tab in the Workshop.",
-    inputSchema: inputSchema28,
+    inputSchema: inputSchema21,
     jsonSchema: {
       type: "object",
       properties: {
@@ -20703,16 +20191,16 @@ var init_fs_list = __esm(() => {
 });
 
 // src/agent/tools/fs-mkdir.ts
-var inputSchema29, fsMkdirTool;
+var inputSchema22, fsMkdirTool;
 var init_fs_mkdir = __esm(() => {
   init_zod();
-  inputSchema29 = exports_external.object({
+  inputSchema22 = exports_external.object({
     path: exports_external.string().min(1)
   });
   fsMkdirTool = defineTool({
     name: "fs_mkdir",
     description: "Create an empty directory in the workspace. Intermediate directories are created automatically by fs_write, so use this only when you need an empty folder.",
-    inputSchema: inputSchema29,
+    inputSchema: inputSchema22,
     jsonSchema: {
       type: "object",
       properties: {
@@ -20730,17 +20218,17 @@ var init_fs_mkdir = __esm(() => {
 });
 
 // src/agent/tools/fs-move.ts
-var inputSchema30, fsMoveTool;
+var inputSchema23, fsMoveTool;
 var init_fs_move = __esm(() => {
   init_zod();
-  inputSchema30 = exports_external.object({
+  inputSchema23 = exports_external.object({
     from: exports_external.string().min(1),
     to: exports_external.string().min(1)
   });
   fsMoveTool = defineTool({
     name: "fs_move",
     description: "Move or rename a workspace path. Works on both files and directories.",
-    inputSchema: inputSchema30,
+    inputSchema: inputSchema23,
     jsonSchema: {
       type: "object",
       properties: {
@@ -20759,11 +20247,11 @@ var init_fs_move = __esm(() => {
 });
 
 // src/agent/tools/fs-read.ts
-var inputSchema31, fsReadTool;
+var inputSchema24, fsReadTool;
 var init_fs_read = __esm(() => {
   init_zod();
   init__gates();
-  inputSchema31 = exports_external.object({
+  inputSchema24 = exports_external.object({
     path: exports_external.string().min(1),
     offset: exports_external.number().int().positive().optional(),
     limit: exports_external.number().int().positive().optional()
@@ -20771,7 +20259,7 @@ var init_fs_read = __esm(() => {
   fsReadTool = defineTool({
     name: "fs_read",
     description: "Read a workspace text file with line numbers and pagination.",
-    inputSchema: inputSchema31,
+    inputSchema: inputSchema24,
     jsonSchema: {
       type: "object",
       properties: {
@@ -20799,16 +20287,16 @@ var init_fs_read = __esm(() => {
 });
 
 // src/agent/tools/fs-stat.ts
-var inputSchema32, fsStatTool;
+var inputSchema25, fsStatTool;
 var init_fs_stat = __esm(() => {
   init_zod();
-  inputSchema32 = exports_external.object({
+  inputSchema25 = exports_external.object({
     path: exports_external.string().min(1)
   });
   fsStatTool = defineTool({
     name: "fs_stat",
     description: "Get metadata for a single workspace path. Returns isDirectory, sizeBytes, modifiedAt. Returns null when the path doesn't exist.",
-    inputSchema: inputSchema32,
+    inputSchema: inputSchema25,
     jsonSchema: {
       type: "object",
       properties: {
@@ -21007,17 +20495,17 @@ function parseZip(input) {
 var CRC_TABLE = null, SIG_LOCAL = 67324752, SIG_CENTRAL = 33639248, SIG_EOCD = 101010256;
 
 // src/agent/tools/fs-unzip.ts
-var inputSchema33, fsUnzipTool;
+var inputSchema26, fsUnzipTool;
 var init_fs_unzip = __esm(() => {
   init_zod();
-  inputSchema33 = exports_external.object({
+  inputSchema26 = exports_external.object({
     zip_path: exports_external.string().min(1),
     dest_dir: exports_external.string()
   });
   fsUnzipTool = defineTool({
     name: "fs_unzip",
     description: "Extract a workspace .zip into a destination directory. STORE and DEFLATE are supported. Rejects entries with path traversal ('..') or absolute paths. Subject to the same per-file and total workspace caps as fs_write.",
-    inputSchema: inputSchema33,
+    inputSchema: inputSchema26,
     jsonSchema: {
       type: "object",
       properties: {
@@ -21050,11 +20538,11 @@ var init_fs_unzip = __esm(() => {
 });
 
 // src/agent/tools/fs-write.ts
-var inputSchema34, fsWriteTool;
+var inputSchema27, fsWriteTool;
 var init_fs_write = __esm(() => {
   init_zod();
   init__drafts();
-  inputSchema34 = exports_external.object({
+  inputSchema27 = exports_external.object({
     path: exports_external.string().min(1),
     content: exports_external.string().optional(),
     content_handle: exports_external.string().optional()
@@ -21064,7 +20552,7 @@ var init_fs_write = __esm(() => {
   fsWriteTool = defineTool({
     name: "fs_write",
     description: "Create or overwrite a text file in the workspace. Use fs_edit for find/replace on existing files. Pass `content` for a literal payload or `content_handle` to reuse a stashed draft. Subject to per-file size cap and per-user storage cap.",
-    inputSchema: inputSchema34,
+    inputSchema: inputSchema27,
     jsonSchema: {
       type: "object",
       properties: {
@@ -21101,17 +20589,17 @@ ${draftReuseNote(h, content.length, "content")}`, isError: true };
 });
 
 // src/agent/tools/fs-zip.ts
-var inputSchema35, fsZipTool;
+var inputSchema28, fsZipTool;
 var init_fs_zip = __esm(() => {
   init_zod();
-  inputSchema35 = exports_external.object({
+  inputSchema28 = exports_external.object({
     paths: exports_external.array(exports_external.string()).min(1),
     output: exports_external.string().min(1)
   });
   fsZipTool = defineTool({
     name: "fs_zip",
     description: "Bundle one or more workspace paths into a .zip file (STORE method, no compression). Folders are walked recursively. Use this to package generated assets for the user to download, or to consolidate scratch output before deleting the originals.",
-    inputSchema: inputSchema35,
+    inputSchema: inputSchema28,
     jsonSchema: {
       type: "object",
       properties: {
@@ -21164,213 +20652,6 @@ var init_fs_zip = __esm(() => {
   });
 });
 
-// src/agent/tools/grep-card.ts
-function grepText(text, re, maxRemaining) {
-  if (text.length === 0 || maxRemaining <= 0)
-    return [];
-  const lines = text.split(`
-`);
-  const out = [];
-  for (let i = 0;i < lines.length && out.length < maxRemaining; i++) {
-    const line = lines[i];
-    re.lastIndex = 0;
-    let m;
-    const matches = [];
-    if (re.global) {
-      while ((m = re.exec(line)) !== null) {
-        matches.push(m[0]);
-        if (m.index === re.lastIndex)
-          re.lastIndex++;
-      }
-    } else {
-      m = re.exec(line);
-      if (m)
-        matches.push(m[0]);
-    }
-    if (matches.length === 0)
-      continue;
-    const preview = line.length > GREP_PREVIEW_CHARS ? `${line.slice(0, GREP_PREVIEW_CHARS - 5)} [\u2026]` : line;
-    for (const mm of matches) {
-      out.push({ line: i + 1, match: mm, preview });
-      if (out.length >= maxRemaining)
-        break;
-    }
-  }
-  return out;
-}
-async function loadAllRegexScripts2(ctx) {
-  const out = [];
-  let offset = 0;
-  for (;; ) {
-    const res = await ctx.spindle.regex_scripts.list({
-      scope: "character",
-      scopeId: ctx.characterId,
-      userId: ctx.userId,
-      limit: 200,
-      offset
-    });
-    out.push(...res.data);
-    if (out.length >= res.total || res.data.length === 0)
-      break;
-    offset += res.data.length;
-  }
-  return out;
-}
-async function loadAllWorldBookEntries2(ctx, c) {
-  const out = [];
-  for (const wbId of c.world_book_ids) {
-    let offset = 0;
-    for (;; ) {
-      const res = await ctx.spindle.world_books.entries.list(wbId, { limit: 500, userId: ctx.userId, offset });
-      out.push(...res.data);
-      if (out.length - offset >= res.total || res.data.length === 0)
-        break;
-      offset += res.data.length;
-    }
-  }
-  return out;
-}
-var GREP_DEFAULT_MAX = 50, GREP_MAX_CAP = 200, GREP_PREVIEW_CHARS = 150, inputSchema36, grepCardTool;
-var init_grep_card = __esm(() => {
-  init_zod();
-  init__surfaces();
-  inputSchema36 = exports_external.object({
-    pattern: exports_external.string(),
-    flags: exports_external.string().optional(),
-    case_insensitive: exports_external.boolean().optional(),
-    scopes: exports_external.array(exports_external.enum(["character", "world_books", "regex_scripts", "extensions"])).optional(),
-    max_matches: exports_external.number().optional()
-  });
-  grepCardTool = defineTool({
-    name: "grep_card",
-    description: `[LEGACY \u2014 superseded by the grep tool with include_paths/exclude_paths prefix filters. Kept for back-compat; prefer the named successor.] Search every editable surface of the character with a regex. Returns matches with surface, document id, label (comment or name), field, line number, the matched substring, and a line preview. THIS IS THE LOAD-BEARING TOOL for finding cross-references between regex find patterns, prompt instructions, and lorebook content before reading or editing anything.
-
-Scopes (default: all): character / world_books / regex_scripts / extensions.
-Patterns use ECMAScript regex syntax. The global flag is added automatically.`,
-    inputSchema: inputSchema36,
-    jsonSchema: {
-      type: "object",
-      properties: {
-        pattern: { type: "string" },
-        flags: { type: "string", description: "extra regex flags (i/m/s/u). g is implied." },
-        case_insensitive: { type: "boolean" },
-        scopes: { type: "array", items: { type: "string", enum: ["character", "world_books", "regex_scripts", "extensions"] } },
-        max_matches: { type: "number", description: `default ${GREP_DEFAULT_MAX}, max ${GREP_MAX_CAP}` }
-      },
-      required: ["pattern"]
-    },
-    defaultSensitivity: "sensitive",
-    execute: async (input, ctx) => {
-      const pattern = input.pattern;
-      const flagsExtra = input.flags ?? "";
-      const caseInsensitive = input.case_insensitive ?? false;
-      const scopes = input.scopes ?? ["character", "world_books", "regex_scripts", "extensions"];
-      const cap = Math.min(GREP_MAX_CAP, Math.max(1, Math.floor(input.max_matches ?? GREP_DEFAULT_MAX)));
-      let assembled = flagsExtra.includes("g") ? flagsExtra : `g${flagsExtra}`;
-      if (caseInsensitive && !assembled.includes("i"))
-        assembled = `${assembled}i`;
-      let re;
-      try {
-        re = new RegExp(pattern, assembled);
-      } catch (e) {
-        return { content: `Error: regex compile failed: ${e.message}`, isError: true };
-      }
-      const hits = [];
-      let remaining = cap;
-      let cached2 = null;
-      const getChar = async () => {
-        if (!cached2) {
-          const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
-          if (!c)
-            return null;
-          cached2 = c;
-        }
-        return cached2;
-      };
-      const charNotFound = `Error: character ${ctx.characterId} not found`;
-      if (scopes.includes("character")) {
-        const c = await getChar();
-        if (!c)
-          return { content: charNotFound, isError: true };
-        for (const field of CHARACTER_STRING_FIELDS) {
-          if (remaining <= 0)
-            break;
-          const text = c[field];
-          if (typeof text !== "string" || text.length === 0)
-            continue;
-          const lh = grepText(text, re, remaining);
-          for (const m of lh)
-            hits.push({ surface: "character", id: ctx.characterId, label: c.name, field, line: m.line, match: m.match, preview: m.preview });
-          remaining -= lh.length;
-        }
-        if (remaining > 0 && Array.isArray(c.alternate_greetings)) {
-          for (let i = 0;i < c.alternate_greetings.length && remaining > 0; i++) {
-            const text = c.alternate_greetings[i] ?? "";
-            if (text.length === 0)
-              continue;
-            const lh = grepText(text, re, remaining);
-            for (const m of lh)
-              hits.push({ surface: "character", id: ctx.characterId, label: c.name, field: `alternate_greetings[${i}]`, line: m.line, match: m.match, preview: m.preview });
-            remaining -= lh.length;
-          }
-        }
-      }
-      if (scopes.includes("world_books") && remaining > 0) {
-        const c = await getChar();
-        if (!c)
-          return { content: charNotFound, isError: true };
-        const entries = await loadAllWorldBookEntries2(ctx, c);
-        for (const e of entries) {
-          if (remaining <= 0)
-            break;
-          const lh = grepText(e.content, re, remaining);
-          const label = wbLabel(e);
-          for (const m of lh)
-            hits.push({ surface: "world_book_entry", id: e.id, label, field: "content", line: m.line, match: m.match, preview: m.preview });
-          remaining -= lh.length;
-        }
-      }
-      if (scopes.includes("regex_scripts") && remaining > 0) {
-        const scripts = await loadAllRegexScripts2(ctx);
-        for (const r of scripts) {
-          for (const field of REGEX_SCRIPT_BIG_FIELDS) {
-            if (remaining <= 0)
-              break;
-            const text = r[field];
-            const lh = grepText(text, re, remaining);
-            for (const m of lh)
-              hits.push({ surface: "regex_script", id: r.id, label: r.name, field, line: m.line, match: m.match, preview: m.preview });
-            remaining -= lh.length;
-          }
-        }
-      }
-      if (scopes.includes("extensions") && remaining > 0) {
-        const c = await getChar();
-        if (!c)
-          return { content: charNotFound, isError: true };
-        for (const leaf of walkStringLeaves(c.extensions ?? {}, "")) {
-          if (remaining <= 0)
-            break;
-          const lh = grepText(leaf.text, re, remaining);
-          for (const m of lh)
-            hits.push({ surface: "extensions", id: ctx.characterId, label: leaf.path, field: leaf.path, line: m.line, match: m.match, preview: m.preview });
-          remaining -= lh.length;
-        }
-      }
-      return {
-        content: JSON.stringify({
-          pattern,
-          flags: assembled,
-          scopes,
-          match_count: hits.length,
-          truncated: hits.length >= cap,
-          hits
-        }, null, 2)
-      };
-    }
-  });
-});
-
 // src/agent/tools/grep.ts
 function grepLeaf(text, re, leafKey, surface, surfaceLabel, maxRemaining, maxHitsPerLine) {
   const lines = text.split(`
@@ -21404,7 +20685,7 @@ function grepLeaf(text, re, leafKey, surface, surfaceLabel, maxRemaining, maxHit
     }
     if (lineMatches.length === 0)
       continue;
-    const preview = line.length > GREP_PREVIEW_CHARS2 ? `${line.slice(0, GREP_PREVIEW_CHARS2 - 5)} [\u2026]` : line;
+    const preview = line.length > GREP_PREVIEW_CHARS ? `${line.slice(0, GREP_PREVIEW_CHARS - 5)} [\u2026]` : line;
     const room = Math.min(lineMatches.length, maxRemaining - hits.length);
     for (let k = 0;k < room; k++) {
       hits.push({ path: leafKey, surface, surface_label: surfaceLabel, line: i + 1, match: lineMatches[k], preview });
@@ -21412,17 +20693,17 @@ function grepLeaf(text, re, leafKey, surface, surfaceLabel, maxRemaining, maxHit
   }
   return { hits, lastLineScanned, totalLines, stoppedEarly };
 }
-var GREP_DEFAULT_MAX2 = 50, GREP_MAX_CAP2 = 200, GREP_PREVIEW_CHARS2 = 150, GREP_DEFAULT_HITS_PER_LINE = 1, inputSchema37, grepTool;
+var GREP_DEFAULT_MAX = 50, GREP_MAX_CAP = 200, GREP_PREVIEW_CHARS = 150, GREP_DEFAULT_HITS_PER_LINE = 1, inputSchema29, grepTool;
 var init_grep = __esm(() => {
   init_zod();
   init__path_v2();
-  inputSchema37 = exports_external.object({
+  inputSchema29 = exports_external.object({
     pattern: exports_external.string().min(1).describe("ECMAScript regex pattern. The global flag is added automatically."),
     flags: exports_external.string().optional().describe("Extra regex flags (i/m/s/u). 'g' is implied."),
     case_insensitive: exports_external.boolean().optional(),
     include_paths: exports_external.array(exports_external.string()).optional().describe("Restrict search to leaves whose path starts with one of these prefixes."),
     exclude_paths: exports_external.array(exports_external.string()).optional().describe("Skip leaves whose path starts with any of these prefixes."),
-    max_matches: exports_external.number().int().positive().max(GREP_MAX_CAP2).optional().describe(`Cap on total returned hits across all leaves. Default ${GREP_DEFAULT_MAX2}, max ${GREP_MAX_CAP2}.`),
+    max_matches: exports_external.number().int().positive().max(GREP_MAX_CAP).optional().describe(`Cap on total returned hits across all leaves. Default ${GREP_DEFAULT_MAX}, max ${GREP_MAX_CAP}.`),
     max_hits_per_line: exports_external.number().int().positive().max(50).optional().describe(`Cap on hits returned per line. Default ${GREP_DEFAULT_HITS_PER_LINE}. Keep at 1 when the pattern matches dense single characters (e.g. CJK glyphs) so a single line full of matches doesn't burn the entire max_matches budget.`)
   }).strict();
   grepTool = defineTool({
@@ -21432,15 +20713,13 @@ var init_grep = __esm(() => {
 THE PRIMARY VERIFICATION TOOL. Use this to confirm cross-references, locate where a string lives, or settle a structural claim (e.g. "does \`lang::1\` actually appear in this script?") before reading or editing. ONE grep call beats a dozen partial reads.
 
 Budgets and truncation:
-- max_matches caps total returned hits across the search (default ${GREP_DEFAULT_MAX2}, max ${GREP_MAX_CAP2}).
+- max_matches caps total returned hits across the search (default ${GREP_DEFAULT_MAX}, max ${GREP_MAX_CAP}).
 - max_hits_per_line caps hits returned PER LINE (default ${GREP_DEFAULT_HITS_PER_LINE}). For dense single-character patterns (\`[\uAC00-\uD7A3]\`, \`[\u4E00-\u9FFF]\`, etc.) keep it at 1 so one line with 50 matches doesn't burn the whole budget. Raise it when the pattern matches distinct multi-char tokens.
 - When the cap is hit, the result includes \`truncated_at\`: the leaf path, the last line scanned in that leaf, the leaf's total line count, and the count of leaves left entirely unscanned. Re-run with a tighter pattern, narrower include_paths, or read the remaining range of the partially-scanned leaf directly.
 
 Scoping:
-- include_paths / exclude_paths use the same path grammar as \`read\`. e.g. \`include_paths: ['rx/']\` to search only regex scripts; \`exclude_paths: ['char/first_mes', 'char/alternate_greetings']\` to skip prose fields.
-
-Replaces grep_card.`,
-    inputSchema: inputSchema37,
+- include_paths / exclude_paths use the same path grammar as \`read\`. e.g. \`include_paths: ['rx/']\` to search only regex scripts; \`exclude_paths: ['char/first_mes', 'char/alternate_greetings']\` to skip prose fields.`,
+    inputSchema: inputSchema29,
     jsonSchema: {
       type: "object",
       properties: {
@@ -21449,7 +20728,7 @@ Replaces grep_card.`,
         case_insensitive: { type: "boolean" },
         include_paths: { type: "array", items: { type: "string" } },
         exclude_paths: { type: "array", items: { type: "string" } },
-        max_matches: { type: "integer", minimum: 1, maximum: GREP_MAX_CAP2, description: `default ${GREP_DEFAULT_MAX2}` },
+        max_matches: { type: "integer", minimum: 1, maximum: GREP_MAX_CAP, description: `default ${GREP_DEFAULT_MAX}` },
         max_hits_per_line: { type: "integer", minimum: 1, maximum: 50, description: `default ${GREP_DEFAULT_HITS_PER_LINE}` }
       },
       required: ["pattern"],
@@ -21457,7 +20736,7 @@ Replaces grep_card.`,
     },
     defaultSensitivity: "sensitive",
     execute: async (input, ctx) => {
-      const cap = Math.min(GREP_MAX_CAP2, Math.max(1, Math.floor(input.max_matches ?? GREP_DEFAULT_MAX2)));
+      const cap = Math.min(GREP_MAX_CAP, Math.max(1, Math.floor(input.max_matches ?? GREP_DEFAULT_MAX)));
       const perLineCap = Math.max(1, Math.floor(input.max_hits_per_line ?? GREP_DEFAULT_HITS_PER_LINE));
       const include = input.include_paths ?? [];
       const exclude = input.exclude_paths ?? [];
@@ -21546,10 +20825,10 @@ function resolveChatId2(input, ctx) {
     return { error: "No chat_id provided and no chat is pinned. Either pass chat_id or have the user pin a chat." };
   return ctx.pinnedChatId;
 }
-var CHAT_GREP_DEFAULT_MAX = 50, CHAT_GREP_MAX_CAP = 500, CHAT_GREP_PREVIEW_CHARS = 160, inputSchema38, grepChatMessagesTool;
+var CHAT_GREP_DEFAULT_MAX = 50, CHAT_GREP_MAX_CAP = 500, CHAT_GREP_PREVIEW_CHARS = 160, inputSchema30, grepChatMessagesTool;
 var init_grep_chat_messages = __esm(() => {
   init_zod();
-  inputSchema38 = exports_external.object({
+  inputSchema30 = exports_external.object({
     chat_id: exports_external.string().optional(),
     pattern: exports_external.string(),
     flags: exports_external.string().optional(),
@@ -21559,7 +20838,7 @@ var init_grep_chat_messages = __esm(() => {
   grepChatMessagesTool = defineTool({
     name: "grep_chat_messages",
     description: "Regex search across message contents. Returns hits with idx, id, role, line, match, preview. Use this for any 'where did we say X' question on a big chat, before falling back to read_chat_messages. Omit chat_id to use the pinned chat.",
-    inputSchema: inputSchema38,
+    inputSchema: inputSchema30,
     jsonSchema: {
       type: "object",
       properties: {
@@ -21631,6 +20910,70 @@ var init_grep_chat_messages = __esm(() => {
         hits
       }, null, 2);
       const out = await spillOrReturn(ctx, payload, `grep_chat_messages:${chatId}`);
+      return { content: out };
+    }
+  });
+});
+
+// src/agent/tools/grep-external.ts
+var inputSchema31, grepExternalTool;
+var init_grep_external = __esm(() => {
+  init_zod();
+  inputSchema31 = exports_external.object({
+    surface_id: exports_external.string().min(1),
+    pattern: exports_external.string().min(1),
+    ignore_case: exports_external.boolean().optional(),
+    field_prefix: exports_external.string().optional(),
+    head: exports_external.number().int().positive().max(2000).optional()
+  });
+  grepExternalTool = defineTool({
+    name: "grep_external",
+    description: `Regex-search every item in an external provider's surface.
+
+Usage:
+- Returns hits with item_id + item_label + field_path + line + match + preview.
+- \`field_prefix\` scopes the walk to a path subtree, path-segment aware. Examples: \`module.regex\` matches \`module.regex\`, \`module.regex[0]\`, \`module.regex.x\`; does NOT match \`module.regex_v2\`.
+- Per-character surfaces are filtered to items attached to the active character.
+- \`head\` caps the hit count (default 200, max 2000); response includes \`truncated\` when hit.`,
+    inputSchema: inputSchema31,
+    jsonSchema: {
+      type: "object",
+      properties: {
+        surface_id: { type: "string" },
+        pattern: { type: "string", description: "JavaScript regex source. No flags, use `ignore_case` for /i." },
+        ignore_case: { type: "boolean" },
+        field_prefix: { type: "string", description: "Optional path-prefix filter, e.g. 'module.regex'." },
+        head: { type: "integer", minimum: 1, maximum: 2000, description: "Max hits to return. Default 200." }
+      },
+      required: ["surface_id", "pattern"]
+    },
+    defaultSensitivity: "sensitive",
+    execute: async (input, ctx) => {
+      const { discoverProviders: discoverProviders2, findSurface: findSurface2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
+      const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
+      const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
+      const providers = await discoverProviders2(ctx.spindle, ctx.userId, promptFn);
+      const match = findSurface2(providers, input.surface_id);
+      if (!match)
+        return { content: `Error: unknown surface: ${input.surface_id}`, isError: true };
+      const { dialGrepItems: dialGrepItems2 } = await Promise.resolve().then(() => (init_transport(), exports_transport));
+      const res = await dialGrepItems2(ctx.spindle, match.provider.id, {
+        userId: ctx.userId,
+        surfaceId: input.surface_id,
+        pattern: input.pattern,
+        ...input.ignore_case !== undefined ? { ignoreCase: input.ignore_case } : {},
+        ...input.field_prefix !== undefined ? { fieldPrefix: input.field_prefix } : {},
+        ...input.head !== undefined ? { head: input.head } : {},
+        ...match.surface.scope === "per_character" ? { characterId: ctx.characterId } : {}
+      });
+      const payload = JSON.stringify({
+        surface_id: input.surface_id,
+        pattern: input.pattern,
+        hit_count: res.hits.length,
+        truncated: res.truncated,
+        hits: res.hits
+      }, null, 2);
+      const out = await spillOrReturn(ctx, payload, `grep_external:${input.surface_id}`);
       return { content: out };
     }
   });
@@ -21799,7 +21142,7 @@ async function inspectWorldBook(ctx, bookId) {
     largest: top
   };
 }
-var PEEK_CHARS = 200, TOP_N = 10, CJK_RE2, HANGUL_NFC_RANGE, HANGUL_JAMO_RANGE, MIRRORED_CHARACTER_FIELDS, inputSchema39, inspectTool;
+var PEEK_CHARS = 200, TOP_N = 10, CJK_RE2, HANGUL_NFC_RANGE, HANGUL_JAMO_RANGE, MIRRORED_CHARACTER_FIELDS, inputSchema32, inspectTool;
 var init_inspect = __esm(() => {
   init_zod();
   init__path_v2();
@@ -21816,7 +21159,7 @@ var init_inspect = __esm(() => {
     "post_history_instructions",
     "mes_example"
   ]);
-  inputSchema39 = exports_external.object({
+  inputSchema32 = exports_external.object({
     path: exports_external.string().min(2).describe("Path or container path. See description for forms.")
   }).strict();
   inspectTool = defineTool({
@@ -21842,8 +21185,8 @@ CONTAINER paths return aggregate / metadata:
   wb                    all world books (attached and unattached) with entry counts
   wb/<id>               book aggregate (entries, disabled, constant, total chars, top-10 by size)
 
-Replaces character_field_stats, regex_script_stats, regex_scripts_overview, world_book_entry_stats, world_book_stats, read_regex_script_meta \u2014 one tool, one path argument.`,
-    inputSchema: inputSchema39,
+One tool, one path argument.`,
+    inputSchema: inputSchema32,
     jsonSchema: {
       type: "object",
       properties: { path: { type: "string", description: "Surface path. See description for leaf vs container forms." } },
@@ -21879,6 +21222,8 @@ Replaces character_field_stats, regex_script_stats, regex_scripts_overview, worl
       try {
         leaf = await resolveRead(ctx, path2);
       } catch (err) {
+        if (err instanceof OutOfRangeError)
+          return { content: `Error: [OUT_OF_RANGE] ${err.message}`, isError: true };
         if (err instanceof PathError)
           return { content: `Error: [PATH_NOT_FOUND] ${err.message}`, isError: true };
         return { content: `Error: ${err.message}`, isError: true };
@@ -22043,11 +21388,11 @@ async function listExtensions(ctx, subPath, maxEntries, maxDepth) {
   visit(root, "", 0);
   return out;
 }
-var inputSchema40, listTool;
+var inputSchema33, listTool;
 var init_list = __esm(() => {
   init_zod();
   init__surfaces();
-  inputSchema40 = exports_external.object({
+  inputSchema33 = exports_external.object({
     path: exports_external.string().describe("Container path. Empty / 'char' for the character overview. 'rx' for regex scripts. 'wb' for world books. 'wb/<bookId>' for entries in a book. 'char/alternate_greetings' for all greetings. 'char/extensions[/dotted]' for an extensions subtree."),
     max_entries: exports_external.number().int().positive().max(2000).optional().describe("Max items returned. Default 200."),
     max_depth: exports_external.number().int().positive().max(10).optional().describe("Recursion depth (only used for extensions traversal). Default 4."),
@@ -22066,8 +21411,8 @@ Path forms:
 - 'wb'                               all attached world books
 - 'wb/<bookId>'                      all entries in a world book
 
-Returns each item with a path that you can pass straight to \`read\` / \`inspect\` / \`edit\`. Replaces list_world_books, list_world_book_entries, list_regex_scripts, list_alternate_greetings, list_extension_keys.`,
-    inputSchema: inputSchema40,
+Returns each item with a path. Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole via \`inspect\`; to \`read\` / \`edit\` a string leaf, append the field name (\`rx/<scriptId>/find_regex\` or \`/replace_string\`; \`wb/<entryId>/content\` or \`/comment\`). Leaf paths (\`char/<field>\`, \`char/alternate_greetings/<idx>\`, \`char/extensions/<dotted>\`) are directly read/editable.`,
+    inputSchema: inputSchema33,
     jsonSchema: {
       type: "object",
       properties: {
@@ -22115,21 +21460,21 @@ Returns each item with a path that you can pass straight to \`read\` / \`inspect
 });
 
 // src/agent/tools/rewrite.ts
-var inputSchema41, gate9, rewriteTool;
+var inputSchema34, gate4, rewriteTool;
 var init_rewrite = __esm(() => {
   init_zod();
   init__patch();
   init__gates();
   init__drafts();
   init__path_v2();
-  inputSchema41 = exports_external.object({
+  inputSchema34 = exports_external.object({
     path: exports_external.string().min(3).describe("Slash-separated path. Same grammar as `read` / `edit`."),
     new_content: exports_external.string().optional().describe("Full replacement text. Mutually exclusive with new_content_handle."),
     new_content_handle: exports_external.string().optional().describe("Handle of a previously-stashed draft.")
   }).strict().refine((d) => d.new_content !== undefined || d.new_content_handle !== undefined, {
     message: "either new_content or new_content_handle is required"
   });
-  gate9 = {
+  gate4 = {
     surface: (input) => String(input["path"] ?? "?"),
     hint: (key) => `Call \`read\` on '${key}' first so you've seen what you're overwriting.`
   };
@@ -22140,10 +21485,10 @@ var init_rewrite = __esm(() => {
 - Find/replace keeps failing on stylized text (zalgo, hand-tuned diacritics, NFC drift).
 - The replacement is structurally different enough that finding a stable anchor is futile.
 
-Requires a recent \`read\` on the SAME path. Returns the structured diff like \`edit\` does. Replaces rewrite_alternate_greeting, rewrite_world_book_entry, and the wholesale-replace branch of update_character.
+Requires a recent \`read\` on the SAME path. Returns the structured diff like \`edit\` does.
 
 Pass \`new_content\` for a literal payload, or \`new_content_handle\` to reuse a draft a prior failed call stashed for you.`,
-    inputSchema: inputSchema41,
+    inputSchema: inputSchema34,
     jsonSchema: {
       type: "object",
       properties: {
@@ -22154,7 +21499,7 @@ Pass \`new_content\` for a literal payload, or \`new_content_handle\` to reuse a
       required: ["path"],
       additionalProperties: false
     },
-    requiresRecentRead: gate9,
+    requiresRecentRead: gate4,
     defaultSensitivity: "insensitive",
     execute: async (input, ctx) => {
       let next = input.new_content;
@@ -22170,11 +21515,13 @@ Pass \`new_content\` for a literal payload, or \`new_content_handle\` to reuse a
       try {
         leaf = await resolveRead(ctx, input.path);
       } catch (err) {
+        if (err instanceof OutOfRangeError)
+          return { content: `Error: [OUT_OF_RANGE] ${err.message}`, isError: true };
         if (err instanceof PathError)
           return { content: `Error: [PATH_NOT_FOUND] ${err.message}`, isError: true };
         return { content: `Error: ${err.message}`, isError: true };
       }
-      const gateError = ensureRecentRead(ctx, gate9, { path: leaf.key });
+      const gateError = ensureRecentRead(ctx, gate4, { path: leaf.key });
       if (gateError !== null) {
         const h = await stashDraft(ctx, `rewrite:${leaf.key}`, next);
         return { content: `${gateError}
@@ -22215,9 +21562,9 @@ function stringify(v) {
 }
 async function setCharacterField(ctx, field, value) {
   if (!isCharacterStringField(field))
-    return `unknown character field '${field}'`;
+    return `[PATH_NOT_FOUND] unknown character field '${field}'`;
   if (typeof value !== "string")
-    return `char/${field} expects a string value, got ${typeof value}`;
+    return `[INVALID_VALUE_TYPE] char/${field} expects a string value, got ${typeof value}`;
   const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
   if (!c)
     return "character not found";
@@ -22228,13 +21575,13 @@ async function setCharacterField(ctx, field, value) {
 }
 async function setAlternateGreeting(ctx, idx, value) {
   if (typeof value !== "string")
-    return `alternate_greetings is a string array; non-string values not allowed`;
+    return `[INVALID_VALUE_TYPE] alternate_greetings is a string array; non-string values not allowed`;
   const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
   if (!c)
     return "character not found";
   const arr = [...c.alternate_greetings ?? []];
   if (idx < 0 || idx >= arr.length)
-    return `alternate_greetings[${idx}] out of range`;
+    return `[OUT_OF_RANGE] alternate_greetings[${idx}] is past the end (length ${arr.length}). \`list({path: "char/alternate_greetings"})\` shows valid indices.`;
   const before = arr[idx] ?? "";
   arr[idx] = value;
   await ctx.spindle.characters.update(ctx.characterId, { alternate_greetings: arr }, ctx.userId);
@@ -22276,11 +21623,11 @@ async function setWorldBookEntryField(ctx, entryId, field, value) {
   await ctx.spindle.world_books.entries.update(entryId, { [field]: value }, ctx.userId);
   return { before: stringify(before), after: stringify(value), label: wbLabel(e), surface: "world_book_entry", surfaceId: entryId, field };
 }
-var inputSchema42, setTool;
+var inputSchema35, setTool;
 var init_set = __esm(() => {
   init_zod();
   init__surfaces();
-  inputSchema42 = exports_external.object({
+  inputSchema35 = exports_external.object({
     path: exports_external.string().min(3).describe("Slash-separated path. Same grammar as `read` / `edit`."),
     value: exports_external.unknown().describe("The new value. Any JSON-encodable type (string, number, boolean, array, object, null). Wholesale replacement at the path.")
   }).strict();
@@ -22297,8 +21644,8 @@ Path grammar matches \`read\` / \`edit\` / \`rewrite\`. The value field accepts 
 
 Records before/after in the ledger like every other edit \u2014 fully revertable.
 
-Replaces update_character_extension, update_regex_script (single-field), update_world_book_entry (single-field). For multi-field atomic updates use the legacy update_character / update_world_book_entry tools.`,
-    inputSchema: inputSchema42,
+For multi-field atomic character updates use \`update_character({patch})\`.`,
+    inputSchema: inputSchema35,
     jsonSchema: {
       type: "object",
       properties: {
@@ -22366,32 +21713,11 @@ Replaces update_character_extension, update_regex_script (single-field), update_
   });
 });
 
-// src/agent/tools/list-alternate-greetings.ts
-var inputSchema43, listAlternateGreetingsTool;
-var init_list_alternate_greetings = __esm(() => {
-  init_zod();
-  inputSchema43 = exports_external.object({}).strict();
-  listAlternateGreetingsTool = defineTool({
-    name: "list_alternate_greetings",
-    description: "[LEGACY \u2014 superseded by the list tool with path char/alternate_greetings. Kept for back-compat; prefer the named successor.] Returns the character's alternate_greetings as {index, chars_in_greeting} list (no content).",
-    inputSchema: inputSchema43,
-    jsonSchema: { type: "object", properties: {}, required: [] },
-    defaultSensitivity: "insensitive",
-    execute: async (_input, ctx) => {
-      const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
-      if (!c)
-        return { content: `Error: character ${ctx.characterId} not found`, isError: true };
-      const items = (c.alternate_greetings ?? []).map((g, i) => ({ index: i, chars_in_greeting: g.length }));
-      return { content: JSON.stringify({ count: items.length, greetings: items }, null, 2) };
-    }
-  });
-});
-
 // src/agent/tools/list-chat-messages.ts
-var CHAT_LIST_SNIPPET_CHARS = 80, inputSchema44, listChatMessagesTool;
+var CHAT_LIST_SNIPPET_CHARS = 80, inputSchema36, listChatMessagesTool;
 var init_list_chat_messages = __esm(() => {
   init_zod();
-  inputSchema44 = exports_external.object({
+  inputSchema36 = exports_external.object({
     chat_id: exports_external.string().optional(),
     offset: exports_external.number().optional(),
     limit: exports_external.number().optional()
@@ -22399,7 +21725,7 @@ var init_list_chat_messages = __esm(() => {
   listChatMessagesTool = defineTool({
     name: "list_chat_messages",
     description: "Skim a chat's messages as metadata only: idx, id, role, char count, and an 80-char snippet per message. Cheap on tokens. Use for picking which specific messages to read in full afterwards. Omit chat_id to use the pinned chat.",
-    inputSchema: inputSchema44,
+    inputSchema: inputSchema36,
     jsonSchema: {
       type: "object",
       properties: {
@@ -22446,14 +21772,14 @@ var init_list_chat_messages = __esm(() => {
 });
 
 // src/agent/tools/list-chats-for-character.ts
-var inputSchema45, listChatsForCharacterTool;
+var inputSchema37, listChatsForCharacterTool;
 var init_list_chats_for_character = __esm(() => {
   init_zod();
-  inputSchema45 = exports_external.object({}).strict();
+  inputSchema37 = exports_external.object({}).strict();
   listChatsForCharacterTool = defineTool({
     name: "list_chats_for_character",
     description: "List all of the user's chat sessions for the ACTIVE character. Returns id, name, updated_at, message_count, is_active (whether the host is currently showing this chat). Use this to discover what chats exist before reading messages, or to suggest one for the user to pin.",
-    inputSchema: inputSchema45,
+    inputSchema: inputSchema37,
     jsonSchema: { type: "object", properties: {}, required: [] },
     defaultSensitivity: "insensitive",
     execute: async (_input, ctx) => {
@@ -22476,125 +21802,28 @@ var init_list_chats_for_character = __esm(() => {
   });
 });
 
-// src/agent/tools/list-extension-keys.ts
-function classifyNode2(v) {
-  if (v === null)
-    return { type: "null" };
-  if (Array.isArray(v))
-    return { type: "array", size: v.length };
-  if (typeof v === "object")
-    return { type: "object", size: Object.keys(v).length };
-  if (typeof v === "string")
-    return { type: "string", size: v.length };
-  if (typeof v === "number")
-    return { type: "number" };
-  if (typeof v === "boolean")
-    return { type: "boolean" };
-  return { type: typeof v };
-}
-var inputSchema46, listExtensionKeysTool;
-var init_list_extension_keys = __esm(() => {
+// src/agent/tools/list-external.ts
+var inputSchema38, listExternalTool;
+var init_list_external = __esm(() => {
   init_zod();
-  inputSchema46 = exports_external.object({
-    path: exports_external.string().optional(),
-    max_depth: exports_external.number().optional(),
-    max_entries: exports_external.number().optional()
-  });
-  listExtensionKeysTool = defineTool({
-    name: "list_extension_keys",
-    description: "[LEGACY \u2014 superseded by the list tool with path char/extensions or char/extensions/<dotted>. Kept for back-compat; prefer the named successor.] Enumerate keys and types under character.extensions (or a subpath). Returns each path with type/size. Use before grep_card or read_character_extension to learn the shape of a card's extensions blob.",
-    inputSchema: inputSchema46,
-    jsonSchema: {
-      type: "object",
-      properties: {
-        path: { type: "string" },
-        max_depth: { type: "number" },
-        max_entries: { type: "number" }
-      },
-      required: []
-    },
-    defaultSensitivity: "insensitive",
-    execute: async (input, ctx) => {
-      const path2 = input.path ?? "";
-      const maxDepth = Math.max(1, Math.floor(input.max_depth ?? 4));
-      const maxEntries = Math.max(1, Math.floor(input.max_entries ?? 200));
-      const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
-      if (!c)
-        return { content: `Error: character ${ctx.characterId} not found`, isError: true };
-      let segs;
-      try {
-        segs = path2 === "" ? [] : parseExtensionPath(path2);
-      } catch (e) {
-        return { content: `Error: ${e.message}`, isError: true };
-      }
-      const root = getAtPath2(c.extensions ?? {}, segs);
-      if (root === undefined) {
-        return { content: `Error: extensions${path2 === "" ? "" : "." + path2} does not exist`, isError: true };
-      }
-      const entries = [];
-      let truncated = false;
-      const visit = (node, prefix, depth) => {
-        if (entries.length >= maxEntries) {
-          truncated = true;
-          return;
-        }
-        const info = classifyNode2(node);
-        if (prefix !== "") {
-          const out = { path: prefix, type: info.type };
-          if (info.size !== undefined)
-            out.size = info.size;
-          entries.push(out);
-        }
-        if (depth >= maxDepth)
-          return;
-        if (node === null || node === undefined || typeof node !== "object")
-          return;
-        if (Array.isArray(node)) {
-          for (let i = 0;i < node.length; i++) {
-            if (entries.length >= maxEntries) {
-              truncated = true;
-              return;
-            }
-            visit(node[i], `${prefix}[${i}]`, depth + 1);
-          }
-          return;
-        }
-        for (const [k, v] of Object.entries(node)) {
-          if (entries.length >= maxEntries) {
-            truncated = true;
-            return;
-          }
-          const safeKey = /^[A-Za-z_$][\w$]*$/.test(k) ? k : JSON.stringify(k);
-          const isIdent = safeKey === k;
-          const seg = isIdent ? prefix === "" ? k : `.${k}` : `[${safeKey}]`;
-          visit(v, prefix + seg, depth + 1);
-        }
-      };
-      visit(root, "", 0);
-      return { content: JSON.stringify({ base: path2 === "" ? "extensions" : `extensions.${path2}`, count: entries.length, truncated, entries }, null, 2) };
-    }
-  });
-});
-
-// src/agent/tools/list-external-items.ts
-var inputSchema47, listExternalItemsTool;
-var init_list_external_items = __esm(() => {
-  init_zod();
-  inputSchema47 = exports_external.object({
-    provider_id: exports_external.string().min(1),
+  inputSchema38 = exports_external.object({
     surface_id: exports_external.string().min(1)
   });
-  listExternalItemsTool = defineTool({
-    name: "list_external_items",
-    description: "Enumerate items in an external provider's surface (e.g. all LumiRealm modules attached to the active character). Returns id + label + brief metadata for each. Use the active character's id implicitly when the surface is per_character scoped.",
-    inputSchema: inputSchema47,
+  listExternalTool = defineTool({
+    name: "list_external",
+    description: `Lists every item in an external provider's surface.
+
+Usage:
+- Returns id + label + brief metadata per item.
+- Per-character surfaces are filtered to items attached to the active character automatically.
+- Use \`read_external\` to fetch one, \`grep_external\` to regex-search across all.`,
+    inputSchema: inputSchema38,
     jsonSchema: {
       type: "object",
       properties: {
-        provider_id: { type: "string" },
         surface_id: { type: "string" }
       },
-      required: ["provider_id", "surface_id"]
+      required: ["surface_id"]
     },
     defaultSensitivity: "insensitive",
     execute: async (input, ctx) => {
@@ -22602,72 +21831,40 @@ var init_list_external_items = __esm(() => {
       const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
       const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
       const providers = await discoverProviders2(ctx.spindle, ctx.userId, promptFn);
-      const match = findSurface2(providers, input.provider_id, input.surface_id);
+      const match = findSurface2(providers, input.surface_id);
       if (!match)
-        return { content: `Error: unknown provider/surface: ${input.provider_id}/${input.surface_id}`, isError: true };
+        return { content: `Error: unknown surface: ${input.surface_id}`, isError: true };
       const { dialListItems: dialListItems2 } = await Promise.resolve().then(() => (init_transport(), exports_transport));
-      const res = await dialListItems2(ctx.spindle, input.provider_id, {
+      const res = await dialListItems2(ctx.spindle, match.provider.id, {
         userId: ctx.userId,
         surfaceId: input.surface_id,
-        ...match.surface.scope.kind === "per_character" ? { characterId: ctx.characterId } : {}
+        ...match.surface.scope === "per_character" ? { characterId: ctx.characterId } : {}
       });
       return { content: JSON.stringify(res, null, 2) };
     }
   });
 });
 
-// src/agent/tools/list-external-providers.ts
-var inputSchema48, listExternalProvidersTool;
-var init_list_external_providers = __esm(() => {
-  init_zod();
-  inputSchema48 = exports_external.object({}).strict();
-  listExternalProvidersTool = defineTool({
-    name: "list_external_providers",
-    description: "List third-party extensions that have opted in to exposing data through the phone-line protocol. Returns each provider's id, display name, and the surfaces it offers (with descriptions, field schemas, scope). Call this FIRST when the user asks about data not in the character's canonical surfaces. The agent then uses list_external_items / read_external_item / edit_external_item / update_external_item to interact with each surface.",
-    inputSchema: inputSchema48,
-    jsonSchema: { type: "object", properties: {}, required: [] },
-    defaultSensitivity: "insensitive",
-    execute: async (_input, ctx) => {
-      const { discoverProviders: discoverProviders2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
-      const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
-      const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
-      const providers = await discoverProviders2(ctx.spindle, ctx.userId, promptFn);
-      return {
-        content: JSON.stringify({
-          count: providers.length,
-          providers: providers.map((p) => ({
-            id: p.id,
-            name: p.manifest.extension.name,
-            version: p.manifest.extension.version,
-            surfaces: p.manifest.surfaces.map((s) => ({
-              id: s.id,
-              label: s.label,
-              description: s.description,
-              item_kind: s.item_kind,
-              scope: s.scope.kind,
-              fields: s.fields
-            }))
-          }))
-        }, null, 2)
-      };
-    }
-  });
-});
-
-// src/agent/tools/list-my-edits.ts
-var inputSchema49, listMyEditsTool;
-var init_list_my_edits = __esm(() => {
+// src/agent/tools/list-session-edits.ts
+var inputSchema39, listSessionEditsTool;
+var init_list_session_edits = __esm(() => {
   init_zod();
   init_ledger();
-  inputSchema49 = exports_external.object({
+  inputSchema39 = exports_external.object({
     scope: exports_external.enum(["current_message", "current_session", "all_sessions"]).optional().describe("current_message: just this response. current_session: every edit you've made in this session. all_sessions: every agent-authored edit on this character across every session (useful when the user asks about prior conversations). Default current_message."),
     include_reverted: exports_external.boolean().optional().describe("Include already-reverted edits. Default false."),
     limit: exports_external.number().int().positive().max(500).optional()
   }).strict();
-  listMyEditsTool = defineTool({
-    name: "list_my_edits",
-    description: "List edits you (the agent) have made. Default scope is the current response; widen with `current_session` or `all_sessions`. Returns one entry per patch with id, surface, surfaceLabel, field, ts, reverted, session_id. Use the ids with revert_my_edits or squash_my_edits (revert across sessions requires allow_cross_session: true on revert_my_edits).",
-    inputSchema: inputSchema49,
+  listSessionEditsTool = defineTool({
+    name: "list_session_edits",
+    description: `Lists agent-authored edits.
+
+Usage:
+- Default scope is the current response. Widen with \`current_session\` or \`all_sessions\`.
+- Returns one row per patch: edit_id, surface, surface_id, surface_label, field, ts, reverted, session_id.
+- Pass returned ids to \`revert_session_edits\` or \`squash_session_edits\`.
+- Cross-session revert requires \`allow_cross_session: true\` on \`revert_session_edits\`.`,
+    inputSchema: inputSchema39,
     jsonSchema: {
       type: "object",
       properties: {
@@ -22716,160 +21913,18 @@ var init_list_my_edits = __esm(() => {
   });
 });
 
-// src/agent/tools/list-regex-scripts.ts
-async function loadAllRegexScripts3(ctx) {
-  const out = [];
-  let offset = 0;
-  for (;; ) {
-    const res = await ctx.spindle.regex_scripts.list({
-      scope: "character",
-      scopeId: ctx.characterId,
-      userId: ctx.userId,
-      limit: 200,
-      offset
-    });
-    out.push(...res.data);
-    if (out.length >= res.total || res.data.length === 0)
-      break;
-    offset += res.data.length;
-  }
-  return out;
-}
-var inputSchema50, listRegexScriptsTool;
-var init_list_regex_scripts = __esm(() => {
-  init_zod();
-  inputSchema50 = exports_external.object({
-    offset: exports_external.number().optional(),
-    limit: exports_external.number().optional()
-  });
-  listRegexScriptsTool = defineTool({
-    name: "list_regex_scripts",
-    description: "[LEGACY \u2014 superseded by the list tool with path rx. Kept for back-compat; prefer the named successor.] List the character-scoped regex scripts with metadata only (find/replace previews truncated). Returns id, name, target, placement, disabled, find_regex_chars, replace_string_chars. For inventory before grep/read.",
-    inputSchema: inputSchema50,
-    jsonSchema: {
-      type: "object",
-      properties: {
-        offset: { type: "number" },
-        limit: { type: "number" }
-      },
-      required: []
-    },
-    defaultSensitivity: "insensitive",
-    execute: async (input, ctx) => {
-      const offset = Math.max(0, Math.floor(input.offset ?? 0));
-      const limit = Math.min(500, Math.max(1, Math.floor(input.limit ?? 200)));
-      const scripts = await loadAllRegexScripts3(ctx);
-      const slice = scripts.slice(offset, offset + limit);
-      const rows = slice.map((r) => ({
-        id: r.id,
-        name: r.name,
-        target: r.target,
-        placement: r.placement,
-        disabled: r.disabled,
-        sort_order: r.sort_order,
-        find_regex_chars: r.find_regex.length,
-        replace_string_chars: r.replace_string.length
-      }));
-      return { content: JSON.stringify({ total: scripts.length, offset, returned: rows.length, scripts: rows }, null, 2) };
-    }
-  });
-});
-
-// src/agent/tools/list-world-book-entries.ts
-var inputSchema51, listWorldBookEntriesTool;
-var init_list_world_book_entries = __esm(() => {
-  init_zod();
-  inputSchema51 = exports_external.object({
-    offset: exports_external.number().optional(),
-    limit: exports_external.number().optional()
-  });
-  listWorldBookEntriesTool = defineTool({
-    name: "list_world_book_entries",
-    description: "[LEGACY \u2014 superseded by the list tool with path wb/<bookId>. Kept for back-compat; prefer the named successor.] List the active character's world book entries with metadata only (no content). Returns id, world_book_id, comment, key (activation keys), constant, disabled, position, order_value, content_chars. Use this to inventory the lorebook. For large lorebooks, paginate with offset/limit.",
-    inputSchema: inputSchema51,
-    jsonSchema: {
-      type: "object",
-      properties: {
-        offset: { type: "number", description: "0-indexed start, default 0" },
-        limit: { type: "number", description: "max entries per call, default 200" }
-      },
-      required: []
-    },
-    defaultSensitivity: "insensitive",
-    execute: async (input, ctx) => {
-      const offset = Math.max(0, Math.floor(input.offset ?? 0));
-      const limit = Math.min(500, Math.max(1, Math.floor(input.limit ?? 200)));
-      const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
-      if (!c)
-        return { content: `Error: character ${ctx.characterId} not found`, isError: true };
-      const all = [];
-      for (const wbId of c.world_book_ids) {
-        const res = await ctx.spindle.world_books.entries.list(wbId, { limit: 500, userId: ctx.userId });
-        all.push(...res.data);
-      }
-      const slice = all.slice(offset, offset + limit);
-      const rows = slice.map((e) => ({
-        id: e.id,
-        world_book_id: e.world_book_id,
-        comment: e.comment,
-        key: e.key,
-        constant: e.constant,
-        disabled: e.disabled,
-        position: e.position,
-        order_value: e.order_value,
-        content_chars: e.content.length
-      }));
-      const payload = JSON.stringify({
-        total: all.length,
-        offset,
-        returned: rows.length,
-        truncated: all.length > offset + rows.length,
-        entries: rows
-      }, null, 2);
-      const out = await spillOrReturn(ctx, payload, `list_world_book_entries:${offset}-${offset + rows.length}`, "If the lorebook is huge, call world_book_stats first or narrow by keyword via grep_card.");
-      return { content: out };
-    }
-  });
-});
-
-// src/agent/tools/list-world-books.ts
-var inputSchema52, listWorldBooksTool;
-var init_list_world_books = __esm(() => {
-  init_zod();
-  inputSchema52 = exports_external.object({}).strict();
-  listWorldBooksTool = defineTool({
-    name: "list_world_books",
-    description: "[LEGACY \u2014 superseded by the list tool with path wb. Kept for back-compat; prefer the named successor.] List ALL of the user's world books (not just ones attached to this character). Returns id, name, description, char count. Use this when adding a new world_book_entry to choose which book it goes into; the character's attached world_book_ids are returned separately so you know which are in-scope for this character.",
-    inputSchema: inputSchema52,
-    jsonSchema: { type: "object", properties: {}, required: [] },
-    defaultSensitivity: "insensitive",
-    execute: async (_input, ctx) => {
-      const all = await ctx.spindle.world_books.list({ limit: 1000, userId: ctx.userId });
-      const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
-      const attached = new Set(c?.world_book_ids ?? []);
-      const rows = all.data.map((wb) => ({
-        id: wb.id,
-        name: wb.name,
-        description: wb.description.slice(0, 200),
-        attached_to_active_character: attached.has(wb.id)
-      }));
-      return { content: JSON.stringify({ total: all.total, attached_count: attached.size, world_books: rows }, null, 2) };
-    }
-  });
-});
-
 // src/agent/tools/mark-tool-results.ts
-var inputSchema53, markToolResultsTool;
+var inputSchema40, markToolResultsTool;
 var init_mark_tool_results = __esm(() => {
   init_zod();
-  inputSchema53 = exports_external.object({
+  inputSchema40 = exports_external.object({
     call_ids: exports_external.array(exports_external.string().min(1)).min(1).describe("Tool call ids to retag (the call_id you got back from each tool_use)."),
     sensitivity: exports_external.enum(["sensitive", "insensitive"]).describe("'sensitive' keeps the result indefinitely; 'insensitive' makes it eligible for auto-free after 10 user turns on non-cached connections.")
   });
   markToolResultsTool = defineTool({
     name: "mark_tool_results",
     description: "Retag prior tool results as sensitive or insensitive. Use this when the default classification is wrong for your workflow. Mark a result 'sensitive' if you'll need its full content in a later turn (a long greeting you're translating across turns, a chat-message dump you'll keep grepping). Mark 'insensitive' once you've extracted what you needed (the original read for a now-completed edit, a glossary survey that's been applied). On cached connections this only affects UI display, no auto-free runs. On non-cached connections, insensitive results auto-free after 10 user turns to save context.",
-    inputSchema: inputSchema53,
+    inputSchema: inputSchema40,
     jsonSchema: {
       type: "object",
       properties: {
@@ -22888,10 +21943,10 @@ var init_mark_tool_results = __esm(() => {
 });
 
 // src/agent/tools/random-pick.ts
-var inputSchema54, randomPickTool;
+var inputSchema41, randomPickTool;
 var init_random_pick = __esm(() => {
   init_zod();
-  inputSchema54 = exports_external.object({
+  inputSchema41 = exports_external.object({
     items: exports_external.array(exports_external.unknown()),
     count: exports_external.number().optional(),
     replacement: exports_external.boolean().optional()
@@ -22899,7 +21954,7 @@ var init_random_pick = __esm(() => {
   randomPickTool = defineTool({
     name: "random_pick",
     description: "Pick one or more items from a list at random. Use this whenever the user asks you to choose, pick, or randomize, models are bad at random selection on their own.",
-    inputSchema: inputSchema54,
+    inputSchema: inputSchema41,
     jsonSchema: {
       type: "object",
       properties: {
@@ -22936,62 +21991,20 @@ var init_random_pick = __esm(() => {
   });
 });
 
-// src/agent/tools/read-alternate-greeting.ts
-var inputSchema55, readAlternateGreetingTool;
-var init_read_alternate_greeting = __esm(() => {
-  init_zod();
-  init__gates();
-  inputSchema55 = exports_external.object({
-    index: exports_external.number().int().nonnegative().describe("0-indexed position in alternate_greetings"),
-    offset: exports_external.number().int().positive().optional().describe("1-indexed line to start from (default 1)"),
-    limit: exports_external.number().int().positive().optional().describe("Max lines to return (default 800)")
-  });
-  readAlternateGreetingTool = defineTool({
-    name: "read_alternate_greeting",
-    description: "[LEGACY \u2014 superseded by the read tool with path char/alternate_greetings/<idx>. Kept for back-compat; prefer the named successor.] Read one alternate_greetings entry by 0-indexed position, with line numbers.",
-    inputSchema: inputSchema55,
-    jsonSchema: {
-      type: "object",
-      properties: {
-        index: { type: "integer", minimum: 0, description: "0-indexed position in alternate_greetings" },
-        offset: { type: "integer", minimum: 1, description: "1-indexed line to start from (default 1)" },
-        limit: { type: "integer", minimum: 1, description: "Max lines to return (default 800)" }
-      },
-      required: ["index"]
-    },
-    defaultSensitivity: "sensitive",
-    execute: async (input, ctx) => {
-      const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
-      if (!c)
-        return { content: `Error: character ${ctx.characterId} not found`, isError: true };
-      const arr = c.alternate_greetings ?? [];
-      if (input.index >= arr.length) {
-        return { content: `Error: index ${input.index} out of range (0..${arr.length - 1})`, isError: true };
-      }
-      const text = arr[input.index] ?? "";
-      const label = `character.alternate_greetings[${input.index}]`;
-      const body = formatLineSlice(text, label, input.offset, input.limit);
-      markRead(ctx, `alternate_greeting:${input.index}`);
-      const out = await spillOrReturn(ctx, body, `read_alternate_greeting:${input.index}`);
-      return { content: out };
-    }
-  });
-});
-
 // src/agent/tools/read.ts
-var inputSchema56, readTool;
+var inputSchema42, readTool;
 var init_read = __esm(() => {
   init_zod();
   init__gates();
   init__path_v2();
-  inputSchema56 = exports_external.object({
+  inputSchema42 = exports_external.object({
     path: exports_external.string().min(3).describe("Slash-separated path to a string leaf. Examples: 'char/description', 'char/first_mes', 'char/alternate_greetings/0', 'char/extensions/lumirealm.payload.background_html', 'rx/<scriptId>/replace_string', 'wb/<entryId>/content', 'wb/<entryId>/comment'."),
     offset: exports_external.number().int().positive().optional().describe("1-based starting line number."),
     limit: exports_external.number().int().positive().optional().describe("Max lines to return.")
   }).strict();
   readTool = defineTool({
     name: "read",
-    description: `Read any string-valued surface on the character by path. ONE tool for every read; no per-surface variants.
+    description: `Reads any string-valued surface on the character by path.
 
 Path grammar:
   char/<field>                          top-level character string (description, first_mes, scenario, personality, mes_example, system_prompt, post_history_instructions, creator_notes, creator, name)
@@ -23002,10 +22015,8 @@ Path grammar:
   wb/<entryId>/content                  lorebook entry body
   wb/<entryId>/comment                  lorebook entry label
 
-Returns line-numbered text with pagination. Spills to a tmp handle if the result exceeds the per-call budget. Records the path as 'recently read' so a subsequent \`edit\` on the same path passes the read-gate.
-
-WHEN TO USE: every time you need to read or audit a string on the card. Replaces read_character_field, read_alternate_greeting, read_world_book_entry, read_regex_script_field, read_character_extension.`,
-    inputSchema: inputSchema56,
+Returns line-numbered text with pagination. Spills to a tmp handle if the result exceeds the per-call budget. Records the path as 'recently read' so a subsequent \`edit\` on the same path passes the read-gate.`,
+    inputSchema: inputSchema42,
     jsonSchema: {
       type: "object",
       properties: {
@@ -23022,6 +22033,8 @@ WHEN TO USE: every time you need to read or audit a string on the card. Replaces
       try {
         leaf = await resolveRead(ctx, input.path);
       } catch (err) {
+        if (err instanceof OutOfRangeError)
+          return { content: `Error: [OUT_OF_RANGE] ${err.message}`, isError: true };
         if (err instanceof PathError)
           return { content: `Error: [PATH_NOT_FOUND] ${err.message}`, isError: true };
         return { content: `Error: ${err.message}`, isError: true };
@@ -23029,93 +22042,6 @@ WHEN TO USE: every time you need to read or audit a string on the card. Replaces
       const body = formatLineSlice(leaf.value, leaf.key, input.offset, input.limit);
       markReadWithHash(ctx, leaf.key, leaf.value);
       const out = await spillOrReturn(ctx, body, `read:${leaf.key}`, "If the leaf is huge, narrow with offset/limit or grep first.");
-      return { content: out };
-    }
-  });
-});
-
-// src/agent/tools/read-character-extension.ts
-var inputSchema57, readCharacterExtensionTool;
-var init_read_character_extension = __esm(() => {
-  init_zod();
-  init__gates();
-  inputSchema57 = exports_external.object({
-    path: exports_external.string().min(1),
-    offset: exports_external.number().int().positive().optional(),
-    limit: exports_external.number().int().positive().optional()
-  });
-  readCharacterExtensionTool = defineTool({
-    name: "read_character_extension",
-    description: "[LEGACY \u2014 superseded by the read tool with path char/extensions/<dotted>. Kept for back-compat; prefer the named successor.] Read one path inside character.extensions with line numbers (string leaves get pagination, non-string leaves serialize to JSON).",
-    inputSchema: inputSchema57,
-    jsonSchema: {
-      type: "object",
-      properties: {
-        path: { type: "string", description: "Dot/bracket path relative to character.extensions, e.g. 'lumirealm.payload.first_mes'" },
-        offset: { type: "integer", minimum: 1 },
-        limit: { type: "integer", minimum: 1 }
-      },
-      required: ["path"]
-    },
-    defaultSensitivity: "sensitive",
-    execute: async (input, ctx) => {
-      const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
-      if (!c)
-        return { content: `Error: character ${ctx.characterId} not found`, isError: true };
-      let segs;
-      try {
-        segs = parseExtensionPath(input.path);
-      } catch (err) {
-        return { content: `Error: ${err.message}`, isError: true };
-      }
-      const val = getAtPath2(c.extensions ?? {}, segs);
-      if (val === undefined)
-        return { content: `Error: extensions.${input.path} does not exist`, isError: true };
-      const body = typeof val === "string" ? formatLineSlice(val, `extensions.${input.path}`, input.offset, input.limit) : formatLineSlice(JSON.stringify(val, null, 2), `extensions.${input.path} (${Array.isArray(val) ? "array" : typeof val})`, input.offset, input.limit);
-      markRead(ctx, `character_extension:${input.path}`);
-      const out = await spillOrReturn(ctx, body, `read_character_extension:${input.path}`, "If the field is huge, try character_extension_stats first or grep_card for the substring you need.");
-      return { content: out };
-    }
-  });
-});
-
-// src/agent/tools/read-character-field.ts
-var inputSchema58, readCharacterFieldTool;
-var init_read_character_field = __esm(() => {
-  init_zod();
-  init__gates();
-  init__surfaces();
-  inputSchema58 = exports_external.object({
-    field: exports_external.enum(CHARACTER_STRING_FIELDS),
-    offset: exports_external.number().int().positive().optional(),
-    limit: exports_external.number().int().positive().optional()
-  });
-  readCharacterFieldTool = defineTool({
-    name: "read_character_field",
-    description: `[LEGACY \u2014 superseded by the read tool with path char/<field>. Kept for back-compat; prefer the named successor.] Read one string field of the character with line numbers and pagination. Valid fields: ${CHARACTER_STRING_FIELDS.join(", ")}.`,
-    inputSchema: inputSchema58,
-    jsonSchema: {
-      type: "object",
-      properties: {
-        field: { type: "string", enum: [...CHARACTER_STRING_FIELDS] },
-        offset: { type: "integer", minimum: 1 },
-        limit: { type: "integer", minimum: 1 }
-      },
-      required: ["field"]
-    },
-    defaultSensitivity: "sensitive",
-    execute: async (input, ctx) => {
-      if (!isCharacterStringField(input.field))
-        return { content: `Error: unknown field '${input.field}'`, isError: true };
-      const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
-      if (!c)
-        return { content: `Error: character ${ctx.characterId} not found`, isError: true };
-      const text = c[input.field];
-      if (typeof text !== "string")
-        return { content: `Error: field '${input.field}' is not a string`, isError: true };
-      const body = formatLineSlice(text, `character.${input.field}`, input.offset, input.limit);
-      markRead(ctx, `character_field:${input.field}`);
-      const out = await spillOrReturn(ctx, body, `read_character_field:${input.field}`, "If the field is huge, try character_field_stats first or narrow with offset/limit.");
       return { content: out };
     }
   });
@@ -23153,68 +22079,87 @@ async function readChatMessagesImpl(ctx, chatId, offsetIn, limitIn) {
   const out = await spillOrReturn(ctx, payload, `read_chat_messages:${chatId}`, "If you only need a few specific messages, narrow the offset/limit. For search, use grep_chat_messages instead.");
   return { content: out };
 }
-var CHAT_MESSAGES_DEFAULT_LIMIT = 100, CHAT_MESSAGES_MAX_LIMIT = 500, CHAT_MESSAGE_PREVIEW_CHARS = 1200, inputSchema59, readChatMessagesTool;
+var CHAT_MESSAGES_DEFAULT_LIMIT = 100, CHAT_MESSAGES_MAX_LIMIT = 500, CHAT_MESSAGE_PREVIEW_CHARS = 1200, inputSchema43, readChatMessagesTool;
 var init_read_chat_messages = __esm(() => {
   init_zod();
-  inputSchema59 = exports_external.object({
-    chat_id: exports_external.string().min(1),
+  inputSchema43 = exports_external.object({
+    chat_id: exports_external.string().optional(),
     offset: exports_external.number().optional(),
     limit: exports_external.number().optional()
   });
   readChatMessagesTool = defineTool({
     name: "read_chat_messages",
-    description: "Read messages from a SPECIFIC chat by id. Prefer `read_pinned_chat_messages` for the pinned chat. Use this when you've discovered another chat via `list_chats_for_character` and the user has authorised reading it.",
-    inputSchema: inputSchema59,
+    description: `Reads messages from a chat by id, or from the pinned chat if no id is given.
+
+Usage:
+- Omit \`chat_id\` (or pass \`"pinned"\`) to read the user's pinned chat. The pin is set via the chat-pin button next to the character selector.
+- Pass an explicit chat id from \`list_chats_for_character\` to read a non-pinned chat.
+- Returns messages in chronological order with role / content / send_date / swipe metadata. Active swipe is the \`content\` field; other swipes live on \`swipes[]\`.
+- Default limit 100, cap 500. Most chats fit in one call.
+- If \`chat_id\` is "pinned" but no chat is pinned, returns \`{pinned: false, note}\` and the agent should ask the user to pin one.`,
+    inputSchema: inputSchema43,
     jsonSchema: {
       type: "object",
       properties: {
-        chat_id: { type: "string" },
+        chat_id: { type: "string", description: "Chat id, or 'pinned' / omitted for the pinned chat" },
         offset: { type: "number" },
         limit: { type: "number" }
       },
-      required: ["chat_id"]
+      required: []
     },
     defaultSensitivity: "sensitive",
-    execute: async (input, ctx) => readChatMessagesImpl(ctx, input.chat_id, input.offset, input.limit)
+    execute: async (input, ctx) => {
+      const requested = input.chat_id;
+      if (requested === undefined || requested === "pinned") {
+        if (!ctx.pinnedChatId) {
+          return { content: JSON.stringify({ pinned: false, note: "No chat is pinned to this session. Tell the user to click the chat-pin button next to the character selector and choose a chat to give you message context." }) };
+        }
+        return readChatMessagesImpl(ctx, ctx.pinnedChatId, input.offset, input.limit);
+      }
+      return readChatMessagesImpl(ctx, requested, input.offset, input.limit);
+    }
   });
 });
 
-// src/agent/tools/read-external-item.ts
-var inputSchema60, readExternalItemTool;
-var init_read_external_item = __esm(() => {
+// src/agent/tools/read-external.ts
+var inputSchema44, readExternalTool;
+var init_read_external = __esm(() => {
   init_zod();
   init__gates();
-  inputSchema60 = exports_external.object({
-    provider_id: exports_external.string().min(1),
+  inputSchema44 = exports_external.object({
     surface_id: exports_external.string().min(1),
     item_id: exports_external.string().min(1),
     field: exports_external.string().optional()
   });
-  readExternalItemTool = defineTool({
-    name: "read_external_item",
-    description: "Read a single external-provider item (e.g. LumiRealm payload field). Pass `field` to get one field, omit it for the whole item.",
-    inputSchema: inputSchema60,
+  readExternalTool = defineTool({
+    name: "read_external",
+    description: `Reads one item from an external provider's surface.
+
+Usage:
+- Pass \`field\` to read one field. Omit it for the whole item.
+- A field-scoped read records the read in the recency gate so a subsequent \`edit_external\` on the same field can pass.
+- Big results spill to a tmp handle.`,
+    inputSchema: inputSchema44,
     jsonSchema: {
       type: "object",
       properties: {
-        provider_id: { type: "string" },
         surface_id: { type: "string" },
         item_id: { type: "string" },
         field: { type: "string", description: "Optional field name within the item" }
       },
-      required: ["provider_id", "surface_id", "item_id"]
+      required: ["surface_id", "item_id"]
     },
     defaultSensitivity: "sensitive",
     execute: async (input, ctx) => {
-      const { discoverProviders: discoverProviders2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
+      const { discoverProviders: discoverProviders2, findSurface: findSurface2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
       const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
       const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
       const providers = await discoverProviders2(ctx.spindle, ctx.userId, promptFn);
-      const provider = providers.find((p) => p.id === input.provider_id);
-      if (!provider)
-        return { content: `Error: unknown provider: ${input.provider_id}`, isError: true };
+      const match = findSurface2(providers, input.surface_id);
+      if (!match)
+        return { content: `Error: unknown surface: ${input.surface_id}`, isError: true };
       const { dialReadItem: dialReadItem2 } = await Promise.resolve().then(() => (init_transport(), exports_transport));
-      const res = await dialReadItem2(ctx.spindle, input.provider_id, {
+      const res = await dialReadItem2(ctx.spindle, match.provider.id, {
         userId: ctx.userId,
         surfaceId: input.surface_id,
         itemId: input.item_id,
@@ -23223,7 +22168,6 @@ var init_read_external_item = __esm(() => {
       const value = res.value;
       const valueStr = typeof value === "string" ? value : JSON.stringify(value, null, 2);
       const payload = JSON.stringify({
-        provider_id: input.provider_id,
         surface_id: input.surface_id,
         item_id: input.item_id,
         field: input.field ?? null,
@@ -23231,262 +22175,14 @@ var init_read_external_item = __esm(() => {
         value: valueStr
       }, null, 2);
       if (input.field !== undefined) {
-        markRead(ctx, `external_item:${input.provider_id}/${input.surface_id}/${input.item_id}/${input.field}`);
+        const key = `external_item:${input.surface_id}/${input.item_id}/${input.field}`;
+        if (typeof value === "string")
+          markReadWithHash(ctx, key, value);
+        else
+          markRead(ctx, key);
       }
-      const out = await spillOrReturn(ctx, payload, `read_external_item:${input.provider_id}/${input.surface_id}/${input.item_id}`);
+      const out = await spillOrReturn(ctx, payload, `read_external:${input.surface_id}/${input.item_id}`);
       return { content: out };
-    }
-  });
-});
-
-// src/agent/tools/read-pinned-chat-messages.ts
-var inputSchema61, readPinnedChatMessagesTool;
-var init_read_pinned_chat_messages = __esm(() => {
-  init_zod();
-  init_read_chat_messages();
-  inputSchema61 = exports_external.object({
-    offset: exports_external.number().optional(),
-    limit: exports_external.number().optional()
-  });
-  readPinnedChatMessagesTool = defineTool({
-    name: "read_pinned_chat_messages",
-    description: "Read messages from the user's PINNED chat for this session. The user has explicitly selected this chat via the chat-pin button. Returns messages in chronological order with role / content / send_date / per-message metadata. Use this when the user references 'this chat', 'the conversation', or asks about prompt outputs / character behavior in-context.\n\nIf no chat is pinned, this returns an empty result with a note. Tell the user to pin one via the UI.\n\nReturns up to `limit` messages from `offset` (most chats are <100 messages so the default usually fits). The active swipe is what's returned as `content`; non-active swipes are available in `swipes[]`.",
-    inputSchema: inputSchema61,
-    jsonSchema: {
-      type: "object",
-      properties: {
-        offset: { type: "number", description: "0-indexed start, default 0" },
-        limit: { type: "number", description: "max messages, default 100, cap 500" }
-      },
-      required: []
-    },
-    defaultSensitivity: "sensitive",
-    execute: async (input, ctx) => {
-      if (!ctx.pinnedChatId) {
-        return { content: JSON.stringify({ pinned: false, note: "No chat is pinned to this session. Tell the user to click the chat-pin button next to the character selector and choose a chat to give you message context." }) };
-      }
-      return readChatMessagesImpl(ctx, ctx.pinnedChatId, input.offset, input.limit);
-    }
-  });
-});
-
-// src/agent/tools/read-regex-script-field.ts
-var inputSchema62, readRegexScriptFieldTool;
-var init_read_regex_script_field = __esm(() => {
-  init_zod();
-  init__gates();
-  init__surfaces();
-  inputSchema62 = exports_external.object({
-    script_id: exports_external.string().min(1),
-    field: exports_external.enum(REGEX_SCRIPT_BIG_FIELDS),
-    offset: exports_external.number().int().positive().optional(),
-    limit: exports_external.number().int().positive().optional()
-  });
-  readRegexScriptFieldTool = defineTool({
-    name: "read_regex_script_field",
-    description: `[LEGACY \u2014 superseded by the read tool with path rx/<id>/<find_regex|replace_string>. Kept for back-compat; prefer the named successor.] Read one large field of a regex script with line numbers. Valid fields: ${REGEX_SCRIPT_BIG_FIELDS.join(", ")}.`,
-    inputSchema: inputSchema62,
-    jsonSchema: {
-      type: "object",
-      properties: {
-        script_id: { type: "string" },
-        field: { type: "string", enum: [...REGEX_SCRIPT_BIG_FIELDS] },
-        offset: { type: "integer", minimum: 1 },
-        limit: { type: "integer", minimum: 1 }
-      },
-      required: ["script_id", "field"]
-    },
-    defaultSensitivity: "sensitive",
-    execute: async (input, ctx) => {
-      if (!isRegexScriptBigField(input.field))
-        return { content: `Error: field must be one of ${REGEX_SCRIPT_BIG_FIELDS.join(", ")}`, isError: true };
-      const r = await ctx.spindle.regex_scripts.get(input.script_id, ctx.userId);
-      if (!r)
-        return { content: `Error: regex script ${input.script_id} not found`, isError: true };
-      const text = r[input.field];
-      const body = formatLineSlice(text, `regex_script[${input.script_id}].${input.field}`, input.offset, input.limit);
-      markRead(ctx, `regex_script_field:${input.script_id}/${input.field}`);
-      const out = await spillOrReturn(ctx, body, `read_regex_script_field:${input.script_id}/${input.field}`, "If huge, narrow with offset/limit, or use test_regex to spot-check matches.");
-      return { content: out };
-    }
-  });
-});
-
-// src/agent/tools/read-regex-script-meta.ts
-var inputSchema63, readRegexScriptMetaTool;
-var init_read_regex_script_meta = __esm(() => {
-  init_zod();
-  inputSchema63 = exports_external.object({
-    script_id: exports_external.string().min(1)
-  });
-  readRegexScriptMetaTool = defineTool({
-    name: "read_regex_script_meta",
-    description: "[LEGACY \u2014 superseded by the inspect tool with path rx/<id>/<field>, or the list tool with path rx. Kept for back-compat; prefer the named successor.] Read a regex script's metadata (name, target, placement, flags, disabled, etc.) plus field sizes.",
-    inputSchema: inputSchema63,
-    jsonSchema: {
-      type: "object",
-      properties: { script_id: { type: "string" } },
-      required: ["script_id"]
-    },
-    defaultSensitivity: "insensitive",
-    execute: async (input, ctx) => {
-      const r = await ctx.spindle.regex_scripts.get(input.script_id, ctx.userId);
-      if (!r)
-        return { content: `Error: regex script ${input.script_id} not found`, isError: true };
-      return {
-        content: JSON.stringify({
-          id: r.id,
-          name: r.name,
-          target: r.target,
-          placement: r.placement,
-          flags: r.flags,
-          disabled: r.disabled,
-          substitute_macros: r.substitute_macros,
-          sort_order: r.sort_order,
-          description: r.description,
-          folder: r.folder,
-          find_regex_chars: r.find_regex.length,
-          replace_string_chars: r.replace_string.length
-        }, null, 2)
-      };
-    }
-  });
-});
-
-// src/agent/tools/read-world-book-entry.ts
-var inputSchema64, readWorldBookEntryTool;
-var init_read_world_book_entry = __esm(() => {
-  init_zod();
-  init__gates();
-  inputSchema64 = exports_external.object({
-    entry_id: exports_external.string().min(1),
-    offset: exports_external.number().int().positive().optional(),
-    limit: exports_external.number().int().positive().optional()
-  });
-  readWorldBookEntryTool = defineTool({
-    name: "read_world_book_entry",
-    description: "[LEGACY \u2014 superseded by the read tool with path wb/<id>/content. Kept for back-compat; prefer the named successor.] Read a single world book entry's content with line numbers and metadata header.",
-    inputSchema: inputSchema64,
-    jsonSchema: {
-      type: "object",
-      properties: {
-        entry_id: { type: "string" },
-        offset: { type: "integer", minimum: 1 },
-        limit: { type: "integer", minimum: 1 }
-      },
-      required: ["entry_id"]
-    },
-    defaultSensitivity: "sensitive",
-    execute: async (input, ctx) => {
-      const e = await ctx.spindle.world_books.entries.get(input.entry_id, ctx.userId);
-      if (!e)
-        return { content: `Error: world book entry ${input.entry_id} not found`, isError: true };
-      const meta3 = JSON.stringify({
-        comment: e.comment,
-        key: e.key,
-        keysecondary: e.keysecondary,
-        constant: e.constant,
-        disabled: e.disabled,
-        position: e.position,
-        depth: e.depth,
-        order_value: e.order_value,
-        priority: e.priority
-      });
-      const body = formatLineSlice(e.content, `world_book_entry[${input.entry_id}].content`, input.offset, input.limit);
-      const payload = `[meta] ${meta3}
-${body}`;
-      markRead(ctx, `world_book_entry:${input.entry_id}`);
-      const out = await spillOrReturn(ctx, payload, `read_world_book_entry:${input.entry_id}`, "If the entry is huge, call world_book_entry_stats first, or narrow with offset/limit / grep_card.");
-      return { content: out };
-    }
-  });
-});
-
-// src/agent/tools/regex-script-stats.ts
-var inputSchema65, regexScriptStatsTool;
-var init_regex_script_stats = __esm(() => {
-  init_zod();
-  inputSchema65 = exports_external.object({
-    script_id: exports_external.string()
-  });
-  regexScriptStatsTool = defineTool({
-    name: "regex_script_stats",
-    description: "[LEGACY \u2014 superseded by the inspect tool with path rx/<id>/<field>. Kept for back-compat; prefer the named successor.] Cheap orientation for a regex script. Returns find_regex / replace_string char and line counts plus short peeks. Call this before read_regex_script_field on any script you don't already know is small.",
-    inputSchema: inputSchema65,
-    jsonSchema: {
-      type: "object",
-      properties: { script_id: { type: "string" } },
-      required: ["script_id"]
-    },
-    defaultSensitivity: "insensitive",
-    execute: async (input, ctx) => {
-      const r = await ctx.spindle.regex_scripts.get(input.script_id, ctx.userId);
-      if (!r)
-        return { content: `Error: regex script ${input.script_id} not found`, isError: true };
-      const find = r.find_regex ?? "";
-      const replace = r.replace_string ?? "";
-      return {
-        content: JSON.stringify({
-          script_id: input.script_id,
-          name: r.name,
-          target: r.target,
-          placement: r.placement,
-          flags: r.flags,
-          disabled: r.disabled,
-          find_regex: { chars: find.length, lines: find === "" ? 0 : find.split(`
-`).length, peek: find.slice(0, 120) },
-          replace_string: { chars: replace.length, lines: replace === "" ? 0 : replace.split(`
-`).length, peek: replace.slice(0, 120) }
-        }, null, 2)
-      };
-    }
-  });
-});
-
-// src/agent/tools/regex-scripts-overview.ts
-async function loadAllRegexScripts4(ctx) {
-  const out = [];
-  let offset = 0;
-  for (;; ) {
-    const res = await ctx.spindle.regex_scripts.list({
-      scope: "character",
-      scopeId: ctx.characterId,
-      userId: ctx.userId,
-      limit: 200,
-      offset
-    });
-    out.push(...res.data);
-    if (out.length >= res.total || res.data.length === 0)
-      break;
-    offset += res.data.length;
-  }
-  return out;
-}
-var inputSchema66, regexScriptsOverviewTool;
-var init_regex_scripts_overview = __esm(() => {
-  init_zod();
-  inputSchema66 = exports_external.object({});
-  regexScriptsOverviewTool = defineTool({
-    name: "regex_scripts_overview",
-    description: "[LEGACY \u2014 superseded by the inspect tool with path rx. Kept for back-compat; prefer the named successor.] Cheap orientation for the character's regex scripts. Returns total count, disabled count, total find_regex + replace_string chars, and the 10 largest scripts by combined size.",
-    inputSchema: inputSchema66,
-    jsonSchema: { type: "object", properties: {}, required: [] },
-    defaultSensitivity: "insensitive",
-    execute: async (_input, ctx) => {
-      const scripts = await loadAllRegexScripts4(ctx);
-      const totalFind = scripts.reduce((s, r) => s + (r.find_regex?.length ?? 0), 0);
-      const totalReplace = scripts.reduce((s, r) => s + (r.replace_string?.length ?? 0), 0);
-      const disabledCount = scripts.filter((r) => r.disabled).length;
-      const largest = [...scripts].map((r) => ({ id: r.id, name: r.name, target: r.target, placement: r.placement, find_chars: r.find_regex?.length ?? 0, replace_chars: r.replace_string?.length ?? 0 })).sort((a, b) => b.find_chars + b.replace_chars - (a.find_chars + a.replace_chars)).slice(0, 10);
-      return {
-        content: JSON.stringify({
-          total_scripts: scripts.length,
-          disabled: disabledCount,
-          total_find_chars: totalFind,
-          total_replace_chars: totalReplace,
-          largest_10: largest
-        }, null, 2)
-      };
     }
   });
 });
@@ -23574,20 +22270,26 @@ async function listSessionSummaries(spindle2, userId, activeIds, filterCharacter
 }
 var SESSION_DIR = "sessions", SCHEMA_VERSION = 1;
 
-// src/agent/tools/revert-my-edits.ts
-var inputSchema67, revertMyEditsTool;
-var init_revert_my_edits = __esm(() => {
+// src/agent/tools/revert-session-edits.ts
+var inputSchema45, revertSessionEditsTool;
+var init_revert_session_edits = __esm(() => {
   init_zod();
   init_ledger();
   init_edit_log();
-  inputSchema67 = exports_external.object({
-    edit_ids: exports_external.array(exports_external.string().min(1)).min(1).max(50).describe("Edit ids from list_my_edits."),
+  inputSchema45 = exports_external.object({
+    edit_ids: exports_external.array(exports_external.string().min(1)).min(1).max(50).describe("Edit ids from list_session_edits."),
     allow_cross_session: exports_external.boolean().optional().describe("Allow reverting edits you made in a DIFFERENT chat session. Default false: only current-session edits are revertable. Opt in only when the user asks to undo work from an earlier conversation.")
   }).strict();
-  revertMyEditsTool = defineTool({
-    name: "revert_my_edits",
-    description: "Revert one or more of your own prior edits. Restricted by default to edits you authored in the CURRENT session. Set allow_cross_session: true to revert edits you made in earlier sessions for this character (use sparingly: the user from those earlier sessions doesn't know you're touching that history). Cascade-aware (if a later edit depended on a reverted one and can no longer apply, it gets reverted too and listed under cascadedEditIds). Edit ids come from list_my_edits.",
-    inputSchema: inputSchema67,
+  revertSessionEditsTool = defineTool({
+    name: "revert_session_edits",
+    description: `Reverts one or more agent-authored edits by id.
+
+Usage:
+- Restricted by default to edits authored in the CURRENT session.
+- Set \`allow_cross_session: true\` to revert edits from earlier sessions on this character. Use sparingly; the user from those earlier sessions doesn't know about the change.
+- Cascade-aware: if a later edit depended on a reverted one and can no longer apply, it gets reverted too and listed under \`cascadedEditIds\`.
+- Edit ids come from \`list_session_edits\`.`,
+    inputSchema: inputSchema45,
     jsonSchema: {
       type: "object",
       properties: {
@@ -23651,185 +22353,17 @@ var init_revert_my_edits = __esm(() => {
   });
 });
 
-// src/agent/tools/rewrite-alternate-greeting.ts
-var inputSchema68, gate10, rewriteAlternateGreetingTool;
-var init_rewrite_alternate_greeting = __esm(() => {
-  init_zod();
-  init__patch();
-  init__gates();
-  init__drafts();
-  inputSchema68 = exports_external.object({
-    index: exports_external.number().int().nonnegative().describe("0-indexed position in alternate_greetings"),
-    new_text: exports_external.string().optional().describe("Full replacement text for the greeting. Either this or new_text_handle is required."),
-    new_text_handle: exports_external.string().optional().describe("Handle of a previously-stashed draft (returned by a failed retry). Use this to avoid re-emitting a long payload.")
-  }).refine((d) => d.new_text !== undefined || d.new_text_handle !== undefined, {
-    message: "either new_text or new_text_handle is required"
-  });
-  gate10 = {
-    surface: (input) => `alternate_greeting:${input["index"] ?? "?"}`,
-    hint: (key) => `Call read_alternate_greeting with index=${key.split(":")[1]} first so you can confirm what you're overwriting.`
-  };
-  rewriteAlternateGreetingTool = defineTool({
-    name: "rewrite_alternate_greeting",
-    description: "[LEGACY \u2014 superseded by the rewrite tool with path char/alternate_greetings/<idx>. Kept for back-compat; prefer the named successor.] Wholesale-overwrite one alternate_greetings entry by 0-indexed position. Use this (not edit_alternate_greeting) when you're rewriting the entire greeting, e.g. a full translation, a complete tone refactor, or any case where find/replace keeps failing on stylized text (zalgo, hand-tuned diacritics). Requires a recent read_alternate_greeting on the same index in this turn so you've seen what you're overwriting. Pass `new_text` for a literal payload, or `new_text_handle` to reuse a draft stashed by a prior failed call.",
-    inputSchema: inputSchema68,
-    jsonSchema: {
-      type: "object",
-      properties: {
-        index: { type: "integer", minimum: 0, description: "0-indexed position in alternate_greetings" },
-        new_text: { type: "string", description: "Full replacement text for the greeting." },
-        new_text_handle: { type: "string", description: "Handle of a previously-stashed draft. Use instead of new_text to avoid re-emitting." }
-      },
-      required: ["index"]
-    },
-    requiresRecentRead: gate10,
-    defaultSensitivity: "insensitive",
-    execute: async (input, ctx) => {
-      let newText = input.new_text;
-      if (newText === undefined && input.new_text_handle) {
-        const loaded = await loadDraft(ctx, input.new_text_handle);
-        if (loaded === null)
-          return { content: `Error: draft handle '${input.new_text_handle}' not found or expired. Re-send new_text literally.`, isError: true };
-        newText = loaded;
-      }
-      if (newText === undefined) {
-        return { content: "Error: provide either new_text or new_text_handle.", isError: true };
-      }
-      const gateError = ensureRecentRead(ctx, gate10, input);
-      if (gateError !== null) {
-        const handle = await stashDraft(ctx, `rewrite_alternate_greeting:${input.index}`, newText);
-        return { content: `${gateError}
-
-${draftReuseNote(handle, newText.length, "new_text")}`, isError: true };
-      }
-      const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
-      if (!c)
-        return { content: `Error: character ${ctx.characterId} not found`, isError: true };
-      const arr = [...c.alternate_greetings ?? []];
-      if (input.index >= arr.length) {
-        const handle = await stashDraft(ctx, `rewrite_alternate_greeting:${input.index}`, newText);
-        return { content: `Error: index ${input.index} out of range (0..${arr.length - 1}).
-
-${draftReuseNote(handle, newText.length, "new_text")}`, isError: true };
-      }
-      const current = arr[input.index] ?? "";
-      arr[input.index] = newText;
-      await ctx.spindle.characters.update(ctx.characterId, { alternate_greetings: arr }, ctx.userId);
-      ctx.pushEdit({
-        op: "edit",
-        surface: "alternate_greeting",
-        surfaceId: String(input.index),
-        surfaceLabel: `alternate_greetings[${input.index}]`,
-        field: String(input.index),
-        before: current,
-        after: newText
-      });
-      const patch = buildEditPatch(`alternate_greetings[${input.index}]`, current, newText);
-      return {
-        content: JSON.stringify({
-          index: input.index,
-          before_chars: current.length,
-          after_chars: newText.length,
-          patch: { additions: patch.additions, deletions: patch.deletions, hunks: patch.hunks }
-        })
-      };
-    }
-  });
-});
-
-// src/agent/tools/rewrite-world-book-entry.ts
-var inputSchema69, gate11, rewriteWorldBookEntryTool;
-var init_rewrite_world_book_entry = __esm(() => {
-  init_zod();
-  init__patch();
-  init__gates();
-  init__surfaces();
-  init__drafts();
-  inputSchema69 = exports_external.object({
-    entry_id: exports_external.string().min(1),
-    new_content: exports_external.string().optional().describe("Full replacement content. Either this or new_content_handle is required."),
-    new_content_handle: exports_external.string().optional().describe("Handle of a previously-stashed draft. Use instead of new_content to avoid re-emitting.")
-  }).refine((d) => d.new_content !== undefined || d.new_content_handle !== undefined, {
-    message: "either new_content or new_content_handle is required"
-  });
-  gate11 = {
-    surface: (input) => `world_book_entry:${input["entry_id"] ?? "?"}`,
-    hint: (key) => `Call read_world_book_entry with entry_id='${key.split(":")[1]}' first so you can confirm what you're overwriting.`
-  };
-  rewriteWorldBookEntryTool = defineTool({
-    name: "rewrite_world_book_entry",
-    description: "[LEGACY \u2014 superseded by the rewrite tool with path wb/<id>/content. Kept for back-compat; prefer the named successor.] Wholesale-overwrite a world book entry's content. Use this (not edit_world_book_entry) only for full-entry rewrites like translating the whole entry into another language or replacing the entry wholesale. For targeted prose changes inside the entry, stick with edit_world_book_entry. Requires a recent read_world_book_entry on the same entry in this turn.",
-    inputSchema: inputSchema69,
-    jsonSchema: {
-      type: "object",
-      properties: {
-        entry_id: { type: "string" },
-        new_content: { type: "string", description: "Full replacement content for the entry." },
-        new_content_handle: { type: "string", description: "Handle of a previously-stashed draft. Use instead of new_content to avoid re-emitting." }
-      },
-      required: ["entry_id"]
-    },
-    requiresRecentRead: gate11,
-    defaultSensitivity: "insensitive",
-    execute: async (input, ctx) => {
-      let newContent = input.new_content;
-      if (newContent === undefined && input.new_content_handle) {
-        const loaded = await loadDraft(ctx, input.new_content_handle);
-        if (loaded === null)
-          return { content: `Error: draft handle '${input.new_content_handle}' not found or expired. Re-send new_content literally.`, isError: true };
-        newContent = loaded;
-      }
-      if (newContent === undefined) {
-        return { content: "Error: provide either new_content or new_content_handle.", isError: true };
-      }
-      const gateError = ensureRecentRead(ctx, gate11, input);
-      if (gateError !== null) {
-        const handle = await stashDraft(ctx, `rewrite_world_book_entry:${input.entry_id}`, newContent);
-        return { content: `${gateError}
-
-${draftReuseNote(handle, newContent.length, "new_content")}`, isError: true };
-      }
-      const e = await ctx.spindle.world_books.entries.get(input.entry_id, ctx.userId);
-      if (!e) {
-        const handle = await stashDraft(ctx, `rewrite_world_book_entry:${input.entry_id}`, newContent);
-        return { content: `Error: world book entry ${input.entry_id} not found.
-
-${draftReuseNote(handle, newContent.length, "new_content")}`, isError: true };
-      }
-      await ctx.spindle.world_books.entries.update(input.entry_id, { content: newContent }, ctx.userId);
-      ctx.pushEdit({
-        op: "edit",
-        surface: "world_book_entry",
-        surfaceId: input.entry_id,
-        surfaceLabel: wbLabel(e),
-        field: "content",
-        before: e.content,
-        after: newContent
-      });
-      const patch = buildEditPatch(`world_book_entry[${input.entry_id}].content`, e.content, newContent);
-      return {
-        content: JSON.stringify({
-          entry_id: input.entry_id,
-          before_chars: e.content.length,
-          after_chars: newContent.length,
-          patch: { additions: patch.additions, deletions: patch.deletions, hunks: patch.hunks }
-        })
-      };
-    }
-  });
-});
-
 // src/agent/tools/roll-dice.ts
-var inputSchema70, rollDiceTool;
+var inputSchema46, rollDiceTool;
 var init_roll_dice = __esm(() => {
   init_zod();
-  inputSchema70 = exports_external.object({
+  inputSchema46 = exports_external.object({
     spec: exports_external.string().min(1)
   });
   rollDiceTool = defineTool({
     name: "roll_dice",
     description: "Roll dice in standard NdM[+K] notation, e.g. '3d6', '1d20+4', '2d10-1'. Returns each roll and the total. Use this instead of guessing numbers when the user asks for a dice roll.",
-    inputSchema: inputSchema70,
+    inputSchema: inputSchema46,
     jsonSchema: {
       type: "object",
       properties: { spec: { type: "string", description: "Dice spec, e.g. '3d6+2'." } },
@@ -23860,18 +22394,23 @@ var init_roll_dice = __esm(() => {
   });
 });
 
-// src/agent/tools/squash-my-edits.ts
-var inputSchema71, squashMyEditsTool;
-var init_squash_my_edits = __esm(() => {
+// src/agent/tools/squash-session-edits.ts
+var inputSchema47, squashSessionEditsTool;
+var init_squash_session_edits = __esm(() => {
   init_zod();
   init_ledger();
-  inputSchema71 = exports_external.object({
+  inputSchema47 = exports_external.object({
     phase_label: exports_external.string().max(120).optional().describe("Optional label for what this phase represented (e.g. 'translation pass', 'tone refactor'). Stored on the merged patch's description.")
   }).strict();
-  squashMyEditsTool = defineTool({
-    name: "squash_my_edits",
-    description: "Seal every edit you've made so far in THIS response into one consolidated patch per file/field. Use mid-response to commit a phase of work before starting another (translation pass \u2192 seal \u2192 tone refactor). The end-of-message autosquash will never merge across sealed patches, so phases stay revertable as discrete units. If you don't call this, all your edits in this response get auto-squashed into one patch per file at the end of the message.",
-    inputSchema: inputSchema71,
+  squashSessionEditsTool = defineTool({
+    name: "squash_session_edits",
+    description: `Seals every edit made so far in THIS response into one consolidated patch per file/field.
+
+Usage:
+- Call mid-response to commit a phase of work before starting another (translation pass \u2192 seal \u2192 tone refactor).
+- End-of-message autosquash never merges across sealed patches; phases stay revertable as discrete units.
+- If never called, all edits in this response get auto-squashed into one patch per file at the end of the message.`,
+    inputSchema: inputSchema47,
     jsonSchema: {
       type: "object",
       properties: {
@@ -23882,7 +22421,7 @@ var init_squash_my_edits = __esm(() => {
     defaultSensitivity: "insensitive",
     execute: async (input, ctx) => {
       if (!ctx.assistantMessageId)
-        return { content: "Error: no active assistant message; squash_my_edits only valid inside an agent response.", isError: true };
+        return { content: "Error: no active assistant message; squash_session_edits only valid inside an agent response.", isError: true };
       const result = await squashMessage(ctx.spindle, ctx.characterId, ctx.assistantMessageId, ctx.userId, { sealed: true });
       if (result.filesTouched > 0 || result.absorbedIds.length > 0)
         ctx.pushLedgerResync();
@@ -23919,7 +22458,7 @@ function countCjkRuns(text, minLen, source, map2) {
     rec.surfaces.add(source);
   }
 }
-async function loadAllRegexScripts5(ctx) {
+async function loadAllRegexScripts2(ctx) {
   const out = [];
   let offset = 0;
   for (;; ) {
@@ -23937,7 +22476,7 @@ async function loadAllRegexScripts5(ctx) {
   }
   return out;
 }
-async function loadAllWorldBookEntries3(ctx, c) {
+async function loadAllWorldBookEntries2(ctx, c) {
   const out = [];
   for (const wbId of c.world_book_ids) {
     let offset = 0;
@@ -23951,12 +22490,12 @@ async function loadAllWorldBookEntries3(ctx, c) {
   }
   return out;
 }
-var SURVEY_DEFAULT_MIN_LEN = 2, SURVEY_DEFAULT_TOP_N = 60, CJK_RUN_RE, inputSchema72, surveyCjkTool;
+var SURVEY_DEFAULT_MIN_LEN = 2, SURVEY_DEFAULT_TOP_N = 60, CJK_RUN_RE, inputSchema48, surveyCjkTool;
 var init_survey_cjk = __esm(() => {
   init_zod();
   init__surfaces();
   CJK_RUN_RE = /[\u3040-\u309F\u30A0-\u30FF\u31F0-\u31FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7A3\u8C48-\uFAFF]+/g;
-  inputSchema72 = exports_external.object({
+  inputSchema48 = exports_external.object({
     scopes: exports_external.array(exports_external.enum(["character", "world_books", "regex_scripts", "extensions"])).optional(),
     min_length: exports_external.number().optional(),
     top_n: exports_external.number().optional()
@@ -23964,7 +22503,7 @@ var init_survey_cjk = __esm(() => {
   surveyCjkTool = defineTool({
     name: "survey_cjk",
     description: "Walk every editable surface and group all runs of CJK characters (Korean / Japanese / Chinese) by exact string. Returns top-N by frequency with the surfaces they appear in. RUN THIS FIRST on any translation task.",
-    inputSchema: inputSchema72,
+    inputSchema: inputSchema48,
     jsonSchema: {
       type: "object",
       properties: {
@@ -23996,19 +22535,23 @@ var init_survey_cjk = __esm(() => {
         }
       }
       if (scopes.includes("world_books")) {
-        const entries = await loadAllWorldBookEntries3(ctx, c);
+        const entries = await loadAllWorldBookEntries2(ctx, c);
         for (const e of entries)
           countCjkRuns(e.content, minLen, `world_book_entry[${e.id}]`, map2);
       }
       if (scopes.includes("regex_scripts")) {
-        const scripts = await loadAllRegexScripts5(ctx);
+        const scripts = await loadAllRegexScripts2(ctx);
         for (const r of scripts) {
           countCjkRuns(r.find_regex, minLen, `regex_script[${r.id}].find_regex`, map2);
           countCjkRuns(r.replace_string, minLen, `regex_script[${r.id}].replace_string`, map2);
         }
       }
       if (scopes.includes("extensions")) {
-        for (const leaf of walkStringLeaves(c.extensions ?? {}, "")) {
+        const { buildExtensionsSearchSkip: buildExtensionsSearchSkip2 } = await Promise.resolve().then(() => (init_search_excludes(), exports_search_excludes));
+        const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
+        const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
+        const skip = await buildExtensionsSearchSkip2(ctx.spindle, ctx.userId, promptFn);
+        for (const leaf of walkStringLeaves(c.extensions ?? {}, "", skip)) {
           countCjkRuns(leaf.text, minLen, `extensions.${leaf.path}`, map2);
         }
       }
@@ -24037,10 +22580,10 @@ var init_survey_cjk = __esm(() => {
 });
 
 // src/agent/tools/test-regex.ts
-var inputSchema73, testRegexTool;
+var inputSchema49, testRegexTool;
 var init_test_regex = __esm(() => {
   init_zod();
-  inputSchema73 = exports_external.object({
+  inputSchema49 = exports_external.object({
     pattern: exports_external.string(),
     flags: exports_external.string().optional(),
     sample: exports_external.string()
@@ -24048,7 +22591,7 @@ var init_test_regex = __esm(() => {
   testRegexTool = defineTool({
     name: "test_regex",
     description: "Compile a regex and test it against a sample. Returns whether it matches, the match, and capture groups.",
-    inputSchema: inputSchema73,
+    inputSchema: inputSchema49,
     jsonSchema: {
       type: "object",
       properties: {
@@ -24082,7 +22625,7 @@ function looksLikeRegexPattern(s) {
 function isNonEmptyString(v) {
   return typeof v === "string" && v.length > 0;
 }
-var INCLUDE_VALUES, inputSchema74, DEFAULT_INCLUDE, DEFAULT_MIN_CHARS = 2, translateCardStringsTool;
+var INCLUDE_VALUES, inputSchema50, DEFAULT_INCLUDE, DEFAULT_MIN_CHARS = 2, translateCardStringsTool;
 var init_translate_card_strings = __esm(() => {
   init_zod();
   INCLUDE_VALUES = [
@@ -24094,7 +22637,7 @@ var init_translate_card_strings = __esm(() => {
     "alternate_greetings",
     "world_book_entries"
   ];
-  inputSchema74 = exports_external.object({
+  inputSchema50 = exports_external.object({
     source_lang: exports_external.string().min(2).max(10).describe("BCP-47 source language tag (e.g. 'ko', 'ja', 'zh-Hans'). Chrome's Translator API picks the on-device model from this."),
     target_lang: exports_external.string().min(2).max(10).describe("BCP-47 target language tag (e.g. 'en'). Same caveat as source_lang."),
     include: exports_external.array(exports_external.enum(INCLUDE_VALUES)).optional().describe("Which surfaces to translate. Default: regex_scripts + lumirealm_bghtml + lumirealm_lua + lumirealm_scriptstate. Skips alternate_greetings, character_fields, world_book_entries by default since those are prose you should review yourself."),
@@ -24104,8 +22647,15 @@ var init_translate_card_strings = __esm(() => {
   DEFAULT_INCLUDE = ["regex_scripts", "lumirealm_bghtml", "lumirealm_lua", "lumirealm_scriptstate"];
   translateCardStringsTool = defineTool({
     name: "translate_card_strings",
-    description: "Bulk-translate UI / config strings on the active character using the browser's on-device translator (Chrome's built-in Translator API, no network call). Targets the surfaces that are usually mechanical to translate: regex replace_strings, LumiRealm background HTML text nodes, LumiRealm Lua string literals, and LumiRealm scriptstate_defaults string values. Prose fields (first_mes, description, alternate greetings, world book entries) are opt-in via 'include' since you should review those yourself. Returns the manifest of what changed so you can read_* the touched surfaces and proof-check. Requires Chrome desktop with the Translator API available; the tool errors cleanly if not supported.",
-    inputSchema: inputSchema74,
+    description: `Mechanical bulk translation via Chrome's on-device Translator API. No LLM tokens.
+
+Usage:
+- Ask the user before invoking on prose surfaces (greetings, descriptions, lorebook entries). Your own translation via \`edit\` / \`rewrite\` is higher quality there.
+- \`dry_run: true\` returns the would-translate manifest without invoking Chrome or writing.
+- \`include\` defaults to mechanical surfaces (regex_scripts + lumirealm_bghtml + lumirealm_lua + lumirealm_scriptstate). Prose surfaces are opt-in.
+- Requires Chrome desktop with the Translator API for the source\u2192target pair.
+- After application, use \`list_session_edits\` + \`read\` to proof-check each touched path.`,
+    inputSchema: inputSchema50,
     jsonSchema: {
       type: "object",
       properties: {
@@ -24388,7 +22938,7 @@ var init_translate_card_strings = __esm(() => {
           },
           item_errors: itemErrors,
           write_errors: writeErrors,
-          note: `Translations applied as agent edits. Use list_my_edits to enumerate them, then read_* the touched surfaces to proof-check. revert_my_edits can roll back if a translation is bad. ${writeErrors.length > 0 ? "Some writes failed \u2014 see write_errors." : ""}`
+          note: `Translations applied as agent edits. Use list_session_edits to enumerate them, then \`read\` each touched path to proof-check. revert_session_edits can roll back if a translation is bad. ${writeErrors.length > 0 ? "Some writes failed \u2014 see write_errors." : ""}`
         })
       };
     }
@@ -24396,7 +22946,7 @@ var init_translate_card_strings = __esm(() => {
 });
 
 // src/agent/tools/tmp-grep.ts
-function grepText2(text, re, maxRemaining) {
+function grepText(text, re, maxRemaining) {
   if (text.length === 0 || maxRemaining <= 0)
     return [];
   const lines = text.split(`
@@ -24420,7 +22970,7 @@ function grepText2(text, re, maxRemaining) {
     }
     if (matches.length === 0)
       continue;
-    const preview = line.length > GREP_PREVIEW_CHARS3 ? `${line.slice(0, GREP_PREVIEW_CHARS3 - 5)} [\u2026]` : line;
+    const preview = line.length > GREP_PREVIEW_CHARS2 ? `${line.slice(0, GREP_PREVIEW_CHARS2 - 5)} [\u2026]` : line;
     for (const mm of matches) {
       out.push({ line: i + 1, match: mm, preview });
       if (out.length >= maxRemaining)
@@ -24429,10 +22979,10 @@ function grepText2(text, re, maxRemaining) {
   }
   return out;
 }
-var TMP_GREP_DEFAULT_MAX = 100, TMP_GREP_MAX_CAP = 1000, GREP_PREVIEW_CHARS3 = 150, inputSchema75, tmpGrepTool;
+var TMP_GREP_DEFAULT_MAX = 100, TMP_GREP_MAX_CAP = 1000, GREP_PREVIEW_CHARS2 = 150, inputSchema51, tmpGrepTool;
 var init_tmp_grep = __esm(() => {
   init_zod();
-  inputSchema75 = exports_external.object({
+  inputSchema51 = exports_external.object({
     handle: exports_external.string(),
     pattern: exports_external.string(),
     flags: exports_external.string().optional(),
@@ -24442,7 +22992,7 @@ var init_tmp_grep = __esm(() => {
   tmpGrepTool = defineTool({
     name: "tmp_grep",
     description: "Regex search inside a tmp handle. Returns line-numbered hits with previews. Use for finding the specific lines you need after a spill, without reading the whole file.",
-    inputSchema: inputSchema75,
+    inputSchema: inputSchema51,
     jsonSchema: {
       type: "object",
       properties: {
@@ -24472,7 +23022,7 @@ var init_tmp_grep = __esm(() => {
       } catch (e) {
         return { content: `Error: regex compile failed: ${e.message}`, isError: true };
       }
-      const hits = grepText2(body, re, cap);
+      const hits = grepText(body, re, cap);
       const payload = JSON.stringify({
         handle: input.handle,
         pattern: input.pattern,
@@ -24488,14 +23038,14 @@ var init_tmp_grep = __esm(() => {
 });
 
 // src/agent/tools/tmp-list.ts
-var inputSchema76, tmpListTool;
+var inputSchema52, tmpListTool;
 var init_tmp_list = __esm(() => {
   init_zod();
-  inputSchema76 = exports_external.object({});
+  inputSchema52 = exports_external.object({});
   tmpListTool = defineTool({
     name: "tmp_list",
     description: "List active tmp handles for this user across all sessions. Returns newest-first with handle, origin, total_chars, total_lines, createdAt. Per-user cap is 50 files OR 30MB; oldest are auto-evicted on the next spill.",
-    inputSchema: inputSchema76,
+    inputSchema: inputSchema52,
     jsonSchema: { type: "object", properties: {}, required: [] },
     defaultSensitivity: "insensitive",
     execute: async (_input, ctx) => {
@@ -24516,10 +23066,10 @@ var init_tmp_list = __esm(() => {
 });
 
 // src/agent/tools/tmp-read.ts
-var TMP_READ_DEFAULT_LIMIT = 200, TMP_READ_MAX_LIMIT = 4000, inputSchema77, tmpReadTool;
+var TMP_READ_DEFAULT_LIMIT = 200, TMP_READ_MAX_LIMIT = 4000, inputSchema53, tmpReadTool;
 var init_tmp_read = __esm(() => {
   init_zod();
-  inputSchema77 = exports_external.object({
+  inputSchema53 = exports_external.object({
     handle: exports_external.string(),
     offset: exports_external.number().optional(),
     limit: exports_external.number().optional()
@@ -24527,7 +23077,7 @@ var init_tmp_read = __esm(() => {
   tmpReadTool = defineTool({
     name: "tmp_read",
     description: "Read lines from a tmp handle by offset/limit, with line numbers. Use this to pull out specific chunks after locating them via tmp_grep.",
-    inputSchema: inputSchema77,
+    inputSchema: inputSchema53,
     jsonSchema: {
       type: "object",
       properties: {
@@ -24556,16 +23106,16 @@ ${sliced}` : sliced;
 });
 
 // src/agent/tools/tmp-stat.ts
-var inputSchema78, tmpStatTool;
+var inputSchema54, tmpStatTool;
 var init_tmp_stat = __esm(() => {
   init_zod();
-  inputSchema78 = exports_external.object({
+  inputSchema54 = exports_external.object({
     handle: exports_external.string()
   });
   tmpStatTool = defineTool({
     name: "tmp_stat",
     description: "Inspect a tmp handle produced by an earlier spill: total_chars, total_lines, createdAt, origin. Cheap. Run before tmp_read / tmp_grep to know what you're dealing with.",
-    inputSchema: inputSchema78,
+    inputSchema: inputSchema54,
     jsonSchema: {
       type: "object",
       properties: { handle: { type: "string" } },
@@ -24583,16 +23133,21 @@ var init_tmp_stat = __esm(() => {
 });
 
 // src/agent/tools/update-character.ts
-var inputSchema79, updateCharacterTool;
+var inputSchema55, updateCharacterTool;
 var init_update_character = __esm(() => {
   init_zod();
-  inputSchema79 = exports_external.object({
+  inputSchema55 = exports_external.object({
     patch: exports_external.record(exports_external.string(), exports_external.unknown())
   });
   updateCharacterTool = defineTool({
     name: "update_character",
-    description: "Wholesale-replace one or more character fields. Pass only the fields to change in `patch`. For long fields prefer edit_character_field.",
-    inputSchema: inputSchema79,
+    description: `Replaces one or more top-level character fields atomically.
+
+Usage:
+- Pass only the fields to change in \`patch\`.
+- For a single field's find/replace use \`edit({path: "char/<field>", ...})\`.
+- For wholesale overwrite of a single field use \`rewrite\` or \`set\`.`,
+    inputSchema: inputSchema55,
     jsonSchema: {
       type: "object",
       properties: { patch: { type: "object", additionalProperties: true } },
@@ -24620,98 +23175,48 @@ var init_update_character = __esm(() => {
   });
 });
 
-// src/agent/tools/update-character-extension.ts
-var inputSchema80, updateCharacterExtensionTool;
-var init_update_character_extension = __esm(() => {
+// src/agent/tools/update-external.ts
+var inputSchema56, updateExternalTool;
+var init_update_external = __esm(() => {
   init_zod();
-  init_gate();
-  inputSchema80 = exports_external.object({
-    path: exports_external.string().min(1),
-    value: exports_external.unknown()
-  });
-  updateCharacterExtensionTool = defineTool({
-    name: "update_character_extension",
-    description: "[LEGACY \u2014 superseded by the set tool with path char/extensions/<dotted>. Kept for back-compat; prefer the named successor.] Wholesale-replace the value at a path inside character.extensions. For non-string fields or replacing entire objects/arrays.",
-    inputSchema: inputSchema80,
-    jsonSchema: {
-      type: "object",
-      properties: {
-        path: { type: "string" },
-        value: {}
-      },
-      required: ["path", "value"]
-    },
-    defaultSensitivity: "insensitive",
-    execute: async (input, ctx) => {
-      const path3 = input.path;
-      const value = input.value;
-      const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
-      const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
-      const guard = await checkExtensionWrite(ctx.spindle, ctx.userId, ctx.characterId, path3, promptFn);
-      if (!guard.ok)
-        return { content: `Refused: ${guard.message ?? "extension declined this write."}`, isError: true };
-      let segs;
-      try {
-        segs = parseExtensionPath(path3);
-      } catch (err) {
-        return { content: `Error: ${err.message}`, isError: true };
-      }
-      if (segs.length === 0)
-        return { content: "Error: path must be non-empty (relative to character.extensions)", isError: true };
-      const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
-      if (!c)
-        return { content: `Error: character ${ctx.characterId} not found`, isError: true };
-      const before = getAtPath2(c.extensions ?? {}, segs);
-      const next = setAtPath2(c.extensions ?? {}, segs, value);
-      await ctx.spindle.characters.update(ctx.characterId, { extensions: next }, ctx.userId);
-      const beforeStr = before === undefined ? "" : typeof before === "string" ? before : JSON.stringify(before, null, 2);
-      const afterStr = value === undefined ? "" : typeof value === "string" ? value : JSON.stringify(value, null, 2);
-      ctx.pushEdit({ op: "edit", surface: "extension", surfaceId: ctx.characterId, surfaceLabel: `extensions.${path3}`, field: path3, before: beforeStr, after: afterStr });
-      return { content: JSON.stringify({ path: path3, ok: true }) };
-    }
-  });
-});
-
-// src/agent/tools/update-external-item.ts
-var inputSchema81, updateExternalItemTool;
-var init_update_external_item = __esm(() => {
-  init_zod();
-  inputSchema81 = exports_external.object({
-    provider_id: exports_external.string().min(1),
+  inputSchema56 = exports_external.object({
     surface_id: exports_external.string().min(1),
     item_id: exports_external.string().min(1),
     field: exports_external.string().min(1),
     value: exports_external.unknown()
   });
-  updateExternalItemTool = defineTool({
-    name: "update_external_item",
-    description: "Wholesale-replace a value at a path inside an external provider's item. Use for non-string fields (arrays, objects, numbers) or when you genuinely want to overwrite the entire field. For long strings prefer edit_external_item.",
-    inputSchema: inputSchema81,
+  updateExternalTool = defineTool({
+    name: "update_external",
+    description: `Wholesale-replaces a value at one field on an external provider's item.
+
+Usage:
+- Use for non-string fields (arrays, objects, numbers) or when overwriting the entire field.
+- For find/replace inside a long string field, prefer \`edit_external\`.`,
+    inputSchema: inputSchema56,
     jsonSchema: {
       type: "object",
       properties: {
-        provider_id: { type: "string" },
         surface_id: { type: "string" },
         item_id: { type: "string" },
         field: { type: "string" },
         value: { description: "any JSON-serializable value" }
       },
-      required: ["provider_id", "surface_id", "item_id", "field", "value"]
+      required: ["surface_id", "item_id", "field", "value"]
     },
     defaultSensitivity: "insensitive",
     execute: async (input, ctx) => {
-      const { provider_id: providerId, surface_id: surfaceId, item_id: itemId, field, value } = input;
+      const { surface_id: surfaceId, item_id: itemId, field, value } = input;
       const { discoverProviders: discoverProviders2, findSurface: findSurface2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
       const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
       const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
       const providers = await discoverProviders2(ctx.spindle, ctx.userId, promptFn);
-      const match = findSurface2(providers, providerId, surfaceId);
+      const match = findSurface2(providers, surfaceId);
       if (!match)
-        return { content: `Error: unknown provider/surface: ${providerId}/${surfaceId}`, isError: true };
+        return { content: `Error: unknown surface: ${surfaceId}`, isError: true };
       const surfaceLabel = match.surface.label;
       const providerName = match.provider.manifest.extension.name;
       const { dialReadItem: dialReadItem2, dialWriteField: dialWriteField2 } = await Promise.resolve().then(() => (init_transport(), exports_transport));
-      const readRes = await dialReadItem2(ctx.spindle, providerId, {
+      const readRes = await dialReadItem2(ctx.spindle, match.provider.id, {
         userId: ctx.userId,
         surfaceId,
         itemId,
@@ -24719,7 +23224,7 @@ var init_update_external_item = __esm(() => {
       });
       const beforeStr = readRes.value === undefined ? "" : typeof readRes.value === "string" ? readRes.value : JSON.stringify(readRes.value, null, 2);
       const afterStr = value === undefined ? "" : typeof value === "string" ? value : JSON.stringify(value, null, 2);
-      const writeRes = await dialWriteField2(ctx.spindle, providerId, {
+      const writeRes = await dialWriteField2(ctx.spindle, match.provider.id, {
         userId: ctx.userId,
         surfaceId,
         itemId,
@@ -24731,33 +23236,37 @@ var init_update_external_item = __esm(() => {
       ctx.pushEdit({
         op: "edit",
         surface: "external",
-        providerId,
+        providerId: match.provider.id,
         providerName,
         externalSurfaceId: surfaceId,
         itemId,
-        surfaceId: `${providerId}:${surfaceId}:${itemId}`,
+        surfaceId: `${match.provider.id}:${surfaceId}:${itemId}`,
         surfaceLabel: `${providerName} / ${surfaceLabel} / ${itemId}`,
         field,
         before: beforeStr,
         after: afterStr
       });
-      return { content: JSON.stringify({ provider_id: providerId, surface_id: surfaceId, item_id: itemId, field, ok: true }) };
+      return { content: JSON.stringify({ surface_id: surfaceId, item_id: itemId, field, ok: true }) };
     }
   });
 });
 
 // src/agent/tools/update-regex-script.ts
-var inputSchema82, updateRegexScriptTool;
+var inputSchema57, updateRegexScriptTool;
 var init_update_regex_script = __esm(() => {
   init_zod();
-  inputSchema82 = exports_external.object({
+  inputSchema57 = exports_external.object({
     script_id: exports_external.string().min(1),
     patch: exports_external.record(exports_external.string(), exports_external.unknown())
   });
   updateRegexScriptTool = defineTool({
     name: "update_regex_script",
-    description: "[LEGACY for single-field updates \u2014 prefer the set tool with path rx/<id>/<field>. Still useful when you need to change several metadata fields atomically in one call.] Update a regex script's metadata fields (name, flags, disabled, placement, sort_order, description, folder). For content edits use the edit tool.",
-    inputSchema: inputSchema82,
+    description: `Updates metadata fields of a regex script atomically.
+
+Usage:
+- Path-based \`edit\` / \`rewrite\` only address \`rx/<id>/find_regex\` and \`rx/<id>/replace_string\`. Metadata goes through here: \`name\`, \`flags\`, \`disabled\`, \`placement\`, \`target\`, \`sort_order\`, \`description\`, \`folder\`.
+- Pass only the fields to change in \`patch\`.`,
+    inputSchema: inputSchema57,
     jsonSchema: {
       type: "object",
       properties: {
@@ -24788,18 +23297,23 @@ var init_update_regex_script = __esm(() => {
 });
 
 // src/agent/tools/update-world-book-entry.ts
-var inputSchema83, updateWorldBookEntryTool;
+var inputSchema58, updateWorldBookEntryTool;
 var init_update_world_book_entry = __esm(() => {
   init_zod();
   init__surfaces();
-  inputSchema83 = exports_external.object({
+  inputSchema58 = exports_external.object({
     entry_id: exports_external.string().min(1),
     patch: exports_external.record(exports_external.string(), exports_external.unknown())
   });
   updateWorldBookEntryTool = defineTool({
     name: "update_world_book_entry",
-    description: "[LEGACY for single-field updates \u2014 prefer the set tool with path wb/<id>/<field>. Still useful when you need to change several metadata fields atomically in one call.] Update a world book entry's metadata (key array, comment, position, etc.). For content edits use the edit tool. Pass only fields to change in `patch`.",
-    inputSchema: inputSchema83,
+    description: `Updates metadata fields of a world book entry atomically.
+
+Usage:
+- Path-based \`edit\` / \`rewrite\` only address \`wb/<id>/content\` and \`wb/<id>/comment\`. Metadata goes through here: \`key\` array, \`keysecondary\`, \`priority\`, \`disabled\`, \`constant\`, \`position\`, \`depth\`, \`role\`, \`selective\`, \`selectiveLogic\`.
+- Pass only the fields to change in \`patch\`.
+- For content edits prefer \`edit\` / \`rewrite\`.`,
+    inputSchema: inputSchema58,
     jsonSchema: {
       type: "object",
       properties: {
@@ -24830,90 +23344,11 @@ var init_update_world_book_entry = __esm(() => {
   });
 });
 
-// src/agent/tools/world-book-entry-stats.ts
-var inputSchema84, worldBookEntryStatsTool;
-var init_world_book_entry_stats = __esm(() => {
-  init_zod();
-  inputSchema84 = exports_external.object({
-    entry_id: exports_external.string()
-  });
-  worldBookEntryStatsTool = defineTool({
-    name: "world_book_entry_stats",
-    description: "[LEGACY \u2014 superseded by the inspect tool with path wb/<id>/content. Kept for back-compat; prefer the named successor.] Cheap orientation for a world book entry. Returns content char count, line count, key/keysecondary, comment, and a 200-char peek. Call this before read_world_book_entry on any entry you don't already know is small.",
-    inputSchema: inputSchema84,
-    jsonSchema: {
-      type: "object",
-      properties: { entry_id: { type: "string" } },
-      required: ["entry_id"]
-    },
-    defaultSensitivity: "insensitive",
-    execute: async (input, ctx) => {
-      const e = await ctx.spindle.world_books.entries.get(input.entry_id, ctx.userId);
-      if (!e)
-        return { content: `Error: world book entry ${input.entry_id} not found`, isError: true };
-      return {
-        content: JSON.stringify({
-          entry_id: input.entry_id,
-          comment: e.comment,
-          key: e.key,
-          keysecondary: e.keysecondary,
-          constant: e.constant,
-          disabled: e.disabled,
-          content_chars: e.content.length,
-          content_lines: e.content === "" ? 0 : e.content.split(`
-`).length,
-          peek: e.content.slice(0, 200)
-        }, null, 2)
-      };
-    }
-  });
-});
-
-// src/agent/tools/world-book-stats.ts
-var inputSchema85, worldBookStatsTool;
-var init_world_book_stats = __esm(() => {
-  init_zod();
-  inputSchema85 = exports_external.object({});
-  worldBookStatsTool = defineTool({
-    name: "world_book_stats",
-    description: "[LEGACY \u2014 superseded by the list tool with path wb/<bookId>. Kept for back-compat; prefer the named successor.] Cheap orientation for the character's whole lorebook. Returns total entry count, per-book breakdown, count of disabled/constant entries, total content chars, and the 10 largest entries by content size. Call this BEFORE list_world_book_entries on any unfamiliar lorebook, it tells you whether to grep, paginate, or just read.",
-    inputSchema: inputSchema85,
-    jsonSchema: { type: "object", properties: {}, required: [] },
-    defaultSensitivity: "insensitive",
-    execute: async (_input, ctx) => {
-      const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
-      if (!c)
-        return { content: `Error: character ${ctx.characterId} not found`, isError: true };
-      const all = [];
-      const perBook = {};
-      for (const wbId of c.world_book_ids) {
-        const res = await ctx.spindle.world_books.entries.list(wbId, { limit: 500, userId: ctx.userId });
-        all.push(...res.data);
-        perBook[wbId] = res.data.length;
-      }
-      const totalChars = all.reduce((s, e) => s + e.content.length, 0);
-      const constantCount = all.filter((e) => e.constant).length;
-      const disabledCount = all.filter((e) => e.disabled).length;
-      const largest = [...all].sort((a, b) => b.content.length - a.content.length).slice(0, 10).map((e) => ({ id: e.id, comment: e.comment, content_chars: e.content.length }));
-      return {
-        content: JSON.stringify({
-          total_entries: all.length,
-          total_content_chars: totalChars,
-          constant: constantCount,
-          disabled: disabledCount,
-          per_book: perBook,
-          largest_10: largest
-        }, null, 2)
-      };
-    }
-  });
-});
-
 // src/agent/tools/count-tokens.ts
-var inputSchema86, countTokensTool;
+var inputSchema59, countTokensTool;
 var init_count_tokens = __esm(() => {
   init_zod();
-  inputSchema86 = exports_external.object({
+  inputSchema59 = exports_external.object({
     text: exports_external.string().optional(),
     chat_id: exports_external.string().optional(),
     model: exports_external.string().optional()
@@ -24923,7 +23358,7 @@ var init_count_tokens = __esm(() => {
   countTokensTool = defineTool({
     name: "count_tokens",
     description: "Server-side token count using the active model's real tokenizer. Pass `text` for an arbitrary string or `chat_id` for a stored chat (omit chat_id to use the pinned chat). Optional `model` overrides the tokenizer. Returns { total_tokens, model, tokenizer_name, approximate }.",
-    inputSchema: inputSchema86,
+    inputSchema: inputSchema59,
     jsonSchema: {
       type: "object",
       properties: {
@@ -24957,10 +23392,10 @@ var init_count_tokens = __esm(() => {
 });
 
 // src/agent/tools/dry-run-prompt.ts
-var inputSchema87, dryRunPromptTool;
+var inputSchema60, dryRunPromptTool;
 var init_dry_run_prompt = __esm(() => {
   init_zod();
-  inputSchema87 = exports_external.object({
+  inputSchema60 = exports_external.object({
     chat_id: exports_external.string().optional(),
     connection_id: exports_external.string().optional(),
     persona_id: exports_external.string().optional(),
@@ -24969,7 +23404,7 @@ var init_dry_run_prompt = __esm(() => {
   dryRunPromptTool = defineTool({
     name: "dry_run_prompt",
     description: "Run Lumiverse's prompt-assembly pipeline WITHOUT calling the LLM. Returns the exact messages that would be sent, plus a per-block breakdown (system / persona / world info entries / character fields / chat memory / chat history / etc.), token count, model, provider, world-info activation stats, and memory stats. THE definitive way to answer 'why is the AI saying X' or 'what's actually in the prompt'. Defaults to the pinned chat. The full messages array often spills to a tmp handle.",
-    inputSchema: inputSchema87,
+    inputSchema: inputSchema60,
     jsonSchema: {
       type: "object",
       properties: {
@@ -25017,14 +23452,14 @@ var init_dry_run_prompt = __esm(() => {
 });
 
 // src/agent/tools/get-active-chat.ts
-var inputSchema88, getActiveChatTool;
+var inputSchema61, getActiveChatTool;
 var init_get_active_chat = __esm(() => {
   init_zod();
-  inputSchema88 = exports_external.object({}).strict();
+  inputSchema61 = exports_external.object({}).strict();
   getActiveChatTool = defineTool({
     name: "get_active_chat",
     description: "Get the user's currently active chat (whatever the frontend is showing). Different from the pinned chat \u2014 pinned is what THIS agent session reads from; active is what the user is looking at right now in their main chat panel. Returns null if no chat is open.",
-    inputSchema: inputSchema88,
+    inputSchema: inputSchema61,
     jsonSchema: { type: "object", properties: {}, required: [] },
     defaultSensitivity: "insensitive",
     execute: async (_input, ctx) => {
@@ -25040,20 +23475,25 @@ var init_get_active_chat = __esm(() => {
   });
 });
 
-// src/agent/tools/get-active-regex-scripts.ts
-var TARGETS, inputSchema89, getActiveRegexScriptsTool;
-var init_get_active_regex_scripts = __esm(() => {
+// src/agent/tools/list-active-regex-scripts.ts
+var TARGETS, inputSchema62, listActiveRegexScriptsTool;
+var init_list_active_regex_scripts = __esm(() => {
   init_zod();
   TARGETS = ["prompt", "response", "display"];
-  inputSchema89 = exports_external.object({
+  inputSchema62 = exports_external.object({
     target: exports_external.enum(TARGETS),
     chat_id: exports_external.string().optional(),
     use_active_character: exports_external.boolean().optional()
   }).strict();
-  getActiveRegexScriptsTool = defineTool({
-    name: "get_active_regex_scripts",
-    description: "Resolve the regex scripts that would actually fire for a given target (`prompt` runs on text being sent to the model, `response` runs on raw model output before it's stored, `display` runs at render time on stored content) under the active character + chat context. Merges global + character + chat scopes and orders by scope tier then sort_order \u2014 exactly the way Lumiverse runs them at prompt-assembly / response-bake / render time. Use this to figure out what's actually rewriting the model's output before you start digging into individual scripts.",
-    inputSchema: inputSchema89,
+  listActiveRegexScriptsTool = defineTool({
+    name: "list_active_regex_scripts",
+    description: `Lists regex scripts that would fire for a target under the active character + chat context.
+
+Usage:
+- \`target\`: \`prompt\` runs on text sent to the model, \`response\` runs on raw model output before storage, \`display\` runs at render time on stored content.
+- Merges global + character + chat scopes and orders by scope tier then sort_order, matching Lumiverse's runtime ordering.
+- Use to figure out what's rewriting the model's output before digging into individual scripts.`,
+    inputSchema: inputSchema62,
     jsonSchema: {
       type: "object",
       properties: {
@@ -25088,7 +23528,7 @@ var init_get_active_regex_scripts = __esm(() => {
           find_regex_peek: s.find_regex.slice(0, 200)
         }));
         const out = JSON.stringify({ target: input.target, count: slim.length, scripts: slim }, null, 2);
-        return { content: await spillOrReturn(ctx, out, `get_active_regex_scripts(${input.target})`) };
+        return { content: await spillOrReturn(ctx, out, `list_active_regex_scripts(${input.target})`) };
       } catch (err) {
         return { content: JSON.stringify({ error: err.message }), isError: true };
       }
@@ -25096,17 +23536,22 @@ var init_get_active_regex_scripts = __esm(() => {
   });
 });
 
-// src/agent/tools/get-activated-world-info.ts
-var inputSchema90, getActivatedWorldInfoTool;
-var init_get_activated_world_info = __esm(() => {
+// src/agent/tools/list-activated-world-info.ts
+var inputSchema63, listActivatedWorldInfoTool;
+var init_list_activated_world_info = __esm(() => {
   init_zod();
-  inputSchema90 = exports_external.object({
+  inputSchema63 = exports_external.object({
     chat_id: exports_external.string().optional()
   }).strict();
-  getActivatedWorldInfoTool = defineTool({
-    name: "get_activated_world_info",
-    description: "List the world info entries that WOULD activate (keyword + vector) for the chat at its current state. Returns { id, comment, keys, source: 'keyword'|'vector', score? } per entry. Use this to debug 'is this lorebook entry actually firing?' questions before reading the entry's content. Defaults to pinned chat.",
-    inputSchema: inputSchema90,
+  listActivatedWorldInfoTool = defineTool({
+    name: "list_activated_world_info",
+    description: `Lists world info entries that would activate for a chat at its current state.
+
+Usage:
+- Returns { id, comment, keys, source: 'keyword'|'vector', score? } per entry.
+- Use to debug "is this lorebook entry actually firing?" before reading the entry's content.
+- Defaults to pinned chat.`,
+    inputSchema: inputSchema63,
     jsonSchema: {
       type: "object",
       properties: {
@@ -25122,7 +23567,7 @@ var init_get_activated_world_info = __esm(() => {
       try {
         const entries = await ctx.spindle.world_books.getActivated(chatId, ctx.userId);
         const out = JSON.stringify({ chat_id: chatId, count: entries.length, entries }, null, 2);
-        return { content: await spillOrReturn(ctx, out, `get_activated_world_info(${chatId})`) };
+        return { content: await spillOrReturn(ctx, out, `list_activated_world_info(${chatId})`) };
       } catch (err) {
         return { content: JSON.stringify({ error: err.message }), isError: true };
       }
@@ -25130,18 +23575,24 @@ var init_get_activated_world_info = __esm(() => {
   });
 });
 
-// src/agent/tools/get-chat-memories.ts
-var inputSchema91, getChatMemoriesTool;
-var init_get_chat_memories = __esm(() => {
+// src/agent/tools/list-chat-memories.ts
+var inputSchema64, listChatMemoriesTool;
+var init_list_chat_memories = __esm(() => {
   init_zod();
-  inputSchema91 = exports_external.object({
+  inputSchema64 = exports_external.object({
     chat_id: exports_external.string().optional(),
     top_k: exports_external.number().int().min(1).max(50).optional()
   }).strict();
-  getChatMemoriesTool = defineTool({
-    name: "get_chat_memories",
-    description: "Get the top-K vector-retrieved memory chunks for a chat (the same chunks Lumiverse would inject into the prompt under chat memory). Returns { chunks, formatted, count, enabled, settingsSource }. Defaults to pinned chat. Useful to understand what historical context is being surfaced into the current generation.",
-    inputSchema: inputSchema91,
+  listChatMemoriesTool = defineTool({
+    name: "list_chat_memories",
+    description: `Lists the top-K vector-retrieved memory chunks for a chat.
+
+Usage:
+- Returns the same chunks Lumiverse would inject into the prompt under chat memory.
+- Response includes { chunks, formatted, count, enabled, settingsSource }.
+- Defaults to pinned chat.
+- Use to understand what historical context is being surfaced into the current generation.`,
+    inputSchema: inputSchema64,
     jsonSchema: {
       type: "object",
       properties: {
@@ -25161,7 +23612,7 @@ var init_get_chat_memories = __esm(() => {
           userId: ctx.userId
         });
         const out = JSON.stringify({ chat_id: chatId, ...result }, null, 2);
-        return { content: await spillOrReturn(ctx, out, `get_chat_memories(${chatId})`) };
+        return { content: await spillOrReturn(ctx, out, `list_chat_memories(${chatId})`) };
       } catch (err) {
         return { content: JSON.stringify({ error: err.message }), isError: true };
       }
@@ -25170,14 +23621,14 @@ var init_get_chat_memories = __esm(() => {
 });
 
 // src/agent/tools/get-lumiverse-version.ts
-var inputSchema92, getLumiverseVersionTool;
+var inputSchema65, getLumiverseVersionTool;
 var init_get_lumiverse_version = __esm(() => {
   init_zod();
-  inputSchema92 = exports_external.object({}).strict();
+  inputSchema65 = exports_external.object({}).strict();
   getLumiverseVersionTool = defineTool({
     name: "get_lumiverse_version",
     description: "Get the running Lumiverse backend and frontend semantic version strings. Useful when the user reports a bug or behaviour that depends on a specific build \u2014 surface the version before guessing.",
-    inputSchema: inputSchema92,
+    inputSchema: inputSchema65,
     jsonSchema: { type: "object", properties: {}, required: [] },
     defaultSensitivity: "insensitive",
     execute: async (_input, ctx) => {
@@ -25195,14 +23646,14 @@ var init_get_lumiverse_version = __esm(() => {
 });
 
 // src/agent/tools/get-user-info.ts
-var inputSchema93, getUserInfoTool;
+var inputSchema66, getUserInfoTool;
 var init_get_user_info = __esm(() => {
   init_zod();
-  inputSchema93 = exports_external.object({}).strict();
+  inputSchema66 = exports_external.object({}).strict();
   getUserInfoTool = defineTool({
     name: "get_user_info",
     description: "Get the user's Lumiverse role (`user` / `admin` / `operator`) and visibility (whether they have the app open in any browser session right now). Useful for tailoring suggestions or skipping toasts when the user can't see them.",
-    inputSchema: inputSchema93,
+    inputSchema: inputSchema66,
     jsonSchema: { type: "object", properties: {}, required: [] },
     defaultSensitivity: "insensitive",
     execute: async (_input, ctx) => {
@@ -25220,14 +23671,14 @@ var init_get_user_info = __esm(() => {
 });
 
 // src/agent/tools/list-connections.ts
-var inputSchema94, listConnectionsTool;
+var inputSchema67, listConnectionsTool;
 var init_list_connections = __esm(() => {
   init_zod();
-  inputSchema94 = exports_external.object({}).strict();
+  inputSchema67 = exports_external.object({}).strict();
   listConnectionsTool = defineTool({
     name: "list_connections",
     description: "List the user's configured LLM connection profiles. Returns id, name, provider, api_url, model, is_default, has_api_key (boolean \u2014 never the actual key). Use to see what providers/models are available, or to figure out which connection a chat is using.",
-    inputSchema: inputSchema94,
+    inputSchema: inputSchema67,
     jsonSchema: { type: "object", properties: {}, required: [] },
     defaultSensitivity: "insensitive",
     execute: async (_input, ctx) => {
@@ -25252,10 +23703,10 @@ var init_list_connections = __esm(() => {
 });
 
 // src/agent/tools/list-databank-documents.ts
-var inputSchema95, listDatabankDocumentsTool;
+var inputSchema68, listDatabankDocumentsTool;
 var init_list_databank_documents = __esm(() => {
   init_zod();
-  inputSchema95 = exports_external.object({
+  inputSchema68 = exports_external.object({
     databank_id: exports_external.string().min(1),
     limit: exports_external.number().int().min(1).max(500).optional(),
     offset: exports_external.number().int().min(0).optional()
@@ -25263,7 +23714,7 @@ var init_list_databank_documents = __esm(() => {
   listDatabankDocumentsTool = defineTool({
     name: "list_databank_documents",
     description: "List documents in a databank. Returns metadata only \u2014 id, name, mime_type, file_size, total_chunks, status. Use read_databank_document to fetch a document's full extracted text.",
-    inputSchema: inputSchema95,
+    inputSchema: inputSchema68,
     jsonSchema: {
       type: "object",
       properties: {
@@ -25301,10 +23752,10 @@ var init_list_databank_documents = __esm(() => {
 });
 
 // src/agent/tools/list-databanks.ts
-var inputSchema96, listDatabanksTool;
+var inputSchema69, listDatabanksTool;
 var init_list_databanks = __esm(() => {
   init_zod();
-  inputSchema96 = exports_external.object({
+  inputSchema69 = exports_external.object({
     scope: exports_external.enum(["global", "character", "chat"]).optional(),
     scope_id: exports_external.string().nullable().optional(),
     limit: exports_external.number().int().min(1).max(500).optional(),
@@ -25313,7 +23764,7 @@ var init_list_databanks = __esm(() => {
   listDatabanksTool = defineTool({
     name: "list_databanks",
     description: "List the user's databanks (RAG document collections). Optional scope filter: global / character / chat. Pass scope_id to scope to a specific character or chat (omit for the active character / pinned chat as the natural default). Returns metadata only \u2014 id, name, scope, document_count, enabled.",
-    inputSchema: inputSchema96,
+    inputSchema: inputSchema69,
     jsonSchema: {
       type: "object",
       properties: {
@@ -25357,17 +23808,17 @@ var init_list_databanks = __esm(() => {
 });
 
 // src/agent/tools/list-personas.ts
-var inputSchema97, listPersonasTool;
+var inputSchema70, listPersonasTool;
 var init_list_personas = __esm(() => {
   init_zod();
-  inputSchema97 = exports_external.object({
+  inputSchema70 = exports_external.object({
     limit: exports_external.number().int().min(1).max(500).optional(),
     offset: exports_external.number().int().min(0).optional()
   }).strict();
   listPersonasTool = defineTool({
     name: "list_personas",
     description: "List the user's personas (identity profiles used as the {{user}} side of chats). Returns metadata only \u2014 id, name, title, folder, is_default, attached_world_book_id, image_id, description char count. Use read_persona for a specific one's full description and metadata.",
-    inputSchema: inputSchema97,
+    inputSchema: inputSchema70,
     jsonSchema: {
       type: "object",
       properties: {
@@ -25404,17 +23855,17 @@ var init_list_personas = __esm(() => {
 });
 
 // src/agent/tools/list-variables.ts
-var inputSchema98, listVariablesTool;
+var inputSchema71, listVariablesTool;
 var init_list_variables = __esm(() => {
   init_zod();
-  inputSchema98 = exports_external.object({
+  inputSchema71 = exports_external.object({
     scope: exports_external.enum(["chat", "local", "global", "macro"]),
     chat_id: exports_external.string().optional()
   }).strict();
   listVariablesTool = defineTool({
     name: "list_variables",
     description: "List all variables in a given scope. Scopes: `chat` (chat.metadata.chat_variables, persisted across generations, what Risu/LumiRealm Lua and triggers write via setvar / setChatVar), `macro` (chat.metadata.macro_variables, LumiRealm's macro-state store, separate path from chat_variables), `local` (chat-bound ephemeral runtime variables), `global` (user-level). Pass chat_id for chat/local/macro scopes (defaults to pinned chat).",
-    inputSchema: inputSchema98,
+    inputSchema: inputSchema71,
     jsonSchema: {
       type: "object",
       properties: {
@@ -25452,16 +23903,16 @@ var init_list_variables = __esm(() => {
 });
 
 // src/agent/tools/read-connection.ts
-var inputSchema99, readConnectionTool;
+var inputSchema72, readConnectionTool;
 var init_read_connection = __esm(() => {
   init_zod();
-  inputSchema99 = exports_external.object({
+  inputSchema72 = exports_external.object({
     connection_id: exports_external.string().min(1)
   }).strict();
   readConnectionTool = defineTool({
     name: "read_connection",
     description: "Read a single LLM connection profile by id. Returns full metadata including custom fields. API keys are never exposed (only `has_api_key` boolean).",
-    inputSchema: inputSchema99,
+    inputSchema: inputSchema72,
     jsonSchema: {
       type: "object",
       properties: {
@@ -25484,16 +23935,16 @@ var init_read_connection = __esm(() => {
 });
 
 // src/agent/tools/read-databank.ts
-var inputSchema100, readDatabankTool;
+var inputSchema73, readDatabankTool;
 var init_read_databank = __esm(() => {
   init_zod();
-  inputSchema100 = exports_external.object({
+  inputSchema73 = exports_external.object({
     databank_id: exports_external.string().min(1)
   }).strict();
   readDatabankTool = defineTool({
     name: "read_databank",
     description: "Read a single databank's metadata (name, description, scope, enabled, document count). Use list_databank_documents and read_databank_document to drill into contents.",
-    inputSchema: inputSchema100,
+    inputSchema: inputSchema73,
     jsonSchema: {
       type: "object",
       properties: {
@@ -25516,17 +23967,17 @@ var init_read_databank = __esm(() => {
 });
 
 // src/agent/tools/read-databank-document.ts
-var inputSchema101, readDatabankDocumentTool;
+var inputSchema74, readDatabankDocumentTool;
 var init_read_databank_document = __esm(() => {
   init_zod();
-  inputSchema101 = exports_external.object({
+  inputSchema74 = exports_external.object({
     document_id: exports_external.string().min(1),
     meta_only: exports_external.boolean().optional()
   }).strict();
   readDatabankDocumentTool = defineTool({
     name: "read_databank_document",
     description: "Read a databank document. Returns metadata always; with meta_only=false (default), also returns the full extracted text content (spills to a tmp handle if large).",
-    inputSchema: inputSchema101,
+    inputSchema: inputSchema74,
     jsonSchema: {
       type: "object",
       properties: {
@@ -25554,10 +24005,10 @@ var init_read_databank_document = __esm(() => {
 });
 
 // src/agent/tools/read-persona.ts
-var inputSchema102, readPersonaTool;
+var inputSchema75, readPersonaTool;
 var init_read_persona = __esm(() => {
   init_zod();
-  inputSchema102 = exports_external.object({
+  inputSchema75 = exports_external.object({
     persona_id: exports_external.string().optional(),
     which: exports_external.enum(["active", "default"]).optional()
   }).strict().refine((v) => v.persona_id !== undefined !== (v.which !== undefined), {
@@ -25566,7 +24017,7 @@ var init_read_persona = __esm(() => {
   readPersonaTool = defineTool({
     name: "read_persona",
     description: "Read a single persona's full content. Pass `persona_id` for a specific one, or `which: 'active'` for the currently-selected persona / `which: 'default'` for the user's default. Returns full description plus all metadata. The persona's description text gets injected into the prompt as {{user}} / {{persona}}.",
-    inputSchema: inputSchema102,
+    inputSchema: inputSchema75,
     jsonSchema: {
       type: "object",
       properties: {
@@ -25598,16 +24049,21 @@ var init_read_persona = __esm(() => {
 });
 
 // src/agent/tools/read-persona-world-book.ts
-var inputSchema103, readPersonaWorldBookTool;
+var inputSchema76, readPersonaWorldBookTool;
 var init_read_persona_world_book = __esm(() => {
   init_zod();
-  inputSchema103 = exports_external.object({
+  inputSchema76 = exports_external.object({
     persona_id: exports_external.string().min(1)
   }).strict();
   readPersonaWorldBookTool = defineTool({
     name: "read_persona_world_book",
-    description: "Get the world book attached to a persona (returns the WB metadata, not entries). Personas can carry their own world book separate from the character's. Use list_world_book_entries on the returned id to see entries. Returns null if the persona has no attached WB.",
-    inputSchema: inputSchema103,
+    description: `Reads the world book attached to a persona (metadata only, not entries).
+
+Usage:
+- Personas can carry their own world book separate from the character's.
+- Use \`list({path: "wb/<id>"})\` on the returned id to enumerate entries.
+- Returns null if the persona has no attached WB.`,
+    inputSchema: inputSchema76,
     jsonSchema: {
       type: "object",
       properties: {
@@ -25630,10 +24086,10 @@ var init_read_persona_world_book = __esm(() => {
 });
 
 // src/agent/tools/read-variable.ts
-var inputSchema104, readVariableTool;
+var inputSchema77, readVariableTool;
 var init_read_variable = __esm(() => {
   init_zod();
-  inputSchema104 = exports_external.object({
+  inputSchema77 = exports_external.object({
     scope: exports_external.enum(["chat", "local", "global", "macro"]),
     key: exports_external.string().min(1),
     chat_id: exports_external.string().optional()
@@ -25641,7 +24097,7 @@ var init_read_variable = __esm(() => {
   readVariableTool = defineTool({
     name: "read_variable",
     description: "Read a single variable by name from a given scope (chat / local / global / macro). `chat` is chat.metadata.chat_variables (Risu/LumiRealm setvar target). `macro` is chat.metadata.macro_variables (LumiRealm macro-state, separate path). Returns { exists, value }. For chat/local/macro scopes, chat_id defaults to the pinned chat.",
-    inputSchema: inputSchema104,
+    inputSchema: inputSchema77,
     jsonSchema: {
       type: "object",
       properties: {
@@ -25689,10 +24145,10 @@ var init_read_variable = __esm(() => {
 });
 
 // src/agent/tools/resolve-macros.ts
-var inputSchema105, resolveMacrosTool;
+var inputSchema78, resolveMacrosTool;
 var init_resolve_macros = __esm(() => {
   init_zod();
-  inputSchema105 = exports_external.object({
+  inputSchema78 = exports_external.object({
     template: exports_external.string().min(1),
     chat_id: exports_external.string().optional(),
     use_active_character: exports_external.boolean().optional()
@@ -25700,7 +24156,7 @@ var init_resolve_macros = __esm(() => {
   resolveMacrosTool = defineTool({
     name: "resolve_macros",
     description: "Resolve `{{macro}}` placeholders in arbitrary text using Lumiverse's macro engine. Always runs in non-committing dry mode (`commit: false`) so extension macro handlers don't side-effect. Pass chat_id (defaults to pinned) for chat-scoped macros (variables, history, etc.) and use_active_character to bind {{char}} / character fields to the currently active card. Returns { text, diagnostics }.",
-    inputSchema: inputSchema105,
+    inputSchema: inputSchema78,
     jsonSchema: {
       type: "object",
       properties: {
@@ -25734,7 +24190,7 @@ var init_resolve_macros = __esm(() => {
 });
 
 // src/agent/tools/todo-write.ts
-var todoSchema, inputSchema106, todoWriteTool;
+var todoSchema, inputSchema79, todoWriteTool;
 var init_todo_write = __esm(() => {
   init_zod();
   todoSchema = exports_external.object({
@@ -25742,7 +24198,7 @@ var init_todo_write = __esm(() => {
     activeForm: exports_external.string().min(1).describe("Present-continuous form ('Running tests', 'Fixing the bug')."),
     status: exports_external.enum(["pending", "in_progress", "completed"]).describe("Current state of the task.")
   }).strict();
-  inputSchema106 = exports_external.object({
+  inputSchema79 = exports_external.object({
     todos: exports_external.array(todoSchema).min(1).describe("The full updated todo list. Replaces the previous list wholesale, not a partial patch. At most one item should be 'in_progress' at a time.")
   }).strict();
   todoWriteTool = defineTool({
@@ -25765,7 +24221,7 @@ Rules:
 - At most ONE item should be 'in_progress' at a time.
 - Mark items 'completed' as soon as they're done. Don't batch completions.
 - Drop items that are no longer relevant by omitting them from the new list.`,
-    inputSchema: inputSchema106,
+    inputSchema: inputSchema79,
     jsonSchema: {
       type: "object",
       properties: {
@@ -25836,11 +24292,11 @@ ${lines.join(`
 `)}
 </functions>`;
 }
-var inputSchema107, toolSearchTool;
+var inputSchema80, toolSearchTool;
 var init_tool_search = __esm(() => {
   init_zod();
   init__registry();
-  inputSchema107 = exports_external.object({
+  inputSchema80 = exports_external.object({
     query: exports_external.string().min(1).describe("Either 'select:Name1,Name2' to fetch named tools directly, or a free-text keyword search (matches against tool name + description)."),
     max_results: exports_external.number().int().positive().max(20).optional().describe("Max keyword-search results (default 5). Ignored for select: queries.")
   }).strict();
@@ -25856,7 +24312,7 @@ Query forms:
 - "select:read_persona,list_personas" - fetch these exact tools by name
 - "regex" - keyword search, returns up to max_results best matches
 - "lorebook entry" - multi-word keyword search`,
-    inputSchema: inputSchema107,
+    inputSchema: inputSchema80,
     jsonSchema: {
       type: "object",
       properties: {
@@ -25962,8 +24418,6 @@ var init__registry = __esm(() => {
   init_apply_glossary();
   init_ask_user_question();
   init_audit_card_coverage();
-  init_character_extension_stats();
-  init_character_field_stats();
   init_chat_stats();
   init_count_cjk_chars();
   init_create_alternate_greeting();
@@ -25976,12 +24430,7 @@ var init__registry = __esm(() => {
   init_delete_alternate_greeting();
   init_delete_regex_script();
   init_delete_world_book_entry();
-  init_edit_alternate_greeting();
-  init_edit_character_extension();
-  init_edit_character_field();
-  init_edit_external_item();
-  init_edit_regex_script_field();
-  init_edit_world_book_entry();
+  init_edit_external();
   init_edit();
   init_finish();
   init_fs_delete();
@@ -25994,42 +24443,25 @@ var init__registry = __esm(() => {
   init_fs_unzip();
   init_fs_write();
   init_fs_zip();
-  init_grep_card();
   init_grep();
   init_grep_chat_messages();
+  init_grep_external();
   init_inspect();
   init_list();
   init_rewrite();
   init_set();
-  init_list_alternate_greetings();
   init_list_chat_messages();
   init_list_chats_for_character();
-  init_list_extension_keys();
-  init_list_external_items();
-  init_list_external_providers();
-  init_list_my_edits();
-  init_list_regex_scripts();
-  init_list_world_book_entries();
-  init_list_world_books();
+  init_list_external();
+  init_list_session_edits();
   init_mark_tool_results();
   init_random_pick();
-  init_read_alternate_greeting();
   init_read();
-  init_read_character_extension();
-  init_read_character_field();
   init_read_chat_messages();
-  init_read_external_item();
-  init_read_pinned_chat_messages();
-  init_read_regex_script_field();
-  init_read_regex_script_meta();
-  init_read_world_book_entry();
-  init_regex_script_stats();
-  init_regex_scripts_overview();
-  init_revert_my_edits();
-  init_rewrite_alternate_greeting();
-  init_rewrite_world_book_entry();
+  init_read_external();
+  init_revert_session_edits();
   init_roll_dice();
-  init_squash_my_edits();
+  init_squash_session_edits();
   init_survey_cjk();
   init_test_regex();
   init_translate_card_strings();
@@ -26038,18 +24470,15 @@ var init__registry = __esm(() => {
   init_tmp_read();
   init_tmp_stat();
   init_update_character();
-  init_update_character_extension();
-  init_update_external_item();
+  init_update_external();
   init_update_regex_script();
   init_update_world_book_entry();
-  init_world_book_entry_stats();
-  init_world_book_stats();
   init_count_tokens();
   init_dry_run_prompt();
   init_get_active_chat();
-  init_get_active_regex_scripts();
-  init_get_activated_world_info();
-  init_get_chat_memories();
+  init_list_active_regex_scripts();
+  init_list_activated_world_info();
+  init_list_chat_memories();
   init_get_lumiverse_version();
   init_get_user_info();
   init_list_connections();
@@ -26068,41 +24497,13 @@ var init__registry = __esm(() => {
   init_tool_search();
   registry2 = new ToolRegistry;
   DEFERRED_TOOL_NAMES = new Set([
-    "character_extension_stats",
-    "character_field_stats",
-    "regex_script_stats",
-    "world_book_entry_stats",
-    "world_book_stats",
-    "regex_scripts_overview",
-    "list_world_books",
-    "list_world_book_entries",
-    "list_regex_scripts",
-    "list_alternate_greetings",
-    "list_extension_keys",
-    "grep_card",
-    "read_alternate_greeting",
-    "read_character_extension",
-    "read_character_field",
-    "read_regex_script_field",
-    "read_regex_script_meta",
-    "read_world_book_entry",
-    "edit_alternate_greeting",
-    "edit_character_extension",
-    "edit_character_field",
-    "edit_regex_script_field",
-    "edit_world_book_entry",
-    "rewrite_alternate_greeting",
-    "rewrite_world_book_entry",
-    "update_character_extension",
-    "update_regex_script",
-    "update_world_book_entry",
     "count_tokens",
     "resolve_macros",
     "list_variables",
     "read_variable",
-    "get_activated_world_info",
-    "get_active_regex_scripts",
-    "get_chat_memories",
+    "list_activated_world_info",
+    "list_active_regex_scripts",
+    "list_chat_memories",
     "list_personas",
     "read_persona",
     "read_persona_world_book",
@@ -26120,7 +24521,6 @@ var init__registry = __esm(() => {
     "grep_chat_messages",
     "list_chats_for_character",
     "read_chat_messages",
-    "read_pinned_chat_messages",
     "custom_tool_save",
     "custom_tool_list",
     "custom_tool_delete",
@@ -26129,11 +24529,6 @@ var init__registry = __esm(() => {
     "mark_tool_results",
     "count_cjk_chars",
     "test_regex",
-    "list_external_providers",
-    "list_external_items",
-    "read_external_item",
-    "edit_external_item",
-    "update_external_item",
     "create_alternate_greeting",
     "create_regex_script",
     "create_world_book_entry",
@@ -26141,7 +24536,6 @@ var init__registry = __esm(() => {
     "delete_regex_script",
     "delete_world_book_entry",
     "update_character",
-    "translate_card_strings",
     "ask_user_question"
   ]);
   READ_ONLY_TOOL_NAMES = new Set([
@@ -26158,38 +24552,19 @@ var init__registry = __esm(() => {
     "fs_list",
     "fs_read",
     "fs_stat",
-    "read_character_field",
-    "read_alternate_greeting",
-    "read_character_extension",
-    "read_world_book_entry",
-    "read_regex_script_field",
-    "read_regex_script_meta",
-    "list_world_books",
-    "list_world_book_entries",
-    "list_regex_scripts",
-    "list_alternate_greetings",
-    "list_extension_keys",
-    "character_field_stats",
-    "character_extension_stats",
-    "regex_script_stats",
-    "world_book_entry_stats",
-    "world_book_stats",
-    "regex_scripts_overview",
-    "grep_card",
     "chat_stats",
     "list_chat_messages",
     "grep_chat_messages",
     "list_chats_for_character",
     "read_chat_messages",
-    "read_pinned_chat_messages",
     "dry_run_prompt",
     "resolve_macros",
     "count_tokens",
     "list_variables",
     "read_variable",
-    "get_activated_world_info",
-    "get_active_regex_scripts",
-    "get_chat_memories",
+    "list_activated_world_info",
+    "list_active_regex_scripts",
+    "list_chat_memories",
     "list_personas",
     "read_persona",
     "read_persona_world_book",
@@ -26202,10 +24577,10 @@ var init__registry = __esm(() => {
     "get_active_chat",
     "get_user_info",
     "get_lumiverse_version",
-    "list_my_edits",
-    "list_external_providers",
-    "list_external_items",
-    "read_external_item",
+    "list_session_edits",
+    "list_external",
+    "read_external",
+    "grep_external",
     "custom_tool_list",
     "count_cjk_chars",
     "test_regex",
@@ -26219,18 +24594,12 @@ var init__registry = __esm(() => {
     inspect: 12000,
     list: 20000,
     grep: 30000,
+    grep_external: 30000,
     survey_cjk: 25000,
     apply_glossary: 30000,
     edit: 20000,
     rewrite: 20000,
     set: 20000,
-    character_extension_stats: 8000,
-    character_field_stats: 8000,
-    regex_script_stats: 8000,
-    world_book_entry_stats: 8000,
-    world_book_stats: 8000,
-    regex_scripts_overview: 20000,
-    grep_card: 30000,
     tmp_grep: 30000
   };
   registry2.register(applyGlossaryTool);
@@ -26243,8 +24612,6 @@ var init__registry = __esm(() => {
   registry2.register(inspectTool);
   registry2.register(listTool);
   registry2.register(grepTool);
-  registry2.register(characterExtensionStatsTool);
-  registry2.register(characterFieldStatsTool);
   registry2.register(chatStatsTool);
   registry2.register(countCjkCharsTool);
   registry2.register(createAlternateGreetingTool);
@@ -26257,12 +24624,7 @@ var init__registry = __esm(() => {
   registry2.register(deleteAlternateGreetingTool);
   registry2.register(deleteRegexScriptTool);
   registry2.register(deleteWorldBookEntryTool);
-  registry2.register(editAlternateGreetingTool);
-  registry2.register(editCharacterExtensionTool);
-  registry2.register(editCharacterFieldTool);
-  registry2.register(editExternalItemTool);
-  registry2.register(editRegexScriptFieldTool);
-  registry2.register(editWorldBookEntryTool);
+  registry2.register(editExternalTool);
   registry2.register(finishTool);
   registry2.register(fsDeleteTool);
   registry2.register(fsEditTool);
@@ -26274,36 +24636,19 @@ var init__registry = __esm(() => {
   registry2.register(fsUnzipTool);
   registry2.register(fsWriteTool);
   registry2.register(fsZipTool);
-  registry2.register(grepCardTool);
   registry2.register(grepChatMessagesTool);
-  registry2.register(listAlternateGreetingsTool);
+  registry2.register(grepExternalTool);
   registry2.register(listChatMessagesTool);
   registry2.register(listChatsForCharacterTool);
-  registry2.register(listExtensionKeysTool);
-  registry2.register(listExternalItemsTool);
-  registry2.register(listExternalProvidersTool);
-  registry2.register(listMyEditsTool);
-  registry2.register(listRegexScriptsTool);
-  registry2.register(listWorldBookEntriesTool);
-  registry2.register(listWorldBooksTool);
+  registry2.register(listExternalTool);
+  registry2.register(listSessionEditsTool);
   registry2.register(markToolResultsTool);
   registry2.register(randomPickTool);
-  registry2.register(readAlternateGreetingTool);
-  registry2.register(readCharacterExtensionTool);
-  registry2.register(readCharacterFieldTool);
   registry2.register(readChatMessagesTool);
-  registry2.register(readExternalItemTool);
-  registry2.register(readPinnedChatMessagesTool);
-  registry2.register(readRegexScriptFieldTool);
-  registry2.register(readRegexScriptMetaTool);
-  registry2.register(readWorldBookEntryTool);
-  registry2.register(regexScriptStatsTool);
-  registry2.register(regexScriptsOverviewTool);
-  registry2.register(revertMyEditsTool);
-  registry2.register(rewriteAlternateGreetingTool);
-  registry2.register(rewriteWorldBookEntryTool);
+  registry2.register(readExternalTool);
+  registry2.register(revertSessionEditsTool);
   registry2.register(rollDiceTool);
-  registry2.register(squashMyEditsTool);
+  registry2.register(squashSessionEditsTool);
   registry2.register(surveyCjkTool);
   registry2.register(testRegexTool);
   registry2.register(translateCardStringsTool);
@@ -26312,18 +24657,15 @@ var init__registry = __esm(() => {
   registry2.register(tmpReadTool);
   registry2.register(tmpStatTool);
   registry2.register(updateCharacterTool);
-  registry2.register(updateCharacterExtensionTool);
-  registry2.register(updateExternalItemTool);
+  registry2.register(updateExternalTool);
   registry2.register(updateRegexScriptTool);
   registry2.register(updateWorldBookEntryTool);
-  registry2.register(worldBookEntryStatsTool);
-  registry2.register(worldBookStatsTool);
   registry2.register(countTokensTool);
   registry2.register(dryRunPromptTool);
   registry2.register(getActiveChatTool);
-  registry2.register(getActiveRegexScriptsTool);
-  registry2.register(getActivatedWorldInfoTool);
-  registry2.register(getChatMemoriesTool);
+  registry2.register(listActiveRegexScriptsTool);
+  registry2.register(listActivatedWorldInfoTool);
+  registry2.register(listChatMemoriesTool);
   registry2.register(getLumiverseVersionTool);
   registry2.register(getUserInfoTool);
   registry2.register(listConnectionsTool);
@@ -27389,11 +25731,11 @@ ${params.extensionSystemPrompts.trim()}` : "";
 
 # Pinned chat
 
-The user has pinned chat "${params.pinnedChat.name}" (id: ${params.pinnedChat.id}) for context. Use \`read_pinned_chat_messages\` to load its messages when the user references "this chat", "the conversation", "what just happened", etc. Treat messages as read-only context unless the user explicitly asks you to edit them.` : `
+The user has pinned chat "${params.pinnedChat.name}" (id: ${params.pinnedChat.id}) for context. Use \`read_chat_messages\` (with chat_id omitted, or "pinned") to load its messages when the user references "this chat", "the conversation", "what just happened", etc. Treat messages as read-only context unless the user explicitly asks you to edit them.` : `
 
 # Pinned chat
 
-No chat is pinned to this session. If the user references "this chat", "the conversation", or asks you to read message history, tell them to click the chat-pin button next to the character selector and choose a chat first. Without a pinned chat, the read_pinned_chat_messages tool will return nothing useful.`;
+No chat is pinned to this session. If the user references "this chat", "the conversation", or asks you to read message history, tell them to click the chat-pin button next to the character selector and choose a chat first. Without a pinned chat, \`read_chat_messages\` (called without chat_id) returns nothing useful.`;
   const customToolsSection = params.customToolsIndex && params.customToolsIndex.trim().length > 0 ? `
 
 # Custom tools available
@@ -27423,12 +25765,12 @@ Do not invent tools that are not in this list and not loaded at the top of the p
 
 # External providers (other extensions)
 
-The following extensions have opted in to expose data through the phone-line protocol. Use \`list_external_providers\` for full field schemas, then \`list_external_items\` / \`read_external_item\` / \`edit_external_item\` / \`update_external_item\` to interact.
+The following extensions have opted in to expose data through the phone-line protocol. Use \`list_external\` / \`read_external\` / \`grep_external\` (cross-item regex search, optional \`field_prefix\` to scope) / \`edit_external\` / \`update_external\`, keyed on \`surface_id\`.
 
 ` + params.externalProviders.map((p) => {
-    const surfaceLines = p.surfaces.map((s) => `    - \`${s.id}\` \u2014 ${s.label} (${s.scope}): ${s.description.slice(0, 240)}${s.description.length > 240 ? "..." : ""}`).join(`
+    const surfaceLines = p.surfaces.map((s) => `    - \`${s.id}\` (${s.scope}): ${s.label}. ${s.description.slice(0, 240)}${s.description.length > 240 ? "..." : ""}`).join(`
 `);
-    return `- **${p.name}** (provider_id: \`${p.id}\`)
+    return `- **${p.name}**
 ${surfaceLines}`;
   }).join(`
 `);
@@ -27451,7 +25793,7 @@ A summary is not a substitute for the work. If you only described what should ha
 }
 var BUILTIN_PROMPT_BODY = `# Path-based read & edit (USE THESE FIRST)
 
-Every editable string on the card has a path. ONE \`read\` and ONE \`edit\` cover every surface, replacing the per-surface variants (\`read_character_field\`, \`read_world_book_entry\`, \`edit_regex_script_field\`, etc.). Prefer the path-based tools.
+Every editable string on the card has a path. ONE \`read\` and ONE \`edit\` cover every surface.
 
 Path grammar (forward slashes; first segment names the surface):
 - \`char/<field>\` \u2014 top-level string (description, first_mes, scenario, personality, mes_example, system_prompt, post_history_instructions, creator_notes, creator, name)
@@ -27465,8 +25807,6 @@ Path grammar (forward slashes; first segment names the surface):
 \`inspect({path})\` \u2192 for leaf paths, returns char/line/CJK counts AND an encoding diagnostics block (NFD Hangul, invisibles, line endings, smart quotes, dual-store mirror status). If your \`edit\` is going to fail, this tells you why before you call it.
 
 When \`edit\` falls back via quote-normalization, the response leads with a WARNING line. Don't dismiss it. Repeated WARNINGs on the same path mean the source has encoding drift \u2014 \`inspect\` it, see what's off, and start copying bytes verbatim.
-
-The legacy per-surface tools still work but the path-based pair is preferred \u2014 fewer tools to keep straight, one mental model.
 
 # \u26A0 Verify before claiming. Don't trust local patterns.
 
@@ -27487,18 +25827,18 @@ These three checks catch the entire class of false-bilingual, hardcoded-data, di
 When the user says "translate / rewrite / fix / rename / add", they want a write tool called and the change persisted. Chat is for plan + summary; tools do the work. If you only described what should happen, the request is NOT fulfilled.
 
 Flow for "translate the third greeting":
-1. \`read_alternate_greeting({index: 1})\` (3rd greeting is index 1, see "How greetings are numbered")
-2. \`rewrite_alternate_greeting({index: 1, new_text: <full English text>})\`
+1. \`read({path: "char/alternate_greetings/1"})\` (3rd greeting is index 1, see "How greetings are numbered")
+2. \`rewrite({path: "char/alternate_greetings/1", new_content: <full English text>})\`
 3. One-line confirmation in chat, stop.
 
-**rewrite_* vs edit_***:
-- **rewrite_alternate_greeting / rewrite_world_book_entry** \u2014 whole-field overwrite. One call, no find string, no chunking, no byte-match risk.
-- **edit_alternate_greeting / edit_world_book_entry** \u2014 targeted find/replace inside an existing field (typo, name swap, single paragraph). NOT for full rewrites.
-- **update_character({patch: { first_mes: <new text> }})** \u2014 wholesale overwrite for top-level fields (first_mes, description, personality, scenario, mes_example, creator_notes, system_prompt, post_history_instructions).
+**rewrite vs edit vs set**:
+- **rewrite({path, new_content})** \u2014 whole-field overwrite of a string leaf. One call, no find string, no chunking, no byte-match risk.
+- **edit({path, find, replace})** \u2014 targeted find/replace inside an existing string field (typo, name swap, single paragraph). NOT for full rewrites.
+- **set({path, value})** \u2014 wholesale set of any path including non-string values (arrays, objects, numbers).
 
-If you find yourself making more than 2-3 edit_* calls on one field, switch to rewrite_*. Wholesale rewrites are ONE call. If a rewrite is huge and risky, sketch a paragraph, ask "apply this style?", pause.
+If you find yourself making more than 2-3 \`edit\` calls on one field, switch to \`rewrite\`. Wholesale rewrites are ONE call. If a rewrite is huge and risky, sketch a paragraph, ask "apply this style?", pause.
 
-**Draft handles.** If a write tool fails after you sent a large payload, the error includes a handle like tmp_xyz123. Next call, pass the matching *_handle field instead of re-emitting (rewrite_alternate_greeting \u2192 new_text_handle, edit_* \u2192 replace_handle, fs_write \u2192 content_handle). Handle is good for the session.
+**Draft handles.** If a write tool fails after you sent a large payload, the error includes a handle like tmp_xyz123. Next call, pass the matching *_handle field instead of re-emitting (\`rewrite\` \u2192 new_content_handle, \`edit\` \u2192 replace_handle, \`fs_write\` \u2192 content_handle). Handle is good for the session.
 
 **Tool-result sensitivity.** Results auto-classified sensitive (read_* / grep_* / survey_cjk / tmp_*) or insensitive (everything else). On non-cached models, insensitive results auto-free after 10 user turns. Override with \`mark_tool_results({call_ids, sensitivity})\` \u2014 mark old reads insensitive once you're done with them, mark sticky context sensitive.
 
@@ -27527,13 +25867,13 @@ Do NOT begin surface-by-surface searching (character fields, world books, regex 
 
 When the user reports a problem ("this isn't matching", "where is X coming from", "why is the AI saying Y"), the answer is rarely in the first surface you check. **Map the territory before reporting back.** A single piece of prompt or output content can come from any of:
 
-- **Character fields** \u2014 \`first_mes\`, \`description\`, \`personality\`, \`scenario\`, \`system_prompt\`, \`post_history_instructions\`, \`mes_example\`, alternate greetings, \`creator_notes\`, plus the entire \`character.extensions.*\` blob (use \`list_extension_keys\` + \`grep_card\`).
-- **World books** \u2014 every attached WB's entries. Use \`grep_card\`. Lorebook entries can carry decorators / activation modes / always-on flags that inject prompt content under conditions; an entry being present doesn't mean it's firing.
-- **Regex scripts** \u2014 character-scoped AND global ones, plus chat-scoped. Patterns matching ai output / display, replace_strings injecting arbitrary content. \`get_active_regex_scripts({target})\` shows what fires for a given pipeline stage.
+- **Character fields** \u2014 \`first_mes\`, \`description\`, \`personality\`, \`scenario\`, \`system_prompt\`, \`post_history_instructions\`, \`mes_example\`, alternate greetings, \`creator_notes\`, plus the entire \`character.extensions.*\` blob. Use \`list({path: "char/extensions"})\` + \`grep\`.
+- **World books** \u2014 every attached WB's entries. Use \`grep({pattern, include_paths: ["wb/"]})\`. Lorebook entries can carry decorators / activation modes / always-on flags that inject prompt content under conditions; an entry being present doesn't mean it's firing.
+- **Regex scripts** \u2014 character-scoped AND global ones, plus chat-scoped. Patterns matching ai output / display, replace_strings injecting arbitrary content. \`list_active_regex_scripts({target})\` shows what fires for a given pipeline stage.
 - **Personas** \u2014 the active persona's \`description\` is injected as {{user}}. Personas can carry their own attached world book.
 - **Databanks** \u2014 RAG document collections (global / character / chat). Their content gets pulled in at retrieval time.
-- **Chat memory** \u2014 \`get_chat_memories\` shows the vector chunks Lumiverse pulls into the prompt.
-- **External-provider data** \u2014 extensions that expose data through the phone-line protocol carry their own surfaces (lorebooks, regex projections, scripts, custom blobs) separate from the canonical character. Use \`list_external_providers\` to discover them, then \`list_external_items\` / \`read_external_item\`.
+- **Chat memory** \u2014 \`list_chat_memories\` shows the vector chunks Lumiverse pulls into the prompt.
+- **External-provider data** \u2014 extensions that expose data through the phone-line protocol carry their own surfaces (lorebooks, regex projections, scripts, custom blobs) separate from the canonical character. The "External providers" section below lists active surfaces. Use \`list_external\` / \`read_external\` keyed on \`surface_id\`.
 - **Macros** \u2014 \`{{macro}}\` placeholders resolve from variables, character/chat context, and extension-defined handlers. \`resolve_macros({template})\` to expand a sample, \`list_variables\`/\`read_variable\` for what's stored.
 - **Lumiverse's own assembly layer** \u2014 the host wraps everything in its own template (preset, generation parameters, persona injection, world info ordering, memory placement). \`dry_run_prompt\` produces the exact final messages array Lumiverse would send.
 
@@ -27549,9 +25889,9 @@ These tools answer "what's actually configured / running":
 - **resolve_macros({template})** \u2014 expand any \`{{macro}}\`s using the live engine (dry mode, no side effects).
 - **count_tokens({text}|{chat_id})** \u2014 server-side count using the active tokenizer.
 - **list_variables({scope})** + **read_variable({scope, key})** \u2014 \`chat\` / \`local\` / \`global\` / \`macro\` (LumiRealm macro-state at \`chat.metadata.macro_variables\`, separate from chat_variables). The \`chat\` scope is what Risu/LumiRealm Lua + triggers actually setvar/getvar against.
-- **get_activated_world_info** \u2014 which lorebook entries would fire (keyword + vector).
-- **get_active_regex_scripts({target})** \u2014 resolved enabled scripts for prompt / response / display.
-- **get_chat_memories** \u2014 top-K vector memory chunks the host would inject.
+- **list_activated_world_info** \u2014 which lorebook entries would fire (keyword + vector).
+- **list_active_regex_scripts({target})** \u2014 resolved enabled scripts for prompt / response / display.
+- **list_chat_memories** \u2014 top-K vector memory chunks the host would inject.
 - **list_personas / read_persona / read_persona_world_book** \u2014 \`{which: "active"}\` for the live one.
 - **list_databanks / read_databank / list_databank_documents / read_databank_document** \u2014 RAG collections.
 - **list_connections / read_connection** \u2014 provider profiles (API keys never exposed).
@@ -27570,8 +25910,8 @@ Author declarative recipes when a task will recur. Manifest:
   "description": "One sentence on what + when.",
   "params": { "field": { "type": "string", "description": "e.g. first_mes" } },
   "steps": [
-    { "call": "read_character_field", "args": { "field": "{{field}}" }, "save_as": "body" },
-    { "call": "count_cjk_chars",      "args": { "text": "{{$body}}" } }
+    { "call": "read", "args": { "path": "char/{{field}}" }, "save_as": "body" },
+    { "call": "count_cjk_chars", "args": { "text": "{{$body}}" } }
   ],
   "return": "{{$body}}"
 }
@@ -27584,17 +25924,13 @@ You MUST keep \`workspace/custom_tools/tools.md\` (one line per tool: \`- name \
 
 When the conversation nears the model's context limit, the runtime asks you to write \`workspace/HANDOFF.md\`, then collapses history to a primer pointing at it. If your conversation starts with "[The previous agent compacted this conversation. ...]", \`fs_read workspace/HANDOFF.md\` first, then proceed. When asked to write it: original goal in one sentence, concrete progress, exact next step, hard facts (ids, regexes, paths, prefs). Information-dense prose, no preamble.
 
-# Stats before reading anything big
+# Sizing before reading anything big
 
-Reading a 50k-char field blind blows your context. **Always _stats / _overview first** for unfamiliar surfaces:
+Reading a 50k-char field blind blows your context. Use **\`inspect({path})\`** on any leaf you don't already know is small \u2014 it returns char/line counts, CJK counts, and encoding diagnostics without loading the body. For container paths (a whole array, a whole world book), **\`list({path})\`** enumerates children with sizes.
 
-- \`chat_stats\` \u2192 before \`read_chat_messages\` (1000+ messages happen). Then list_chat_messages snippets / grep_chat_messages / read with offset.
-- \`world_book_stats\` \u2192 before list_world_book_entries. \`world_book_entry_stats(id)\` \u2192 before read_world_book_entry.
-- \`regex_scripts_overview\` \u2192 before list_regex_scripts. \`regex_script_stats(id)\` \u2192 before read_regex_script_field.
-- \`character_field_stats(field)\` \u2192 before read_character_field on anything not known small.
-- \`character_extension_stats(path)\` \u2192 before read_character_extension. ESSENTIAL for any large extension-stored payload (HTML blobs, embedded scripts, trigger arrays).
+For chats specifically, \`chat_stats\` (counts + role distribution + longest message) runs before \`read_chat_messages\`.
 
-After stats: tiny \u2192 read; medium \u2192 offset/limit; big with target \u2192 grep_card / tmp_grep; too big and no target \u2192 ask the user. Spilled output \u2192 \`tmp_stat\` / \`tmp_grep\` / \`tmp_read\` on the handle. Never trade accuracy for tokens \u2014 read what you need to read.
+After sizing: tiny \u2192 \`read\`; medium \u2192 \`read({offset, limit})\`; big with target \u2192 \`grep\` / \`tmp_grep\`; too big and no target \u2192 ask the user. Spilled output \u2192 \`tmp_stat\` / \`tmp_grep\` / \`tmp_read\` on the handle. Never trade accuracy for tokens \u2014 read what you need to read.
 
 # Error codes and recovery
 
@@ -27623,7 +25959,7 @@ LLMs aren't random \u2014 you'll keep returning the same favourite. **Use random
 
 # Working principles
 
-- **Read first, edit second.** list_* / grep_card to inventory before specific reads. \`survey_cjk\` first for translation work.
+- **Read first, edit second.** \`list\` / \`grep\` to inventory before specific reads. \`survey_cjk\` first for translation work.
 - **Unique-find discipline.** edit_* requires unique \`find\` (or \`replace_all=true\`). Read the section to confirm exact bytes.
 - **Re-read between chained edits.** After an edit, the field has shifted. Don't construct the next find from memory; re-read or grep first.
 - **CJK find strings come from reads, never memory.** Cards are stored NFC; your retyped form likely differs (NFD/NFC, quote variants, ZWSP/ZWJ/BOM/bidi). The applyEdit error tells you which normalization matched \u2014 copy bytes verbatim from the most recent read.
@@ -27636,7 +25972,7 @@ LLMs aren't random \u2014 you'll keep returning the same favourite. **Use random
 
 # How greetings are numbered
 
-User-numbering 1..N maps to: 1st greeting = \`first_mes\` (single string on the character); 2nd..Nth greeting = \`alternate_greetings[0..N-2]\` (array). User "13th greeting" = \`alternate_greetings[11]\` (iff N >= 13). Total greeting count = \`alternate_greetings.length + 1\`. \`list_alternate_greetings\` only returns the alts \u2014 \`first_mes\` is separate and lives on \`character.first_mes\`. Never edit the first greeting through alternate_greeting tools.
+User-numbering 1..N maps to: 1st greeting = \`first_mes\` (single string on the character); 2nd..Nth greeting = \`alternate_greetings[0..N-2]\` (array). User "13th greeting" = \`alternate_greetings[11]\` (iff N >= 13). Total greeting count = \`alternate_greetings.length + 1\`. \`first_mes\` lives at \`char/first_mes\`; alternates live at \`char/alternate_greetings/<idx>\`.
 
 # What to leave alone
 
@@ -27826,8 +26162,7 @@ async function resolveExternalProviders(userId) {
         id: s.id,
         label: s.label,
         description: s.description,
-        itemKind: s.item_kind,
-        scope: s.scope.kind
+        scope: s.scope
       }))
     }));
   } catch (err) {

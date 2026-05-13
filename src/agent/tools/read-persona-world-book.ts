@@ -7,7 +7,12 @@ const inputSchema = z.object({
 
 export const readPersonaWorldBookTool = defineTool({
   name: "read_persona_world_book",
-  description: "Get the world book attached to a persona (returns the WB metadata, not entries). Personas can carry their own world book separate from the character's. Use list_world_book_entries on the returned id to see entries. Returns null if the persona has no attached WB.",
+  description: `Reads the world book attached to a persona (metadata only, not entries).
+
+Usage:
+- Personas can carry their own world book separate from the character's.
+- Use \`list({path: "wb/<id>"})\` on the returned id to enumerate entries.
+- Returns null if the persona has no attached WB.`,
   inputSchema,
   jsonSchema: {
     type: "object",

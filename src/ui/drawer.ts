@@ -25,7 +25,7 @@ import { mountWorkspacePanel, type WorkspacePanelHandle } from "./workspace-pane
 import { mountCharactersPanel, type CharactersPanelHandle } from "./characters-panel";
 import { mountCombo, type ComboHandle } from "./combo";
 import { handleAgentEvent, type AgentEventCtx } from "./agent-event-handler";
-import { ICON_TRASH } from "./icons";
+import { ICON_TRASH, ICON_PIN, ICON_NEW, ICON_SESSIONS, ICON_SETTINGS, ICON_WORKSHOP } from "./icons";
 import { DEFAULT_ICON_DATA_URL } from "../generated/default-icon";
 import { MOUSEY_SITTING_DATA_URL } from "../generated/mousey";
 
@@ -170,34 +170,40 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
 
   const header = el("header", "la-header");
 
+  const makeIconBtn = (cls: string, svg: string, label: string, hint: string): HTMLButtonElement => {
+    const b = el("button", `la-btn la-icon-btn ${cls}`) as HTMLButtonElement;
+    b.type = "button";
+    b.setAttribute("aria-label", label);
+    b.title = hint;
+    b.innerHTML = svg;
+    return b;
+  };
+
   const rowChar = el("div", "la-header-row la-header-row-char");
-  const charLabel = el("label", "la-header-label", "Character");
-  const charComboRoot = el("div", "la-combo-host la-combo-host-full");
+  const charComboRoot = el("div", "la-combo-host la-combo-host-char");
   charComboRoot.setAttribute("aria-label", "Character");
   const charCombo: ComboHandle = mountCombo(charComboRoot);
   charCombo.setPlaceholder("Pick character");
-  const chatPinBtn = el("button", "la-btn la-icon-btn la-chat-pin-btn") as HTMLButtonElement;
-  chatPinBtn.setAttribute("aria-label", "Pin a chat to share with the agent");
-  chatPinBtn.title = "Pin a chat (gives the agent message-history access)";
-  chatPinBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
-  rowChar.append(charLabel, charComboRoot, chatPinBtn);
-
-  const rowMeta = el("div", "la-header-row la-header-row-meta");
-  const connSelect = document.createElement("select");
-  connSelect.className = "la-select la-conn-select";
-  connSelect.setAttribute("aria-label", "Connection");
-  connSelect.title = "Connection";
-  const metaSpacer = el("span", "la-flex-spacer");
-  const editsBadge = el("button", "la-btn la-changes-btn", "Workshop") as HTMLButtonElement;
-  editsBadge.setAttribute("aria-label", "Open diff viewer");
-  const editsCount = el("span", "la-changes-count", "0");
-  editsBadge.appendChild(editsCount);
-  const newSessionBtn = el("button", "la-btn", "+ New") as HTMLButtonElement;
-  newSessionBtn.setAttribute("aria-label", "Start a new chat session");
+  const chatPinBtn = makeIconBtn("la-chat-pin-btn", ICON_PIN, "Pin a chat to share with the agent",
+    "Pin a chat (gives the agent message-history access)");
+  const switchSessionBtn = makeIconBtn("", ICON_SESSIONS, "Switch session", "Switch session");
+  const newSessionBtn = makeIconBtn("", ICON_NEW, "Start a new chat session", "New session");
+  const settingsBtn = makeIconBtn("", ICON_SETTINGS, "Agent settings", "Agent settings (persona & prompt)");
   const menuBtn = el("button", "la-btn la-icon-btn") as HTMLButtonElement;
   menuBtn.setAttribute("aria-label", "More");
   menuBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>';
-  rowMeta.append(connSelect, metaSpacer, editsBadge, newSessionBtn, menuBtn);
+  const connComboRoot = el("div", "la-combo-host la-combo-host-conn");
+  connComboRoot.setAttribute("aria-label", "Connection");
+  const connCombo: ComboHandle = mountCombo(connComboRoot);
+  connCombo.setPlaceholder("Default connection");
+  rowChar.append(charComboRoot, chatPinBtn, switchSessionBtn, newSessionBtn);
+
+  const rowMeta = el("div", "la-header-row la-header-row-meta");
+  const editsBadge = makeIconBtn("la-changes-btn", ICON_WORKSHOP, "Open diff viewer", "Workshop");
+  const editsCount = el("span", "la-changes-count", "0");
+  editsBadge.appendChild(editsCount);
+  const metaSpacer = el("span", "la-flex-spacer");
+  rowMeta.append(connComboRoot, editsBadge, metaSpacer, settingsBtn, menuBtn);
 
   header.append(rowChar, rowMeta);
 
@@ -212,15 +218,15 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   const SUGGESTIONS: ReadonlyArray<{ label: string; send: string }> = [
     {
       label: "Translate the greeting messages of this card",
-      send: "Translate every greeting message of this card to English. That means the canonical first_mes AND every alternate_greetings[i]. For each one: read the source, construct the full English version, then call edit_alternate_greeting (or edit_character_field for first_mes) with the whole block as `find` and the whole English version as `replace`. Keep all <img> tags, markdown headings, status-panel emoji markers, and named regex capture groups byte-identical — only translate the natural-language prose between them. SKIP any segment that is already in English or already has an English counterpart nearby (a parenthetical English gloss, a bilingual line, a label/value pair where one side is English). Only translate text that has no English equivalent anywhere in the surrounding context. If this card has a LumiRealm payload, mirror the canonical edits into the payload so the change survives translator schema migrations.",
+      send: "Translate every greeting message of this card to English. That means the canonical first_mes (path `char/first_mes`) AND every alternate greeting (paths `char/alternate_greetings/<idx>`). For each one: `read` the path, construct the full English version, then `rewrite({path, new_content})` with the whole English version. Keep all <img> tags, markdown headings, status-panel emoji markers, and named regex capture groups byte-identical — only translate the natural-language prose between them. SKIP any segment that is already in English or already has an English counterpart nearby (a parenthetical English gloss, a bilingual line, a label/value pair where one side is English). Only translate text that has no English equivalent anywhere in the surrounding context. If this card has a LumiRealm payload, mirror the canonical edits into the payload so the change survives translator schema migrations.",
     },
     {
       label: "Translate the UI in this card",
-      send: "Translate the user-visible labels inside this card's UI surfaces to English. UI lives in THREE places on Risu/LumiRealm cards: regex scripts (replace_string content), Lua scripts (`lumirealm.payload.lua_scripts`, often the bigger source — button labels, dialog choices, status-panel text), AND background HTML (`lumirealm.payload.background_html`, sometimes also `background_html_source` — status panels, sidebars, commission windows, any chrome the card paints into the chat surface). Cover all three.\n\nCRITICAL SAFETY RULES — read these before touching anything:\n\n1. NEVER modify regex find_regex patterns. Those are matched against LLM output; changing the pattern breaks the rule.\n2. In regex scripts: only edit replace_string content, and only the user-visible HTML/text inside it. Do NOT touch capture group refs ($1, $&, $<name>), HTML attribute names, CSS class names, JSON keys, or regex syntax characters.\n3. If a label is inside a structural tag (e.g. <div class=\"...\">Label</div>), translate ONLY the inner text — leave the tag and its attributes alone.\n4. In Lua scripts: edit ONLY content inside quoted string literals (`\"...\"`, `'...'`, `[[...]]`). NEVER touch code logic — opcodes, function/variable names, table keys, operators, control flow, comments. Use `update_character_extension` to write back the whole `lumirealm.payload.lua_scripts` array.\n5. In background HTML: edit ONLY user-visible inner text. NEVER touch tag names, attribute names (id/class/data-*/style/etc.), attribute values that drive behaviour or styling, CSS selectors, CSS property names, JS code inside <script> blocks, macro tokens like {{user}} / {{char}} / {{getvar::x}}, or LumiRealm marker comments. If the card has both `background_html` and `background_html_source`, edit `background_html_source` (the viewer rebuilds `background_html` from it on next render). Use `edit_character_extension` for find/replace, or `update_character_extension` for wholesale.\n6. After translating each regex script's replace_string, call test_regex with the ORIGINAL find_regex and a sample of the kind of output the LLM would emit, and confirm the regex still matches with the same named capture groups present. If it doesn't, the structure was disturbed — revert and try a smaller find/replace.\n7. Walk surfaces in order; for each item, read first, plan the edits, then apply.\n8. SKIP any label that is already in English or that already has an English counterpart in the same template (a bilingual label, an English fallback in a parenthetical, an English-by-default placeholder). Only translate labels with no English form anywhere nearby. Respects the author's deliberate English wording and keeps the diff small.\n\nStart by calling survey_cjk with scopes=['regex_scripts','extensions'] — that single call covers regex scripts, lua_scripts, AND background_html in one pass. Then list_regex_scripts, character_extension_stats on `lumirealm.payload.lua_scripts` and `lumirealm.payload.background_html` (they can be huge), and only read the items that actually contain CJK to translate. Finally, before beginning, ask me the components that need translating, and whether we've missed anything at the end, that we have things to go off of. ",
+      send: "Translate the user-visible labels inside this card's UI surfaces to English. UI lives in THREE places on Risu/LumiRealm cards: regex scripts (replace_string content), Lua scripts (paths under `char/extensions/lumirealm.payload.lua_scripts`, often the bigger source — button labels, dialog choices, status-panel text), AND background HTML (`char/extensions/lumirealm.payload.background_html_source` if present, else `char/extensions/lumirealm.payload.background_html`). Cover all three.\n\nCRITICAL SAFETY RULES — read these before touching anything:\n\n1. NEVER modify regex find_regex patterns. Those are matched against LLM output; changing the pattern breaks the rule.\n2. In regex scripts: only edit replace_string content, and only the user-visible HTML/text inside it. Do NOT touch capture group refs ($1, $&, $<name>), HTML attribute names, CSS class names, JSON keys, or regex syntax characters.\n3. If a label is inside a structural tag (e.g. <div class=\"...\">Label</div>), translate ONLY the inner text — leave the tag and its attributes alone.\n4. In Lua scripts: edit ONLY content inside quoted string literals (`\"...\"`, `'...'`, `[[...]]`). NEVER touch code logic — opcodes, function/variable names, table keys, operators, control flow, comments. Use `set({path, value})` to write back the whole `lumirealm.payload.lua_scripts` array.\n5. In background HTML: edit ONLY user-visible inner text. NEVER touch tag names, attribute names (id/class/data-*/style/etc.), attribute values that drive behaviour or styling, CSS selectors, CSS property names, JS code inside <script> blocks, macro tokens like {{user}} / {{char}} / {{getvar::x}}, or LumiRealm marker comments. Use `edit({path, find, replace})` for find/replace, or `set` for wholesale.\n6. After translating each regex script's replace_string, call test_regex with the ORIGINAL find_regex and a sample of the kind of output the LLM would emit, and confirm the regex still matches with the same named capture groups present. If it doesn't, the structure was disturbed — revert and try a smaller find/replace.\n7. Walk surfaces in order; for each item, read first, plan the edits, then apply.\n8. SKIP any label that is already in English or that already has an English counterpart in the same template (a bilingual label, an English fallback in a parenthetical, an English-by-default placeholder). Only translate labels with no English form anywhere nearby. Respects the author's deliberate English wording and keeps the diff small.\n\nStart by calling survey_cjk with scopes=['regex_scripts','extensions'] — that single call covers regex scripts, lua_scripts, AND background_html in one pass. Then `list({path: 'rx'})` and `inspect` the big paths under `char/extensions/lumirealm.payload.*` (they can be huge), and only read the items that actually contain CJK to translate. Finally, before beginning, ask me the components that need translating, and whether we've missed anything at the end.",
     },
     {
       label: "Add/update a lorebook entry on this chat's characters",
-      send: "I want to add or update a lorebook entry on a character that appears in this chat. Before you do anything: ask me WHICH character the entry should cover (look at the pinned chat's recent messages for context if a chat is pinned). Then use grep_card and list_world_book_entries to check whether an entry already exists for that character. If one exists, briefly summarise its current content and ask whether I want to UPDATE it (extend / refine) or REPLACE it. If not, ask what details I want included — personality, role in the story, relationships, appearance, key facts — before creating it. Only after I confirm the plan do you call edit_world_book_entry / update_world_book_entry / create_world_book_entry. Do not write the entry's prose in chat without applying it.",
+      send: "I want to add or update a lorebook entry on a character that appears in this chat. Before you do anything: ask me WHICH character the entry should cover (look at the pinned chat's recent messages for context if a chat is pinned). Then use `grep` and `list({path: 'wb'})` to check whether an entry already exists for that character. If one exists, briefly summarise its current content and ask whether I want to UPDATE it (extend / refine) or REPLACE it. If not, ask what details I want included — personality, role in the story, relationships, appearance, key facts — before creating it. Only after I confirm the plan do you call `edit` / `rewrite` / `create_world_book_entry`. Do not write the entry's prose in chat without applying it.",
     },
     {
       label: "Explain the features of this chat and what it's about",
@@ -228,7 +234,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     },
     {
       label: "Change the gender/sex of certain characters",
-      send: "I want to change the gender or sex of one or more characters in this card. Before any edits, ask me WHICH character(s) I want to change and WHAT the new gender should be for each. The change needs to be COMPLETE — once you have the list:\n\n1. Use grep_card to find every reference to each character: their name + all pronouns currently used for them (he/she/they/her/his/them) + any gendered honorifics in the source language (Mr./Ms./onee-chan/onii-san/etc.) + any explicitly gendered nouns (man/woman/boy/girl/lady/sir/etc.).\n2. Map out an edit plan covering EVERY surface that references them: their lorebook entry, all alternate_greetings, first_mes, scenario, description, personality, system_prompt, post_history_instructions, regex replace_string templates that mention them, and the LumiRealm payload mirror if this is a LumiRealm-imported card.\n3. Show me the plan as a list of (surface, field, what changes) BEFORE applying.\n4. After I confirm, apply. apply_glossary is the right tool for the pronoun pass — but be careful with single-character CJK keys (banned by default for substring-collision safety). Pronouns, possessives, honorifics, and gendered nouns all need to flip consistently.",
+      send: "I want to change the gender or sex of one or more characters in this card. Before any edits, ask me WHICH character(s) I want to change and WHAT the new gender should be for each. The change needs to be COMPLETE — once you have the list:\n\n1. Use `grep` to find every reference to each character: their name + all pronouns currently used for them (he/she/they/her/his/them) + any gendered honorifics in the source language (Mr./Ms./onee-chan/onii-san/etc.) + any explicitly gendered nouns (man/woman/boy/girl/lady/sir/etc.).\n2. Map out an edit plan covering EVERY surface that references them: their lorebook entry, all alternate_greetings, first_mes, scenario, description, personality, system_prompt, post_history_instructions, regex replace_string templates that mention them, and the LumiRealm payload mirror if this is a LumiRealm-imported card.\n3. Show me the plan as a list of (surface, field, what changes) BEFORE applying.\n4. After I confirm, apply. apply_glossary is the right tool for the pronoun pass — but be careful with single-character CJK keys (banned by default for substring-collision safety). Pronouns, possessives, honorifics, and gendered nouns all need to flip consistently.",
     },
   ];
   const suggestions = el("div", "la-empty-suggestions");
@@ -449,42 +455,31 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   };
 
   const renderConnOptions = () => {
-    const cur = connSelect.value;
-    connSelect.innerHTML = "";
+    const cur = connCombo.getValue();
     if (state.connections.length === 0) {
-      const o = document.createElement("option");
-      o.value = "";
-      o.textContent = "No connections";
-      connSelect.appendChild(o);
-      connSelect.disabled = true;
+      connCombo.setItems([]);
+      connCombo.setPlaceholder("No connections");
+      connCombo.setDisabled(true);
       return;
     }
-    connSelect.disabled = false;
-    const placeholder = document.createElement("option");
-    placeholder.value = "";
-    placeholder.textContent = "- default connection -";
-    connSelect.appendChild(placeholder);
-    for (const c of state.connections) {
-      const o = document.createElement("option");
-      o.value = c.id;
-      o.textContent = `${c.name} (${c.provider}${c.model ? `/${c.model}` : ""})${c.is_default ? " *" : ""}`;
-      connSelect.appendChild(o);
-    }
-    // Resolution: persisted -> current value -> default. The persisted choice
-    // (state.connectionId, loaded from ui-prefs on the server) wins because
-    // connections_pushed often arrives BEFORE ui_prefs_pushed; without this
-    // ordering the initial render picks the default and pins it as the
-    // "current" value, then the persisted choice that arrives moments later
-    // would lose the tiebreak. A persisted id that doesn't match anything in
-    // the current connection list is kept in state so it snaps back when
-    // the connection reappears.
+    connCombo.setDisabled(false);
+    connCombo.setPlaceholder("Default connection");
+    connCombo.setItems(state.connections.map((c) => ({
+      id: c.id,
+      label: `${c.name}${c.is_default ? " *" : ""}`,
+      sublabel: `${c.provider}${c.model ? ` · ${c.model}` : ""}`,
+    })));
+    // Resolution: persisted -> current value -> default. connections_pushed
+    // often arrives BEFORE ui_prefs_pushed; without this ordering the initial
+    // render picks the default and pins it as the "current" value, then the
+    // persisted choice that arrives moments later would lose the tiebreak.
     if (state.connectionId && state.connections.some((c) => c.id === state.connectionId)) {
-      connSelect.value = state.connectionId;
+      connCombo.setValue(state.connectionId, true);
     } else if (cur && state.connections.some((c) => c.id === cur)) {
-      connSelect.value = cur;
+      connCombo.setValue(cur, true);
     } else {
       const def = state.connections.find((c) => c.is_default);
-      if (def) connSelect.value = def.id;
+      if (def) connCombo.setValue(def.id, true);
     }
   };
 
@@ -894,8 +889,8 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     });
   };
 
-  connSelect.addEventListener("change", () => {
-    state.connectionId = connSelect.value || null;
+  connCombo.onChange((id) => {
+    state.connectionId = id;
     persistUiPrefs();
   });
 
@@ -1089,21 +1084,20 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
 
   editsBadge.addEventListener("click", () => openDiffs());
 
+  switchSessionBtn.addEventListener("click", () => openSessionsModal());
+  settingsBtn.addEventListener("click", () => openAgentSettingsModal());
+
   menuBtn.addEventListener("click", async () => {
     const rect = menuBtn.getBoundingClientRect();
     const res = await ctx.ui.showContextMenu({
       position: { x: rect.left, y: rect.bottom + 4 },
       items: [
-        { key: "sessions", label: "Switch session..." },
-        { key: "settings", label: "Agent settings (persona & prompt)..." },
         { key: "icon", label: "Visuals & display name..." },
         { key: "revert_active", label: "Revert all edits in this session", disabled: !state.sessionId, danger: true },
         { key: "delete_active", label: "Delete current session", disabled: !state.sessionId, danger: true },
       ],
     });
-    if (res.selectedKey === "sessions") openSessionsModal();
-    else if (res.selectedKey === "settings") openAgentSettingsModal();
-    else if (res.selectedKey === "icon") openIconSettingsModal();
+    if (res.selectedKey === "icon") openIconSettingsModal();
     else if (res.selectedKey === "revert_active" && state.sessionId) {
       const liveCount = state.edits.filter((e) => !e.reverted).length;
       if (liveCount === 0) {

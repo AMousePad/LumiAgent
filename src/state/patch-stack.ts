@@ -37,7 +37,7 @@ export interface Patch {
   reverted: boolean;
   revertedAt?: number;
   // True once a squash has consolidated this patch into a "phase boundary"
-  // (either via mid-message squash_my_edits, or any future explicit seal).
+  // (either via mid-message squash_session_edits, or any future explicit seal).
   // Autosquash never merges across a sealed patch; the agent uses this to
   // commit intermediate phases of a multi-step task.
   sealed?: boolean;

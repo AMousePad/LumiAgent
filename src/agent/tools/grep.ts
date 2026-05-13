@@ -88,9 +88,7 @@ Budgets and truncation:
 - When the cap is hit, the result includes \`truncated_at\`: the leaf path, the last line scanned in that leaf, the leaf's total line count, and the count of leaves left entirely unscanned. Re-run with a tighter pattern, narrower include_paths, or read the remaining range of the partially-scanned leaf directly.
 
 Scoping:
-- include_paths / exclude_paths use the same path grammar as \`read\`. e.g. \`include_paths: ['rx/']\` to search only regex scripts; \`exclude_paths: ['char/first_mes', 'char/alternate_greetings']\` to skip prose fields.
-
-Replaces grep_card.`,
+- include_paths / exclude_paths use the same path grammar as \`read\`. e.g. \`include_paths: ['rx/']\` to search only regex scripts; \`exclude_paths: ['char/first_mes', 'char/alternate_greetings']\` to skip prose fields.`,
   inputSchema,
   jsonSchema: {
     type: "object",

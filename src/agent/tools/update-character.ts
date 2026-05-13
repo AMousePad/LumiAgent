@@ -8,7 +8,12 @@ const inputSchema = z.object({
 
 export const updateCharacterTool = defineTool({
   name: "update_character",
-  description: "Wholesale-replace one or more character fields. Pass only the fields to change in `patch`. For long fields prefer edit_character_field.",
+  description: `Replaces one or more top-level character fields atomically.
+
+Usage:
+- Pass only the fields to change in \`patch\`.
+- For a single field's find/replace use \`edit({path: "char/<field>", ...})\`.
+- For wholesale overwrite of a single field use \`rewrite\` or \`set\`.`,
   inputSchema,
   jsonSchema: {
     type: "object",

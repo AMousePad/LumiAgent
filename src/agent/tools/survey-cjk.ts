@@ -109,7 +109,11 @@ export const surveyCjkTool = defineTool({
       }
     }
     if (scopes.includes("extensions")) {
-      for (const leaf of walkStringLeaves(c.extensions ?? {}, "")) {
+      const { buildExtensionsSearchSkip } = await import("../../phoneline/search-excludes");
+      const { makeConsentPromptFn } = await import("../../phoneline/consent");
+      const promptFn = makeConsentPromptFn(ctx.callFrontend ?? (async () => ({ denied: true })));
+      const skip = await buildExtensionsSearchSkip(ctx.spindle, ctx.userId, promptFn);
+      for (const leaf of walkStringLeaves(c.extensions ?? {}, "", skip)) {
         countCjkRuns(leaf.text, minLen, `extensions.${leaf.path}`, map);
       }
     }

@@ -27,12 +27,6 @@ export interface ToolDefinition<TInput = unknown> {
   // in parallel (cap 5).
   readonly isReadOnly?: (input: TInput) => boolean;
   readonly isConcurrencySafe?: (input: TInput) => boolean;
-  // Cap on the tool's stringified result in characters. When exceeded, the
-  // loop spills to a tmp handle and returns a small envelope. Set to
-  // Number.POSITIVE_INFINITY for tools whose body already spills (read,
-  // audit_card_coverage) so we don't double-spill. Omit to fall through to
-  // the global tokens cap.
-  readonly maxResultSizeChars?: number;
   // Pre-flight validation, called before execute(). Returning a coded error
   // short-circuits dispatch and surfaces to the model. Use for checks that
   // can decide pass/fail without performing side effects (recent-read gate,
@@ -44,17 +38,6 @@ export interface ToolDefinition<TInput = unknown> {
 export type ValidationResult =
   | { readonly result: true }
   | { readonly result: false; readonly message: string; readonly errorCode: string };
-
-export interface ToolDeferralFlags {
-  // When true, the tool's schema is not shipped in the initial tools list.
-  // Only the name surfaces (via the deferred-tools announcement). The model
-  // calls tool_search to fetch the schema before it can invoke this tool.
-  readonly shouldDefer?: boolean;
-  // Forces a tool to remain non-deferred even if a default rule would defer it.
-  // Reserved for future per-tool overrides. Today the deferred set is
-  // enumerated explicitly in _registry, so this is a documentation hook.
-  readonly alwaysLoad?: boolean;
-}
 
 export interface ReadGate {
   surface: (input: Record<string, unknown>) => string;
@@ -70,7 +53,6 @@ export function defineTool<TInput>(config: {
   defaultSensitivity: Sensitivity;
   isReadOnly?: (input: TInput) => boolean;
   isConcurrencySafe?: (input: TInput) => boolean;
-  maxResultSizeChars?: number;
   validateInput?: (input: TInput, ctx: ToolCtx) => Promise<ValidationResult> | ValidationResult;
   execute: (input: TInput, ctx: ToolCtx) => Promise<ToolResult>;
 }): ToolDefinition<TInput> {

@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { WorldBookEntryDTO } from "lumiverse-spindle-types";
 import { defineTool } from "./_framework";
 import type { ToolCtx } from "./_context";
-import { resolveRead, PathError, type ResolvedLeaf } from "./_path_v2";
+import { resolveRead, PathError, OutOfRangeError, type ResolvedLeaf } from "./_path_v2";
 import { wbLabel } from "./_surfaces";
 
 const PEEK_CHARS = 200;
@@ -226,7 +226,7 @@ CONTAINER paths return aggregate / metadata:
   wb                    all world books (attached and unattached) with entry counts
   wb/<id>               book aggregate (entries, disabled, constant, total chars, top-10 by size)
 
-Replaces character_field_stats, regex_script_stats, regex_scripts_overview, world_book_entry_stats, world_book_stats, read_regex_script_meta — one tool, one path argument.`,
+One tool, one path argument.`,
   inputSchema,
   jsonSchema: {
     type: "object",
@@ -266,6 +266,7 @@ Replaces character_field_stats, regex_script_stats, regex_scripts_overview, worl
     let leaf;
     try { leaf = await resolveRead(ctx, path); }
     catch (err) {
+      if (err instanceof OutOfRangeError) return { content: `Error: [OUT_OF_RANGE] ${err.message}`, isError: true };
       if (err instanceof PathError) return { content: `Error: [PATH_NOT_FOUND] ${err.message}`, isError: true };
       return { content: `Error: ${(err as Error).message}`, isError: true };
     }

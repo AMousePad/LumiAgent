@@ -47,24 +47,40 @@ export async function readChatMessagesImpl(
 }
 
 const inputSchema = z.object({
-  chat_id: z.string().min(1),
+  chat_id: z.string().optional(),
   offset: z.number().optional(),
   limit: z.number().optional(),
 });
 
 export const readChatMessagesTool = defineTool({
   name: "read_chat_messages",
-  description: "Read messages from a SPECIFIC chat by id. Prefer `read_pinned_chat_messages` for the pinned chat. Use this when you've discovered another chat via `list_chats_for_character` and the user has authorised reading it.",
+  description: `Reads messages from a chat by id, or from the pinned chat if no id is given.
+
+Usage:
+- Omit \`chat_id\` (or pass \`"pinned"\`) to read the user's pinned chat. The pin is set via the chat-pin button next to the character selector.
+- Pass an explicit chat id from \`list_chats_for_character\` to read a non-pinned chat.
+- Returns messages in chronological order with role / content / send_date / swipe metadata. Active swipe is the \`content\` field; other swipes live on \`swipes[]\`.
+- Default limit 100, cap 500. Most chats fit in one call.
+- If \`chat_id\` is "pinned" but no chat is pinned, returns \`{pinned: false, note}\` and the agent should ask the user to pin one.`,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      chat_id: { type: "string" },
+      chat_id: { type: "string", description: "Chat id, or 'pinned' / omitted for the pinned chat" },
       offset: { type: "number" },
       limit: { type: "number" },
     },
-    required: ["chat_id"],
+    required: [],
   },
   defaultSensitivity: "sensitive",
-  execute: async (input, ctx) => readChatMessagesImpl(ctx, input.chat_id, input.offset, input.limit),
+  execute: async (input, ctx) => {
+    const requested = input.chat_id;
+    if (requested === undefined || requested === "pinned") {
+      if (!ctx.pinnedChatId) {
+        return { content: JSON.stringify({ pinned: false, note: "No chat is pinned to this session. Tell the user to click the chat-pin button next to the character selector and choose a chat to give you message context." }) };
+      }
+      return readChatMessagesImpl(ctx, ctx.pinnedChatId, input.offset, input.limit);
+    }
+    return readChatMessagesImpl(ctx, requested, input.offset, input.limit);
+  },
 });

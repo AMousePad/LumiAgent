@@ -26,20 +26,15 @@ ${LOADERS_CSS}
   display: flex; align-items: center; gap: 8px;
   min-width: 0;
 }
-.la-header-row-char .la-combo-host-full { flex: 1; min-width: 0; }
-.la-header-row-char .la-combo-host-full .la-combo-trigger { width: 100%; max-width: none; }
-.la-header-label {
-  font-weight: 600; font-size: 12px;
-  color: var(--lumiverse-text);
-  letter-spacing: 0.02em;
-  flex-shrink: 0;
-}
+.la-header-row-char { gap: 6px; flex-wrap: wrap; row-gap: 6px; }
+.la-header-row-char .la-combo-host-char { flex: 1 1 160px; min-width: 0; }
+.la-header-row-char .la-combo-host-char .la-combo-trigger { width: 100%; max-width: none; }
 .la-header-row-meta { gap: 6px; flex-wrap: wrap; row-gap: 6px; }
-/* Below this width the action buttons (Workshop, + New, ...) wrap onto a
-   second row so they don't push off the edge of a narrow drawer. */
-@container drawer (max-width: 360px) {
-  .la-header-row-meta .la-conn-select { flex: 1 1 100%; min-width: 0; max-width: none; order: -1; }
+.la-header-row-meta .la-combo-host-conn {
+  flex: 0 0 auto;
+  min-width: 140px; max-width: 220px;
 }
+.la-header-row-meta .la-combo-host-conn .la-combo-trigger { width: 100%; }
 .la-select {
   background: var(--lumiverse-bg);
   border: 1px solid var(--lumiverse-border);
@@ -157,27 +152,29 @@ ${LOADERS_CSS}
 .la-combo-item-sub { color: var(--lumiverse-text-muted); font-size: 11px; margin-top: 2px; }
 .la-combo-empty { padding: 10px; font-size: 12px; color: var(--lumiverse-text-muted); }
 
-/* Changes badge in header */
-.la-changes-btn {
-  position: relative;
-  gap: 5px;
-}
+/* Workshop button: icon-shaped, count rendered as a corner badge. */
+.la-changes-btn { position: relative; }
 .la-changes-count {
+  position: absolute;
+  top: -4px; right: -4px;
   background: var(--lumiverse-secondary);
   color: var(--lumiverse-text-muted);
   border-radius: 999px;
   font-size: 10px;
-  padding: 1px 6px;
+  padding: 0 5px;
   min-width: 16px;
+  height: 16px;
+  line-height: 16px;
   text-align: center;
   font-weight: 600;
+  border: 1px solid var(--lumiverse-bg-elevated);
   transition: background var(--lumiverse-transition-fast), color var(--lumiverse-transition-fast);
 }
 .la-changes-btn.has-edits .la-changes-count {
-  background: var(--lumiverse-primary-020);
-  color: var(--lumiverse-primary-text);
+  background: var(--lumiverse-primary);
+  color: var(--lumiverse-text);
 }
-.la-changes-btn.has-edits { color: var(--lumiverse-text); }
+.la-changes-btn.has-edits { color: var(--lumiverse-primary); }
 
 .la-icon-btn {
   padding: 5px;
@@ -788,7 +785,8 @@ ${LOADERS_CSS}
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
   display: flex; flex-direction: column;
 }
-.la-phoneline-header { padding: 14px 18px 8px; }
+.la-phoneline-header { padding: 14px 18px 8px; display: flex; flex-direction: column; gap: 2px; }
+.la-phoneline-eyebrow { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--lumiverse-primary); }
 .la-phoneline-title { font-size: 15px; font-weight: 600; color: var(--lumiverse-text); }
 .la-phoneline-body { padding: 4px 18px 14px; display: flex; flex-direction: column; gap: 10px; }
 .la-phoneline-meta { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; font-size: 12px; }

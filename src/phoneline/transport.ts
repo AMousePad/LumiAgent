@@ -9,6 +9,7 @@ import {
   type ListItemsResponse,
   type ReadItemResponse,
   type WriteFieldResponse,
+  type GrepItemsResponse,
 } from "./protocol";
 
 let callIdCounter = 0;
@@ -69,4 +70,12 @@ export function dialWriteField(
   req: Omit<Extract<PhoneLineRequest, { op: "write_field" }>, "op">,
 ): Promise<WriteFieldResponse> {
   return dial<WriteFieldResponse>(spindle, extId, { op: "write_field", ...req });
+}
+
+export function dialGrepItems(
+  spindle: SpindleAPI,
+  extId: string,
+  req: Omit<Extract<PhoneLineRequest, { op: "grep_items" }>, "op">,
+): Promise<GrepItemsResponse> {
+  return dial<GrepItemsResponse>(spindle, extId, { op: "grep_items", ...req });
 }

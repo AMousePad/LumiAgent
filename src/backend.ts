@@ -193,8 +193,7 @@ async function resolveExternalProviders(userId: string): Promise<import("./tasks
         id: s.id,
         label: s.label,
         description: s.description,
-        itemKind: s.item_kind,
-        scope: s.scope.kind,
+        scope: s.scope,
       })),
     }));
   } catch (err) {
@@ -1536,7 +1535,7 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
           void appendEntries(spindle, s.characterId, [ev.entry], userId).catch((e) => log("warn", `ledger append failed: ${(e as Error).message}`));
           break;
         case "revert_logged": {
-          // Agent-driven revert (revert_my_edits). Ledger persistence already
+          // Agent-driven revert (revert_session_edits). Ledger persistence already
           // happened inside the tool; mirror into session.edits and notify
           // the frontend the same way user-driven workshop reverts do.
           if (ev.outcome.kind === "clean" || ev.outcome.kind === "noop_already_reverted") {
@@ -1613,7 +1612,7 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
 
 // Collapse a single assistant message's edits to one patch per file. Fires
 // when the agent loop pauses (paused_for_input) or is cancelled. Sealed
-// patches (mid-message squash_my_edits) form boundaries that won't merge.
+// patches (mid-message squash_session_edits) form boundaries that won't merge.
 // Errors are swallowed: a failed squash leaves the timeline noisier but
 // otherwise correct, so the message lifecycle shouldn't trip on it.
 async function autosquashAndNotify(characterId: string, assistantMessageId: string, userId: string): Promise<void> {

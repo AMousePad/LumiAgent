@@ -8,9 +8,15 @@ const inputSchema = z.object({
   limit: z.number().int().positive().max(500).optional(),
 }).strict();
 
-export const listMyEditsTool = defineTool({
-  name: "list_my_edits",
-  description: "List edits you (the agent) have made. Default scope is the current response; widen with `current_session` or `all_sessions`. Returns one entry per patch with id, surface, surfaceLabel, field, ts, reverted, session_id. Use the ids with revert_my_edits or squash_my_edits (revert across sessions requires allow_cross_session: true on revert_my_edits).",
+export const listSessionEditsTool = defineTool({
+  name: "list_session_edits",
+  description: `Lists agent-authored edits.
+
+Usage:
+- Default scope is the current response. Widen with \`current_session\` or \`all_sessions\`.
+- Returns one row per patch: edit_id, surface, surface_id, surface_label, field, ts, reverted, session_id.
+- Pass returned ids to \`revert_session_edits\` or \`squash_session_edits\`.
+- Cross-session revert requires \`allow_cross_session: true\` on \`revert_session_edits\`.`,
   inputSchema,
   jsonSchema: {
     type: "object",

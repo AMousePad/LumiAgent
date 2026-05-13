@@ -8,22 +8,11 @@
 // `list_items`, `read_item`, `write_field`. Optional means the extension can
 // throw "unknown op" and the caller falls back to "no contribution / allow".
 
-export interface SurfaceField {
-  readonly path: string;
-  readonly label: string;
-  readonly description?: string;
-  readonly type: "string" | "array" | "object" | "any";
-  readonly editable: boolean;
-  readonly large?: boolean;
-}
-
 export interface SurfaceDescriptor {
   readonly id: string;
   readonly label: string;
   readonly description: string;
-  readonly item_kind: string;
-  readonly scope: { kind: "global" | "per_character" };
-  readonly fields: readonly SurfaceField[];
+  readonly scope: "global" | "per_character";
 }
 
 export interface SurfaceManifest {
@@ -33,6 +22,12 @@ export interface SurfaceManifest {
   // consumption (e.g. version-conditioning prompt logic), not for trust UX.
   readonly extension: { id: string; name: string; version?: string };
   readonly surfaces: readonly SurfaceDescriptor[];
+  // Path prefixes under `character.extensions.*` that LumiAgent's find tools
+  // (grep, survey_cjk, apply_glossary, audit_card_coverage) should skip.
+  // Useful for derived projections / frozen snapshots whose canonical source
+  // lives elsewhere: surfacing them in find results is wasteful since edits
+  // get refused anyway. A prefix matches itself, `prefix.`, and `prefix[`.
+  readonly excludeFromSearch?: readonly string[];
 }
 
 export interface SurfaceItem {
@@ -82,13 +77,27 @@ export interface WriteFieldRequest extends BaseRequest {
   readonly value: unknown;
 }
 
+export interface GrepItemsRequest extends BaseRequest {
+  readonly op: "grep_items";
+  readonly surfaceId: string;
+  readonly characterId?: string;
+  readonly pattern: string;
+  readonly ignoreCase?: boolean;
+  // Optional path-prefix filter (path-segment aware). Only leaves whose path
+  // equals the prefix, or starts with `prefix.`, or starts with `prefix[`,
+  // are considered. Use to scope a search to e.g. "module.regex".
+  readonly fieldPrefix?: string;
+  readonly head?: number;
+}
+
 export type PhoneLineRequest =
   | DescribeRequest
   | SystemPromptRequest
   | CheckWriteRequest
   | ListItemsRequest
   | ReadItemRequest
-  | WriteFieldRequest;
+  | WriteFieldRequest
+  | GrepItemsRequest;
 
 export interface SystemPromptResponse {
   readonly text: string | null;
@@ -112,6 +121,20 @@ export interface ReadItemResponse {
 export interface WriteFieldResponse {
   readonly ok: boolean;
   readonly error?: string;
+}
+
+export interface GrepItemHit {
+  readonly itemId: string;
+  readonly itemLabel?: string;
+  readonly fieldPath: string;
+  readonly line: number;
+  readonly match: string;
+  readonly preview: string;
+}
+
+export interface GrepItemsResponse {
+  readonly hits: readonly GrepItemHit[];
+  readonly truncated: boolean;
 }
 
 export const PHONELINE_ENDPOINT = (extId: string): string => `${extId}.phoneline`;

@@ -10,9 +10,14 @@ const inputSchema = z.object({
   use_active_character: z.boolean().optional(),
 }).strict();
 
-export const getActiveRegexScriptsTool = defineTool({
-  name: "get_active_regex_scripts",
-  description: "Resolve the regex scripts that would actually fire for a given target (`prompt` runs on text being sent to the model, `response` runs on raw model output before it's stored, `display` runs at render time on stored content) under the active character + chat context. Merges global + character + chat scopes and orders by scope tier then sort_order — exactly the way Lumiverse runs them at prompt-assembly / response-bake / render time. Use this to figure out what's actually rewriting the model's output before you start digging into individual scripts.",
+export const listActiveRegexScriptsTool = defineTool({
+  name: "list_active_regex_scripts",
+  description: `Lists regex scripts that would fire for a target under the active character + chat context.
+
+Usage:
+- \`target\`: \`prompt\` runs on text sent to the model, \`response\` runs on raw model output before storage, \`display\` runs at render time on stored content.
+- Merges global + character + chat scopes and orders by scope tier then sort_order, matching Lumiverse's runtime ordering.
+- Use to figure out what's rewriting the model's output before digging into individual scripts.`,
   inputSchema,
   jsonSchema: {
     type: "object",
@@ -48,7 +53,7 @@ export const getActiveRegexScriptsTool = defineTool({
         find_regex_peek: s.find_regex.slice(0, 200),
       }));
       const out = JSON.stringify({ target: input.target, count: slim.length, scripts: slim }, null, 2);
-      return { content: await spillOrReturn(ctx, out, `get_active_regex_scripts(${input.target})`) };
+      return { content: await spillOrReturn(ctx, out, `list_active_regex_scripts(${input.target})`) };
     } catch (err) {
       return { content: JSON.stringify({ error: (err as Error).message }), isError: true };
     }

@@ -3,7 +3,7 @@ import { defineTool, type ReadGate } from "./_framework";
 import { buildEditPatch } from "./_patch";
 import { ensureFreshRead, ensureRecentRead, refreshReadHash } from "./_gates";
 import { stashDraft, loadDraft, draftReuseNote } from "./_drafts";
-import { resolveRead, resolveWrite, PathError } from "./_path_v2";
+import { resolveRead, resolveWrite, PathError, OutOfRangeError } from "./_path_v2";
 
 const inputSchema = z.object({
   path: z.string().min(3).describe("Slash-separated path. Same grammar as `read` / `edit`."),
@@ -25,7 +25,7 @@ export const rewriteTool = defineTool({
 - Find/replace keeps failing on stylized text (zalgo, hand-tuned diacritics, NFC drift).
 - The replacement is structurally different enough that finding a stable anchor is futile.
 
-Requires a recent \`read\` on the SAME path. Returns the structured diff like \`edit\` does. Replaces rewrite_alternate_greeting, rewrite_world_book_entry, and the wholesale-replace branch of update_character.
+Requires a recent \`read\` on the SAME path. Returns the structured diff like \`edit\` does.
 
 Pass \`new_content\` for a literal payload, or \`new_content_handle\` to reuse a draft a prior failed call stashed for you.`,
   inputSchema,
@@ -53,6 +53,7 @@ Pass \`new_content\` for a literal payload, or \`new_content_handle\` to reuse a
     let leaf;
     try { leaf = await resolveRead(ctx, input.path); }
     catch (err) {
+      if (err instanceof OutOfRangeError) return { content: `Error: [OUT_OF_RANGE] ${err.message}`, isError: true };
       if (err instanceof PathError) return { content: `Error: [PATH_NOT_FOUND] ${err.message}`, isError: true };
       return { content: `Error: ${(err as Error).message}`, isError: true };
     }

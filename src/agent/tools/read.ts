@@ -2,7 +2,7 @@ import { z } from "zod";
 import { defineTool } from "./_framework";
 import { formatLineSlice, spillOrReturn } from "./_io";
 import { markReadWithHash } from "./_gates";
-import { resolveRead, PathError } from "./_path_v2";
+import { resolveRead, PathError, OutOfRangeError } from "./_path_v2";
 
 const inputSchema = z.object({
   path: z.string().min(3).describe("Slash-separated path to a string leaf. Examples: 'char/description', 'char/first_mes', 'char/alternate_greetings/0', 'char/extensions/lumirealm.payload.background_html', 'rx/<scriptId>/replace_string', 'wb/<entryId>/content', 'wb/<entryId>/comment'."),
@@ -12,7 +12,7 @@ const inputSchema = z.object({
 
 export const readTool = defineTool({
   name: "read",
-  description: `Read any string-valued surface on the character by path. ONE tool for every read; no per-surface variants.
+  description: `Reads any string-valued surface on the character by path.
 
 Path grammar:
   char/<field>                          top-level character string (description, first_mes, scenario, personality, mes_example, system_prompt, post_history_instructions, creator_notes, creator, name)
@@ -23,9 +23,7 @@ Path grammar:
   wb/<entryId>/content                  lorebook entry body
   wb/<entryId>/comment                  lorebook entry label
 
-Returns line-numbered text with pagination. Spills to a tmp handle if the result exceeds the per-call budget. Records the path as 'recently read' so a subsequent \`edit\` on the same path passes the read-gate.
-
-WHEN TO USE: every time you need to read or audit a string on the card. Replaces read_character_field, read_alternate_greeting, read_world_book_entry, read_regex_script_field, read_character_extension.`,
+Returns line-numbered text with pagination. Spills to a tmp handle if the result exceeds the per-call budget. Records the path as 'recently read' so a subsequent \`edit\` on the same path passes the read-gate.`,
   inputSchema,
   jsonSchema: {
     type: "object",
@@ -42,6 +40,7 @@ WHEN TO USE: every time you need to read or audit a string on the card. Replaces
     let leaf;
     try { leaf = await resolveRead(ctx, input.path); }
     catch (err) {
+      if (err instanceof OutOfRangeError) return { content: `Error: [OUT_OF_RANGE] ${err.message}`, isError: true };
       if (err instanceof PathError) return { content: `Error: [PATH_NOT_FOUND] ${err.message}`, isError: true };
       return { content: `Error: ${(err as Error).message}`, isError: true };
     }

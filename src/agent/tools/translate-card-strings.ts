@@ -68,7 +68,14 @@ function isNonEmptyString(v: unknown): v is string {
 
 export const translateCardStringsTool = defineTool({
   name: "translate_card_strings",
-  description: "Bulk-translate UI / config strings on the active character using the browser's on-device translator (Chrome's built-in Translator API, no network call). Targets the surfaces that are usually mechanical to translate: regex replace_strings, LumiRealm background HTML text nodes, LumiRealm Lua string literals, and LumiRealm scriptstate_defaults string values. Prose fields (first_mes, description, alternate greetings, world book entries) are opt-in via 'include' since you should review those yourself. Returns the manifest of what changed so you can read_* the touched surfaces and proof-check. Requires Chrome desktop with the Translator API available; the tool errors cleanly if not supported.",
+  description: `Mechanical bulk translation via Chrome's on-device Translator API. No LLM tokens.
+
+Usage:
+- Ask the user before invoking on prose surfaces (greetings, descriptions, lorebook entries). Your own translation via \`edit\` / \`rewrite\` is higher quality there.
+- \`dry_run: true\` returns the would-translate manifest without invoking Chrome or writing.
+- \`include\` defaults to mechanical surfaces (regex_scripts + lumirealm_bghtml + lumirealm_lua + lumirealm_scriptstate). Prose surfaces are opt-in.
+- Requires Chrome desktop with the Translator API for the source→target pair.
+- After application, use \`list_session_edits\` + \`read\` to proof-check each touched path.`,
   inputSchema,
   jsonSchema: {
     type: "object",
@@ -361,7 +368,7 @@ export const translateCardStringsTool = defineTool({
         },
         item_errors: itemErrors,
         write_errors: writeErrors,
-        note: `Translations applied as agent edits. Use list_my_edits to enumerate them, then read_* the touched surfaces to proof-check. revert_my_edits can roll back if a translation is bad. ${writeErrors.length > 0 ? "Some writes failed — see write_errors." : ""}`,
+        note: `Translations applied as agent edits. Use list_session_edits to enumerate them, then \`read\` each touched path to proof-check. revert_session_edits can roll back if a translation is bad. ${writeErrors.length > 0 ? "Some writes failed — see write_errors." : ""}`,
       }),
     };
   },

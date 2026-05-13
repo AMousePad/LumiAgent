@@ -45,6 +45,15 @@ export class PathError extends Error {
   }
 }
 
+// Array-index past end. Distinct from PathError so callers can surface
+// `[OUT_OF_RANGE]` and direct the agent to `list` / `inspect` the array.
+export class OutOfRangeError extends Error {
+  constructor(public readonly path: string, msg: string) {
+    super(`Path '${path}': ${msg}`);
+    this.name = "OutOfRangeError";
+  }
+}
+
 function splitTopLevel(path: string): readonly string[] {
   return path.split("/").filter((s) => s.length > 0);
 }
@@ -66,8 +75,11 @@ export async function resolveRead(ctx: ToolCtx, path: string): Promise<ResolvedL
       if (idxStr === undefined) throw new PathError(path, "alternate_greetings requires an index");
       const idx = parseInt(idxStr, 10);
       const arr = c.alternate_greetings ?? [];
-      if (!Number.isFinite(idx) || idx < 0 || idx >= arr.length) {
-        throw new PathError(path, `index ${idxStr} out of range (have ${arr.length})`);
+      if (!Number.isFinite(idx) || idx < 0) {
+        throw new PathError(path, `index '${idxStr}' is not a non-negative integer`);
+      }
+      if (idx >= arr.length) {
+        throw new OutOfRangeError(path, `alternate_greetings index ${idx} is past the end (length ${arr.length}). \`list({path: "char/alternate_greetings"})\` shows valid indices.`);
       }
       const value = arr[idx] ?? "";
       return {
@@ -235,8 +247,15 @@ export async function* iterateAllLeaves(ctx: ToolCtx): AsyncGenerator<ResolvedLe
       }
     }
   }
-  // Walk extensions deep tree for every string leaf.
-  for (const leaf of walkStringLeaves(c.extensions ?? {}, "")) {
+  // Walk extensions deep tree for every string leaf. Phone-line manifests
+  // declare path prefixes (derived/cached projections) to skip via the
+  // shared search-excludes helper.
+  const { walkStringLeaves: walk } = await import("./_walk");
+  const { buildExtensionsSearchSkip } = await import("../../phoneline/search-excludes");
+  const { makeConsentPromptFn } = await import("../../phoneline/consent");
+  const promptFn = makeConsentPromptFn(ctx.callFrontend ?? (async () => ({ denied: true })));
+  const skip = await buildExtensionsSearchSkip(ctx.spindle, ctx.userId, promptFn);
+  for (const leaf of walk(c.extensions ?? {}, "", skip)) {
     yield { key: `char/extensions/${leaf.path}`, surface: "extension", surfaceId: ctx.characterId, surfaceLabel: `extensions.${leaf.path}`, field: leaf.path, value: leaf.text };
   }
   // Regex scripts (character scope).
@@ -273,23 +292,3 @@ export async function* iterateAllLeaves(ctx: ToolCtx): AsyncGenerator<ResolvedLe
   }
 }
 
-// Local copy of the extension string-leaf walker. _walk.ts has an iterator
-// version we could share; duplicating to avoid a dependency cycle while we
-// migrate.
-function* walkStringLeaves(value: unknown, prefix: string): Generator<{ path: string; text: string }> {
-  if (typeof value === "string") {
-    yield { path: prefix, text: value };
-    return;
-  }
-  if (Array.isArray(value)) {
-    for (let i = 0; i < value.length; i++) {
-      yield* walkStringLeaves(value[i], prefix.length === 0 ? `[${i}]` : `${prefix}[${i}]`);
-    }
-    return;
-  }
-  if (value && typeof value === "object") {
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      yield* walkStringLeaves(v, prefix.length === 0 ? k : `${prefix}.${k}`);
-    }
-  }
-}

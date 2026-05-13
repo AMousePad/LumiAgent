@@ -330,6 +330,7 @@ function showPhonelineConsent(input) {
     overlay.appendChild(modal);
     const isRevalidate = input.kind === "revalidate";
     const header = el8("div", "la-phoneline-header");
+    header.appendChild(el8("div", "la-phoneline-eyebrow", "LumiAgent"));
     header.appendChild(el8("div", "la-phoneline-title", isRevalidate ? `Revalidate "${input.displayName}"?` : `Connect to "${input.displayName}"?`));
     modal.appendChild(header);
     const body = el8("div", "la-phoneline-body");
@@ -794,20 +795,15 @@ ${LOADERS_CSS}
   display: flex; align-items: center; gap: 8px;
   min-width: 0;
 }
-.la-header-row-char .la-combo-host-full { flex: 1; min-width: 0; }
-.la-header-row-char .la-combo-host-full .la-combo-trigger { width: 100%; max-width: none; }
-.la-header-label {
-  font-weight: 600; font-size: 12px;
-  color: var(--lumiverse-text);
-  letter-spacing: 0.02em;
-  flex-shrink: 0;
-}
+.la-header-row-char { gap: 6px; flex-wrap: wrap; row-gap: 6px; }
+.la-header-row-char .la-combo-host-char { flex: 1 1 160px; min-width: 0; }
+.la-header-row-char .la-combo-host-char .la-combo-trigger { width: 100%; max-width: none; }
 .la-header-row-meta { gap: 6px; flex-wrap: wrap; row-gap: 6px; }
-/* Below this width the action buttons (Workshop, + New, ...) wrap onto a
-   second row so they don't push off the edge of a narrow drawer. */
-@container drawer (max-width: 360px) {
-  .la-header-row-meta .la-conn-select { flex: 1 1 100%; min-width: 0; max-width: none; order: -1; }
+.la-header-row-meta .la-combo-host-conn {
+  flex: 0 0 auto;
+  min-width: 140px; max-width: 220px;
 }
+.la-header-row-meta .la-combo-host-conn .la-combo-trigger { width: 100%; }
 .la-select {
   background: var(--lumiverse-bg);
   border: 1px solid var(--lumiverse-border);
@@ -925,27 +921,29 @@ ${LOADERS_CSS}
 .la-combo-item-sub { color: var(--lumiverse-text-muted); font-size: 11px; margin-top: 2px; }
 .la-combo-empty { padding: 10px; font-size: 12px; color: var(--lumiverse-text-muted); }
 
-/* Changes badge in header */
-.la-changes-btn {
-  position: relative;
-  gap: 5px;
-}
+/* Workshop button: icon-shaped, count rendered as a corner badge. */
+.la-changes-btn { position: relative; }
 .la-changes-count {
+  position: absolute;
+  top: -4px; right: -4px;
   background: var(--lumiverse-secondary);
   color: var(--lumiverse-text-muted);
   border-radius: 999px;
   font-size: 10px;
-  padding: 1px 6px;
+  padding: 0 5px;
   min-width: 16px;
+  height: 16px;
+  line-height: 16px;
   text-align: center;
   font-weight: 600;
+  border: 1px solid var(--lumiverse-bg-elevated);
   transition: background var(--lumiverse-transition-fast), color var(--lumiverse-transition-fast);
 }
 .la-changes-btn.has-edits .la-changes-count {
-  background: var(--lumiverse-primary-020);
-  color: var(--lumiverse-primary-text);
+  background: var(--lumiverse-primary);
+  color: var(--lumiverse-text);
 }
-.la-changes-btn.has-edits { color: var(--lumiverse-text); }
+.la-changes-btn.has-edits { color: var(--lumiverse-primary); }
 
 .la-icon-btn {
   padding: 5px;
@@ -1556,7 +1554,8 @@ ${LOADERS_CSS}
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
   display: flex; flex-direction: column;
 }
-.la-phoneline-header { padding: 14px 18px 8px; }
+.la-phoneline-header { padding: 14px 18px 8px; display: flex; flex-direction: column; gap: 2px; }
+.la-phoneline-eyebrow { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--lumiverse-primary); }
 .la-phoneline-title { font-size: 15px; font-weight: 600; color: var(--lumiverse-text); }
 .la-phoneline-body { padding: 4px 18px 14px; display: flex; flex-direction: column; gap: 10px; }
 .la-phoneline-meta { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; font-size: 12px; }
@@ -3549,6 +3548,11 @@ var STROKE = `stroke="currentColor" stroke-width="2" stroke-linecap="round" stro
 var ICON_RETRY = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M21 3V8M21 8H16M21 8L18 5.29168C16.4077 3.86656 14.3051 3 12 3C7.02944 3 3 7.02944 3 12C3 16.9706 7.02944 21 12 21C16.2832 21 19.8675 18.008 20.777 14" ${STROKE}/></svg>`;
 var ICON_EDIT = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M20 16v4a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4" ${STROKE}/><polygon points="12.5 15.8 22 6.2 17.8 2 8.3 11.5 8 16 12.5 15.8" ${STROKE}/></svg>`;
 var ICON_TRASH = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14M10 11v6M14 11v6" ${STROKE}/></svg>`;
+var ICON_PIN = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>`;
+var ICON_NEW = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>`;
+var ICON_SESSIONS = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"/><path d="M7.5 9.5c0 .687.265 1.383.697 1.844l3.009 3.264a1.14 1.14 0 0 0 .407.314 1 1 0 0 0 .783-.004 1.14 1.14 0 0 0 .398-.31l3.008-3.264A2.77 2.77 0 0 0 16.5 9.5 2.5 2.5 0 0 0 12 8a2.5 2.5 0 0 0-4.5 1.5"/></svg>`;
+var ICON_SETTINGS = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="m10 16 1.5 1.5"/><path d="m14 8-1.5-1.5"/><path d="M15 2c-1.798 1.998-2.518 3.995-2.807 5.993"/><path d="m16.5 10.5 1 1"/><path d="m17 6-2.891-2.891"/><path d="M2 15c6.667-6 13.333 0 20-6"/><path d="m20 9 .891.891"/><path d="M3.109 14.109 4 15"/><path d="m6.5 12.5 1 1"/><path d="m7 18 2.891 2.891"/><path d="M9 22c1.798-1.998 2.518-3.995 2.807-5.993"/></svg>`;
+var ICON_WORKSHOP = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="M13 22h5a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v7"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M3.62 18.8A2.25 2.25 0 1 1 7 15.836a2.25 2.25 0 1 1 3.38 2.966l-2.626 2.856a1 1 0 0 1-1.507 0z"/></svg>`;
 
 // src/ui/loading.ts
 var WORDS = [
@@ -3741,79 +3745,114 @@ function el2(tag, cls, text) {
     e.textContent = text;
   return e;
 }
+function shortId(id) {
+  return id.length > 8 ? `${id.slice(0, 8)}…` : id;
+}
+function truncate(s, max) {
+  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+}
+function describePathLeaf(path) {
+  let m = /^char\/alternate_greetings\/(\d+)$/.exec(path);
+  if (m)
+    return `alternate greeting #${m[1]}`;
+  m = /^char\/extensions\/(.+)$/.exec(path);
+  if (m)
+    return `extensions.${m[1]}`;
+  m = /^char\/([^/]+)$/.exec(path);
+  if (m)
+    return m[1];
+  m = /^rx\/([^/]+)\/(find_regex|replace_string)$/.exec(path);
+  if (m)
+    return `regex ${shortId(m[1])}.${m[2]}`;
+  m = /^wb\/([^/]+)\/(content|comment)$/.exec(path);
+  if (m)
+    return `world book entry ${shortId(m[1])}.${m[2]}`;
+  return null;
+}
+function describePathContainer(path) {
+  if (path === "" || path === "char" || path === "character")
+    return "character overview";
+  if (path === "char/alternate_greetings" || path === "alternate_greetings")
+    return "alternate greetings";
+  if (path === "rx" || path === "regex_scripts")
+    return "regex scripts";
+  if (path === "wb" || path === "world_books")
+    return "world books";
+  if (path === "char/extensions" || path === "extensions")
+    return "extensions";
+  let m = /^(?:wb|world_books)\/([^/]+)$/.exec(path);
+  if (m)
+    return `world book ${shortId(m[1])}`;
+  m = /^(?:char\/)?extensions\/(.+)$/.exec(path);
+  if (m)
+    return `extensions.${m[1]}`;
+  m = /^rx\/([^/]+)$/.exec(path);
+  if (m)
+    return `regex ${shortId(m[1])}`;
+  return null;
+}
+function describePath(path) {
+  if (!path)
+    return "?";
+  return describePathLeaf(path) ?? describePathContainer(path) ?? path;
+}
+function describeExternalTarget(surfaceId, itemId, field) {
+  const sid = surfaceId ?? "?";
+  const iid = itemId ? shortId(itemId) : "?";
+  const f = field ? `.${field}` : "";
+  return `${sid}/${iid}${f}`;
+}
 function describeToolActivity(name, args) {
   const s = (k) => typeof args[k] === "string" ? args[k] : undefined;
   const n = (k) => typeof args[k] === "number" ? args[k] : undefined;
   switch (name) {
+    case "read":
+      return { kind: "read", verb: "Reading", target: describePath(s("path")) };
+    case "inspect":
+      return { kind: "read", verb: "Inspecting", target: describePath(s("path")) };
+    case "list":
+      return { kind: "read", verb: "Listing", target: describePathContainer(s("path") ?? "") ?? describePath(s("path")) };
+    case "grep": {
+      const p = s("pattern");
+      return { kind: "search", verb: "Searching", target: p ? `for ${JSON.stringify(truncate(p, 40))}` : "the card" };
+    }
+    case "edit":
+      return { kind: "write", verb: "Editing", target: describePath(s("path")) };
+    case "rewrite":
+      return { kind: "write", verb: "Rewriting", target: describePath(s("path")) };
+    case "set":
+      return { kind: "write", verb: "Setting", target: describePath(s("path")) };
     case "list_characters":
       return { kind: "read", verb: "Listing", target: "characters" };
     case "list_connections":
       return { kind: "read", verb: "Listing", target: "connections" };
-    case "list_world_books":
-      return { kind: "read", verb: "Listing", target: "world books" };
-    case "list_world_book_entries":
-      return { kind: "read", verb: "Listing", target: "world book entries" };
-    case "list_regex_scripts":
-      return { kind: "read", verb: "Listing", target: "regex scripts" };
-    case "list_alternate_greetings":
-      return { kind: "read", verb: "Listing", target: "alternate greetings" };
-    case "list_extension_keys": {
-      const p = s("path");
-      return { kind: "read", verb: "Inspecting", target: p ? `extensions.${p}` : "extensions" };
-    }
-    case "grep_card":
-      return { kind: "search", verb: "Searching", target: `for ${JSON.stringify(s("pattern") ?? "")}` };
     case "survey_cjk":
       return { kind: "search", verb: "Surveying", target: "CJK runs across the card" };
-    case "read_character_field":
-      return { kind: "read", verb: "Reading", target: s("field") ?? "character field" };
-    case "read_alternate_greeting": {
-      const i = n("index");
-      return { kind: "read", verb: "Reading", target: `alternate_greetings[${i ?? "?"}]` };
+    case "audit_card_coverage": {
+      const lang = s("source_lang") ?? "cjk";
+      return { kind: "search", verb: "Auditing", target: `${lang} coverage` };
     }
-    case "read_world_book_entry":
-      return { kind: "read", verb: "Reading", target: `world book entry ${s("entry_id") ?? "?"}` };
-    case "read_regex_script_meta":
-      return { kind: "read", verb: "Reading", target: `regex script ${s("script_id") ?? "?"} metadata` };
-    case "read_regex_script_field":
-      return { kind: "read", verb: "Reading", target: `regex script ${s("script_id") ?? "?"}.${s("field") ?? "?"}` };
-    case "read_character_extension":
-      return { kind: "read", verb: "Reading", target: `extensions.${s("path") ?? "?"}` };
-    case "edit_character_field":
-      return { kind: "write", verb: "Editing", target: s("field") ?? "character field" };
-    case "edit_alternate_greeting": {
-      const i = n("index");
-      return { kind: "write", verb: "Editing", target: `alternate_greetings[${i ?? "?"}]` };
-    }
-    case "edit_world_book_entry":
-      return { kind: "write", verb: "Editing", target: `world book entry ${s("entry_id") ?? "?"}` };
-    case "edit_regex_script_field":
-      return { kind: "write", verb: "Editing", target: `regex script ${s("script_id") ?? "?"}.${s("field") ?? "?"}` };
-    case "edit_character_extension":
-      return { kind: "write", verb: "Editing", target: `extensions.${s("path") ?? "?"}` };
     case "update_character":
       return { kind: "write", verb: "Updating", target: `character (${Object.keys(args["patch"] ?? {}).join(", ")})` };
-    case "update_world_book_entry":
-      return { kind: "write", verb: "Updating", target: `world book entry ${s("entry_id") ?? "?"}` };
     case "update_regex_script":
-      return { kind: "write", verb: "Updating", target: `regex script ${s("script_id") ?? "?"}` };
-    case "update_character_extension":
-      return { kind: "write", verb: "Replacing", target: `extensions.${s("path") ?? "?"}` };
+      return { kind: "write", verb: "Updating", target: `regex ${shortId(s("script_id") ?? "?")} metadata` };
+    case "update_world_book_entry":
+      return { kind: "write", verb: "Updating", target: `world book entry ${shortId(s("entry_id") ?? "?")} metadata` };
     case "create_world_book_entry":
       return { kind: "create", verb: "Creating", target: `world book entry${s("comment") ? ` '${s("comment")}'` : ""}` };
     case "delete_world_book_entry":
-      return { kind: "delete", verb: "Deleting", target: `world book entry ${s("entry_id") ?? "?"}` };
+      return { kind: "delete", verb: "Deleting", target: `world book entry ${shortId(s("entry_id") ?? "?")}` };
     case "create_regex_script":
       return { kind: "create", verb: "Creating", target: `regex script${s("name") ? ` '${s("name")}'` : ""}` };
     case "delete_regex_script":
-      return { kind: "delete", verb: "Deleting", target: `regex script ${s("script_id") ?? "?"}` };
+      return { kind: "delete", verb: "Deleting", target: `regex script ${shortId(s("script_id") ?? "?")}` };
     case "create_alternate_greeting": {
       const i = n("index");
-      return { kind: "create", verb: "Adding", target: i !== undefined ? `alternate_greetings[${i}]` : "alternate greeting" };
+      return { kind: "create", verb: "Adding", target: i !== undefined ? `alternate greeting #${i}` : "alternate greeting" };
     }
     case "delete_alternate_greeting": {
       const i = n("index");
-      return { kind: "delete", verb: "Deleting", target: `alternate_greetings[${i ?? "?"}]` };
+      return { kind: "delete", verb: "Deleting", target: `alternate greeting #${i ?? "?"}` };
     }
     case "apply_glossary": {
       const e = args["entries"] ?? {};
@@ -3824,6 +3863,31 @@ function describeToolActivity(name, args) {
       return { kind: "test", verb: "Testing", target: "regex pattern" };
     case "count_cjk_chars":
       return { kind: "read", verb: "Counting", target: "CJK chars" };
+    case "list_external": {
+      const sid = s("surface_id");
+      return { kind: "read", verb: "Listing", target: sid ? `${sid} items` : "external items" };
+    }
+    case "read_external":
+      return { kind: "read", verb: "Reading", target: describeExternalTarget(s("surface_id"), s("item_id"), s("field")) };
+    case "edit_external":
+      return { kind: "write", verb: "Editing", target: describeExternalTarget(s("surface_id"), s("item_id"), s("field")) };
+    case "update_external":
+      return { kind: "write", verb: "Updating", target: describeExternalTarget(s("surface_id"), s("item_id"), s("field")) };
+    case "grep_external": {
+      const p = s("pattern");
+      const sid = s("surface_id") ?? "?";
+      return { kind: "search", verb: "Searching", target: p ? `${sid} for ${JSON.stringify(truncate(p, 30))}` : sid };
+    }
+    case "list_session_edits": {
+      const sc = s("scope") ?? "current_message";
+      return { kind: "read", verb: "Listing", target: `edits (${sc.replace(/_/g, " ")})` };
+    }
+    case "revert_session_edits": {
+      const ids = Array.isArray(args["edit_ids"]) ? args["edit_ids"].length : 0;
+      return { kind: "write", verb: "Reverting", target: ids === 1 ? "1 edit" : `${ids} edits` };
+    }
+    case "squash_session_edits":
+      return { kind: "write", verb: "Squashing", target: "session edits" };
     case "todo_write": {
       const todos = Array.isArray(args["todos"]) ? args["todos"] : [];
       const active = todos.find((t) => t && t.status === "in_progress");
@@ -6891,33 +6955,37 @@ function mountDrawer(ctx) {
     editingMessageId: null
   };
   const header = el9("header", "la-header");
+  const makeIconBtn = (cls, svg, label, hint) => {
+    const b = el9("button", `la-btn la-icon-btn ${cls}`);
+    b.type = "button";
+    b.setAttribute("aria-label", label);
+    b.title = hint;
+    b.innerHTML = svg;
+    return b;
+  };
   const rowChar = el9("div", "la-header-row la-header-row-char");
-  const charLabel = el9("label", "la-header-label", "Character");
-  const charComboRoot = el9("div", "la-combo-host la-combo-host-full");
+  const charComboRoot = el9("div", "la-combo-host la-combo-host-char");
   charComboRoot.setAttribute("aria-label", "Character");
   const charCombo = mountCombo(charComboRoot);
   charCombo.setPlaceholder("Pick character");
-  const chatPinBtn = el9("button", "la-btn la-icon-btn la-chat-pin-btn");
-  chatPinBtn.setAttribute("aria-label", "Pin a chat to share with the agent");
-  chatPinBtn.title = "Pin a chat (gives the agent message-history access)";
-  chatPinBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
-  rowChar.append(charLabel, charComboRoot, chatPinBtn);
-  const rowMeta = el9("div", "la-header-row la-header-row-meta");
-  const connSelect = document.createElement("select");
-  connSelect.className = "la-select la-conn-select";
-  connSelect.setAttribute("aria-label", "Connection");
-  connSelect.title = "Connection";
-  const metaSpacer = el9("span", "la-flex-spacer");
-  const editsBadge = el9("button", "la-btn la-changes-btn", "Workshop");
-  editsBadge.setAttribute("aria-label", "Open diff viewer");
-  const editsCount = el9("span", "la-changes-count", "0");
-  editsBadge.appendChild(editsCount);
-  const newSessionBtn = el9("button", "la-btn", "+ New");
-  newSessionBtn.setAttribute("aria-label", "Start a new chat session");
+  const chatPinBtn = makeIconBtn("la-chat-pin-btn", ICON_PIN, "Pin a chat to share with the agent", "Pin a chat (gives the agent message-history access)");
+  const switchSessionBtn = makeIconBtn("", ICON_SESSIONS, "Switch session", "Switch session");
+  const newSessionBtn = makeIconBtn("", ICON_NEW, "Start a new chat session", "New session");
+  const settingsBtn = makeIconBtn("", ICON_SETTINGS, "Agent settings", "Agent settings (persona & prompt)");
   const menuBtn = el9("button", "la-btn la-icon-btn");
   menuBtn.setAttribute("aria-label", "More");
   menuBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>';
-  rowMeta.append(connSelect, metaSpacer, editsBadge, newSessionBtn, menuBtn);
+  const connComboRoot = el9("div", "la-combo-host la-combo-host-conn");
+  connComboRoot.setAttribute("aria-label", "Connection");
+  const connCombo = mountCombo(connComboRoot);
+  connCombo.setPlaceholder("Default connection");
+  rowChar.append(charComboRoot, chatPinBtn, switchSessionBtn, newSessionBtn);
+  const rowMeta = el9("div", "la-header-row la-header-row-meta");
+  const editsBadge = makeIconBtn("la-changes-btn", ICON_WORKSHOP, "Open diff viewer", "Workshop");
+  const editsCount = el9("span", "la-changes-count", "0");
+  editsBadge.appendChild(editsCount);
+  const metaSpacer = el9("span", "la-flex-spacer");
+  rowMeta.append(connComboRoot, editsBadge, metaSpacer, settingsBtn, menuBtn);
   header.append(rowChar, rowMeta);
   const thread = el9("div", "la-thread");
   const emptyState = el9("div", "la-empty");
@@ -6925,28 +6993,28 @@ function mountDrawer(ctx) {
   const SUGGESTIONS = [
     {
       label: "Translate the greeting messages of this card",
-      send: "Translate every greeting message of this card to English. That means the canonical first_mes AND every alternate_greetings[i]. For each one: read the source, construct the full English version, then call edit_alternate_greeting (or edit_character_field for first_mes) with the whole block as `find` and the whole English version as `replace`. Keep all <img> tags, markdown headings, status-panel emoji markers, and named regex capture groups byte-identical — only translate the natural-language prose between them. SKIP any segment that is already in English or already has an English counterpart nearby (a parenthetical English gloss, a bilingual line, a label/value pair where one side is English). Only translate text that has no English equivalent anywhere in the surrounding context. If this card has a LumiRealm payload, mirror the canonical edits into the payload so the change survives translator schema migrations."
+      send: "Translate every greeting message of this card to English. That means the canonical first_mes (path `char/first_mes`) AND every alternate greeting (paths `char/alternate_greetings/<idx>`). For each one: `read` the path, construct the full English version, then `rewrite({path, new_content})` with the whole English version. Keep all <img> tags, markdown headings, status-panel emoji markers, and named regex capture groups byte-identical — only translate the natural-language prose between them. SKIP any segment that is already in English or already has an English counterpart nearby (a parenthetical English gloss, a bilingual line, a label/value pair where one side is English). Only translate text that has no English equivalent anywhere in the surrounding context. If this card has a LumiRealm payload, mirror the canonical edits into the payload so the change survives translator schema migrations."
     },
     {
       label: "Translate the UI in this card",
-      send: `Translate the user-visible labels inside this card's UI surfaces to English. UI lives in THREE places on Risu/LumiRealm cards: regex scripts (replace_string content), Lua scripts (\`lumirealm.payload.lua_scripts\`, often the bigger source — button labels, dialog choices, status-panel text), AND background HTML (\`lumirealm.payload.background_html\`, sometimes also \`background_html_source\` — status panels, sidebars, commission windows, any chrome the card paints into the chat surface). Cover all three.
+      send: `Translate the user-visible labels inside this card's UI surfaces to English. UI lives in THREE places on Risu/LumiRealm cards: regex scripts (replace_string content), Lua scripts (paths under \`char/extensions/lumirealm.payload.lua_scripts\`, often the bigger source — button labels, dialog choices, status-panel text), AND background HTML (\`char/extensions/lumirealm.payload.background_html_source\` if present, else \`char/extensions/lumirealm.payload.background_html\`). Cover all three.
 
 CRITICAL SAFETY RULES — read these before touching anything:
 
 1. NEVER modify regex find_regex patterns. Those are matched against LLM output; changing the pattern breaks the rule.
 2. In regex scripts: only edit replace_string content, and only the user-visible HTML/text inside it. Do NOT touch capture group refs ($1, $&, $<name>), HTML attribute names, CSS class names, JSON keys, or regex syntax characters.
 3. If a label is inside a structural tag (e.g. <div class="...">Label</div>), translate ONLY the inner text — leave the tag and its attributes alone.
-4. In Lua scripts: edit ONLY content inside quoted string literals (\`"..."\`, \`'...'\`, \`[[...]]\`). NEVER touch code logic — opcodes, function/variable names, table keys, operators, control flow, comments. Use \`update_character_extension\` to write back the whole \`lumirealm.payload.lua_scripts\` array.
-5. In background HTML: edit ONLY user-visible inner text. NEVER touch tag names, attribute names (id/class/data-*/style/etc.), attribute values that drive behaviour or styling, CSS selectors, CSS property names, JS code inside <script> blocks, macro tokens like {{user}} / {{char}} / {{getvar::x}}, or LumiRealm marker comments. If the card has both \`background_html\` and \`background_html_source\`, edit \`background_html_source\` (the viewer rebuilds \`background_html\` from it on next render). Use \`edit_character_extension\` for find/replace, or \`update_character_extension\` for wholesale.
+4. In Lua scripts: edit ONLY content inside quoted string literals (\`"..."\`, \`'...'\`, \`[[...]]\`). NEVER touch code logic — opcodes, function/variable names, table keys, operators, control flow, comments. Use \`set({path, value})\` to write back the whole \`lumirealm.payload.lua_scripts\` array.
+5. In background HTML: edit ONLY user-visible inner text. NEVER touch tag names, attribute names (id/class/data-*/style/etc.), attribute values that drive behaviour or styling, CSS selectors, CSS property names, JS code inside <script> blocks, macro tokens like {{user}} / {{char}} / {{getvar::x}}, or LumiRealm marker comments. Use \`edit({path, find, replace})\` for find/replace, or \`set\` for wholesale.
 6. After translating each regex script's replace_string, call test_regex with the ORIGINAL find_regex and a sample of the kind of output the LLM would emit, and confirm the regex still matches with the same named capture groups present. If it doesn't, the structure was disturbed — revert and try a smaller find/replace.
 7. Walk surfaces in order; for each item, read first, plan the edits, then apply.
 8. SKIP any label that is already in English or that already has an English counterpart in the same template (a bilingual label, an English fallback in a parenthetical, an English-by-default placeholder). Only translate labels with no English form anywhere nearby. Respects the author's deliberate English wording and keeps the diff small.
 
-Start by calling survey_cjk with scopes=['regex_scripts','extensions'] — that single call covers regex scripts, lua_scripts, AND background_html in one pass. Then list_regex_scripts, character_extension_stats on \`lumirealm.payload.lua_scripts\` and \`lumirealm.payload.background_html\` (they can be huge), and only read the items that actually contain CJK to translate. Finally, before beginning, ask me the components that need translating, and whether we've missed anything at the end, that we have things to go off of. `
+Start by calling survey_cjk with scopes=['regex_scripts','extensions'] — that single call covers regex scripts, lua_scripts, AND background_html in one pass. Then \`list({path: 'rx'})\` and \`inspect\` the big paths under \`char/extensions/lumirealm.payload.*\` (they can be huge), and only read the items that actually contain CJK to translate. Finally, before beginning, ask me the components that need translating, and whether we've missed anything at the end.`
     },
     {
       label: "Add/update a lorebook entry on this chat's characters",
-      send: "I want to add or update a lorebook entry on a character that appears in this chat. Before you do anything: ask me WHICH character the entry should cover (look at the pinned chat's recent messages for context if a chat is pinned). Then use grep_card and list_world_book_entries to check whether an entry already exists for that character. If one exists, briefly summarise its current content and ask whether I want to UPDATE it (extend / refine) or REPLACE it. If not, ask what details I want included — personality, role in the story, relationships, appearance, key facts — before creating it. Only after I confirm the plan do you call edit_world_book_entry / update_world_book_entry / create_world_book_entry. Do not write the entry's prose in chat without applying it."
+      send: "I want to add or update a lorebook entry on a character that appears in this chat. Before you do anything: ask me WHICH character the entry should cover (look at the pinned chat's recent messages for context if a chat is pinned). Then use `grep` and `list({path: 'wb'})` to check whether an entry already exists for that character. If one exists, briefly summarise its current content and ask whether I want to UPDATE it (extend / refine) or REPLACE it. If not, ask what details I want included — personality, role in the story, relationships, appearance, key facts — before creating it. Only after I confirm the plan do you call `edit` / `rewrite` / `create_world_book_entry`. Do not write the entry's prose in chat without applying it."
     },
     {
       label: "Explain the features of this chat and what it's about",
@@ -6956,7 +7024,7 @@ Start by calling survey_cjk with scopes=['regex_scripts','extensions'] — that 
       label: "Change the gender/sex of certain characters",
       send: `I want to change the gender or sex of one or more characters in this card. Before any edits, ask me WHICH character(s) I want to change and WHAT the new gender should be for each. The change needs to be COMPLETE — once you have the list:
 
-1. Use grep_card to find every reference to each character: their name + all pronouns currently used for them (he/she/they/her/his/them) + any gendered honorifics in the source language (Mr./Ms./onee-chan/onii-san/etc.) + any explicitly gendered nouns (man/woman/boy/girl/lady/sir/etc.).
+1. Use \`grep\` to find every reference to each character: their name + all pronouns currently used for them (he/she/they/her/his/them) + any gendered honorifics in the source language (Mr./Ms./onee-chan/onii-san/etc.) + any explicitly gendered nouns (man/woman/boy/girl/lady/sir/etc.).
 2. Map out an edit plan covering EVERY surface that references them: their lorebook entry, all alternate_greetings, first_mes, scenario, description, personality, system_prompt, post_history_instructions, regex replace_string templates that mention them, and the LumiRealm payload mirror if this is a LumiRealm-imported card.
 3. Show me the plan as a list of (surface, field, what changes) BEFORE applying.
 4. After I confirm, apply. apply_glossary is the right tool for the pronoun pass — but be careful with single-character CJK keys (banned by default for substring-collision safety). Pronouns, possessives, honorifics, and gendered nouns all need to flip consistently.`
@@ -7136,35 +7204,28 @@ Start by calling survey_cjk with scopes=['regex_scripts','extensions'] — that 
       charCombo.setValue(state.characterId, true);
   };
   const renderConnOptions = () => {
-    const cur = connSelect.value;
-    connSelect.innerHTML = "";
+    const cur = connCombo.getValue();
     if (state.connections.length === 0) {
-      const o = document.createElement("option");
-      o.value = "";
-      o.textContent = "No connections";
-      connSelect.appendChild(o);
-      connSelect.disabled = true;
+      connCombo.setItems([]);
+      connCombo.setPlaceholder("No connections");
+      connCombo.setDisabled(true);
       return;
     }
-    connSelect.disabled = false;
-    const placeholder = document.createElement("option");
-    placeholder.value = "";
-    placeholder.textContent = "- default connection -";
-    connSelect.appendChild(placeholder);
-    for (const c of state.connections) {
-      const o = document.createElement("option");
-      o.value = c.id;
-      o.textContent = `${c.name} (${c.provider}${c.model ? `/${c.model}` : ""})${c.is_default ? " *" : ""}`;
-      connSelect.appendChild(o);
-    }
+    connCombo.setDisabled(false);
+    connCombo.setPlaceholder("Default connection");
+    connCombo.setItems(state.connections.map((c) => ({
+      id: c.id,
+      label: `${c.name}${c.is_default ? " *" : ""}`,
+      sublabel: `${c.provider}${c.model ? ` · ${c.model}` : ""}`
+    })));
     if (state.connectionId && state.connections.some((c) => c.id === state.connectionId)) {
-      connSelect.value = state.connectionId;
+      connCombo.setValue(state.connectionId, true);
     } else if (cur && state.connections.some((c) => c.id === cur)) {
-      connSelect.value = cur;
+      connCombo.setValue(cur, true);
     } else {
       const def = state.connections.find((c) => c.is_default);
       if (def)
-        connSelect.value = def.id;
+        connCombo.setValue(def.id, true);
     }
   };
   const updateSessionBar = () => {
@@ -7530,8 +7591,8 @@ Revert those edits to the character now, or leave them applied?`;
       lastSessionId: state.sessionId
     });
   };
-  connSelect.addEventListener("change", () => {
-    state.connectionId = connSelect.value || null;
+  connCombo.onChange((id) => {
+    state.connectionId = id;
     persistUiPrefs();
   });
   newSessionBtn.addEventListener("click", () => {
@@ -7717,23 +7778,19 @@ Revert those edits to the character now, or leave them applied?`;
     handle.onDismiss(() => detach());
   };
   editsBadge.addEventListener("click", () => openDiffs());
+  switchSessionBtn.addEventListener("click", () => openSessionsModal());
+  settingsBtn.addEventListener("click", () => openAgentSettingsModal());
   menuBtn.addEventListener("click", async () => {
     const rect = menuBtn.getBoundingClientRect();
     const res = await ctx.ui.showContextMenu({
       position: { x: rect.left, y: rect.bottom + 4 },
       items: [
-        { key: "sessions", label: "Switch session..." },
-        { key: "settings", label: "Agent settings (persona & prompt)..." },
         { key: "icon", label: "Visuals & display name..." },
         { key: "revert_active", label: "Revert all edits in this session", disabled: !state.sessionId, danger: true },
         { key: "delete_active", label: "Delete current session", disabled: !state.sessionId, danger: true }
       ]
     });
-    if (res.selectedKey === "sessions")
-      openSessionsModal();
-    else if (res.selectedKey === "settings")
-      openAgentSettingsModal();
-    else if (res.selectedKey === "icon")
+    if (res.selectedKey === "icon")
       openIconSettingsModal();
     else if (res.selectedKey === "revert_active" && state.sessionId) {
       const liveCount = state.edits.filter((e) => !e.reverted).length;

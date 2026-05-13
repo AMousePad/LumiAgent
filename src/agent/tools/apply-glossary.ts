@@ -187,7 +187,11 @@ export const applyGlossaryTool = defineTool({
       const beforeExt = c.extensions ?? {};
       let nextExt: unknown = beforeExt;
       const changedLeaves: Array<{ path: string; before: string; after: string; hits: number }> = [];
-      for (const leaf of walkStringLeaves(beforeExt, "")) {
+      const { buildExtensionsSearchSkip } = await import("../../phoneline/search-excludes");
+      const { makeConsentPromptFn } = await import("../../phoneline/consent");
+      const promptFn = makeConsentPromptFn(ctx.callFrontend ?? (async () => ({ denied: true })));
+      const skip = await buildExtensionsSearchSkip(ctx.spindle, ctx.userId, promptFn);
+      for (const leaf of walkStringLeaves(beforeExt, "", skip)) {
         const { out, perEntry } = applyAll(leaf.text);
         let hits = 0;
         for (const [k, n] of Object.entries(perEntry)) { hitCounts[k] = (hitCounts[k] ?? 0) + n; hits += n; }

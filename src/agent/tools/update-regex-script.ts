@@ -9,7 +9,11 @@ const inputSchema = z.object({
 
 export const updateRegexScriptTool = defineTool({
   name: "update_regex_script",
-  description: "[LEGACY for single-field updates — prefer the set tool with path rx/<id>/<field>. Still useful when you need to change several metadata fields atomically in one call.] Update a regex script's metadata fields (name, flags, disabled, placement, sort_order, description, folder). For content edits use the edit tool.",
+  description: `Updates metadata fields of a regex script atomically.
+
+Usage:
+- Path-based \`edit\` / \`rewrite\` only address \`rx/<id>/find_regex\` and \`rx/<id>/replace_string\`. Metadata goes through here: \`name\`, \`flags\`, \`disabled\`, \`placement\`, \`target\`, \`sort_order\`, \`description\`, \`folder\`.
+- Pass only the fields to change in \`patch\`.`,
   inputSchema,
   jsonSchema: {
     type: "object",

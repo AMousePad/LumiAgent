@@ -17,8 +17,8 @@ function stringify(v: unknown): string {
 }
 
 async function setCharacterField(ctx: ToolCtx, field: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string } | string> {
-  if (!isCharacterStringField(field)) return `unknown character field '${field}'`;
-  if (typeof value !== "string") return `char/${field} expects a string value, got ${typeof value}`;
+  if (!isCharacterStringField(field)) return `[PATH_NOT_FOUND] unknown character field '${field}'`;
+  if (typeof value !== "string") return `[INVALID_VALUE_TYPE] char/${field} expects a string value, got ${typeof value}`;
   const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
   if (!c) return "character not found";
   const before = (c as unknown as Record<string, unknown>)[field];
@@ -28,11 +28,11 @@ async function setCharacterField(ctx: ToolCtx, field: string, value: unknown): P
 }
 
 async function setAlternateGreeting(ctx: ToolCtx, idx: number, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string } | string> {
-  if (typeof value !== "string") return `alternate_greetings is a string array; non-string values not allowed`;
+  if (typeof value !== "string") return `[INVALID_VALUE_TYPE] alternate_greetings is a string array; non-string values not allowed`;
   const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
   if (!c) return "character not found";
   const arr = [...(c.alternate_greetings ?? [])];
-  if (idx < 0 || idx >= arr.length) return `alternate_greetings[${idx}] out of range`;
+  if (idx < 0 || idx >= arr.length) return `[OUT_OF_RANGE] alternate_greetings[${idx}] is past the end (length ${arr.length}). \`list({path: "char/alternate_greetings"})\` shows valid indices.`;
   const before = arr[idx] ?? "";
   arr[idx] = value;
   await ctx.spindle.characters.update(ctx.characterId, { alternate_greetings: arr }, ctx.userId);
@@ -84,7 +84,7 @@ Path grammar matches \`read\` / \`edit\` / \`rewrite\`. The value field accepts 
 
 Records before/after in the ledger like every other edit — fully revertable.
 
-Replaces update_character_extension, update_regex_script (single-field), update_world_book_entry (single-field). For multi-field atomic updates use the legacy update_character / update_world_book_entry tools.`,
+For multi-field atomic character updates use \`update_character({patch})\`.`,
   inputSchema,
   jsonSchema: {
     type: "object",

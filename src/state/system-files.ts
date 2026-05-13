@@ -78,7 +78,7 @@ const EXAMPLE_TOOL_JSON = JSON.stringify({
     field: { type: "string", description: "Field name, e.g. first_mes / description / personality." },
   },
   steps: [
-    { call: "read_character_field", args: { field: "{{field}}" }, save_as: "body" },
+    { call: "read", args: { path: "char/{{field}}" }, save_as: "body" },
     { call: "count_cjk_chars", args: { text: "{{$body}}" } },
   ],
   return: "{{$body}}",

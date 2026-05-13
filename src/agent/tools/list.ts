@@ -155,7 +155,7 @@ Path forms:
 - 'wb'                               all attached world books
 - 'wb/<bookId>'                      all entries in a world book
 
-Returns each item with a path that you can pass straight to \`read\` / \`inspect\` / \`edit\`. Replaces list_world_books, list_world_book_entries, list_regex_scripts, list_alternate_greetings, list_extension_keys.`,
+Returns each item with a path. Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole via \`inspect\`; to \`read\` / \`edit\` a string leaf, append the field name (\`rx/<scriptId>/find_regex\` or \`/replace_string\`; \`wb/<entryId>/content\` or \`/comment\`). Leaf paths (\`char/<field>\`, \`char/alternate_greetings/<idx>\`, \`char/extensions/<dotted>\`) are directly read/editable.`,
   inputSchema,
   jsonSchema: {
     type: "object",

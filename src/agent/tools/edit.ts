@@ -4,7 +4,7 @@ import { applyEdit } from "./_edit";
 import { buildEditPatch } from "./_patch";
 import { ensureFreshRead, ensureRecentRead, refreshReadHash } from "./_gates";
 import { stashDraft, loadDraft, draftReuseNote } from "./_drafts";
-import { resolveRead, resolveWrite, PathError } from "./_path_v2";
+import { resolveRead, resolveWrite, PathError, OutOfRangeError } from "./_path_v2";
 
 const inputSchema = z.object({
   path: z.string().min(3).describe("Slash-separated path. Same grammar as `read`."),
@@ -28,7 +28,7 @@ const gate: ReadGate = {
 
 export const editTool = defineTool({
   name: "edit",
-  description: `Find/replace within ONE string-valued surface, by path. Replaces edit_character_field, edit_alternate_greeting, edit_world_book_entry, edit_regex_script_field, edit_character_extension.
+  description: `Find/replace within a string-valued surface, by path.
 
 Rules:
 1. Recent-read gate: \`read\` must have run on the SAME path in this turn. Surface keys match byte-for-byte. If you read 'char/description' the gate fails for 'char/extensions/...'.
@@ -64,6 +64,7 @@ Path grammar: same as \`read\`. Examples: 'char/first_mes', 'rx/<id>/replace_str
     let leaf;
     try { leaf = await resolveRead(ctx, input.path); }
     catch (err) {
+      if (err instanceof OutOfRangeError) return { content: `Error: [OUT_OF_RANGE] ${err.message}`, isError: true };
       if (err instanceof PathError) return { content: `Error: [PATH_NOT_FOUND] ${err.message}`, isError: true };
       return { content: `Error: ${(err as Error).message}`, isError: true };
     }

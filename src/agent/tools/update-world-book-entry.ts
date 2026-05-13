@@ -10,7 +10,12 @@ const inputSchema = z.object({
 
 export const updateWorldBookEntryTool = defineTool({
   name: "update_world_book_entry",
-  description: "[LEGACY for single-field updates — prefer the set tool with path wb/<id>/<field>. Still useful when you need to change several metadata fields atomically in one call.] Update a world book entry's metadata (key array, comment, position, etc.). For content edits use the edit tool. Pass only fields to change in `patch`.",
+  description: `Updates metadata fields of a world book entry atomically.
+
+Usage:
+- Path-based \`edit\` / \`rewrite\` only address \`wb/<id>/content\` and \`wb/<id>/comment\`. Metadata goes through here: \`key\` array, \`keysecondary\`, \`priority\`, \`disabled\`, \`constant\`, \`position\`, \`depth\`, \`role\`, \`selective\`, \`selectiveLogic\`.
+- Pass only the fields to change in \`patch\`.
+- For content edits prefer \`edit\` / \`rewrite\`.`,
   inputSchema,
   jsonSchema: {
     type: "object",
