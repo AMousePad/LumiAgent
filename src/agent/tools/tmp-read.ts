@@ -13,7 +13,13 @@ const inputSchema = z.object({
 
 export const tmpReadTool = defineTool({
   name: "tmp_read",
-  description: "Read lines from a tmp handle by offset/limit, with line numbers. Use this to pull out specific chunks after locating them via tmp_grep.",
+  description: `Read lines from a tmp handle by offset/limit, with line numbers.
+
+For JSON-shaped spills (\`list\`, \`inspect\`, \`grep\`, \`audit_card_coverage\`, \`dry_run_prompt\`): ALWAYS \`tmp_grep\` first. The body is structured: most lines are braces, commas, and field names. Grepping for the id / key / token you care about returns the few lines you need; full \`tmp_read\` of a JSON spill burns 10-50x more tokens for no extra information.
+
+For prose spills (chat logs, large string leaves), reading by offset/limit is fine. Always pair this tool with \`tmp_stat\` first to learn total_lines before deciding on a range.
+
+Returns: a string body. First line is a metadata header \`[origin=..., total_lines=N, total_chars=M]\` followed by the line-numbered slice. NOT JSON, parse line-by-line.`,
   inputSchema,
   jsonSchema: {
     type: "object",

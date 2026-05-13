@@ -78,7 +78,14 @@ function grepLeaf(
 
 export const grepTool = defineTool({
   name: "grep",
-  description: `Search every editable surface of the character with a regex. Returns per-match: path (ready for \`read\` / \`edit\` / \`inspect\`), surface, label, line number, the matched substring, line preview.
+  description: `Search every editable surface of the character with a regex.
+
+Returns:
+- \`pattern\`, \`flags\`, \`max_matches\`, \`max_hits_per_line\` — echoes of the request, for verification.
+- \`leaves_scanned\` / \`leaves_skipped\` / \`leaves_with_matches\` — coverage counters.
+- \`match_count\`, \`truncated\` — total hits returned, and whether the cap fired.
+- \`hits\` — array of \`{path, surface, surface_label, line, match, preview}\`. \`path\` is a leaf you can pass straight to \`read\` / \`inspect\` / \`edit\`.
+- \`truncated_at\` (only when capped) — \`{path, line, total_lines, leaves_unscanned}\` so you can resume.
 
 THE PRIMARY VERIFICATION TOOL. Use this to confirm cross-references, locate where a string lives, or settle a structural claim (e.g. "does \`lang::1\` actually appear in this script?") before reading or editing. ONE grep call beats a dozen partial reads.
 

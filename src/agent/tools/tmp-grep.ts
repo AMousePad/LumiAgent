@@ -44,7 +44,12 @@ function grepText(text: string, re: RegExp, maxRemaining: number): Array<{ line:
 
 export const tmpGrepTool = defineTool({
   name: "tmp_grep",
-  description: "Regex search inside a tmp handle. Returns line-numbered hits with previews. Use for finding the specific lines you need after a spill, without reading the whole file.",
+  description: `Regex search inside a tmp handle. Use for finding the specific lines you need after a spill, without reading the whole file.
+
+Returns:
+- \`handle\`, \`pattern\`, \`flags\` — request echoes.
+- \`match_count\`, \`truncated\` — total hits returned, and whether the cap fired.
+- \`hits\` — array of \`{line, match, preview}\`. \`line\` is 1-indexed against the tmp file, \`preview\` is the line trimmed to ~150 chars.`,
   inputSchema,
   jsonSchema: {
     type: "object",

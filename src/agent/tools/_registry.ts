@@ -2,6 +2,8 @@ import { ToolRegistry } from "./_framework";
 
 import { applyGlossaryTool } from "./apply-glossary";
 import { askUserQuestionTool } from "./ask-user-question";
+import { assetDeleteTool } from "./asset-delete";
+import { assetRenameTool } from "./asset-rename";
 import { auditCardCoverageTool } from "./audit-card-coverage";
 import { chatStatsTool } from "./chat-stats";
 import { countCjkCharsTool } from "./count-cjk-chars";
@@ -35,11 +37,16 @@ import { inspectTool } from "./inspect";
 import { listTool } from "./list";
 import { rewriteTool } from "./rewrite";
 import { setTool } from "./set";
+import { setChatVariableTool } from "./set-chat-variable";
+import { setDefaultVariablesTextTool } from "./set-default-variables-text";
+import { setToggleTool } from "./set-toggle";
 import { listChatMessagesTool } from "./list-chat-messages";
 import { listChatsForCharacterTool } from "./list-chats-for-character";
 import { listExternalTool } from "./list-external";
 import { listSessionEditsTool } from "./list-session-edits";
 import { markToolResultsTool } from "./mark-tool-results";
+import { moduleAttachTool } from "./module-attach";
+import { moduleDetachTool } from "./module-detach";
 import { randomPickTool } from "./random-pick";
 import { readTool } from "./read";
 import { readChatMessagesTool } from "./read-chat-messages";
@@ -88,8 +95,12 @@ export const registry = new ToolRegistry();
 // Their full schemas are fetched on demand via `tool_search`. Add a name
 // here to defer. Remove to make a tool always-loaded. tool_search itself
 // is never deferred (the model needs it to discover the rest).
+// A tool belongs here only if it's GENUINELY RARE during a normal card-edit
+// session. Anything the agent reaches for as a reflex (authoring, randomising,
+// the core writes) must stay loaded — paying a tool_search round-trip every
+// time defeats the purpose.
 const DEFERRED_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
-  // Lumiverse-state inspectors (keep dry_run_prompt as the anchor)
+  // Lumiverse-state inspectors. Mostly diagnostic; dry_run_prompt stays the anchor.
   "count_tokens", "resolve_macros",
   "list_variables", "read_variable",
   "list_activated_world_info", "list_active_regex_scripts", "list_chat_memories",
@@ -97,20 +108,21 @@ const DEFERRED_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   "list_databanks", "read_databank", "list_databank_documents", "read_databank_document",
   "list_connections", "read_connection",
   "get_active_chat", "get_user_info", "get_lumiverse_version",
-  // Chat reading (niche during card editing)
+  // Chat reading is niche unless the user pins a chat; on a pin the agent
+  // discovers these via the chat section in the system prompt.
   "chat_stats", "list_chat_messages", "grep_chat_messages",
   "list_chats_for_character", "read_chat_messages",
-  // Custom tools authoring (custom_tool_run stays loaded)
+  // Custom-tool authoring. custom_tool_run stays loaded; saved recipes are rare.
   "custom_tool_save", "custom_tool_list", "custom_tool_delete",
-  // Random + niche utilities
-  "random_pick", "roll_dice",
-  "mark_tool_results", "count_cjk_chars", "test_regex",
-  // Bulk char-card mutators
-  "create_alternate_greeting", "create_regex_script", "create_world_book_entry",
-  "delete_alternate_greeting", "delete_regex_script", "delete_world_book_entry",
-  "update_character",
-  // Mid-task user prompt, rare. Defer.
+  // Genuinely-niche utilities.
+  "roll_dice", "mark_tool_results", "count_cjk_chars", "test_regex",
+  // Mid-task user prompt, rare.
   "ask_user_question",
+  // LumiRealm-specific mutations. Each is rare per session; deferred until
+  // the agent confirms the user is on a LumiRealm-imported card / module.
+  "asset_rename", "asset_delete",
+  "module_attach", "module_detach",
+  "set_toggle", "set_chat_variable", "set_default_variables_text",
 ]);
 
 export function isDeferredTool(name: string): boolean {
@@ -193,6 +205,8 @@ export function maxResultSizeCharsFor(name: string): number | null {
 
 registry.register(applyGlossaryTool);
 registry.register(askUserQuestionTool);
+registry.register(assetDeleteTool);
+registry.register(assetRenameTool);
 registry.register(auditCardCoverageTool);
 registry.register(readTool);
 registry.register(editTool);
@@ -232,11 +246,16 @@ registry.register(listChatsForCharacterTool);
 registry.register(listExternalTool);
 registry.register(listSessionEditsTool);
 registry.register(markToolResultsTool);
+registry.register(moduleAttachTool);
+registry.register(moduleDetachTool);
 registry.register(randomPickTool);
 registry.register(readChatMessagesTool);
 registry.register(readExternalTool);
 registry.register(revertSessionEditsTool);
 registry.register(rollDiceTool);
+registry.register(setChatVariableTool);
+registry.register(setDefaultVariablesTextTool);
+registry.register(setToggleTool);
 registry.register(squashSessionEditsTool);
 registry.register(surveyCjkTool);
 registry.register(testRegexTool);

@@ -87,6 +87,12 @@ export interface PersistedSession {
   // user via manual UI. Resolves at auto-free time, ahead of the tool's
   // defaultSensitivity. Sparse, keyed by call_id.
   sensitivityOverrides?: Record<string, "sensitive" | "insensitive">;
+  // Snapshot of workspace/agent/agent.md taken when this session's first
+  // system prompt was built. Frozen for the life of the session so mid-chat
+  // edits to the file don't invalidate the prompt cache. `null` means the
+  // snapshot was empty/missing; `undefined` means it hasn't been captured
+  // yet (legacy sessions, or pending sessions whose first send hasn't run).
+  frozenAgentNotes?: string | null;
 }
 
 function path(sessionId: string): string {

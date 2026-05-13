@@ -14,7 +14,12 @@ const inputSchema = z.object({
 interface ListEntry {
   path: string;
   type: string;
+  // `size` means different things per type and reading it as chars when it's
+  // an entry count is the kind of bug that costs sessions. For container-type
+  // rows (world books) emit `entries` instead so the unit is on the field
+  // name. Leaf-type rows (wb_entry, string, etc.) keep `size` (chars).
   size?: number;
+  entries?: number;
   label?: string;
 }
 
@@ -83,7 +88,7 @@ async function listWorldBooks(ctx: ToolCtx, maxEntries: number, includeUnattache
     const wb = await ctx.spindle.world_books.get(wbId, ctx.userId);
     if (!wb) continue;
     const meta = await ctx.spindle.world_books.entries.list(wbId, { limit: 1, userId: ctx.userId });
-    const entry: ListEntry = { path: `wb/${wbId}`, type: "world_book", label: wb.name, size: meta.total };
+    const entry: ListEntry = { path: `wb/${wbId}`, type: "world_book", label: wb.name, entries: meta.total };
     if (includeUnattached) (entry as ListEntry & { attached: boolean }).attached = attached.has(wbId);
     out.push(entry);
   }
@@ -147,15 +152,22 @@ export const listTool = defineTool({
   description: `Directory-style listing for any structural path.
 
 Path forms:
-- (empty) or 'char'                  the character's top-level shape (which fields exist, sizes)
-- 'char/alternate_greetings'         all greetings with sizes
+- (empty) or 'char'                  the character's top-level shape
+- 'char/alternate_greetings'         all greetings
 - 'char/extensions'                  top-level keys of extensions
 - 'char/extensions/<dotted>'         keys/indices under that subtree (recurses up to max_depth)
 - 'rx'                               all character-scoped regex scripts
 - 'wb'                               all attached world books
 - 'wb/<bookId>'                      all entries in a world book
 
-Returns each item with a path. Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole via \`inspect\`; to \`read\` / \`edit\` a string leaf, append the field name (\`rx/<scriptId>/find_regex\` or \`/replace_string\`; \`wb/<entryId>/content\` or \`/comment\`). Leaf paths (\`char/<field>\`, \`char/alternate_greetings/<idx>\`, \`char/extensions/<dotted>\`) are directly read/editable.`,
+Each returned row carries:
+- \`path\`     — pass straight to \`read\` / \`inspect\` / \`edit\`.
+- \`type\`     — one of: \`string\`, \`array\`, \`object\`, \`regex_script\`, \`world_book\`, \`wb_entry\`, etc.
+- \`label\`    — human name when there is one (regex script name, world book name, entry comment).
+- \`size\`     — for string leaves: character count. For arrays/objects: child count. For \`wb_entry\`: content character count.
+- \`entries\`  — ONLY on \`world_book\` rows: total entry count in the book. Read this, NOT \`size\`, to gauge book volume.
+
+Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole via \`inspect\`; to \`read\` / \`edit\` a string leaf, append the field name (\`rx/<scriptId>/find_regex\` or \`/replace_string\`; \`wb/<entryId>/content\` or \`/comment\`). Leaf paths (\`char/<field>\`, \`char/alternate_greetings/<idx>\`, \`char/extensions/<dotted>\`) are directly read/editable.`,
   inputSchema,
   jsonSchema: {
     type: "object",

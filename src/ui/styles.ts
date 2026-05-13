@@ -181,19 +181,9 @@ ${LOADERS_CSS}
 }
 .la-icon-btn svg { display: block; }
 
-/* Chat-pin button: subtle by default, primary-tinted when a chat is pinned. */
+/* Chat-pin button: the icon glyph (pin / pin-off) carries the pinned state. */
 .la-chat-pin-btn { color: var(--lumiverse-text-muted); }
 .la-chat-pin-btn:hover { color: var(--lumiverse-text); }
-.la-chat-pin-btn.has-pinned {
-  color: var(--lumiverse-text);
-  background: var(--lumiverse-primary);
-  border-color: var(--lumiverse-primary);
-}
-.la-chat-pin-btn.has-pinned:hover {
-  background: var(--lumiverse-primary-hover);
-  border-color: var(--lumiverse-primary-hover);
-  color: var(--lumiverse-text);
-}
 
 .la-modal-note {
   margin: 0 0 8px;
@@ -249,7 +239,17 @@ ${LOADERS_CSS}
 }
 
 /* Agent settings modal */
-.la-agent-settings { display: flex; flex-direction: column; gap: 6px; }
+.la-agent-settings {
+  display: flex; flex-direction: column; gap: 6px;
+  /* Breathing room from the host modal's edges. Host adds its own header
+     padding; this is the body inset. */
+  padding: 4px 18px 4px 18px;
+}
+.la-settings-divider {
+  border: none;
+  border-top: 1px solid var(--lumiverse-border);
+  margin: 18px 0 10px;
+}
 .la-settings-section-head {
   display: flex; align-items: center; justify-content: space-between;
   margin-top: 6px;
@@ -466,6 +466,38 @@ ${LOADERS_CSS}
 }
 
 .la-msg-block + .la-msg-block { margin-top: 10px; }
+
+/* Markdown tables inside assistant messages. Wrapped in horizontal scroll
+   so wide tables don't overflow the bubble. */
+.la-msg-bubble table {
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 13px;
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+}
+.la-msg-bubble table th, .la-msg-bubble table td {
+  border: 1px solid var(--lumiverse-border);
+  padding: 5px 9px;
+  text-align: left;
+  vertical-align: top;
+}
+.la-msg-bubble table th {
+  background: var(--lumiverse-bg-hover);
+  font-weight: 600;
+}
+.la-msg-bubble table th[align="center"], .la-msg-bubble table td[align="center"] { text-align: center; }
+.la-msg-bubble table th[align="right"],  .la-msg-bubble table td[align="right"]  { text-align: right; }
+.la-msg-bubble table tbody tr:nth-child(even) { background: var(--lumiverse-bg); }
+/* GFM task-list marker (☐ / ☑). Inline-aligned with text, slightly muted
+   when unchecked so the eye reads the row content first. */
+.la-msg-bubble .la-task-mark {
+  display: inline-block;
+  width: 1.1em;
+  text-align: center;
+  color: var(--lumiverse-text-muted);
+}
 
 /* Message-level actions (Edit / Regenerate) — fade in on hover. */
 .la-msg-actions {
@@ -695,13 +727,14 @@ ${LOADERS_CSS}
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   flex: 1; min-width: 0;
 }
-.la-tool-status {
-  font-size: 10px;
-  color: var(--lumiverse-text-muted);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-.la-tool-status.is-error { color: var(--lumiverse-danger); }
+/* Activity (verb + target) grows to take all slack so the sens / free cluster
+   gets pushed to the right edge of the row. */
+.la-tool-activity { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Caret color carries the run-state: muted while running, primary on success,
+   danger on error. Theme tokens, so it adapts per theme. Open/closed shape is
+   the same arrow toggled by the click handler. */
+.la-tool-card.is-done .la-tool-caret { color: var(--lumiverse-primary); }
+.la-tool-card.is-error .la-tool-caret { color: var(--lumiverse-danger); }
 .la-tool-sens {
   font-size: 9px;
   font-weight: 600;
@@ -1294,6 +1327,13 @@ ${LOADERS_CSS}
   background: var(--lumiverse-fill-subtle);
   border-radius: var(--lumiverse-radius-sm);
 }
+/* Info-flavoured note (e.g. the agent-notes snapshot warning). Adds a thin
+   primary-tinted left border so it reads as guidance rather than a warning. */
+.la-ws-pane-note-info {
+  border-left: 3px solid var(--lumiverse-primary-muted);
+  color: var(--lumiverse-text);
+  margin-bottom: 10px;
+}
 .la-ws-preview {
   flex: 1; min-height: 0;
   background: var(--lumiverse-bg-dark);
@@ -1663,6 +1703,16 @@ ${LOADERS_CSS}
 }
 .la-session-item-delete:disabled { opacity: 0.4; cursor: not-allowed; }
 .la-session-item-delete svg { width: 14px; height: 14px; display: block; }
+/* "Currently active" marker on rows in the Pin / Sessions modals. Sits
+   between the row body and the action buttons. Inherits row text color
+   per the user's request, so no theme-specific tint. */
+.la-session-item-tick {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px;
+  flex-shrink: 0;
+  color: var(--lumiverse-text-muted);
+}
+.la-session-item-tick svg { width: 16px; height: 16px; display: block; }
 
 @media (max-width: 640px) {
   .la-header { padding: 8px 10px; }

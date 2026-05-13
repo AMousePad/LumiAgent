@@ -36,7 +36,14 @@ Rules:
 3. Automatic recovery: when byte-exact match fails, falls through NFC / NFD / strip-invisible / quote-asciify / whitespace-flex variants. Result includes \`recovered_via\` on success.
 4. Failure stashes the replacement payload as a draft handle the next call can pass via \`replace_handle\`.
 
-Path grammar: same as \`read\`. Examples: 'char/first_mes', 'rx/<id>/replace_string', 'wb/<id>/comment', 'char/extensions/lumirealm.payload.background_html'.`,
+Path grammar: same as \`read\`. Examples: 'char/first_mes', 'rx/<id>/replace_string', 'wb/<id>/comment', 'char/extensions/lumirealm.payload.background_html'.
+
+Returns:
+- \`path\`         — canonical leaf path that was written.
+- \`replacements\` — how many occurrences were replaced (1 unless replace_all).
+- \`snippet\`      — short context window around the first hit, post-replace.
+- \`patch\`        — \`{additions, deletions, hunks}\` jsdiff-structured for the UI.
+- \`recovered_via\` (only on fallback) — name of the recovery strategy that matched. Leading WARNING line precedes the JSON.`,
   inputSchema,
   jsonSchema: {
     type: "object",

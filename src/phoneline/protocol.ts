@@ -90,6 +90,58 @@ export interface GrepItemsRequest extends BaseRequest {
   readonly head?: number;
 }
 
+// Mutation ops. Each wraps a corresponding WS handler the extension exposes
+// to its own UI. Extensions can omit any mutation op (`unknown op` falls back
+// to a no-op error on the caller).
+export type AssetSource =
+  | { readonly kind: "character"; readonly characterId: string }
+  | { readonly kind: "module"; readonly moduleId: string };
+
+export interface AssetMutateRequest extends BaseRequest {
+  readonly op: "asset_mutate";
+  readonly source: AssetSource;
+  readonly action:
+    | { readonly kind: "rename"; readonly oldName: string; readonly newName: string }
+    | { readonly kind: "delete"; readonly assetName: string };
+}
+
+export interface AttachModuleRequest extends BaseRequest {
+  readonly op: "attach_module";
+  readonly characterId: string;
+  readonly moduleId: string;
+}
+
+export interface DetachModuleRequest extends BaseRequest {
+  readonly op: "detach_module";
+  readonly characterId: string;
+  readonly moduleId: string;
+}
+
+export interface SetToggleRequest extends BaseRequest {
+  readonly op: "set_toggle";
+  readonly chatId: string;
+  readonly key: string;
+  readonly value: string | null;
+}
+
+export interface SetChatVariableRequest extends BaseRequest {
+  readonly op: "set_chat_variable";
+  readonly chatId: string;
+  readonly key: string;
+  readonly value: string | null;
+}
+
+export interface SetDefaultVariablesTextRequest extends BaseRequest {
+  readonly op: "set_default_variables_text";
+  readonly characterId: string;
+  readonly text: string | null;
+}
+
+export interface MutationResponse {
+  readonly ok: boolean;
+  readonly error?: string;
+}
+
 export type PhoneLineRequest =
   | DescribeRequest
   | SystemPromptRequest
@@ -97,7 +149,13 @@ export type PhoneLineRequest =
   | ListItemsRequest
   | ReadItemRequest
   | WriteFieldRequest
-  | GrepItemsRequest;
+  | GrepItemsRequest
+  | AssetMutateRequest
+  | AttachModuleRequest
+  | DetachModuleRequest
+  | SetToggleRequest
+  | SetChatVariableRequest
+  | SetDefaultVariablesTextRequest;
 
 export interface SystemPromptResponse {
   readonly text: string | null;

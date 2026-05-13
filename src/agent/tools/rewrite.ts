@@ -25,9 +25,12 @@ export const rewriteTool = defineTool({
 - Find/replace keeps failing on stylized text (zalgo, hand-tuned diacritics, NFC drift).
 - The replacement is structurally different enough that finding a stable anchor is futile.
 
-Requires a recent \`read\` on the SAME path. Returns the structured diff like \`edit\` does.
+Requires a recent \`read\` on the SAME path. Pass \`new_content\` for a literal payload, or \`new_content_handle\` to reuse a draft a prior failed call stashed for you.
 
-Pass \`new_content\` for a literal payload, or \`new_content_handle\` to reuse a draft a prior failed call stashed for you.`,
+Returns:
+- \`path\`         — canonical leaf path that was written.
+- \`before_chars\`, \`after_chars\` — body size before vs after.
+- \`patch\`        — \`{additions, deletions, hunks}\` jsdiff-structured for the UI.`,
   inputSchema,
   jsonSchema: {
     type: "object",

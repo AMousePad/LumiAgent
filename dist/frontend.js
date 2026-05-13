@@ -950,19 +950,9 @@ ${LOADERS_CSS}
 }
 .la-icon-btn svg { display: block; }
 
-/* Chat-pin button: subtle by default, primary-tinted when a chat is pinned. */
+/* Chat-pin button: the icon glyph (pin / pin-off) carries the pinned state. */
 .la-chat-pin-btn { color: var(--lumiverse-text-muted); }
 .la-chat-pin-btn:hover { color: var(--lumiverse-text); }
-.la-chat-pin-btn.has-pinned {
-  color: var(--lumiverse-text);
-  background: var(--lumiverse-primary);
-  border-color: var(--lumiverse-primary);
-}
-.la-chat-pin-btn.has-pinned:hover {
-  background: var(--lumiverse-primary-hover);
-  border-color: var(--lumiverse-primary-hover);
-  color: var(--lumiverse-text);
-}
 
 .la-modal-note {
   margin: 0 0 8px;
@@ -1018,7 +1008,17 @@ ${LOADERS_CSS}
 }
 
 /* Agent settings modal */
-.la-agent-settings { display: flex; flex-direction: column; gap: 6px; }
+.la-agent-settings {
+  display: flex; flex-direction: column; gap: 6px;
+  /* Breathing room from the host modal's edges. Host adds its own header
+     padding; this is the body inset. */
+  padding: 4px 18px 4px 18px;
+}
+.la-settings-divider {
+  border: none;
+  border-top: 1px solid var(--lumiverse-border);
+  margin: 18px 0 10px;
+}
 .la-settings-section-head {
   display: flex; align-items: center; justify-content: space-between;
   margin-top: 6px;
@@ -1235,6 +1235,38 @@ ${LOADERS_CSS}
 }
 
 .la-msg-block + .la-msg-block { margin-top: 10px; }
+
+/* Markdown tables inside assistant messages. Wrapped in horizontal scroll
+   so wide tables don't overflow the bubble. */
+.la-msg-bubble table {
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 13px;
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+}
+.la-msg-bubble table th, .la-msg-bubble table td {
+  border: 1px solid var(--lumiverse-border);
+  padding: 5px 9px;
+  text-align: left;
+  vertical-align: top;
+}
+.la-msg-bubble table th {
+  background: var(--lumiverse-bg-hover);
+  font-weight: 600;
+}
+.la-msg-bubble table th[align="center"], .la-msg-bubble table td[align="center"] { text-align: center; }
+.la-msg-bubble table th[align="right"],  .la-msg-bubble table td[align="right"]  { text-align: right; }
+.la-msg-bubble table tbody tr:nth-child(even) { background: var(--lumiverse-bg); }
+/* GFM task-list marker (☐ / ☑). Inline-aligned with text, slightly muted
+   when unchecked so the eye reads the row content first. */
+.la-msg-bubble .la-task-mark {
+  display: inline-block;
+  width: 1.1em;
+  text-align: center;
+  color: var(--lumiverse-text-muted);
+}
 
 /* Message-level actions (Edit / Regenerate) — fade in on hover. */
 .la-msg-actions {
@@ -1464,13 +1496,14 @@ ${LOADERS_CSS}
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   flex: 1; min-width: 0;
 }
-.la-tool-status {
-  font-size: 10px;
-  color: var(--lumiverse-text-muted);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-.la-tool-status.is-error { color: var(--lumiverse-danger); }
+/* Activity (verb + target) grows to take all slack so the sens / free cluster
+   gets pushed to the right edge of the row. */
+.la-tool-activity { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Caret color carries the run-state: muted while running, primary on success,
+   danger on error. Theme tokens, so it adapts per theme. Open/closed shape is
+   the same arrow toggled by the click handler. */
+.la-tool-card.is-done .la-tool-caret { color: var(--lumiverse-primary); }
+.la-tool-card.is-error .la-tool-caret { color: var(--lumiverse-danger); }
 .la-tool-sens {
   font-size: 9px;
   font-weight: 600;
@@ -2063,6 +2096,13 @@ ${LOADERS_CSS}
   background: var(--lumiverse-fill-subtle);
   border-radius: var(--lumiverse-radius-sm);
 }
+/* Info-flavoured note (e.g. the agent-notes snapshot warning). Adds a thin
+   primary-tinted left border so it reads as guidance rather than a warning. */
+.la-ws-pane-note-info {
+  border-left: 3px solid var(--lumiverse-primary-muted);
+  color: var(--lumiverse-text);
+  margin-bottom: 10px;
+}
 .la-ws-preview {
   flex: 1; min-height: 0;
   background: var(--lumiverse-bg-dark);
@@ -2432,6 +2472,16 @@ ${LOADERS_CSS}
 }
 .la-session-item-delete:disabled { opacity: 0.4; cursor: not-allowed; }
 .la-session-item-delete svg { width: 14px; height: 14px; display: block; }
+/* "Currently active" marker on rows in the Pin / Sessions modals. Sits
+   between the row body and the action buttons. Inherits row text color
+   per the user's request, so no theme-specific tint. */
+.la-session-item-tick {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px;
+  flex-shrink: 0;
+  color: var(--lumiverse-text-muted);
+}
+.la-session-item-tick svg { width: 16px; height: 16px; display: block; }
 
 @media (max-width: 640px) {
   .la-header { padding: 8px 10px; }
@@ -2468,7 +2518,13 @@ var ALLOWED_TAGS = new Set([
   "a",
   "img",
   "span",
-  "div"
+  "div",
+  "table",
+  "thead",
+  "tbody",
+  "tr",
+  "th",
+  "td"
 ]);
 var DROP_TAGS = new Set([
   "style",
@@ -2488,8 +2544,12 @@ var ALLOWED_ATTRS_PER_TAG = {
   a: new Set(["href", "title"]),
   img: new Set(["src", "alt", "title"]),
   code: new Set(["class"]),
-  pre: new Set(["class"])
+  pre: new Set(["class"]),
+  th: new Set(["align"]),
+  td: new Set(["align"]),
+  span: new Set(["class"])
 };
+var ALLOWED_CLASS_PREFIXES = new Set(["la-task-mark", "language-"]);
 var ALLOWED_URL_SCHEMES = new Set(["http:", "https:", "mailto:"]);
 function escapeHtml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
@@ -2499,9 +2559,14 @@ var PLACEHOLDER_SUFFIX = " ";
 function inlineMarkdown(input, codeSpans) {
   let out = input;
   out = out.replace(/`([^`\n]+)`/g, (_m, code) => {
-    const key = `${PLACEHOLDER_PREFIX}${codeSpans.size}${PLACEHOLDER_SUFFIX}`;
+    const key = `${PLACEHOLDER_PREFIX}c${codeSpans.size}${PLACEHOLDER_SUFFIX}`;
     codeSpans.set(key, `<code>${escapeHtml(code)}</code>`);
     return key;
+  });
+  out = out.replace(/(^|[^\](\w])(https?:\/\/[^\s<>() ]+[^\s<>().,:;!?\]\) ])/g, (_m, lead, url) => {
+    const key = `${PLACEHOLDER_PREFIX}u${codeSpans.size}${PLACEHOLDER_SUFFIX}`;
+    codeSpans.set(key, `<a href="${escapeHtml(url)}">${escapeHtml(url)}</a>`);
+    return `${lead}${key}`;
   });
   out = escapeHtml(out);
   out = out.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_m, alt, src) => `<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}">`);
@@ -2511,10 +2576,60 @@ function inlineMarkdown(input, codeSpans) {
   out = out.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
   out = out.replace(/(^|\W)_([^_\n]+)_(?=\W|$)/g, "$1<em>$2</em>");
   out = out.replace(/~~([^~\n]+)~~/g, "<del>$1</del>");
+  out = out.replace(/ {2,}\n/g, `<br>
+`);
   for (const [key, html] of codeSpans)
     out = out.split(key).join(html);
   codeSpans.clear();
   return out;
+}
+function parsePipeRow(line) {
+  let trimmed = line.trim();
+  if (!trimmed.includes("|"))
+    return null;
+  if (trimmed.startsWith("|"))
+    trimmed = trimmed.slice(1);
+  if (trimmed.endsWith("|") && !trimmed.endsWith("\\|"))
+    trimmed = trimmed.slice(0, -1);
+  const cells = [];
+  let buf = "";
+  for (let i = 0;i < trimmed.length; i++) {
+    const ch = trimmed[i];
+    if (ch === "\\" && trimmed[i + 1] === "|") {
+      buf += "|";
+      i++;
+      continue;
+    }
+    if (ch === "|") {
+      cells.push(buf.trim());
+      buf = "";
+      continue;
+    }
+    buf += ch;
+  }
+  cells.push(buf.trim());
+  return cells;
+}
+function parseSeparatorRow(line) {
+  const cells = parsePipeRow(line);
+  if (!cells || cells.length === 0)
+    return null;
+  const aligns = [];
+  for (const cell of cells) {
+    if (!/^:?-{3,}:?$/.test(cell) && !/^:?-+:?$/.test(cell))
+      return null;
+    const left = cell.startsWith(":");
+    const right = cell.endsWith(":");
+    if (left && right)
+      aligns.push("center");
+    else if (right)
+      aligns.push("right");
+    else if (left)
+      aligns.push("left");
+    else
+      aligns.push("");
+  }
+  return aligns;
 }
 function blockMarkdownToHtml(input) {
   if (!input)
@@ -2592,21 +2707,114 @@ function blockMarkdownToHtml(input) {
 `), codeSpans)}</blockquote>`);
       continue;
     }
-    const ulMatch = /^(?:[-*+])\s+(.*)$/.exec(trimmed);
-    const olMatch = /^\d+\.\s+(.*)$/.exec(trimmed);
-    if (ulMatch || olMatch) {
-      flushPara();
-      const isOrdered = !!olMatch;
-      const items = [];
-      while (i < lines.length) {
-        const cur = (lines[i] ?? "").trim();
-        const m = isOrdered ? /^\d+\.\s+(.*)$/.exec(cur) : /^(?:[-*+])\s+(.*)$/.exec(cur);
-        if (!m)
-          break;
-        items.push(`<li>${inlineMarkdown(m[1] ?? "", codeSpans)}</li>`);
-        i++;
+    if (trimmed.includes("|") && i + 1 < lines.length) {
+      const headerCells = parsePipeRow(line);
+      const aligns = parseSeparatorRow(lines[i + 1] ?? "");
+      if (headerCells && aligns && headerCells.length > 0 && headerCells.length === aligns.length) {
+        flushPara();
+        const cols = headerCells.length;
+        const rows = [];
+        i += 2;
+        while (i < lines.length) {
+          const t = (lines[i] ?? "").trim();
+          if (t.length === 0)
+            break;
+          const row = parsePipeRow(lines[i] ?? "");
+          if (!row)
+            break;
+          while (row.length < cols)
+            row.push("");
+          rows.push(row.slice(0, cols));
+          i++;
+        }
+        const headHtml = headerCells.map((c, idx) => {
+          const a = aligns[idx];
+          const attr = a ? ` align="${a}"` : "";
+          return `<th${attr}>${inlineMarkdown(c, codeSpans)}</th>`;
+        }).join("");
+        const bodyHtml = rows.map((row) => "<tr>" + row.map((c, idx) => {
+          const a = aligns[idx];
+          const attr = a ? ` align="${a}"` : "";
+          return `<td${attr}>${inlineMarkdown(c, codeSpans)}</td>`;
+        }).join("") + "</tr>").join("");
+        out.push(`<table><thead><tr>${headHtml}</tr></thead><tbody>${bodyHtml}</tbody></table>`);
+        continue;
       }
-      out.push(`<${isOrdered ? "ol" : "ul"}>${items.join("")}</${isOrdered ? "ol" : "ul"}>`);
+    }
+    const indentOf = (s) => s.length - s.trimStart().length;
+    const matchListItem = (s) => {
+      const m1 = /^(?:[-*+])\s+(.*)$/.exec(s);
+      if (m1)
+        return { ordered: false, content: m1[1] ?? "" };
+      const m2 = /^\d+\.\s+(.*)$/.exec(s);
+      if (m2)
+        return { ordered: true, content: m2[1] ?? "" };
+      return null;
+    };
+    const renderItemContent = (raw) => {
+      const taskMatch = /^\[([ xX])\]\s+(.*)$/.exec(raw);
+      if (taskMatch) {
+        const checked = taskMatch[1] !== " ";
+        return `<span class="la-task-mark">${checked ? "☑" : "☐"}</span> ${inlineMarkdown(taskMatch[2] ?? "", codeSpans)}`;
+      }
+      return inlineMarkdown(raw, codeSpans);
+    };
+    const isListLine = (s) => matchListItem(s.trimStart()) !== null;
+    if (isListLine(trimmed)) {
+      flushPara();
+      const parseList = (baseIndent) => {
+        let j = i;
+        const firstStripped = (lines[j] ?? "").trimStart();
+        const firstMatch = matchListItem(firstStripped);
+        if (!firstMatch)
+          return { html: "", nextIdx: j };
+        const ordered = firstMatch.ordered;
+        const items = [];
+        let currentContent = null;
+        while (j < lines.length) {
+          const ln = lines[j] ?? "";
+          const lnTrim = ln.trim();
+          if (lnTrim.length === 0) {
+            const next = lines[j + 1] ?? "";
+            const nextStripped = next.trimStart();
+            const nextIndent = indentOf(next);
+            if (nextStripped.length > 0 && matchListItem(nextStripped) && nextIndent >= baseIndent) {
+              j++;
+              continue;
+            }
+            break;
+          }
+          const ind = indentOf(ln);
+          const stripped = ln.trimStart();
+          const im = matchListItem(stripped);
+          if (im && ind === baseIndent) {
+            if (currentContent !== null)
+              items.push(currentContent);
+            currentContent = renderItemContent(im.content);
+            j++;
+          } else if (im && ind > baseIndent && currentContent !== null) {
+            const saveI = i;
+            i = j;
+            const sub = parseList(ind);
+            j = sub.nextIdx;
+            i = saveI;
+            currentContent += sub.html;
+          } else if (ind > baseIndent && currentContent !== null && !im) {
+            currentContent += " " + inlineMarkdown(lnTrim, codeSpans);
+            j++;
+          } else {
+            break;
+          }
+        }
+        if (currentContent !== null)
+          items.push(currentContent);
+        const tag = ordered ? "ol" : "ul";
+        return { html: `<${tag}>${items.map((c) => `<li>${c}</li>`).join("")}</${tag}>`, nextIdx: j };
+      };
+      const startIndent = indentOf(line);
+      const result = parseList(startIndent);
+      out.push(result.html);
+      i = result.nextIdx;
       continue;
     }
     para.push(line);
@@ -2653,6 +2861,11 @@ function sanitizeNode(input, target, doc) {
         continue;
       if ((name === "href" || name === "src") && !isAllowedUrl(attr.value))
         continue;
+      if (name === "class") {
+        const ok = attr.value.split(/\s+/).every((c) => ALLOWED_CLASS_PREFIXES.has(c) || [...ALLOWED_CLASS_PREFIXES].some((p) => p.endsWith("-") && c.startsWith(p)));
+        if (!ok)
+          continue;
+      }
       cleanEl.setAttribute(name, attr.value);
     }
   }
@@ -3548,6 +3761,7 @@ var ICON_TRASH = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" ar
 var ICON_DOWNLOAD = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
 var ICON_PIN = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>`;
 var ICON_PIN_OFF = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="M12 17v5"/><path d="M15 9.34V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H7.89"/><path d="m2 2 20 20"/><path d="M9 9v1.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h11"/></svg>`;
+var ICON_TICK = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/></svg>`;
 var ICON_NEW = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>`;
 var ICON_SESSIONS = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"/><path d="M7.5 9.5c0 .687.265 1.383.697 1.844l3.009 3.264a1.14 1.14 0 0 0 .407.314 1 1 0 0 0 .783-.004 1.14 1.14 0 0 0 .398-.31l3.008-3.264A2.77 2.77 0 0 0 16.5 9.5 2.5 2.5 0 0 0 12 8a2.5 2.5 0 0 0-4.5 1.5"/></svg>`;
 var ICON_SETTINGS = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="m10 16 1.5 1.5"/><path d="m14 8-1.5-1.5"/><path d="M15 2c-1.798 1.998-2.518 3.995-2.807 5.993"/><path d="m16.5 10.5 1 1"/><path d="m17 6-2.891-2.891"/><path d="M2 15c6.667-6 13.333 0 20-6"/><path d="m20 9 .891.891"/><path d="M3.109 14.109 4 15"/><path d="m6.5 12.5 1 1"/><path d="m7 18 2.891 2.891"/><path d="M9 22c1.798-1.998 2.518-3.995 2.807-5.993"/></svg>`;
@@ -3795,8 +4009,11 @@ function describePath(path) {
     return "?";
   return describePathLeaf(path) ?? describePathContainer(path) ?? path;
 }
+function humanizeSurfaceId(sid) {
+  return sid ? sid.replace(/_/g, " ") : "?";
+}
 function describeExternalTarget(surfaceId, itemId, field) {
-  const sid = surfaceId ?? "?";
+  const sid = humanizeSurfaceId(surfaceId);
   const iid = itemId ? shortId(itemId) : "?";
   const f = field ? `.${field}` : "";
   return `${sid}/${iid}${f}`;
@@ -3864,7 +4081,7 @@ function describeToolActivity(name, args) {
       return { kind: "read", verb: "Counting", target: "CJK chars" };
     case "list_external": {
       const sid = s("surface_id");
-      return { kind: "read", verb: "Listing", target: sid ? `${sid} items` : "external items" };
+      return { kind: "read", verb: "Listing", target: sid ? `${humanizeSurfaceId(sid)} items` : "external items" };
     }
     case "read_external":
       return { kind: "read", verb: "Reading", target: describeExternalTarget(s("surface_id"), s("item_id"), s("field")) };
@@ -3874,7 +4091,7 @@ function describeToolActivity(name, args) {
       return { kind: "write", verb: "Updating", target: describeExternalTarget(s("surface_id"), s("item_id"), s("field")) };
     case "grep_external": {
       const p = s("pattern");
-      const sid = s("surface_id") ?? "?";
+      const sid = humanizeSurfaceId(s("surface_id"));
       return { kind: "search", verb: "Searching", target: p ? `${sid} for ${JSON.stringify(truncate(p, 30))}` : sid };
     }
     case "list_session_edits": {
@@ -3943,7 +4160,6 @@ function buildToolCard(callId, name, args, deps) {
   activity.append(verbSpan, targetSpan);
   const sensBadge = el2("span", "la-tool-sens");
   sensBadge.style.display = "none";
-  const status = el2("span", "la-tool-status", "running");
   const freeBtn = el2("button", "la-tool-free-btn", "free");
   freeBtn.type = "button";
   freeBtn.title = "Replace this result with a stub to save context. The model loses access to its content.";
@@ -3975,7 +4191,7 @@ function buildToolCard(callId, name, args, deps) {
     freeBtn.textContent = "Confirm?";
     confirmTimer = setTimeout(resetConfirm, 4000);
   });
-  head.append(caret, spinner, activity, sensBadge, freeBtn, status);
+  head.append(caret, spinner, activity, sensBadge, freeBtn);
   const body = el2("div", "la-tool-body");
   const argsSection = el2("div", "la-tool-body-section");
   argsSection.append(el2("div", "la-tool-body-section-label", `${name} args`), Object.assign(el2("pre"), { textContent: JSON.stringify(args, null, 2) }));
@@ -4272,12 +4488,6 @@ function renderStaticAssistant(msg, deps, allEdits) {
       const card = buildToolCard(block.call_id, block.name, block.args, deps);
       card.classList.remove("is-running");
       card.classList.add(block.is_error ? "is-error" : "is-done");
-      const status = card.querySelector(".la-tool-status");
-      if (status) {
-        status.textContent = block.is_error ? "error" : "done";
-        if (block.is_error)
-          status.classList.add("is-error");
-      }
       const resultPre = card.querySelector(".la-tool-body-result pre");
       if (resultPre)
         resultPre.textContent = block.result ?? "";
@@ -4450,14 +4660,6 @@ function createStreamingAssistant(deps) {
         return;
       card.classList.remove("is-running");
       card.classList.add(isError ? "is-error" : "is-done");
-      const status = card.querySelector(".la-tool-status");
-      if (status) {
-        status.textContent = isError ? "error" : "done";
-        if (isError)
-          status.classList.add("is-error");
-        else
-          status.classList.remove("is-error");
-      }
       const resultPre = card.querySelector(".la-tool-body-result pre");
       if (resultPre)
         resultPre.textContent = result;
@@ -6213,6 +6415,9 @@ This lives under custom_tools/. The agent's saved tool recipes are stored here �
     });
     actions.appendChild(del);
     pane.appendChild(actions);
+    if (selectedPath === "agent/agent.md") {
+      pane.appendChild(el4("div", "la-ws-pane-note la-ws-pane-note-info", "Saved edits apply to new chats automatically. To pick them up in the current chat, ask the agent to re-read this file."));
+    }
     if (!selectedIsDirectory) {
       const kind = previewKind(selectedPath);
       if (kind === "binary") {
@@ -7005,20 +7210,7 @@ function mountDrawer(ctx) {
     },
     {
       label: "Translate the UI in this card",
-      send: `Translate the user-visible labels inside this card's UI surfaces to English. UI lives in THREE places on Risu/LumiRealm cards: regex scripts (replace_string content), Lua scripts (paths under \`char/extensions/lumirealm.payload.lua_scripts\`, often the bigger source — button labels, dialog choices, status-panel text), AND background HTML (\`char/extensions/lumirealm.payload.background_html_source\` if present, else \`char/extensions/lumirealm.payload.background_html\`). Cover all three.
-
-CRITICAL SAFETY RULES — read these before touching anything:
-
-1. NEVER modify regex find_regex patterns. Those are matched against LLM output; changing the pattern breaks the rule.
-2. In regex scripts: only edit replace_string content, and only the user-visible HTML/text inside it. Do NOT touch capture group refs ($1, $&, $<name>), HTML attribute names, CSS class names, JSON keys, or regex syntax characters.
-3. If a label is inside a structural tag (e.g. <div class="...">Label</div>), translate ONLY the inner text — leave the tag and its attributes alone.
-4. In Lua scripts: edit ONLY content inside quoted string literals (\`"..."\`, \`'...'\`, \`[[...]]\`). NEVER touch code logic — opcodes, function/variable names, table keys, operators, control flow, comments. Use \`set({path, value})\` to write back the whole \`lumirealm.payload.lua_scripts\` array.
-5. In background HTML: edit ONLY user-visible inner text. NEVER touch tag names, attribute names (id/class/data-*/style/etc.), attribute values that drive behaviour or styling, CSS selectors, CSS property names, JS code inside <script> blocks, macro tokens like {{user}} / {{char}} / {{getvar::x}}, or LumiRealm marker comments. Use \`edit({path, find, replace})\` for find/replace, or \`set\` for wholesale.
-6. After translating each regex script's replace_string, call test_regex with the ORIGINAL find_regex and a sample of the kind of output the LLM would emit, and confirm the regex still matches with the same named capture groups present. If it doesn't, the structure was disturbed — revert and try a smaller find/replace.
-7. Walk surfaces in order; for each item, read first, plan the edits, then apply.
-8. SKIP any label that is already in English or that already has an English counterpart in the same template (a bilingual label, an English fallback in a parenthetical, an English-by-default placeholder). Only translate labels with no English form anywhere nearby. Respects the author's deliberate English wording and keeps the diff small.
-
-Start by calling survey_cjk with scopes=['regex_scripts','extensions'] — that single call covers regex scripts, lua_scripts, AND background_html in one pass. Then \`list({path: 'rx'})\` and \`inspect\` the big paths under \`char/extensions/lumirealm.payload.*\` (they can be huge), and only read the items that actually contain CJK to translate. Finally, before beginning, ask me the components that need translating, and whether we've missed anything at the end.`
+      send: "Translate every user-visible Korean label in this card to English.\n\nRun `survey_cjk({scopes:['regex_scripts','extensions'], top_n:200, min_length:1})` first — its `sample_surfaces` is the truth about where Korean actually lives. Don't list paths from memory; walk what the survey reports. For each surface, the LumiRealm guidance already loaded in your context tells you which path is the authoring layer (and which paths are derived / regenerated / read-only).\n\nSkip:\n- regex `find_regex` patterns (never edit — they match LLM output)\n- anything already in English or sitting next to an English form\n- map keys / state names / internal identifiers that aren't user-visible\n\nAfter each regex `replace_string` edit, `test_regex` with the original `find_regex` against representative LLM output. Before writing anything, summarise what survey_cjk found and ask which surfaces I want translated."
     },
     {
       label: "Add/update a lorebook entry on this chat's characters",
@@ -7709,12 +7901,17 @@ Revert those edits to the character now, or leave them applied?`;
       }
       for (const c of state.chatsForCharacter) {
         const row = el9("div", `la-session-item ${c.isPinned ? "is-active" : ""}`);
-        const main = el9("div");
-        const title = el9("div");
-        title.textContent = c.name + (c.isActive ? "  (currently open)" : "");
-        main.append(title);
+        const main = el9("div", "la-session-item-main");
+        main.append(Object.assign(el9("div"), { textContent: c.name + (c.isActive ? "  (currently open)" : "") }));
         main.append(el9("div", "la-session-item-meta", `updated ${new Date(c.updatedAt).toLocaleString()}`));
         row.appendChild(main);
+        if (c.isPinned) {
+          const tick = el9("span", "la-session-item-tick");
+          tick.title = "Currently pinned";
+          tick.setAttribute("aria-label", "Currently pinned");
+          tick.innerHTML = ICON_TICK;
+          row.appendChild(tick);
+        }
         row.addEventListener("click", () => {
           pinChatOrQueue(c.id);
           handle.dismiss();
@@ -7757,7 +7954,8 @@ Revert those edits to the character now, or leave them applied?`;
         return;
       }
       for (const s of state.sessions) {
-        const row = el9("div", `la-session-item ${s.sessionId === state.sessionId ? "is-active" : ""}`);
+        const isCurrent = s.sessionId === state.sessionId;
+        const row = el9("div", `la-session-item ${isCurrent ? "is-active" : ""}`);
         const main = el9("div", "la-session-item-main");
         main.append(el9("div", undefined, `${s.characterName}`));
         main.append(el9("div", "la-session-item-meta", `${s.messageCount} msg . ${s.editCount} edits${s.revertedEditCount ? ` (${s.revertedEditCount} reverted)` : ""} . ${new Date(s.lastActivityAt).toLocaleString()}`));
@@ -7783,7 +7981,15 @@ Revert those edits to the character now, or leave them applied?`;
             sendBackend({ type: "delete_session", sessionId: s.sessionId });
           }
         });
-        row.append(main, exportBtn, delBtn);
+        row.append(main);
+        if (isCurrent) {
+          const tick = el9("span", "la-session-item-tick");
+          tick.title = "Active session";
+          tick.setAttribute("aria-label", "Active session");
+          tick.innerHTML = ICON_TICK;
+          row.appendChild(tick);
+        }
+        row.append(exportBtn, delBtn);
         row.addEventListener("click", () => {
           sendBackend({ type: "load_session", sessionId: s.sessionId });
           handle.dismiss();
@@ -7845,7 +8051,9 @@ Revert those edits to the character now, or leave them applied?`;
   };
   const openAgentSettingsModal = () => {
     sendBackend({ type: "get_settings" });
-    const handle = ctx.ui.showModal({ title: "Agent settings", width: 1360, maxHeight: 1080 });
+    const viewportW = typeof window !== "undefined" ? window.innerWidth : 1360;
+    const modalWidth = Math.max(560, Math.min(Math.floor(viewportW * 0.9), 1360));
+    const handle = ctx.ui.showModal({ title: "Agent settings", width: modalWidth, maxHeight: 1080 });
     const wrap = el9("div", "la-agent-settings");
     wrap.appendChild(el9("p", "la-modal-note", "Customize how LumiAgent behaves. Saved per-user; applies to your next message."));
     wrap.appendChild(el9("label", "la-settings-label", "Persona"));
@@ -7900,6 +8108,7 @@ Revert those edits to the character now, or leave them applied?`;
     }
     jbPlacementRow.appendChild(jbPlacement);
     wrap.appendChild(jbPlacementRow);
+    wrap.appendChild(el9("hr", "la-settings-divider"));
     wrap.appendChild(el9("label", "la-settings-label", "Agent notes"));
     wrap.appendChild(el9("div", "la-settings-hint", "Long-term memory file the agent reads at the start of every session. Anything you put there is preloaded into context."));
     const notesRow = el9("div", "la-settings-row");
@@ -7910,6 +8119,7 @@ Revert those edits to the character now, or leave them applied?`;
     });
     notesRow.appendChild(notesBtn);
     wrap.appendChild(notesRow);
+    wrap.appendChild(el9("hr", "la-settings-divider"));
     wrap.appendChild(el9("label", "la-settings-label", "Storage limits"));
     wrap.appendChild(el9("div", "la-settings-hint", "Per-user storage cap for the workspace."));
     const wsCapRow = el9("div", "la-settings-row");
@@ -7932,6 +8142,7 @@ Revert those edits to the character now, or leave them applied?`;
     toolCapInput.step = "1";
     toolCapRow.appendChild(toolCapInput);
     wrap.appendChild(toolCapRow);
+    wrap.appendChild(el9("hr", "la-settings-divider"));
     wrap.appendChild(el9("label", "la-settings-label", "Prompt caching"));
     wrap.appendChild(el9("div", "la-settings-hint", "Marks parts of every request as cacheable so supported providers (Anthropic, OpenAI, Bedrock, Gemini) charge a fraction on cache reads. Full mode caches two turns behind the latest message. System only caches the system prompt. Off attaches no markers."));
     const cacheModeRow = el9("div", "la-settings-row");
@@ -7970,6 +8181,7 @@ Revert those edits to the character now, or leave them applied?`;
     parallelToolsRow.appendChild(parallelToolsInput);
     wrap.appendChild(parallelToolsRow);
     wrap.appendChild(el9("div", "la-settings-hint", "Leave ON for Anthropic, OpenAI, Google, most OpenRouter routes. Turn OFF for providers that error on parallel tool emission (some Mistral configurations, certain self-hosted setups)."));
+    wrap.appendChild(el9("hr", "la-settings-divider"));
     wrap.appendChild(el9("label", "la-settings-label", "Extension pairings"));
     wrap.appendChild(el9("div", "la-settings-hint", "Other extensions that can communicate with LumiAgent."));
     const pairingsPanel = el9("div", "la-pairings-panel");
@@ -7993,14 +8205,33 @@ Revert those edits to the character now, or leave them applied?`;
         cb.type = "checkbox";
         cb.className = "la-checkbox";
         cb.checked = p.allowed;
-        cb.addEventListener("change", () => {
-          sendBackend({ type: "set_phoneline_pairing", identifier: p.identifier, allowed: cb.checked });
+        cb.addEventListener("click", async (ev) => {
+          ev.preventDefault();
+          const nextAllowed = !p.allowed;
+          const c = await ctx.ui.showConfirm({
+            title: nextAllowed ? "Allow this pairing?" : "Block this pairing?",
+            message: `Pairing state is part of the system prompt's External Providers section. Toggling it invalidates the prompt cache on your next message in every active chat. ${nextAllowed ? "Allow" : "Block"} "${p.displayName}"?`,
+            variant: "danger",
+            confirmLabel: nextAllowed ? "Allow" : "Block"
+          });
+          if (!c.confirmed)
+            return;
+          cb.checked = nextAllowed;
+          sendBackend({ type: "set_phoneline_pairing", identifier: p.identifier, allowed: nextAllowed });
         });
         toggleLabel.appendChild(cb);
         toggleLabel.appendChild(el9("span", "la-pairing-toggle-label", "Allowed"));
         row.appendChild(toggleLabel);
         const revokeBtn = el9("button", "la-btn la-btn-mini la-btn-ghost", "Forget");
-        revokeBtn.addEventListener("click", () => {
+        revokeBtn.addEventListener("click", async () => {
+          const c = await ctx.ui.showConfirm({
+            title: "Forget this pairing?",
+            message: `Removing "${p.displayName}" wipes its stored consent and invalidates the system prompt cache on the next message. You will be re-prompted for consent if the extension dials again.`,
+            variant: "danger",
+            confirmLabel: "Forget"
+          });
+          if (!c.confirmed)
+            return;
           sendBackend({ type: "revoke_phoneline_pairing", identifier: p.identifier });
         });
         row.appendChild(revokeBtn);
@@ -8195,12 +8426,25 @@ Revert those edits to the character now, or leave them applied?`;
     });
     samplersResetBtn.addEventListener("click", () => resetAllSamplers());
     cancelBtn2.addEventListener("click", () => handle.dismiss());
-    saveBtn.addEventListener("click", () => {
+    saveBtn.addEventListener("click", async () => {
       const persona = personaArea.value.trim();
       const promptValue = promptArea.value.trim();
       const defaultBody = state.settings?.defaultSystemPromptBody?.trim() ?? "";
       const systemPromptOverride = promptValue.length === 0 || promptValue === defaultBody ? null : promptValue;
       const placement = jbPlacement.value;
+      const newCacheMode = cacheModeSelect.value;
+      const before = state.settings;
+      const promptAffected = !before || (before.persona !== persona || (before.systemPromptOverride ?? null) !== systemPromptOverride || (before.jailbreak ?? "") !== jbArea.value || (before.jailbreakPlacement ?? "system_suffix") !== placement || (before.cacheMode ?? "full") !== newCacheMode);
+      if (promptAffected && before) {
+        const c = await ctx.ui.showConfirm({
+          title: "Saving will invalidate the prompt cache",
+          message: "You changed persona, system prompt body, jailbreak, or cache mode. These live in the system message, so your next message in every active chat pays full uncached pricing while the provider rebuilds the cache prefix. Save anyway?",
+          variant: "danger",
+          confirmLabel: "Save"
+        });
+        if (!c.confirmed)
+          return;
+      }
       const parseCapMb = (raw) => {
         const n = parseInt(raw.trim(), 10);
         return Number.isFinite(n) && n > 0 ? n * 1024 * 1024 : null;
@@ -8220,7 +8464,7 @@ Revert those edits to the character now, or leave them applied?`;
         toolOutputCapTokens: parsePosInt(toolCapInput.value),
         connectionSupportsPromptCaching: cacheSupportInput.checked,
         autoFreeOldToolResults: autoFreeInput.checked,
-        cacheMode: cacheModeSelect.value,
+        cacheMode: newCacheMode,
         parallelToolCalls: parallelToolsInput.checked
       });
       status.textContent = "Saved.";

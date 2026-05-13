@@ -279,6 +279,17 @@ export function mountWorkspacePanel(deps: WorkspacePanelDeps): WorkspacePanelHan
     actions.appendChild(del);
     pane.appendChild(actions);
 
+    // Agent notes warning. The system prompt snapshots this file at the start
+    // of each session; edits here don't reach an already-running chat unless
+    // the user asks the agent to re-read the file.
+    if (selectedPath === "agent/agent.md") {
+      pane.appendChild(el(
+        "div",
+        "la-ws-pane-note la-ws-pane-note-info",
+        "Saved edits apply to new chats automatically. To pick them up in the current chat, ask the agent to re-read this file.",
+      ));
+    }
+
     if (!selectedIsDirectory) {
       const kind = previewKind(selectedPath);
       if (kind === "binary") {

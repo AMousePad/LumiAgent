@@ -66,7 +66,14 @@ const inputSchema = z.object({
 
 export const surveyCjkTool = defineTool({
   name: "survey_cjk",
-  description: "Walk every editable surface and group all runs of CJK characters (Korean / Japanese / Chinese) by exact string. Returns top-N by frequency with the surfaces they appear in. RUN THIS FIRST on any translation task.",
+  description: `Walk every editable surface and group all runs of CJK characters (Korean / Japanese / Chinese) by exact string. RUN THIS FIRST on any translation task.
+
+Returns:
+- \`scopes\`, \`min_length\` — request echoes.
+- \`distinct_strings\`   — number of unique CJK runs found.
+- \`total_runs\`         — sum of occurrences across all surfaces.
+- \`returned\`, \`truncated\` — how many made it into \`top\` and whether some were dropped.
+- \`top\` — array of \`{text, count, distinct_surfaces, sample_surfaces}\`, sorted by count descending. \`sample_surfaces\` is up to 4 surface names where the run appears.`,
   inputSchema,
   jsonSchema: {
     type: "object",

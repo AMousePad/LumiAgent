@@ -11,8 +11,6 @@ export interface ExternalProviderSummary {
 
 export interface GeneralPromptParams {
   readonly characterName: string;
-  readonly worldBookIds: readonly string[];
-  readonly pinnedChat: { id: string; name: string } | null;
   readonly externalProviders: readonly ExternalProviderSummary[];
   // Already-concatenated system-prompt fragments fetched from each discovered
   // phone-line provider's `op: "system_prompt"`. Empty string when no provider
@@ -23,12 +21,10 @@ export interface GeneralPromptParams {
   // null → use the built-in technical body. Non-null replaces only the body;
   // the chat / external / extension-contributed sections are still appended.
   readonly systemPromptOverride: string | null;
-  // Contents of workspace/custom_tools/tools.md, preloaded so the agent has
-  // a cheap index of its own recipes without an upfront fs_read call.
-  readonly customToolsIndex: string | null;
-  // Contents of workspace/agent/agent.md, the user-curated long-term memory
-  // file. Preloaded into the system prompt every send so the agent has
-  // standing context without an upfront read.
+  // Snapshot of workspace/agent/agent.md captured at session start. Frozen
+  // across the session so mid-session edits don't break the prompt cache;
+  // changes only land when the user starts a new chat or tells the agent to
+  // re-read the file.
   readonly agentNotes: string | null;
   // Names of tools whose schemas are NOT shipped in the initial tools list.
   // The model must call tool_search to fetch their schemas before invoking
@@ -40,16 +36,19 @@ export function buildGeneralSystemPrompt(params: GeneralPromptParams): string {
   const extensionSection = params.extensionSystemPrompts.trim().length > 0
     ? `\n\n${params.extensionSystemPrompts.trim()}`
     : "";
-  const chatSection = params.pinnedChat
-    ? `\n\n# Pinned chat\n\nThe user has pinned chat "${params.pinnedChat.name}" (id: ${params.pinnedChat.id}) for context. Use \`read_chat_messages\` (with chat_id omitted, or "pinned") to load its messages when the user references "this chat", "the conversation", "what just happened", etc. Treat messages as read-only context unless the user explicitly asks you to edit them.`
-    : `\n\n# Pinned chat\n\nNo chat is pinned to this session. If the user references "this chat", "the conversation", or asks you to read message history, tell them to click the chat-pin button next to the character selector and choose a chat first. Without a pinned chat, \`read_chat_messages\` (called without chat_id) returns nothing useful.`;
+  // Single stable string regardless of pin state. The agent learns the live
+  // pin status by calling `read_chat_messages` (no chat_id), which returns
+  // either the pinned chat's messages or `{pinned: false}` so the agent can
+  // tell the user to pin. Hard-coding the section means pin/unpin doesn't
+  // invalidate the prompt cache.
+  const chatSection = `\n\n# Pinned chat\n\nCall \`read_chat_messages\` with no \`chat_id\` whenever the user references "this chat", "the conversation", "what just happened", or asks you to read message history. The tool returns the pinned chat's messages, or \`{pinned: false}\` if nothing is pinned — in which case tell the user to click the chat-pin button next to the character selector. Treat returned messages as read-only context unless the user asks you to edit them.`;
 
-  const customToolsSection = params.customToolsIndex && params.customToolsIndex.trim().length > 0
-    ? `\n\n# Custom tools available\n\nThe following custom tools are saved in this workspace (from workspace/custom_tools/tools.md). When the user's request matches one, prefer running it (custom_tool_run) over re-composing the same chain by hand.\n\n${params.customToolsIndex.trim()}`
-    : "";
-
+  // Agent notes snapshot. Captured once at session start so the prompt cache
+  // doesn't break when the file changes mid-session. Edits via the workshop
+  // only land in NEW sessions, or when the user explicitly tells the agent
+  // to re-read \`workspace/agent/agent.md\`.
   const agentNotesSection = params.agentNotes && params.agentNotes.trim().length > 0
-    ? `\n\n# Agent notes (workspace/agent/agent.md)\n\nThe user maintains a long-term notes file for you. Treat it as standing context — facts they want you to remember across conversations. Don't re-state it back at them; just use it. If they ask you to remember something, update this file via fs_write on workspace/agent/agent.md.\n\n${params.agentNotes.trim()}`
+    ? `\n\n# Agent notes (workspace/agent/agent.md, snapshot)\n\nThe user maintains a long-term notes file for you. Treat it as standing context, facts they want you to remember across conversations. Don't re-state it back at them; just use it. This snapshot was taken at session start; if the user mentions they updated the file, re-read it via \`fs_read\` on \`workspace/agent/agent.md\` before continuing.\n\n${params.agentNotes.trim()}`
     : "";
 
   const deferredToolsSection = params.deferredToolNames.length === 0
@@ -76,7 +75,7 @@ export function buildGeneralSystemPrompt(params: GeneralPromptParams): string {
     ? `${params.persona.trim()}\n\n---\n\n`
     : "";
 
-  const contextLine = `Active character: "${params.characterName}" with ${params.worldBookIds.length} attached world book(s).`;
+  const contextLine = `Active character: "${params.characterName}".`;
 
   const body = params.systemPromptOverride !== null && params.systemPromptOverride.trim().length > 0
     ? params.systemPromptOverride
@@ -84,7 +83,7 @@ export function buildGeneralSystemPrompt(params: GeneralPromptParams): string {
 
   return `${personaBlock}${contextLine}
 
-${body}${extensionSection}${chatSection}${externalSection}${customToolsSection}${agentNotesSection}${deferredToolsSection}
+${body}${extensionSection}${chatSection}${externalSection}${agentNotesSection}${deferredToolsSection}
 
 # When to stop
 
@@ -203,24 +202,49 @@ These tools answer "what's actually configured / running":
 
 Per-user filesystem under \`workspace/\`, shared with the user via the Files tab. Tools: \`fs_list\`, \`fs_stat\`, \`fs_read\` (line-numbered, paginated, spills), \`fs_write\` (auto-mkdir), \`fs_edit\` (unique-find), \`fs_delete\`, \`fs_move\`, \`fs_mkdir\`, \`fs_zip\`, \`fs_unzip\`. The user sees everything — treat it as shared scratch, not a private cache.
 
-# Custom tools
+# Piping tool calls (custom_tool_run)
 
-Author declarative recipes when a task will recur. Manifest:
+\`custom_tool_run\` runs multiple built-in tool calls in a single turn. Two patterns:
+
+**Chain** — one step's output feeds the next. Bind with \`save_as\`, reference with \`{{$var}}\`. Use whenever you'd otherwise call tool A, copy a value into tool B.
+
 \`\`\`json
-{
-  "name": "snake_case_name",
-  "description": "One sentence on what + when.",
-  "params": { "field": { "type": "string", "description": "e.g. first_mes" } },
+custom_tool_run({
   "steps": [
-    { "call": "read", "args": { "path": "char/{{field}}" }, "save_as": "body" },
-    { "call": "count_cjk_chars", "args": { "text": "{{$body}}" } }
-  ],
-  "return": "{{$body}}"
-}
+    { "call": "list",        "args": { "path": "wb/<bookId>" },           "save_as": "entries" },
+    { "call": "random_pick", "args": { "items": "{{$entries.entries}}" }, "save_as": "pick" },
+    { "call": "read",        "args": { "path": "{{$pick.picks[0].path}}/content" } }
+  ]
+})
 \`\`\`
-\`{{param}}\` = input, \`{{$var}}\` = previous step's \`save_as\`. Whole-string ref returns raw value; embedded ref coerces to string. Budgets: 50 steps / depth 4 / 60s. Storage: \`workspace/custom_tools/{name}/tool.json\`.
 
-You MUST keep \`workspace/custom_tools/tools.md\` (one line per tool: \`- name — description, when to use\`) in sync — update it the same turn you create / edit / delete a recipe. Before writing a new tool, check \`tools.md\` and \`custom_tool_list\`; generalise an existing tool over creating a near-duplicate. Only build a recipe when the same task shape will recur.
+**Fan-out** — call several independent tools whose results you all want. Give each a \`save_as\`. Omit \`return\` and the runtime returns ALL bindings as one object.
+
+\`\`\`json
+custom_tool_run({
+  "steps": [
+    { "call": "list",          "args": { "path": "wb" },              "save_as": "world_books" },
+    { "call": "inspect",       "args": { "path": "rx" },              "save_as": "regex_scripts" },
+    { "call": "list",          "args": { "path": "char/extensions" }, "save_as": "extensions" },
+    { "call": "list_external", "args": { "surface_id": "module_envelope" }, "save_as": "modules" }
+  ]
+})
+\`\`\`
+→ result: \`{world_books, regex_scripts, extensions, modules}\`. One round trip instead of four.
+
+Reference syntax (inside any step's args, and inside an optional \`return\`):
+- \`"{{$body}}"\` — whole-string ref, returns the raw value (array, object, string, number).
+- \`"prefix {{$body}} suffix"\` — embedded ref, coerces to string.
+- \`"{{$pick.picks[0].path}}"\` — dotted path + bracket index into a prior result.
+
+Return rules:
+- Explicit \`return\` → that's the result.
+- No \`return\`, any \`save_as\` → object of all saved bindings.
+- No \`return\`, no \`save_as\` → just the final step's parsed result.
+
+When to use: any time you'd take a value FROM a tool result and put it INTO another tool's args (chain), or call several tools to gather data you'll synthesise (fan-out). Picking from a list, reading a path you just discovered, feeding a grep hit into a read, threading a tmp_handle through tmp_grep then tmp_read, inventorying a card. Default to this over per-step LLM round trips.
+
+Budget: 50 steps / depth 4 / 60s wall-clock.
 
 # Compaction (HANDOFF.md)
 
@@ -233,6 +257,8 @@ Reading a 50k-char field blind blows your context. Use **\`inspect({path})\`** o
 For chats specifically, \`chat_stats\` (counts + role distribution + longest message) runs before \`read_chat_messages\`.
 
 After sizing: tiny → \`read\`; medium → \`read({offset, limit})\`; big with target → \`grep\` / \`tmp_grep\`; too big and no target → ask the user. Spilled output → \`tmp_stat\` / \`tmp_grep\` / \`tmp_read\` on the handle. Never trade accuracy for tokens — read what you need to read.
+
+**JSON spills are NOT prose.** When \`list\` / \`inspect\` / \`grep\` / \`audit_card_coverage\` / \`dry_run_prompt\` spill, the body is structured JSON: most of its bytes are braces, commas, field names. Always \`tmp_grep\` for the id / key / token you actually want; reserve full \`tmp_read\` for prose spills. Pulling 1000 lines of JSON to find 5 IDs is the same mistake as reading a whole file when you needed two lines.
 
 # Error codes and recovery
 
@@ -261,6 +287,8 @@ LLMs aren't random — you'll keep returning the same favourite. **Use random_pi
 
 # Working principles
 
+- **IDs come from tool results, not memory.** Entry ids, script ids, paths, chat ids, surface ids, every argument you put in a tool call must trace back to a tool result you've already seen in this turn. If you can't point at the call that produced it, you're guessing. Run \`list\` / \`inspect\` / \`grep\` first and copy ids verbatim from the output. Especially relevant for \`random_pick\`, \`read_chat_messages\`, anything that takes a \`chat_id\` / \`entry_id\` / \`script_id\` / \`item_id\`.
+- **Pipe instead of re-emitting.** If you'd call tool A and then put a value from its result into tool B's args, that's two LLM round trips burning tokens to courier bytes that already exist. Use \`custom_tool_run({steps:[...]})\` once. The intermediate result lives in the interpreter, never lands in your tool_result stream, never gets re-typed. \`list\` → pick → \`read\` is one call, not three. \`grep\` → \`read\` is one call. \`tmp_grep\` → \`tmp_read\` is one call. Anywhere you see yourself about to retype an id, path, or array from a prior result, you should already be inside a pipe.
 - **Read first, edit second.** \`list\` / \`grep\` to inventory before specific reads. \`survey_cjk\` first for translation work.
 - **Unique-find discipline.** edit_* requires unique \`find\` (or \`replace_all=true\`). Read the section to confirm exact bytes.
 - **Re-read between chained edits.** After an edit, the field has shifted. Don't construct the next find from memory; re-read or grep first.

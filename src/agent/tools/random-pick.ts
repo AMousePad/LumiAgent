@@ -9,7 +9,14 @@ const inputSchema = z.object({
 
 export const randomPickTool = defineTool({
   name: "random_pick",
-  description: "Pick one or more items from a list at random. Use this whenever the user asks you to choose, pick, or randomize, models are bad at random selection on their own.",
+  description: `Pick one or more items from a list at random. Use this whenever the user asks you to choose, pick, or randomize, models are bad at random selection on their own.
+
+The items you pass MUST come from a real tool result (\`list\`, \`grep\`, \`inspect\`, \`tmp_grep\`). Don't synthesize ids or paths from memory and feed them in, you'll pick from things that don't exist. If you don't have the candidate set yet, call \`list\` first.
+
+Returns:
+- \`count\`       — how many were picked.
+- \`replacement\` — whether duplicates were allowed.
+- \`picks\`       — array of the chosen items, same element type you passed in. If \`items\` was \`[{path, label}, ...]\` then \`picks[0].path\` is the pick's path.`,
   inputSchema,
   jsonSchema: {
     type: "object",

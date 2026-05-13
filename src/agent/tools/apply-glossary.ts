@@ -56,7 +56,20 @@ const inputSchema = z.object({
 
 export const applyGlossaryTool = defineTool({
   name: "apply_glossary",
-  description: "Apply a phrase-to-translation map across the union of surfaces in ONE call. Replacements are sorted longest-first to avoid the shorter-key-clobbers-longer-key footgun. Per-surface, all hits are batched and written as one edit (one diff card per surface in the chat).\n\nSAFETY: by default this REFUSES single-character CJK keys, which cause substring collisions (Korean '비' → 'Rain' corrupts '비명' → 'Rain명'). Pass allow_short_cjk=true only if you know what you're doing. Use dry_run=true FIRST to see hit counts before committing.\n\nScopes (default: character + world_books + regex_scripts.replace_string + extensions string leaves). regex find_regex patterns are NEVER touched (would break regex syntax).",
+  description: `Apply a phrase-to-translation map across the union of surfaces in ONE call. Replacements are sorted longest-first to avoid the shorter-key-clobbers-longer-key footgun. Per-surface, all hits are batched and written as one edit (one diff card per surface in the chat).
+
+SAFETY: by default this REFUSES single-character CJK keys, which cause substring collisions (Korean '비' → 'Rain' corrupts '비명' → 'Rain명'). Pass allow_short_cjk=true only if you know what you're doing. Use dry_run=true FIRST to see hit counts before committing.
+
+Scopes (default: character + world_books + regex_scripts.replace_string + extensions string leaves). regex find_regex patterns are NEVER touched (would break regex syntax).
+
+Returns:
+- \`dry_run\`              — whether this was a dry run.
+- \`entries_in_glossary\`  — count of keys you passed.
+- \`total_replacements\`   — sum of hits across all surfaces.
+- \`surfaces_affected\`    — number of distinct surfaces touched.
+- \`per_entry_hits\`       — object mapping each key to its hit count.
+- \`per_surface\`          — array of \`{surface, surfaceId, field, hits}\` so you can verify which surfaces actually changed.
+- \`note\`                 — short summary string.`,
   inputSchema,
   jsonSchema: {
     type: "object",

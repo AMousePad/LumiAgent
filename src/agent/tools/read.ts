@@ -23,7 +23,9 @@ Path grammar:
   wb/<entryId>/content                  lorebook entry body
   wb/<entryId>/comment                  lorebook entry label
 
-Returns line-numbered text with pagination. Spills to a tmp handle if the result exceeds the per-call budget. Records the path as 'recently read' so a subsequent \`edit\` on the same path passes the read-gate.`,
+Records the path as 'recently read' so a subsequent \`edit\` on the same path passes the read-gate.
+
+Returns: a plain string body. Most of the time that's line-numbered text (\`   1\\tcontent line\\n   2\\t...\`). If the body would exceed the per-call budget it spills, and you get JSON of the form \`{spilled: true, tmp_handle: "tmp_...", peek, total_chars, total_lines, hint}\` — pass \`tmp_handle\` to \`tmp_grep\` / \`tmp_read\` / \`tmp_stat\` from there.`,
   inputSchema,
   jsonSchema: {
     type: "object",

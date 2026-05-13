@@ -25,7 +25,7 @@ import { mountWorkspacePanel, type WorkspacePanelHandle } from "./workspace-pane
 import { mountCharactersPanel, type CharactersPanelHandle } from "./characters-panel";
 import { mountCombo, type ComboHandle } from "./combo";
 import { handleAgentEvent, type AgentEventCtx } from "./agent-event-handler";
-import { ICON_TRASH, ICON_DOWNLOAD, ICON_PIN, ICON_PIN_OFF, ICON_NEW, ICON_SESSIONS, ICON_SETTINGS, ICON_WORKSHOP } from "./icons";
+import { ICON_TRASH, ICON_DOWNLOAD, ICON_PIN, ICON_PIN_OFF, ICON_NEW, ICON_SESSIONS, ICON_SETTINGS, ICON_TICK, ICON_WORKSHOP } from "./icons";
 import { DEFAULT_ICON_DATA_URL } from "../generated/default-icon";
 import { MOUSEY_SITTING_DATA_URL } from "../generated/mousey";
 
@@ -226,7 +226,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     },
     {
       label: "Translate the UI in this card",
-      send: "Translate the user-visible labels inside this card's UI surfaces to English. UI lives in THREE places on Risu/LumiRealm cards: regex scripts (replace_string content), Lua scripts (paths under `char/extensions/lumirealm.payload.lua_scripts`, often the bigger source — button labels, dialog choices, status-panel text), AND background HTML (`char/extensions/lumirealm.payload.background_html_source` if present, else `char/extensions/lumirealm.payload.background_html`). Cover all three.\n\nCRITICAL SAFETY RULES — read these before touching anything:\n\n1. NEVER modify regex find_regex patterns. Those are matched against LLM output; changing the pattern breaks the rule.\n2. In regex scripts: only edit replace_string content, and only the user-visible HTML/text inside it. Do NOT touch capture group refs ($1, $&, $<name>), HTML attribute names, CSS class names, JSON keys, or regex syntax characters.\n3. If a label is inside a structural tag (e.g. <div class=\"...\">Label</div>), translate ONLY the inner text — leave the tag and its attributes alone.\n4. In Lua scripts: edit ONLY content inside quoted string literals (`\"...\"`, `'...'`, `[[...]]`). NEVER touch code logic — opcodes, function/variable names, table keys, operators, control flow, comments. Use `set({path, value})` to write back the whole `lumirealm.payload.lua_scripts` array.\n5. In background HTML: edit ONLY user-visible inner text. NEVER touch tag names, attribute names (id/class/data-*/style/etc.), attribute values that drive behaviour or styling, CSS selectors, CSS property names, JS code inside <script> blocks, macro tokens like {{user}} / {{char}} / {{getvar::x}}, or LumiRealm marker comments. Use `edit({path, find, replace})` for find/replace, or `set` for wholesale.\n6. After translating each regex script's replace_string, call test_regex with the ORIGINAL find_regex and a sample of the kind of output the LLM would emit, and confirm the regex still matches with the same named capture groups present. If it doesn't, the structure was disturbed — revert and try a smaller find/replace.\n7. Walk surfaces in order; for each item, read first, plan the edits, then apply.\n8. SKIP any label that is already in English or that already has an English counterpart in the same template (a bilingual label, an English fallback in a parenthetical, an English-by-default placeholder). Only translate labels with no English form anywhere nearby. Respects the author's deliberate English wording and keeps the diff small.\n\nStart by calling survey_cjk with scopes=['regex_scripts','extensions'] — that single call covers regex scripts, lua_scripts, AND background_html in one pass. Then `list({path: 'rx'})` and `inspect` the big paths under `char/extensions/lumirealm.payload.*` (they can be huge), and only read the items that actually contain CJK to translate. Finally, before beginning, ask me the components that need translating, and whether we've missed anything at the end.",
+      send: "Translate every user-visible Korean label in this card to English.\n\nRun `survey_cjk({scopes:['regex_scripts','extensions'], top_n:200, min_length:1})` first — its `sample_surfaces` is the truth about where Korean actually lives. Don't list paths from memory; walk what the survey reports. For each surface, the LumiRealm guidance already loaded in your context tells you which path is the authoring layer (and which paths are derived / regenerated / read-only).\n\nSkip:\n- regex `find_regex` patterns (never edit — they match LLM output)\n- anything already in English or sitting next to an English form\n- map keys / state names / internal identifiers that aren't user-visible\n\nAfter each regex `replace_string` edit, `test_regex` with the original `find_regex` against representative LLM output. Before writing anything, summarise what survey_cjk found and ask which surfaces I want translated.",
     },
     {
       label: "Add/update a lorebook entry on this chat's characters",
@@ -1015,12 +1015,20 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       }
       for (const c of state.chatsForCharacter) {
         const row = el("div", `la-session-item ${c.isPinned ? "is-active" : ""}`);
-        const main = el("div");
-        const title = el("div");
-        title.textContent = c.name + (c.isActive ? "  (currently open)" : "");
-        main.append(title);
+        const main = el("div", "la-session-item-main");
+        main.append(Object.assign(el("div"), { textContent: c.name + (c.isActive ? "  (currently open)" : "") }));
         main.append(el("div", "la-session-item-meta", `updated ${new Date(c.updatedAt).toLocaleString()}`));
         row.appendChild(main);
+        if (c.isPinned) {
+          // The chat this session is pinned to. Marker mirrors the Sessions
+          // modal's "currently loaded" tick — both flag the manually-chosen
+          // state. Colour stays the row's; tick adds redundant clarity.
+          const tick = el("span", "la-session-item-tick");
+          tick.title = "Currently pinned";
+          tick.setAttribute("aria-label", "Currently pinned");
+          tick.innerHTML = ICON_TICK;
+          row.appendChild(tick);
+        }
         row.addEventListener("click", () => {
           pinChatOrQueue(c.id);
           handle.dismiss();
@@ -1030,7 +1038,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     };
     handle.root.append(note, list);
     render();
-    // Re-render when chats_pushed arrives.
+    // Re-render when chats_pushed arrives (e.g. after a pin click).
     const detach = pushChatsListeners.push(render);
     handle.onDismiss(() => detach());
   };
@@ -1061,7 +1069,8 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         return;
       }
       for (const s of state.sessions) {
-        const row = el("div", `la-session-item ${s.sessionId === state.sessionId ? "is-active" : ""}`);
+        const isCurrent = s.sessionId === state.sessionId;
+        const row = el("div", `la-session-item ${isCurrent ? "is-active" : ""}`);
         const main = el("div", "la-session-item-main");
         main.append(el("div", undefined, `${s.characterName}`));
         main.append(el("div", "la-session-item-meta", `${s.messageCount} msg . ${s.editCount} edits${s.revertedEditCount ? ` (${s.revertedEditCount} reverted)` : ""} . ${new Date(s.lastActivityAt).toLocaleString()}`));
@@ -1087,7 +1096,16 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
             sendBackend({ type: "delete_session", sessionId: s.sessionId });
           }
         });
-        row.append(main, exportBtn, delBtn);
+        row.append(main);
+        if (isCurrent) {
+          // Marker only, no colouring beyond what is-active already provides.
+          const tick = el("span", "la-session-item-tick");
+          tick.title = "Active session";
+          tick.setAttribute("aria-label", "Active session");
+          tick.innerHTML = ICON_TICK;
+          row.appendChild(tick);
+        }
+        row.append(exportBtn, delBtn);
         row.addEventListener("click", () => {
           sendBackend({ type: "load_session", sessionId: s.sessionId });
           handle.dismiss();
@@ -1155,7 +1173,12 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
 
   const openAgentSettingsModal = (): void => {
     sendBackend({ type: "get_settings" });
-    const handle = ctx.ui.showModal({ title: "Agent settings", width: 1360, maxHeight: 1080 });
+    // Width = 90vw clamped to [560, 1360] at open time. Host clamps to
+    // viewport anyway, this just spends the slack on narrow screens
+    // (laptops, side-by-side windows) instead of always hitting the cap.
+    const viewportW = typeof window !== "undefined" ? window.innerWidth : 1360;
+    const modalWidth = Math.max(560, Math.min(Math.floor(viewportW * 0.9), 1360));
+    const handle = ctx.ui.showModal({ title: "Agent settings", width: modalWidth, maxHeight: 1080 });
     const wrap = el("div", "la-agent-settings");
     wrap.appendChild(el("p", "la-modal-note", "Customize how LumiAgent behaves. Saved per-user; applies to your next message."));
 
@@ -1219,6 +1242,8 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     jbPlacementRow.appendChild(jbPlacement);
     wrap.appendChild(jbPlacementRow);
 
+    wrap.appendChild(el("hr", "la-settings-divider"));
+
     // --- Agent notes shortcut ---
     wrap.appendChild(el("label", "la-settings-label", "Agent notes"));
     wrap.appendChild(el("div", "la-settings-hint", "Long-term memory file the agent reads at the start of every session. Anything you put there is preloaded into context."));
@@ -1230,6 +1255,8 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     });
     notesRow.appendChild(notesBtn);
     wrap.appendChild(notesRow);
+
+    wrap.appendChild(el("hr", "la-settings-divider"));
 
     // --- Storage caps ---
     wrap.appendChild(el("label", "la-settings-label", "Storage limits"));
@@ -1255,6 +1282,8 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     toolCapInput.step = "1";
     toolCapRow.appendChild(toolCapInput);
     wrap.appendChild(toolCapRow);
+
+    wrap.appendChild(el("hr", "la-settings-divider"));
 
     wrap.appendChild(el("label", "la-settings-label", "Prompt caching"));
     wrap.appendChild(el("div", "la-settings-hint", "Marks parts of every request as cacheable so supported providers (Anthropic, OpenAI, Bedrock, Gemini) charge a fraction on cache reads. Full mode caches two turns behind the latest message. System only caches the system prompt. Off attaches no markers."));
@@ -1298,6 +1327,8 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     wrap.appendChild(parallelToolsRow);
     wrap.appendChild(el("div", "la-settings-hint", "Leave ON for Anthropic, OpenAI, Google, most OpenRouter routes. Turn OFF for providers that error on parallel tool emission (some Mistral configurations, certain self-hosted setups)."));
 
+    wrap.appendChild(el("hr", "la-settings-divider"));
+
     wrap.appendChild(el("label", "la-settings-label", "Extension pairings"));
     wrap.appendChild(el("div", "la-settings-hint", "Other extensions that can communicate with LumiAgent."));
     const pairingsPanel = el("div", "la-pairings-panel");
@@ -1320,14 +1351,33 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         cb.type = "checkbox";
         cb.className = "la-checkbox";
         cb.checked = p.allowed;
-        cb.addEventListener("change", () => {
-          sendBackend({ type: "set_phoneline_pairing", identifier: p.identifier, allowed: cb.checked });
+        // Pairing state is read into the External Providers section of the
+        // system message, so toggling it busts the prompt cache. Confirm.
+        cb.addEventListener("click", async (ev) => {
+          ev.preventDefault();
+          const nextAllowed = !p.allowed;
+          const c = await ctx.ui.showConfirm({
+            title: nextAllowed ? "Allow this pairing?" : "Block this pairing?",
+            message: `Pairing state is part of the system prompt's External Providers section. Toggling it invalidates the prompt cache on your next message in every active chat. ${nextAllowed ? "Allow" : "Block"} "${p.displayName}"?`,
+            variant: "danger",
+            confirmLabel: nextAllowed ? "Allow" : "Block",
+          });
+          if (!c.confirmed) return;
+          cb.checked = nextAllowed;
+          sendBackend({ type: "set_phoneline_pairing", identifier: p.identifier, allowed: nextAllowed });
         });
         toggleLabel.appendChild(cb);
         toggleLabel.appendChild(el("span", "la-pairing-toggle-label", "Allowed"));
         row.appendChild(toggleLabel);
         const revokeBtn = el("button", "la-btn la-btn-mini la-btn-ghost", "Forget") as HTMLButtonElement;
-        revokeBtn.addEventListener("click", () => {
+        revokeBtn.addEventListener("click", async () => {
+          const c = await ctx.ui.showConfirm({
+            title: "Forget this pairing?",
+            message: `Removing "${p.displayName}" wipes its stored consent and invalidates the system prompt cache on the next message. You will be re-prompted for consent if the extension dials again.`,
+            variant: "danger",
+            confirmLabel: "Forget",
+          });
+          if (!c.confirmed) return;
           sendBackend({ type: "revoke_phoneline_pairing", identifier: p.identifier });
         });
         row.appendChild(revokeBtn);
@@ -1498,7 +1548,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     samplersResetBtn.addEventListener("click", () => resetAllSamplers());
 
     cancelBtn.addEventListener("click", () => handle.dismiss());
-    saveBtn.addEventListener("click", () => {
+    saveBtn.addEventListener("click", async () => {
       const persona = personaArea.value.trim();
       const promptValue = promptArea.value.trim();
       const defaultBody = state.settings?.defaultSystemPromptBody?.trim() ?? "";
@@ -1506,6 +1556,29 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       // tweaks to the default flow through automatically.
       const systemPromptOverride = promptValue.length === 0 || promptValue === defaultBody ? null : promptValue;
       const placement = (jbPlacement.value as "system_suffix" | "user_suffix" | "assistant_prefill");
+      const newCacheMode = (cacheModeSelect.value as "off" | "system_only" | "full");
+
+      // Anything that ends up in the system message invalidates the prompt
+      // cache when changed. Warn only if one of those actually moved, so users
+      // who only tweak samplers / caps don't get a confirm prompt.
+      const before = state.settings;
+      const promptAffected = !before || (
+        before.persona !== persona
+        || (before.systemPromptOverride ?? null) !== systemPromptOverride
+        || (before.jailbreak ?? "") !== jbArea.value
+        || (before.jailbreakPlacement ?? "system_suffix") !== placement
+        || (before.cacheMode ?? "full") !== newCacheMode
+      );
+      if (promptAffected && before) {
+        const c = await ctx.ui.showConfirm({
+          title: "Saving will invalidate the prompt cache",
+          message: "You changed persona, system prompt body, jailbreak, or cache mode. These live in the system message, so your next message in every active chat pays full uncached pricing while the provider rebuilds the cache prefix. Save anyway?",
+          variant: "danger",
+          confirmLabel: "Save",
+        });
+        if (!c.confirmed) return;
+      }
+
       const parseCapMb = (raw: string): number | null => {
         const n = parseInt(raw.trim(), 10);
         return Number.isFinite(n) && n > 0 ? n * 1024 * 1024 : null;
@@ -1525,7 +1598,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         toolOutputCapTokens: parsePosInt(toolCapInput.value),
         connectionSupportsPromptCaching: cacheSupportInput.checked,
         autoFreeOldToolResults: autoFreeInput.checked,
-        cacheMode: (cacheModeSelect.value as "off" | "system_only" | "full"),
+        cacheMode: newCacheMode,
         parallelToolCalls: parallelToolsInput.checked,
       });
       status.textContent = "Saved.";

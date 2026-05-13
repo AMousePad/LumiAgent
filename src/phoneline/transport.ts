@@ -10,6 +10,7 @@ import {
   type ReadItemResponse,
   type WriteFieldResponse,
   type GrepItemsResponse,
+  type MutationResponse,
 } from "./protocol";
 
 let callIdCounter = 0;
@@ -78,4 +79,52 @@ export function dialGrepItems(
   req: Omit<Extract<PhoneLineRequest, { op: "grep_items" }>, "op">,
 ): Promise<GrepItemsResponse> {
   return dial<GrepItemsResponse>(spindle, extId, { op: "grep_items", ...req });
+}
+
+export function dialAssetMutate(
+  spindle: SpindleAPI,
+  extId: string,
+  req: Omit<Extract<PhoneLineRequest, { op: "asset_mutate" }>, "op">,
+): Promise<MutationResponse> {
+  return dial<MutationResponse>(spindle, extId, { op: "asset_mutate", ...req });
+}
+
+export function dialAttachModule(
+  spindle: SpindleAPI,
+  extId: string,
+  req: Omit<Extract<PhoneLineRequest, { op: "attach_module" }>, "op">,
+): Promise<MutationResponse> {
+  return dial<MutationResponse>(spindle, extId, { op: "attach_module", ...req });
+}
+
+export function dialDetachModule(
+  spindle: SpindleAPI,
+  extId: string,
+  req: Omit<Extract<PhoneLineRequest, { op: "detach_module" }>, "op">,
+): Promise<MutationResponse> {
+  return dial<MutationResponse>(spindle, extId, { op: "detach_module", ...req });
+}
+
+export function dialSetToggle(
+  spindle: SpindleAPI,
+  extId: string,
+  req: Omit<Extract<PhoneLineRequest, { op: "set_toggle" }>, "op">,
+): Promise<MutationResponse> {
+  return dial<MutationResponse>(spindle, extId, { op: "set_toggle", ...req });
+}
+
+export function dialSetChatVariable(
+  spindle: SpindleAPI,
+  extId: string,
+  req: Omit<Extract<PhoneLineRequest, { op: "set_chat_variable" }>, "op">,
+): Promise<MutationResponse> {
+  return dial<MutationResponse>(spindle, extId, { op: "set_chat_variable", ...req });
+}
+
+export function dialSetDefaultVariablesText(
+  spindle: SpindleAPI,
+  extId: string,
+  req: Omit<Extract<PhoneLineRequest, { op: "set_default_variables_text" }>, "op">,
+): Promise<MutationResponse> {
+  return dial<MutationResponse>(spindle, extId, { op: "set_default_variables_text", ...req });
 }

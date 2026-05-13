@@ -84,7 +84,12 @@ Path grammar matches \`read\` / \`edit\` / \`rewrite\`. The value field accepts 
 
 Records before/after in the ledger like every other edit — fully revertable.
 
-For multi-field atomic character updates use \`update_character({patch})\`.`,
+For multi-field atomic character updates use \`update_character({patch})\`.
+
+Returns:
+- \`path\` — path written.
+- \`before_chars\`, \`after_chars\` — string length before vs after (non-string values are JSON-stringified for measurement).
+- \`before_peek\`, \`after_peek\` — first 120 chars of each side, for verification.`,
   inputSchema,
   jsonSchema: {
     type: "object",

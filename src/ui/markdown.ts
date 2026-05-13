@@ -5,6 +5,7 @@ const ALLOWED_TAGS = new Set([
   "blockquote", "ul", "ol", "li",
   "h1", "h2", "h3", "h4", "h5", "h6",
   "a", "img", "span", "div",
+  "table", "thead", "tbody", "tr", "th", "td",
 ]);
 
 const DROP_TAGS = new Set([
@@ -18,7 +19,14 @@ const ALLOWED_ATTRS_PER_TAG: Readonly<Record<string, ReadonlySet<string>>> = {
   img: new Set(["src", "alt", "title"]),
   code: new Set(["class"]),
   pre: new Set(["class"]),
+  th: new Set(["align"]),
+  td: new Set(["align"]),
+  // Limited `class` allowlist for elements we emit ourselves (task list mark).
+  span: new Set(["class"]),
 };
+
+// When `class` is permitted on a tag, only allow the prefixes we render.
+const ALLOWED_CLASS_PREFIXES = new Set(["la-task-mark", "language-"]);
 
 const ALLOWED_URL_SCHEMES = new Set(["http:", "https:", "mailto:"]);
 
@@ -39,9 +47,19 @@ function inlineMarkdown(input: string, codeSpans: Map<string, string>): string {
   let out = input;
 
   out = out.replace(/`([^`\n]+)`/g, (_m, code: string) => {
-    const key = `${PLACEHOLDER_PREFIX}${codeSpans.size}${PLACEHOLDER_SUFFIX}`;
+    const key = `${PLACEHOLDER_PREFIX}c${codeSpans.size}${PLACEHOLDER_SUFFIX}`;
     codeSpans.set(key, `<code>${escapeHtml(code)}</code>`);
     return key;
+  });
+
+  // Bare-URL autolinks. Run BEFORE escapeHtml so the inserted `<a>` survives
+  // (the placeholder slot is content-opaque to escapeHtml). The lead-char
+  // exclusion blocks URLs that are already the `(...)` of a markdown link —
+  // `[text](https://x)` keeps the `(` as preceding char of the URL.
+  out = out.replace(/(^|[^\](\w])(https?:\/\/[^\s<>() ]+[^\s<>().,:;!?\]\) ])/g, (_m, lead: string, url: string) => {
+    const key = `${PLACEHOLDER_PREFIX}u${codeSpans.size}${PLACEHOLDER_SUFFIX}`;
+    codeSpans.set(key, `<a href="${escapeHtml(url)}">${escapeHtml(url)}</a>`);
+    return `${lead}${key}`;
   });
 
   out = escapeHtml(out);
@@ -54,9 +72,54 @@ function inlineMarkdown(input: string, codeSpans: Map<string, string>): string {
   out = out.replace(/(^|\W)_([^_\n]+)_(?=\W|$)/g, "$1<em>$2</em>");
   out = out.replace(/~~([^~\n]+)~~/g, "<del>$1</del>");
 
+  // Hard break: two-or-more trailing spaces before \n become <br>. Run before
+  // joining splits the string up; the marker survives escapeHtml because we
+  // already escaped before this point.
+  out = out.replace(/ {2,}\n/g, "<br>\n");
+
   for (const [key, html] of codeSpans) out = out.split(key).join(html);
   codeSpans.clear();
   return out;
+}
+
+// GFM pipe table parsing.
+// A pipe row is any line containing `|` outside code spans. Leading/trailing
+// pipes are stripped. The separator row's cells determine column count and
+// per-column alignment (`---`, `:---`, `---:`, `:---:`).
+function parsePipeRow(line: string): string[] | null {
+  let trimmed = line.trim();
+  if (!trimmed.includes("|")) return null;
+  if (trimmed.startsWith("|")) trimmed = trimmed.slice(1);
+  if (trimmed.endsWith("|") && !trimmed.endsWith("\\|")) trimmed = trimmed.slice(0, -1);
+  // Honor escaped pipes inside cells (`\|` is a literal pipe). Split on
+  // unescaped `|` and unescape afterwards.
+  const cells: string[] = [];
+  let buf = "";
+  for (let i = 0; i < trimmed.length; i++) {
+    const ch = trimmed[i];
+    if (ch === "\\" && trimmed[i + 1] === "|") { buf += "|"; i++; continue; }
+    if (ch === "|") { cells.push(buf.trim()); buf = ""; continue; }
+    buf += ch;
+  }
+  cells.push(buf.trim());
+  return cells;
+}
+
+type Align = "" | "left" | "right" | "center";
+function parseSeparatorRow(line: string): Align[] | null {
+  const cells = parsePipeRow(line);
+  if (!cells || cells.length === 0) return null;
+  const aligns: Align[] = [];
+  for (const cell of cells) {
+    if (!/^:?-{3,}:?$/.test(cell) && !/^:?-+:?$/.test(cell)) return null;
+    const left = cell.startsWith(":");
+    const right = cell.endsWith(":");
+    if (left && right) aligns.push("center");
+    else if (right) aligns.push("right");
+    else if (left) aligns.push("left");
+    else aligns.push("");
+  }
+  return aligns;
 }
 
 function blockMarkdownToHtml(input: string): string {
@@ -120,20 +183,128 @@ function blockMarkdownToHtml(input: string): string {
       out.push(`<blockquote>${inlineMarkdown(buf.join("\n"), codeSpans)}</blockquote>`);
       continue;
     }
-    const ulMatch = /^(?:[-*+])\s+(.*)$/.exec(trimmed);
-    const olMatch = /^\d+\.\s+(.*)$/.exec(trimmed);
-    if (ulMatch || olMatch) {
-      flushPara();
-      const isOrdered = !!olMatch;
-      const items: string[] = [];
-      while (i < lines.length) {
-        const cur = (lines[i] ?? "").trim();
-        const m = isOrdered ? /^\d+\.\s+(.*)$/.exec(cur) : /^(?:[-*+])\s+(.*)$/.exec(cur);
-        if (!m) break;
-        items.push(`<li>${inlineMarkdown(m[1] ?? "", codeSpans)}</li>`);
-        i++;
+
+    // GFM pipe table: header row + separator row + zero-or-more body rows.
+    // Detected only when the next line is a valid separator with the same
+    // column count as the header. Anything else with `|` falls through to the
+    // paragraph path so prose like "x | y" is left alone.
+    if (trimmed.includes("|") && i + 1 < lines.length) {
+      const headerCells = parsePipeRow(line);
+      const aligns = parseSeparatorRow(lines[i + 1] ?? "");
+      if (headerCells && aligns && headerCells.length > 0 && headerCells.length === aligns.length) {
+        flushPara();
+        const cols = headerCells.length;
+        const rows: string[][] = [];
+        i += 2;
+        while (i < lines.length) {
+          const t = (lines[i] ?? "").trim();
+          if (t.length === 0) break;
+          const row = parsePipeRow(lines[i] ?? "");
+          if (!row) break;
+          while (row.length < cols) row.push("");
+          rows.push(row.slice(0, cols));
+          i++;
+        }
+        const headHtml = headerCells
+          .map((c, idx) => {
+            const a = aligns[idx];
+            const attr = a ? ` align="${a}"` : "";
+            return `<th${attr}>${inlineMarkdown(c, codeSpans)}</th>`;
+          }).join("");
+        const bodyHtml = rows
+          .map((row) => "<tr>" + row.map((c, idx) => {
+            const a = aligns[idx];
+            const attr = a ? ` align="${a}"` : "";
+            return `<td${attr}>${inlineMarkdown(c, codeSpans)}</td>`;
+          }).join("") + "</tr>").join("");
+        out.push(`<table><thead><tr>${headHtml}</tr></thead><tbody>${bodyHtml}</tbody></table>`);
+        continue;
       }
-      out.push(`<${isOrdered ? "ol" : "ul"}>${items.join("")}</${isOrdered ? "ol" : "ul"}>`);
+    }
+    // List detection: walk lines tracking indent depth. A line with a bullet
+    // (or `N.`) at the same indent as the current list is a sibling item;
+    // deeper indent + bullet starts a nested sub-list inside the previous
+    // item; shallower indent or non-list ends the block. Task-list prefixes
+    // (`[ ]` / `[x]`) on item content render as ☐ / ☑ glyphs.
+    const indentOf = (s: string): number => s.length - s.trimStart().length;
+    const matchListItem = (s: string): { ordered: boolean; content: string } | null => {
+      const m1 = /^(?:[-*+])\s+(.*)$/.exec(s);
+      if (m1) return { ordered: false, content: m1[1] ?? "" };
+      const m2 = /^\d+\.\s+(.*)$/.exec(s);
+      if (m2) return { ordered: true, content: m2[1] ?? "" };
+      return null;
+    };
+    const renderItemContent = (raw: string): string => {
+      // Task-list marker at the very start of the item content.
+      const taskMatch = /^\[([ xX])\]\s+(.*)$/.exec(raw);
+      if (taskMatch) {
+        const checked = taskMatch[1] !== " ";
+        return `<span class="la-task-mark">${checked ? "☑" : "☐"}</span> ${inlineMarkdown(taskMatch[2] ?? "", codeSpans)}`;
+      }
+      return inlineMarkdown(raw, codeSpans);
+    };
+    const isListLine = (s: string): boolean => matchListItem(s.trimStart()) !== null;
+    if (isListLine(trimmed)) {
+      flushPara();
+      // Recursive list parser. baseIndent fixes the column at which sibling
+      // items live; lines indented deeper recurse, lines indented shallower
+      // end the block.
+      const parseList = (baseIndent: number): { html: string; nextIdx: number } => {
+        let j = i;
+        // First line determines list type (ordered vs unordered).
+        const firstStripped = (lines[j] ?? "").trimStart();
+        const firstMatch = matchListItem(firstStripped);
+        if (!firstMatch) return { html: "", nextIdx: j };
+        const ordered = firstMatch.ordered;
+        const items: string[] = [];
+        let currentContent: string | null = null;
+        while (j < lines.length) {
+          const ln = lines[j] ?? "";
+          const lnTrim = ln.trim();
+          if (lnTrim.length === 0) {
+            // A blank line between items is allowed. If the very next line is
+            // STILL a list line at >= baseIndent, continue; else end.
+            const next = lines[j + 1] ?? "";
+            const nextStripped = next.trimStart();
+            const nextIndent = indentOf(next);
+            if (nextStripped.length > 0 && matchListItem(nextStripped) && nextIndent >= baseIndent) {
+              j++;
+              continue;
+            }
+            break;
+          }
+          const ind = indentOf(ln);
+          const stripped = ln.trimStart();
+          const im = matchListItem(stripped);
+          if (im && ind === baseIndent) {
+            if (currentContent !== null) items.push(currentContent);
+            currentContent = renderItemContent(im.content);
+            j++;
+          } else if (im && ind > baseIndent && currentContent !== null) {
+            // Nested list. Recurse with the deeper indent as base.
+            const saveI = i;
+            i = j;
+            const sub = parseList(ind);
+            j = sub.nextIdx;
+            i = saveI;
+            currentContent += sub.html;
+          } else if (ind > baseIndent && currentContent !== null && !im) {
+            // Lazy continuation of the current item (an indented prose line
+            // belonging to the same `<li>`).
+            currentContent += " " + inlineMarkdown(lnTrim, codeSpans);
+            j++;
+          } else {
+            break;
+          }
+        }
+        if (currentContent !== null) items.push(currentContent);
+        const tag = ordered ? "ol" : "ul";
+        return { html: `<${tag}>${items.map((c) => `<li>${c}</li>`).join("")}</${tag}>`, nextIdx: j };
+      };
+      const startIndent = indentOf(line);
+      const result = parseList(startIndent);
+      out.push(result.html);
+      i = result.nextIdx;
       continue;
     }
     para.push(line);
@@ -175,6 +346,10 @@ function sanitizeNode(input: Node, target: Node, doc: Document): void {
       const name = attr.name.toLowerCase();
       if (!allowedAttrs.has(name)) continue;
       if ((name === "href" || name === "src") && !isAllowedUrl(attr.value)) continue;
+      if (name === "class") {
+        const ok = attr.value.split(/\s+/).every((c) => ALLOWED_CLASS_PREFIXES.has(c) || [...ALLOWED_CLASS_PREFIXES].some((p) => p.endsWith("-") && c.startsWith(p)));
+        if (!ok) continue;
+      }
       cleanEl.setAttribute(name, attr.value);
     }
   }

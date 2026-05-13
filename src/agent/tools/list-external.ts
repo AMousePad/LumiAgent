@@ -10,9 +10,12 @@ export const listExternalTool = defineTool({
   description: `Lists every item in an external provider's surface.
 
 Usage:
-- Returns id + label + brief metadata per item.
 - Per-character surfaces are filtered to items attached to the active character automatically.
-- Use \`read_external\` to fetch one, \`grep_external\` to regex-search across all.`,
+- Use \`read_external\` to fetch one, \`grep_external\` to regex-search across all.
+
+Returns:
+- \`total\` — total item count after attachment filter.
+- \`items\` — array of \`{id, label, brief?}\`. \`id\` is what you pass to \`read_external\` / \`edit_external\` as \`item_id\`. \`brief\` is provider-defined metadata (counts, flags, kind) varying per surface.`,
   inputSchema,
   jsonSchema: {
     type: "object",

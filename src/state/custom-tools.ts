@@ -167,17 +167,61 @@ export async function readCustomToolsIndex(
 }
 
 // ─── Template substitution ───
+//
+// Refs look like `{{$body}}` for a top-level binding or
+// `{{$pick.picks[0].path}}` to walk into the bound value. Identifiers,
+// dotted accessors, and bracketed numeric indices. The dotted form is
+// what makes piping useful, without it the only way to use a step's
+// result was a whole-object substitution.
 
-const TEMPLATE_RE = /\{\{\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*\}\}/g;
+const REF_BODY = /\$?[A-Za-z_][\w$]*(?:\.[A-Za-z_][\w$]*|\[\d+\])*/.source;
+const TEMPLATE_RE = new RegExp(`\\{\\{\\s*(${REF_BODY})\\s*\\}\\}`, "g");
+const WHOLE_RE = new RegExp(`^\\s*\\{\\{\\s*(${REF_BODY})\\s*\\}\\}\\s*$`);
 
-function lookup(name: string, scope: Record<string, unknown>): { found: boolean; value: unknown } {
-  // `$foo` is the documented sigil for step-result bindings; strip the leading
-  // `$` so a step with `save_as: "body"` matches `{{$body}}` in later args.
-  const key = name.startsWith("$") ? name.slice(1) : name;
-  if (Object.prototype.hasOwnProperty.call(scope, key)) {
-    return { found: true, value: scope[key] };
+interface RefSegment { kind: "key" | "index"; value: string }
+
+function parseRef(ref: string): { head: string; segments: RefSegment[] } {
+  // First token is the binding name (with optional $ sigil); the rest are
+  // dotted keys and bracketed indices.
+  const stripped = ref.startsWith("$") ? ref.slice(1) : ref;
+  const segs: RefSegment[] = [];
+  let i = 0;
+  while (i < stripped.length && /[A-Za-z0-9_$]/.test(stripped[i]!)) i++;
+  const head = stripped.slice(0, i);
+  while (i < stripped.length) {
+    const ch = stripped[i]!;
+    if (ch === ".") {
+      i++;
+      const start = i;
+      while (i < stripped.length && /[A-Za-z0-9_$]/.test(stripped[i]!)) i++;
+      segs.push({ kind: "key", value: stripped.slice(start, i) });
+    } else if (ch === "[") {
+      const close = stripped.indexOf("]", i);
+      if (close < 0) throw new Error(`malformed ref '${ref}': unclosed bracket`);
+      segs.push({ kind: "index", value: stripped.slice(i + 1, close) });
+      i = close + 1;
+    } else {
+      throw new Error(`malformed ref '${ref}' near '${ch}'`);
+    }
   }
-  return { found: false, value: undefined };
+  return { head, segments: segs };
+}
+
+function lookup(ref: string, scope: Record<string, unknown>): { found: boolean; value: unknown } {
+  const { head, segments } = parseRef(ref);
+  if (!Object.prototype.hasOwnProperty.call(scope, head)) return { found: false, value: undefined };
+  let cur: unknown = scope[head];
+  for (const seg of segments) {
+    if (cur === null || cur === undefined) return { found: false, value: undefined };
+    if (seg.kind === "key") {
+      if (typeof cur !== "object" || Array.isArray(cur)) return { found: false, value: undefined };
+      cur = (cur as Record<string, unknown>)[seg.value];
+    } else {
+      if (!Array.isArray(cur)) return { found: false, value: undefined };
+      cur = cur[parseInt(seg.value, 10)];
+    }
+  }
+  return { found: true, value: cur };
 }
 
 function substituteValue(v: unknown, scope: Record<string, unknown>): unknown {
@@ -193,7 +237,7 @@ function substituteValue(v: unknown, scope: Record<string, unknown>): unknown {
 
 function substituteString(s: string, scope: Record<string, unknown>): unknown {
   // Whole-string single-reference => return the raw value (not stringified).
-  const whole = /^\s*\{\{\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*\}\}\s*$/.exec(s);
+  const whole = WHOLE_RE.exec(s);
   if (whole) {
     const { found, value } = lookup(whole[1]!, scope);
     if (!found) throw new Error(`unknown ref '{{${whole[1]}}}'`);
@@ -260,6 +304,7 @@ export async function runCustomTool(
   }
 
   let lastResult: unknown = null;
+  const savedKeys: string[] = [];
   for (let i = 0; i < manifest.steps.length; i++) {
     if (Date.now() > opts.deadline) throw new Error(`custom tool '${manifest.name}' timed out`);
     if (opts.stepBudget.remaining <= 0) throw new Error(`custom tool '${manifest.name}' exceeded step budget`);
@@ -278,9 +323,23 @@ export async function runCustomTool(
     const raw = await fn(substitutedArgs, ctx);
     const parsed = typeof raw === "string" ? tryParseJSON(raw) : raw;
     lastResult = parsed;
-    if (step.save_as) scope[step.save_as] = parsed;
+    if (step.save_as) {
+      scope[step.save_as] = parsed;
+      if (!savedKeys.includes(step.save_as)) savedKeys.push(step.save_as);
+    }
   }
 
+  // 1. Explicit `return` wins.
+  // 2. Otherwise, if the caller saved anything with `save_as`, return ALL
+  //    bindings as an object. Anything else is a footgun: the previous
+  //    "lastResult only" default silently discarded every saved value
+  //    when the caller omitted `return`, costing a re-run.
+  // 3. Fall back to lastResult only when no save_as was used.
   if (manifest.return !== undefined) return substituteValue(manifest.return, scope);
+  if (savedKeys.length > 0) {
+    const out: Record<string, unknown> = {};
+    for (const k of savedKeys) out[k] = scope[k];
+    return out;
+  }
   return lastResult;
 }

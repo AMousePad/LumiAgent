@@ -175,13 +175,6 @@ async function handleListChats(characterId: string, sessionId: string | undefine
   }
 }
 
-async function loadCustomToolsIndex(userId: string): Promise<string | null> {
-  try {
-    const { readCustomToolsIndex } = await import("./state/custom-tools");
-    return await readCustomToolsIndex(spindle, userId);
-  } catch { return null; }
-}
-
 async function loadAgentNotes(userId: string): Promise<string | null> {
   try {
     const { absPath } = await import("./state/workspace");
@@ -268,34 +261,26 @@ async function handleRevokePhonelinePairing(userId: string, identifier: string):
   await handleGetPhonelinePairings(userId);
 }
 
-async function resolvePinnedChat(pinnedChatId: string | null | undefined, userId: string): Promise<{ id: string; name: string } | null> {
-  if (!pinnedChatId) return null;
-  try {
-    const chat = await spindle.chats.get(pinnedChatId, userId);
-    if (!chat) return null;
-    return { id: chat.id, name: chat.name };
-  } catch (err) {
-    log("warn", `pinned chat resolution failed: ${(err as Error).message}`);
-    return null;
-  }
-}
-
 async function buildSessionSystemMessage(
   c: CharacterDTO,
   s: PersistedSession,
   settings: AgentSettings,
   userId: string,
 ): Promise<LlmMessage> {
+  // Lazy snapshot: capture agent.md on the first build of this session, then
+  // reuse it for every send. Keeps the prompt cache stable across mid-chat
+  // edits to the file. User-facing notice is shown when they edit the file
+  // in the workshop.
+  if (s.frozenAgentNotes === undefined) {
+    s.frozenAgentNotes = await loadAgentNotes(userId);
+  }
   let prompt = buildGeneralSystemPrompt({
     characterName: c.name,
-    worldBookIds: c.world_book_ids,
-    pinnedChat: await resolvePinnedChat(s.pinnedChatId, userId),
     externalProviders: await resolveExternalProviders(userId),
     extensionSystemPrompts: await resolveExtensionSystemPrompts(userId, c.id),
     persona: settings.persona,
     systemPromptOverride: settings.systemPromptOverride,
-    customToolsIndex: await loadCustomToolsIndex(userId),
-    agentNotes: await loadAgentNotes(userId),
+    agentNotes: s.frozenAgentNotes,
     deferredToolNames: listDeferredToolNames(),
   });
   if (settings.jailbreak.trim().length > 0 && settings.jailbreakPlacement === "system_suffix") {
@@ -923,8 +908,25 @@ async function handleSetPinnedChat(sessionId: string, chatId: string | null, use
     send({ type: "generation_error", sessionId, error: "session not found" }, userId);
     return;
   }
-  log("info", `set_pinned_chat: loaded session sessionCharacterId=${s.characterId} prevPinnedChatId=${s.pinnedChatId ?? "null"} pending=${isPending}`);
+  const prevPin = s.pinnedChatId ?? null;
+  log("info", `set_pinned_chat: loaded session sessionCharacterId=${s.characterId} prevPinnedChatId=${prevPin ?? "null"} pending=${isPending}`);
   s.pinnedChatId = chatId;
+
+  // Mirror the revert-note pattern: tell the agent the pin changed via a
+  // system note on llmHistory so the next turn sees it. The chat name/id
+  // stays out of the system prompt (cache-stable) but the agent learns from
+  // a one-shot note here that it should re-read via read_chat_messages.
+  // Only relevant once the session is persisted and has run at least once;
+  // pending sessions haven't sent anything yet.
+  if (!isPending && s.llmHistory.length > 0 && prevPin !== chatId) {
+    const note = chatId === null
+      ? "[Note from the system: the user just unpinned the chat that was previously pinned for context. From now on, `read_chat_messages` (no chat_id) will return `{pinned: false}`. If the user references 'this chat' or 'the conversation', tell them to pin one again.]"
+      : prevPin === null
+        ? "[Note from the system: the user just pinned a chat for context. `read_chat_messages` (no chat_id) now returns the messages of that chat. The pin replaces whatever you previously knew about chat history; re-read if you need fresh context.]"
+        : "[Note from the system: the user just swapped the pinned chat. Any chat-history context you had cached is stale; `read_chat_messages` (no chat_id) now points at a different chat. Re-read it before referencing 'this chat' / 'the conversation'.]";
+    s.llmHistory.push({ role: "user", content: note });
+  }
+
   // Pending sessions stay in memory: mutating the held object is the save.
   // Disk write only fires once the session has its first message.
   if (!isPending) await saveSession(spindle, s, userId);

@@ -109,8 +109,14 @@ function describePath(path: string | undefined): string {
   return describePathLeaf(path) ?? describePathContainer(path) ?? path;
 }
 
+// Provider surface ids (`module_envelope`, etc.) are snake_case identifiers
+// the agent sends over the wire. Render them with spaces for the human UI.
+function humanizeSurfaceId(sid: string | undefined): string {
+  return sid ? sid.replace(/_/g, " ") : "?";
+}
+
 function describeExternalTarget(surfaceId: string | undefined, itemId: string | undefined, field: string | undefined): string {
-  const sid = surfaceId ?? "?";
+  const sid = humanizeSurfaceId(surfaceId);
   const iid = itemId ? shortId(itemId) : "?";
   const f = field ? `.${field}` : "";
   return `${sid}/${iid}${f}`;
@@ -145,11 +151,11 @@ function describeToolActivity(name: string, args: Record<string, unknown>): { ki
     case "test_regex": return { kind: "test", verb: "Testing", target: "regex pattern" };
     case "count_cjk_chars": return { kind: "read", verb: "Counting", target: "CJK chars" };
     // External provider surfaces (phone-line protocol).
-    case "list_external": { const sid = s("surface_id"); return { kind: "read", verb: "Listing", target: sid ? `${sid} items` : "external items" }; }
+    case "list_external": { const sid = s("surface_id"); return { kind: "read", verb: "Listing", target: sid ? `${humanizeSurfaceId(sid)} items` : "external items" }; }
     case "read_external": return { kind: "read", verb: "Reading", target: describeExternalTarget(s("surface_id"), s("item_id"), s("field")) };
     case "edit_external": return { kind: "write", verb: "Editing", target: describeExternalTarget(s("surface_id"), s("item_id"), s("field")) };
     case "update_external": return { kind: "write", verb: "Updating", target: describeExternalTarget(s("surface_id"), s("item_id"), s("field")) };
-    case "grep_external": { const p = s("pattern"); const sid = s("surface_id") ?? "?"; return { kind: "search", verb: "Searching", target: p ? `${sid} for ${JSON.stringify(truncate(p, 30))}` : sid }; }
+    case "grep_external": { const p = s("pattern"); const sid = humanizeSurfaceId(s("surface_id")); return { kind: "search", verb: "Searching", target: p ? `${sid} for ${JSON.stringify(truncate(p, 30))}` : sid }; }
     // Ledger.
     case "list_session_edits": { const sc = s("scope") ?? "current_message"; return { kind: "read", verb: "Listing", target: `edits (${sc.replace(/_/g, " ")})` }; }
     case "revert_session_edits": { const ids = Array.isArray(args["edit_ids"]) ? (args["edit_ids"] as unknown[]).length : 0; return { kind: "write", verb: "Reverting", target: ids === 1 ? "1 edit" : `${ids} edits` }; }
@@ -209,7 +215,6 @@ function buildToolCard(callId: string, name: string, args: Record<string, unknow
   activity.append(verbSpan, targetSpan);
   const sensBadge = el("span", "la-tool-sens");
   sensBadge.style.display = "none";
-  const status = el("span", "la-tool-status", "running");
   const freeBtn = el("button", "la-tool-free-btn", "free") as HTMLButtonElement;
   freeBtn.type = "button";
   freeBtn.title = "Replace this result with a stub to save context. The model loses access to its content.";
@@ -239,7 +244,10 @@ function buildToolCard(callId: string, name: string, args: Record<string, unknow
     freeBtn.textContent = "Confirm?";
     confirmTimer = setTimeout(resetConfirm, 4000);
   });
-  head.append(caret, spinner, activity, sensBadge, freeBtn, status);
+  // The caret carries success/error state via color (is-done / is-error
+  // classes on the card). Free stays anchored to the right next to the
+  // sensitivity chip it acts on.
+  head.append(caret, spinner, activity, sensBadge, freeBtn);
   const body = el("div", "la-tool-body");
   const argsSection = el("div", "la-tool-body-section");
   argsSection.append(
@@ -538,13 +546,9 @@ export function renderStaticAssistant(msg: ChatAssistantMessage, deps: ChatThrea
     } else if (block.type === "tool") {
       const card = buildToolCard(block.call_id, block.name, block.args, deps);
       // Mark finished (this is the static-render path for reloaded history).
+      // is-done / is-error drive the caret color.
       card.classList.remove("is-running");
       card.classList.add(block.is_error ? "is-error" : "is-done");
-      const status = card.querySelector(".la-tool-status") as HTMLElement;
-      if (status) {
-        status.textContent = block.is_error ? "error" : "done";
-        if (block.is_error) status.classList.add("is-error");
-      }
       const resultPre = card.querySelector(".la-tool-body-result pre") as HTMLElement | null;
       if (resultPre) resultPre.textContent = block.result ?? "";
       applyToolCardSensitivity(card, block.sensitivity, block.freed);
@@ -720,12 +724,6 @@ export function createStreamingAssistant(deps: ChatThreadDeps): AssistantHandle 
       if (!card) return;
       card.classList.remove("is-running");
       card.classList.add(isError ? "is-error" : "is-done");
-      const status = card.querySelector(".la-tool-status") as HTMLElement | null;
-      if (status) {
-        status.textContent = isError ? "error" : "done";
-        if (isError) status.classList.add("is-error");
-        else status.classList.remove("is-error");
-      }
       const resultPre = card.querySelector(".la-tool-body-result pre") as HTMLElement | null;
       if (resultPre) resultPre.textContent = result;
       if (sensitivity) applyToolCardSensitivity(card, sensitivity, false);
