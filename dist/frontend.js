@@ -799,11 +799,8 @@ ${LOADERS_CSS}
 .la-header-row-char .la-combo-host-char { flex: 1 1 160px; min-width: 0; }
 .la-header-row-char .la-combo-host-char .la-combo-trigger { width: 100%; max-width: none; }
 .la-header-row-meta { gap: 6px; flex-wrap: wrap; row-gap: 6px; }
-.la-header-row-meta .la-combo-host-conn {
-  flex: 0 0 auto;
-  min-width: 140px; max-width: 220px;
-}
-.la-header-row-meta .la-combo-host-conn .la-combo-trigger { width: 100%; }
+.la-header-row-meta .la-combo-host-conn { flex: 1 1 140px; min-width: 0; }
+.la-header-row-meta .la-combo-host-conn .la-combo-trigger { width: 100%; max-width: none; }
 .la-select {
   background: var(--lumiverse-bg);
   border: 1px solid var(--lumiverse-border);
@@ -878,8 +875,8 @@ ${LOADERS_CSS}
 .la-combo-trigger:focus { outline: none; border-color: var(--lumiverse-primary-muted); }
 .la-combo.is-open .la-combo-trigger { border-color: var(--lumiverse-primary-muted); }
 .la-combo-trigger.is-placeholder .la-combo-trigger-label { color: var(--lumiverse-text-dim); }
-.la-combo-trigger-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.la-combo-caret { color: var(--lumiverse-text-dim); font-size: 10px; flex-shrink: 0; }
+.la-combo-trigger-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.la-combo-caret { color: var(--lumiverse-text-dim); font-size: 20px; line-height: 1; flex-shrink: 0; margin-left: auto; }
 .la-combo-trigger:disabled { opacity: 0.5; cursor: not-allowed; }
 .la-combo-pop {
   position: absolute;
@@ -3548,7 +3545,9 @@ var STROKE = `stroke="currentColor" stroke-width="2" stroke-linecap="round" stro
 var ICON_RETRY = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M21 3V8M21 8H16M21 8L18 5.29168C16.4077 3.86656 14.3051 3 12 3C7.02944 3 3 7.02944 3 12C3 16.9706 7.02944 21 12 21C16.2832 21 19.8675 18.008 20.777 14" ${STROKE}/></svg>`;
 var ICON_EDIT = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M20 16v4a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4" ${STROKE}/><polygon points="12.5 15.8 22 6.2 17.8 2 8.3 11.5 8 16 12.5 15.8" ${STROKE}/></svg>`;
 var ICON_TRASH = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14M10 11v6M14 11v6" ${STROKE}/></svg>`;
+var ICON_DOWNLOAD = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
 var ICON_PIN = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>`;
+var ICON_PIN_OFF = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="M12 17v5"/><path d="M15 9.34V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H7.89"/><path d="m2 2 20 20"/><path d="M9 9v1.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h11"/></svg>`;
 var ICON_NEW = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>`;
 var ICON_SESSIONS = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"/><path d="M7.5 9.5c0 .687.265 1.383.697 1.844l3.009 3.264a1.14 1.14 0 0 0 .407.314 1 1 0 0 0 .783-.004 1.14 1.14 0 0 0 .398-.31l3.008-3.264A2.77 2.77 0 0 0 16.5 9.5 2.5 2.5 0 0 0 12 8a2.5 2.5 0 0 0-4.5 1.5"/></svg>`;
 var ICON_SETTINGS = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="m10 16 1.5 1.5"/><path d="m14 8-1.5-1.5"/><path d="M15 2c-1.798 1.998-2.518 3.995-2.807 5.993"/><path d="m16.5 10.5 1 1"/><path d="m17 6-2.891-2.891"/><path d="M2 15c6.667-6 13.333 0 20-6"/><path d="m20 9 .891.891"/><path d="M3.109 14.109 4 15"/><path d="m6.5 12.5 1 1"/><path d="m7 18 2.891 2.891"/><path d="M9 22c1.798-1.998 2.518-3.995 2.807-5.993"/></svg>`;
@@ -4297,7 +4296,10 @@ function renderStaticAssistant(msg, deps, allEdits) {
     bubble.appendChild(editsCard.card);
   }
   if (msg.status === "complete" && msg.usage) {
-    const meta = el2("div", "la-msg-meta", `${msg.usage.total} tokens · turn ${msg.turn}`);
+    const prefix = msg.usage.estimated ? "~" : "";
+    const meta = el2("div", "la-msg-meta", `${prefix}${msg.usage.total} tokens · turn ${msg.turn}`);
+    if (msg.usage.estimated)
+      meta.title = "Provider did not report usage; tokens estimated locally.";
     wrap.appendChild(meta);
   } else if (msg.status === "cancelled") {
     wrap.appendChild(el2("div", "la-msg-meta", "cancelled"));
@@ -4535,7 +4537,10 @@ function createStreamingAssistant(deps) {
         metaLine = el2("div", "la-msg-meta");
         wrap.appendChild(metaLine);
       }
-      metaLine.textContent = `${usage.total} tokens`;
+      const prefix = usage.estimated ? "~" : "";
+      metaLine.textContent = `${prefix}${usage.total} tokens`;
+      if (usage.estimated)
+        metaLine.title = "Provider did not report usage; tokens estimated locally.";
     }
   };
 }
@@ -6968,7 +6973,11 @@ function mountDrawer(ctx) {
   charComboRoot.setAttribute("aria-label", "Character");
   const charCombo = mountCombo(charComboRoot);
   charCombo.setPlaceholder("Pick character");
-  const chatPinBtn = makeIconBtn("la-chat-pin-btn", ICON_PIN, "Pin a chat to share with the agent", "Pin a chat (gives the agent message-history access)");
+  const chatPinBtn = makeIconBtn("la-chat-pin-btn", ICON_PIN_OFF, "Pin a chat to share with the agent", "Pin a chat (gives the agent message-history access)");
+  const setChatPinned = (pinned) => {
+    chatPinBtn.classList.toggle("has-pinned", pinned);
+    chatPinBtn.innerHTML = pinned ? ICON_PIN : ICON_PIN_OFF;
+  };
   const switchSessionBtn = makeIconBtn("", ICON_SESSIONS, "Switch session", "Switch session");
   const newSessionBtn = makeIconBtn("", ICON_NEW, "Start a new chat session", "New session");
   const settingsBtn = makeIconBtn("", ICON_SETTINGS, "Agent settings", "Agent settings (persona & prompt)");
@@ -6984,8 +6993,7 @@ function mountDrawer(ctx) {
   const editsBadge = makeIconBtn("la-changes-btn", ICON_WORKSHOP, "Open diff viewer", "Workshop");
   const editsCount = el9("span", "la-changes-count", "0");
   editsBadge.appendChild(editsCount);
-  const metaSpacer = el9("span", "la-flex-spacer");
-  rowMeta.append(connComboRoot, editsBadge, metaSpacer, settingsBtn, menuBtn);
+  rowMeta.append(connComboRoot, editsBadge, settingsBtn, menuBtn);
   header.append(rowChar, rowMeta);
   const thread = el9("div", "la-thread");
   const emptyState = el9("div", "la-empty");
@@ -7574,12 +7582,13 @@ Revert those edits to the character now, or leave them applied?`;
     state.chatsForCharacter = [];
     state.pinnedChatId = null;
     state.autoPinNeeded = !!id;
-    chatPinBtn.classList.remove("has-pinned");
+    setChatPinned(false);
     if (switchingAway)
       rerenderThread();
     updateComposer();
     updateSessionBar();
     if (id) {
+      startNewSession();
       sendBackend({ type: "list_character_edits", characterId: id });
       sendBackend({ type: "list_chats", characterId: id, ...state.sessionId ? { sessionId: state.sessionId } : {} });
     }
@@ -7595,7 +7604,7 @@ Revert those edits to the character now, or leave them applied?`;
     state.connectionId = id;
     persistUiPrefs();
   });
-  newSessionBtn.addEventListener("click", () => {
+  function startNewSession() {
     if (!state.characterId) {
       composerStatus.textContent = "Pick a character first.";
       composerStatus.classList.add("is-error");
@@ -7631,7 +7640,8 @@ Revert those edits to the character now, or leave them applied?`;
       composerStatus.classList.add("is-error");
       updateComposer();
     }, 8000);
-  });
+  }
+  newSessionBtn.addEventListener("click", startNewSession);
   const pinChatOrQueue = (chatId) => {
     dlog("pinChatOrQueue", { chatId, sessionId: state.sessionId, characterId: state.characterId, startingSession: state.startingSession, pendingMessage: state.pendingMessage });
     if (state.sessionId) {
@@ -7751,6 +7761,15 @@ Revert those edits to the character now, or leave them applied?`;
         const main = el9("div", "la-session-item-main");
         main.append(el9("div", undefined, `${s.characterName}`));
         main.append(el9("div", "la-session-item-meta", `${s.messageCount} msg . ${s.editCount} edits${s.revertedEditCount ? ` (${s.revertedEditCount} reverted)` : ""} . ${new Date(s.lastActivityAt).toLocaleString()}`));
+        const exportBtn = el9("button", "la-session-item-delete");
+        exportBtn.type = "button";
+        exportBtn.title = "Export session as Markdown";
+        exportBtn.setAttribute("aria-label", "Export session as Markdown");
+        exportBtn.innerHTML = ICON_DOWNLOAD;
+        exportBtn.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          sendBackend({ type: "export_session_markdown", sessionId: s.sessionId });
+        });
         const delBtn = el9("button", "la-session-item-delete");
         delBtn.type = "button";
         delBtn.title = "Delete session";
@@ -7764,7 +7783,7 @@ Revert those edits to the character now, or leave them applied?`;
             sendBackend({ type: "delete_session", sessionId: s.sessionId });
           }
         });
-        row.append(main, delBtn);
+        row.append(main, exportBtn, delBtn);
         row.addEventListener("click", () => {
           sendBackend({ type: "load_session", sessionId: s.sessionId });
           handle.dismiss();
@@ -7943,6 +7962,14 @@ Revert those edits to the character now, or leave them applied?`;
     autoFreeRow.appendChild(autoFreeInput);
     wrap.appendChild(autoFreeRow);
     wrap.appendChild(el9("div", "la-settings-hint", "Stub-replace insensitive tool results after 10 user turns to save context. Off by default. Turn on if you're on a provider that doesn't honour cache markers AND you see context grow unchecked."));
+    const parallelToolsRow = el9("div", "la-settings-row");
+    parallelToolsRow.append(el9("label", "la-settings-row-label", "Parallel tool calls"));
+    const parallelToolsInput = document.createElement("input");
+    parallelToolsInput.type = "checkbox";
+    parallelToolsInput.className = "la-checkbox";
+    parallelToolsRow.appendChild(parallelToolsInput);
+    wrap.appendChild(parallelToolsRow);
+    wrap.appendChild(el9("div", "la-settings-hint", "Leave ON for Anthropic, OpenAI, Google, most OpenRouter routes. Turn OFF for providers that error on parallel tool emission (some Mistral configurations, certain self-hosted setups)."));
     wrap.appendChild(el9("label", "la-settings-label", "Extension pairings"));
     wrap.appendChild(el9("div", "la-settings-hint", "Other extensions that can communicate with LumiAgent."));
     const pairingsPanel = el9("div", "la-pairings-panel");
@@ -8025,6 +8052,7 @@ Revert those edits to the character now, or leave them applied?`;
       cacheModeSelect.value = s.cacheMode ?? "full";
       cacheSupportInput.checked = s.connectionSupportsPromptCaching ?? true;
       autoFreeInput.checked = s.autoFreeOldToolResults ?? false;
+      parallelToolsInput.checked = s.parallelToolCalls ?? true;
       renderSamplers();
     };
     const resetAllSamplers = () => {
@@ -8192,7 +8220,8 @@ Revert those edits to the character now, or leave them applied?`;
         toolOutputCapTokens: parsePosInt(toolCapInput.value),
         connectionSupportsPromptCaching: cacheSupportInput.checked,
         autoFreeOldToolResults: autoFreeInput.checked,
-        cacheMode: cacheModeSelect.value
+        cacheMode: cacheModeSelect.value,
+        parallelToolCalls: parallelToolsInput.checked
       });
       status.textContent = "Saved.";
       status.classList.remove("is-error");
@@ -8633,6 +8662,22 @@ Revert those edits to the character now, or leave them applied?`;
         }
         sendBackend({ type: "list_sessions" });
         break;
+      case "session_markdown_ready": {
+        const blob = new Blob([msg.content], { type: "text/markdown;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = msg.filename;
+        a.style.display = "none";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        break;
+      }
+      case "session_markdown_error":
+        composerStatus.textContent = `Export failed: ${msg.error}`;
+        break;
       case "session_reverted":
         composerStatus.textContent = `Session reverted: ${msg.entriesRestored} entries, ${msg.scriptsRestored} scripts. ${msg.entriesFailed + msg.scriptsFailed} failed.`;
         for (const e of state.edits)
@@ -8749,7 +8794,7 @@ Revert those edits to the character now, or leave them applied?`;
         if (state.characterId === msg.characterId) {
           state.chatsForCharacter = [...msg.chats];
           state.pinnedChatId = msg.pinnedChatId;
-          chatPinBtn.classList.toggle("has-pinned", msg.pinnedChatId !== null);
+          setChatPinned(msg.pinnedChatId !== null);
           if (state.autoPinNeeded && msg.pinnedChatId === null && msg.chats.length > 0) {
             state.autoPinNeeded = false;
             const newestId = msg.chats[0].id;
@@ -8766,7 +8811,7 @@ Revert those edits to the character now, or leave them applied?`;
         dlog("pinned_chat_set received", { sessionId: msg.sessionId, chatId: msg.chatId, stateSessionId: state.sessionId, stateCharacterId: state.characterId });
         if (msg.sessionId === state.sessionId) {
           state.pinnedChatId = msg.chatId;
-          chatPinBtn.classList.toggle("has-pinned", msg.chatId !== null);
+          setChatPinned(msg.chatId !== null);
         }
         if (state.characterId)
           sendBackend({ type: "list_chats", characterId: state.characterId, sessionId: msg.sessionId });
@@ -8787,7 +8832,8 @@ Revert those edits to the character now, or leave them applied?`;
           toolOutputCapDefaultTokens: msg.toolOutputCapDefaultTokens,
           connectionSupportsPromptCaching: msg.connectionSupportsPromptCaching,
           autoFreeOldToolResults: msg.autoFreeOldToolResults,
-          cacheMode: msg.cacheMode
+          cacheMode: msg.cacheMode,
+          parallelToolCalls: msg.parallelToolCalls
         };
         for (const h of settingsListeners.handlers)
           h();

@@ -563,7 +563,9 @@ export function renderStaticAssistant(msg: ChatAssistantMessage, deps: ChatThrea
   }
 
   if (msg.status === "complete" && msg.usage) {
-    const meta = el("div", "la-msg-meta", `${msg.usage.total} tokens · turn ${msg.turn}`);
+    const prefix = msg.usage.estimated ? "~" : "";
+    const meta = el("div", "la-msg-meta", `${prefix}${msg.usage.total} tokens · turn ${msg.turn}`);
+    if (msg.usage.estimated) meta.title = "Provider did not report usage; tokens estimated locally.";
     wrap.appendChild(meta);
   } else if (msg.status === "cancelled") {
     wrap.appendChild(el("div", "la-msg-meta", "cancelled"));
@@ -786,7 +788,9 @@ export function createStreamingAssistant(deps: ChatThreadDeps): AssistantHandle 
         metaLine = el("div", "la-msg-meta");
         wrap.appendChild(metaLine);
       }
-      metaLine.textContent = `${usage.total} tokens`;
+      const prefix = usage.estimated ? "~" : "";
+      metaLine.textContent = `${prefix}${usage.total} tokens`;
+      if (usage.estimated) metaLine.title = "Provider did not report usage; tokens estimated locally.";
     },
   };
 }

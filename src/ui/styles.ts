@@ -30,11 +30,8 @@ ${LOADERS_CSS}
 .la-header-row-char .la-combo-host-char { flex: 1 1 160px; min-width: 0; }
 .la-header-row-char .la-combo-host-char .la-combo-trigger { width: 100%; max-width: none; }
 .la-header-row-meta { gap: 6px; flex-wrap: wrap; row-gap: 6px; }
-.la-header-row-meta .la-combo-host-conn {
-  flex: 0 0 auto;
-  min-width: 140px; max-width: 220px;
-}
-.la-header-row-meta .la-combo-host-conn .la-combo-trigger { width: 100%; }
+.la-header-row-meta .la-combo-host-conn { flex: 1 1 140px; min-width: 0; }
+.la-header-row-meta .la-combo-host-conn .la-combo-trigger { width: 100%; max-width: none; }
 .la-select {
   background: var(--lumiverse-bg);
   border: 1px solid var(--lumiverse-border);
@@ -109,8 +106,8 @@ ${LOADERS_CSS}
 .la-combo-trigger:focus { outline: none; border-color: var(--lumiverse-primary-muted); }
 .la-combo.is-open .la-combo-trigger { border-color: var(--lumiverse-primary-muted); }
 .la-combo-trigger.is-placeholder .la-combo-trigger-label { color: var(--lumiverse-text-dim); }
-.la-combo-trigger-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.la-combo-caret { color: var(--lumiverse-text-dim); font-size: 10px; flex-shrink: 0; }
+.la-combo-trigger-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.la-combo-caret { color: var(--lumiverse-text-dim); font-size: 20px; line-height: 1; flex-shrink: 0; margin-left: auto; }
 .la-combo-trigger:disabled { opacity: 0.5; cursor: not-allowed; }
 .la-combo-pop {
   position: absolute;

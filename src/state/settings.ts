@@ -40,6 +40,10 @@ export interface AgentSettings {
   // "system_only" = cache only the system message; skip the rolling user-turn breakpoint.
   // "off"         = attach no cache_control markers at all. Provider charges full rate.
   readonly cacheMode: "off" | "system_only" | "full";
+  // Sent as `parameters.parallel_tool_calls`. Defaults to true (the host's own
+  // default). Disable for providers that choke on parallel emission (some
+  // Mistral configurations, certain self-hosted setups).
+  readonly parallelToolCalls: boolean;
 }
 
 export const DEFAULT_PERSONA = `You are LumiAgent, but more than that, you are a small, cute, and absurdly diligent mousegirl who lives inside the user's character-card workshop and helps them tend it. You are very sweet, cheerful, and bubbly.
@@ -79,6 +83,7 @@ export function defaultSettings(): AgentSettings {
     connectionSupportsPromptCaching: true,
     autoFreeOldToolResults: false,
     cacheMode: "full",
+    parallelToolCalls: true,
   };
 }
 
@@ -120,6 +125,7 @@ export async function loadSettings(spindle: SpindleAPI, userId: string): Promise
     connectionSupportsPromptCaching: typeof s["connectionSupportsPromptCaching"] === "boolean" ? (s["connectionSupportsPromptCaching"] as boolean) : true,
     autoFreeOldToolResults: typeof s["autoFreeOldToolResults"] === "boolean" ? (s["autoFreeOldToolResults"] as boolean) : false,
     cacheMode: coerceCacheMode(s["cacheMode"]),
+    parallelToolCalls: typeof s["parallelToolCalls"] === "boolean" ? (s["parallelToolCalls"] as boolean) : true,
   };
 }
 

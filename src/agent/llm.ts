@@ -15,7 +15,7 @@ export interface LlmFinalResponse {
   readonly reasoning?: string | undefined;
   readonly finish_reason: string;
   readonly tool_calls: readonly ToolCall[];
-  readonly usage?: { prompt: number; completion: number; total: number } | undefined;
+  readonly usage?: { prompt: number; completion: number; total: number; estimated?: boolean } | undefined;
 }
 
 export type LlmStreamEvent =
@@ -51,8 +51,11 @@ export async function* runLlmStream(
         tool_calls: chunk.tool_calls ?? [],
       };
       if (chunk.reasoning !== undefined) (response as { reasoning?: string }).reasoning = chunk.reasoning;
-      if (chunk.usage) {
-        (response as { usage?: { prompt: number; completion: number; total: number } }).usage = {
+      // Some providers (GLM-5.1:thinking via NanoGPT, certain OpenAI-compat
+      // gateways) omit usage on streaming or report zeros. Treat all-zero as
+      // missing so the loop's fallback path runs.
+      if (chunk.usage && (chunk.usage.prompt_tokens > 0 || chunk.usage.completion_tokens > 0)) {
+        (response as { usage?: { prompt: number; completion: number; total: number; estimated?: boolean } }).usage = {
           prompt: chunk.usage.prompt_tokens,
           completion: chunk.usage.completion_tokens,
           total: chunk.usage.total_tokens,

@@ -25,7 +25,7 @@ import { mountWorkspacePanel, type WorkspacePanelHandle } from "./workspace-pane
 import { mountCharactersPanel, type CharactersPanelHandle } from "./characters-panel";
 import { mountCombo, type ComboHandle } from "./combo";
 import { handleAgentEvent, type AgentEventCtx } from "./agent-event-handler";
-import { ICON_TRASH, ICON_PIN, ICON_NEW, ICON_SESSIONS, ICON_SETTINGS, ICON_WORKSHOP } from "./icons";
+import { ICON_TRASH, ICON_DOWNLOAD, ICON_PIN, ICON_PIN_OFF, ICON_NEW, ICON_SESSIONS, ICON_SETTINGS, ICON_WORKSHOP } from "./icons";
 import { DEFAULT_ICON_DATA_URL } from "../generated/default-icon";
 import { MOUSEY_SITTING_DATA_URL } from "../generated/mousey";
 
@@ -76,7 +76,7 @@ interface UiState {
   characterLedger: EditLogEntry[];
   chatsForCharacter: ChatSummary[];
   pinnedChatId: string | null;
-  settings: { persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody?: string; samplers?: Readonly<Record<string, number | null>>; jailbreak?: string; jailbreakPlacement?: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes?: number | null; workspaceCapDefaultBytes?: number; workspaceFileCapBytes?: number; toolOutputCapTokens?: number | null; toolOutputCapDefaultTokens?: number; connectionSupportsPromptCaching?: boolean; autoFreeOldToolResults?: boolean; cacheMode?: "off" | "system_only" | "full" } | null;
+  settings: { persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody?: string; samplers?: Readonly<Record<string, number | null>>; jailbreak?: string; jailbreakPlacement?: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes?: number | null; workspaceCapDefaultBytes?: number; workspaceFileCapBytes?: number; toolOutputCapTokens?: number | null; toolOutputCapDefaultTokens?: number; connectionSupportsPromptCaching?: boolean; autoFreeOldToolResults?: boolean; cacheMode?: "off" | "system_only" | "full"; parallelToolCalls?: boolean } | null;
   pendingPinChatId: string | null;
   // Single-shot, reset after consume so a later list_chats won't re-pin after the user explicitly unpinned.
   autoPinNeeded: boolean;
@@ -184,8 +184,13 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   charComboRoot.setAttribute("aria-label", "Character");
   const charCombo: ComboHandle = mountCombo(charComboRoot);
   charCombo.setPlaceholder("Pick character");
-  const chatPinBtn = makeIconBtn("la-chat-pin-btn", ICON_PIN, "Pin a chat to share with the agent",
+  const chatPinBtn = makeIconBtn("la-chat-pin-btn", ICON_PIN_OFF, "Pin a chat to share with the agent",
     "Pin a chat (gives the agent message-history access)");
+  // Swap both the class (drives the active-tint CSS) and the icon SVG.
+  const setChatPinned = (pinned: boolean): void => {
+    chatPinBtn.classList.toggle("has-pinned", pinned);
+    chatPinBtn.innerHTML = pinned ? ICON_PIN : ICON_PIN_OFF;
+  };
   const switchSessionBtn = makeIconBtn("", ICON_SESSIONS, "Switch session", "Switch session");
   const newSessionBtn = makeIconBtn("", ICON_NEW, "Start a new chat session", "New session");
   const settingsBtn = makeIconBtn("", ICON_SETTINGS, "Agent settings", "Agent settings (persona & prompt)");
@@ -202,8 +207,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   const editsBadge = makeIconBtn("la-changes-btn", ICON_WORKSHOP, "Open diff viewer", "Workshop");
   const editsCount = el("span", "la-changes-count", "0");
   editsBadge.appendChild(editsCount);
-  const metaSpacer = el("span", "la-flex-spacer");
-  rowMeta.append(connComboRoot, editsBadge, metaSpacer, settingsBtn, menuBtn);
+  rowMeta.append(connComboRoot, editsBadge, settingsBtn, menuBtn);
 
   header.append(rowChar, rowMeta);
 
@@ -869,11 +873,15 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     state.chatsForCharacter = [];
     state.pinnedChatId = null;
     state.autoPinNeeded = !!id;
-    chatPinBtn.classList.remove("has-pinned");
+    setChatPinned(false);
     if (switchingAway) rerenderThread();
     updateComposer();
     updateSessionBar();
     if (id) {
+      // Mirror the New chat button: spin up a fresh session for the picked
+      // character so the queued autopin from chats_pushed actually lands.
+      // Without this the user would see "no pin" until they manually click New.
+      startNewSession();
       sendBackend({ type: "list_character_edits", characterId: id });
       sendBackend({ type: "list_chats", characterId: id, ...(state.sessionId ? { sessionId: state.sessionId } : {}) });
     }
@@ -894,7 +902,10 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     persistUiPrefs();
   });
 
-  newSessionBtn.addEventListener("click", () => {
+  // Spins up a fresh session for the active character. Shared by the
+  // New-session button and the char-selector autopin flow (selecting a
+  // character implicitly "moves us to a new chat" the same way).
+  function startNewSession(): void {
     if (!state.characterId) {
       composerStatus.textContent = "Pick a character first.";
       composerStatus.classList.add("is-error");
@@ -929,7 +940,9 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       composerStatus.classList.add("is-error");
       updateComposer();
     }, 8000);
-  });
+  }
+
+  newSessionBtn.addEventListener("click", startNewSession);
 
   // Pins the chat to the active session, or queues the pin if no session exists yet.
   const pinChatOrQueue = (chatId: string | null): void => {
@@ -1052,6 +1065,15 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         const main = el("div", "la-session-item-main");
         main.append(el("div", undefined, `${s.characterName}`));
         main.append(el("div", "la-session-item-meta", `${s.messageCount} msg . ${s.editCount} edits${s.revertedEditCount ? ` (${s.revertedEditCount} reverted)` : ""} . ${new Date(s.lastActivityAt).toLocaleString()}`));
+        const exportBtn = el("button", "la-session-item-delete") as HTMLButtonElement;
+        exportBtn.type = "button";
+        exportBtn.title = "Export session as Markdown";
+        exportBtn.setAttribute("aria-label", "Export session as Markdown");
+        exportBtn.innerHTML = ICON_DOWNLOAD;
+        exportBtn.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          sendBackend({ type: "export_session_markdown", sessionId: s.sessionId });
+        });
         const delBtn = el("button", "la-session-item-delete") as HTMLButtonElement;
         delBtn.type = "button";
         delBtn.title = "Delete session";
@@ -1065,7 +1087,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
             sendBackend({ type: "delete_session", sessionId: s.sessionId });
           }
         });
-        row.append(main, delBtn);
+        row.append(main, exportBtn, delBtn);
         row.addEventListener("click", () => {
           sendBackend({ type: "load_session", sessionId: s.sessionId });
           handle.dismiss();
@@ -1267,6 +1289,15 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     wrap.appendChild(autoFreeRow);
     wrap.appendChild(el("div", "la-settings-hint", "Stub-replace insensitive tool results after 10 user turns to save context. Off by default. Turn on if you're on a provider that doesn't honour cache markers AND you see context grow unchecked."));
 
+    const parallelToolsRow = el("div", "la-settings-row");
+    parallelToolsRow.append(el("label", "la-settings-row-label", "Parallel tool calls"));
+    const parallelToolsInput = document.createElement("input");
+    parallelToolsInput.type = "checkbox";
+    parallelToolsInput.className = "la-checkbox";
+    parallelToolsRow.appendChild(parallelToolsInput);
+    wrap.appendChild(parallelToolsRow);
+    wrap.appendChild(el("div", "la-settings-hint", "Leave ON for Anthropic, OpenAI, Google, most OpenRouter routes. Turn OFF for providers that error on parallel tool emission (some Mistral configurations, certain self-hosted setups)."));
+
     wrap.appendChild(el("label", "la-settings-label", "Extension pairings"));
     wrap.appendChild(el("div", "la-settings-hint", "Other extensions that can communicate with LumiAgent."));
     const pairingsPanel = el("div", "la-pairings-panel");
@@ -1348,6 +1379,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       cacheModeSelect.value = s.cacheMode ?? "full";
       cacheSupportInput.checked = s.connectionSupportsPromptCaching ?? true;
       autoFreeInput.checked = s.autoFreeOldToolResults ?? false;
+      parallelToolsInput.checked = s.parallelToolCalls ?? true;
       renderSamplers();
     };
 
@@ -1494,6 +1526,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         connectionSupportsPromptCaching: cacheSupportInput.checked,
         autoFreeOldToolResults: autoFreeInput.checked,
         cacheMode: (cacheModeSelect.value as "off" | "system_only" | "full"),
+        parallelToolCalls: parallelToolsInput.checked,
       });
       status.textContent = "Saved.";
       status.classList.remove("is-error");
@@ -1956,6 +1989,23 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         }
         sendBackend({ type: "list_sessions" });
         break;
+      case "session_markdown_ready": {
+        const blob = new Blob([msg.content], { type: "text/markdown;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = msg.filename;
+        a.style.display = "none";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        // Revoke after a tick so the browser's save dialog has time to start.
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        break;
+      }
+      case "session_markdown_error":
+        composerStatus.textContent = `Export failed: ${msg.error}`;
+        break;
       case "session_reverted":
         composerStatus.textContent = `Session reverted: ${msg.entriesRestored} entries, ${msg.scriptsRestored} scripts. ${msg.entriesFailed + msg.scriptsFailed} failed.`;
         for (const e of state.edits) (e as { reverted: boolean }).reverted = true;
@@ -2066,7 +2116,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         if (state.characterId === msg.characterId) {
           state.chatsForCharacter = [...msg.chats];
           state.pinnedChatId = msg.pinnedChatId;
-          chatPinBtn.classList.toggle("has-pinned", msg.pinnedChatId !== null);
+          setChatPinned(msg.pinnedChatId !== null);
           if (state.autoPinNeeded && msg.pinnedChatId === null && msg.chats.length > 0) {
             state.autoPinNeeded = false;
             const newestId = msg.chats[0]!.id;
@@ -2081,7 +2131,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         // Gate on session match, a stale message from another session would otherwise light the pin icon falsely.
         if (msg.sessionId === state.sessionId) {
           state.pinnedChatId = msg.chatId;
-          chatPinBtn.classList.toggle("has-pinned", msg.chatId !== null);
+          setChatPinned(msg.chatId !== null);
         }
         if (state.characterId) sendBackend({ type: "list_chats", characterId: state.characterId, sessionId: msg.sessionId });
         break;
@@ -2102,6 +2152,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
           connectionSupportsPromptCaching: msg.connectionSupportsPromptCaching,
           autoFreeOldToolResults: msg.autoFreeOldToolResults,
           cacheMode: msg.cacheMode,
+          parallelToolCalls: msg.parallelToolCalls,
         };
         for (const h of settingsListeners.handlers) h();
         break;

@@ -38,6 +38,19 @@ import {
 } from "./state/sessions";
 
 const activeSessions = new Map<string, AbortController>();
+
+// Sessions the user has started but never sent a message in. We keep them
+// in memory only; they never hit disk. The first send_message promotes the
+// pending session to a persisted one. A page refresh discards them, which
+// is the desired behaviour: empty sessions clutter the picker for no gain.
+const pendingSessions = new Map<string, PersistedSession>();
+
+async function loadSessionWithPending(sessionId: string, userId: string): Promise<PersistedSession | null> {
+  const p = pendingSessions.get(sessionId);
+  if (p) return p;
+  return loadSession(spindle, sessionId, userId);
+}
+
 const DEFAULT_MAX_TURNS_PER_MESSAGE = 80;
 
 function send(msg: BackendToFrontend, userId: string): void {
@@ -129,7 +142,7 @@ async function handleListChats(characterId: string, sessionId: string | undefine
   // Pin is per-session, resolve strictly from the named session. Old activeSessions fallback leaked other sessions' pins onto unpinned ones.
   if (sessionId) {
     try {
-      const s = await loadSession(spindle, sessionId, userId);
+      const s = await loadSessionWithPending(sessionId, userId);
       if (s) {
         const characterMatch = s.characterId === characterId;
         log("info", `list_chats: loaded session sessionCharacterId=${s.characterId} pinnedChatId=${s.pinnedChatId ?? "null"} characterMatch=${characterMatch}`);
@@ -323,6 +336,7 @@ async function handleGetSettings(userId: string): Promise<void> {
     connectionSupportsPromptCaching: settings.connectionSupportsPromptCaching,
     autoFreeOldToolResults: settings.autoFreeOldToolResults,
     cacheMode: settings.cacheMode,
+    parallelToolCalls: settings.parallelToolCalls,
   }, userId);
 }
 
@@ -361,6 +375,7 @@ async function handleUpdateSettings(
   connectionSupportsPromptCaching: boolean,
   autoFreeOldToolResults: boolean,
   cacheMode: "off" | "system_only" | "full",
+  parallelToolCalls: boolean,
   userId: string,
 ): Promise<void> {
   await saveSettings(spindle, {
@@ -375,6 +390,7 @@ async function handleUpdateSettings(
     connectionSupportsPromptCaching,
     autoFreeOldToolResults,
     cacheMode,
+    parallelToolCalls,
   }, userId);
   await handleGetSettings(userId);
 }
@@ -558,7 +574,7 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
     const tools = makeInitialToolSchemas();
     const deferredToolSchemas = makeDeferredToolSchemaMap();
     const dispatch = makeToolDispatch();
-    const samplerParams = samplersToWireWithRequired(settings.samplers);
+    const samplerParams: Record<string, unknown> = { ...samplersToWireWithRequired(settings.samplers), parallel_tool_calls: settings.parallelToolCalls };
     const assistantId = makeId("msg");
     const assistant: ChatAssistantMessage = { id: assistantId, role: "assistant", ts: Date.now(), turn: 0, blocks: [{ type: "text", content: "[Compacting context, writing handoff notes...]" }], status: "streaming" };
     s.messages.push(assistant);
@@ -900,16 +916,19 @@ async function handleWsDownloadZip(paths: readonly string[], userId: string): Pr
 
 async function handleSetPinnedChat(sessionId: string, chatId: string | null, userId: string): Promise<void> {
   log("info", `set_pinned_chat sessionId=${sessionId} chatId=${chatId ?? "null"}`);
-  const s = await loadSession(spindle, sessionId, userId);
+  const isPending = pendingSessions.has(sessionId);
+  const s = await loadSessionWithPending(sessionId, userId);
   if (!s) {
     log("warn", `set_pinned_chat: session ${sessionId} not found`);
     send({ type: "generation_error", sessionId, error: "session not found" }, userId);
     return;
   }
-  log("info", `set_pinned_chat: loaded session sessionCharacterId=${s.characterId} prevPinnedChatId=${s.pinnedChatId ?? "null"}`);
+  log("info", `set_pinned_chat: loaded session sessionCharacterId=${s.characterId} prevPinnedChatId=${s.pinnedChatId ?? "null"} pending=${isPending}`);
   s.pinnedChatId = chatId;
-  await saveSession(spindle, s, userId);
-  log("info", `set_pinned_chat: saved, replying pinned_chat_set`);
+  // Pending sessions stay in memory: mutating the held object is the save.
+  // Disk write only fires once the session has its first message.
+  if (!isPending) await saveSession(spindle, s, userId);
+  log("info", `set_pinned_chat: ${isPending ? "updated in-memory pending session" : "saved"}, replying pinned_chat_set`);
   send({ type: "pinned_chat_set", sessionId, chatId }, userId);
 }
 
@@ -920,9 +939,13 @@ async function handleListSessions(filter: string | undefined, userId: string): P
 }
 
 async function handleLoadSession(sessionId: string, userId: string): Promise<void> {
-  const s = await loadSession(spindle, sessionId, userId);
+  const s = await loadSessionWithPending(sessionId, userId);
   if (!s) {
     log("warn", `load_session: ${sessionId} not found`);
+    // A pending session that never saw a message is gone after a refresh.
+    // Tell the frontend explicitly so it clears its in-memory pointer instead
+    // of sitting on a dead session id.
+    send({ type: "session_deleted", sessionId }, userId);
     return;
   }
   send({
@@ -955,13 +978,9 @@ async function handleStartSession(sessionId: string, characterId: string, connec
       characterName: c.name,
       connectionId: connectionId ?? null,
     });
-    try {
-      await saveSession(spindle, s, userId);
-    } catch (err) {
-      log("error", `saveSession failed for ${sessionId}: ${(err as Error).message}`);
-      send({ type: "generation_error", sessionId, error: `failed to persist session: ${(err as Error).message}` }, userId);
-      return;
-    }
+    // Hold in memory only. First send_message promotes to persisted. Avoids
+    // clutter from sessions the user opens and abandons.
+    pendingSessions.set(sessionId, s);
 
     send({
       type: "session_started",
@@ -970,9 +989,7 @@ async function handleStartSession(sessionId: string, characterId: string, connec
       characterName: c.name,
       createdAt: s.createdAt,
     }, userId);
-
-
-    void handleListSessions(undefined, userId);
+    // No list refresh: an empty session shouldn't appear in the picker.
   } catch (err) {
     const msg = (err as Error).message;
     log("error", `start_session ${sessionId} threw: ${msg}`);
@@ -988,7 +1005,7 @@ async function handleContinueSession(sessionId: string, connectionId: string | u
     send({ type: "generation_error", sessionId, error: "session already has a generation in flight" }, userId);
     return;
   }
-  const s = await loadSession(spindle, sessionId, userId);
+  const s = await loadSessionWithPending(sessionId, userId);
   if (!s) { send({ type: "generation_error", sessionId, error: `session ${sessionId} not found` }, userId); return; }
   if (s.messages.length === 0 || s.messages[s.messages.length - 1]!.role !== "user") {
     send({ type: "generation_error", sessionId, error: "nothing to continue: last message is not a user message" }, userId);
@@ -1009,7 +1026,8 @@ async function handleSendMessage(
     send({ type: "generation_error", sessionId, error: "session already has a generation in flight" }, userId);
     return;
   }
-  const s = await loadSession(spindle, sessionId, userId);
+  const wasPending = pendingSessions.has(sessionId);
+  const s = await loadSessionWithPending(sessionId, userId);
   if (!s) {
     send({ type: "generation_error", sessionId, error: `session ${sessionId} not found` }, userId);
     return;
@@ -1018,6 +1036,12 @@ async function handleSendMessage(
   s.messages.push(userMsg);
   s.llmHistory.push({ role: "user", content });
   await saveSession(spindle, s, userId);
+  if (wasPending) {
+    // Now persisted; drop the in-memory hold so future loads come from disk.
+    pendingSessions.delete(sessionId);
+    // First time this session appears in the picker.
+    void handleListSessions(undefined, userId);
+  }
   await handleSendMessageInternal(s, userId, connectionId);
 }
 
@@ -1035,6 +1059,7 @@ function handleCancelGeneration(sessionId: string, userId: string): void {
 async function handleDeleteSession(sessionId: string, userId: string): Promise<void> {
   const ac = activeSessions.get(sessionId);
   if (ac) ac.abort();
+  pendingSessions.delete(sessionId);
   await deleteSessionFile(spindle, sessionId, userId);
   try {
     const { clearSessionTmp } = await import("./state/tmp-store");
@@ -1042,6 +1067,88 @@ async function handleDeleteSession(sessionId: string, userId: string): Promise<v
   } catch (err) { log("warn", `tmp cleanup failed for ${sessionId}: ${(err as Error).message}`); }
   send({ type: "session_deleted", sessionId }, userId);
   void handleListSessions(undefined, userId);
+}
+
+async function handleExportSessionMarkdown(sessionId: string, userId: string): Promise<void> {
+  const s = await loadSession(spindle, sessionId, userId);
+  if (!s) {
+    send({ type: "session_markdown_error", sessionId, error: "Session not found." }, userId);
+    return;
+  }
+  try {
+    const { content, filename } = renderSessionMarkdown(s);
+    send({ type: "session_markdown_ready", sessionId, filename, content }, userId);
+  } catch (err) {
+    send({ type: "session_markdown_error", sessionId, error: (err as Error).message }, userId);
+  }
+}
+
+function renderSessionMarkdown(s: PersistedSession): { content: string; filename: string } {
+  const lines: string[] = [];
+  const isoNow = new Date().toISOString().slice(0, 19).replace("T", " ");
+  lines.push(`# ${s.characterName} — session ${s.sessionId.slice(0, 8)}`);
+  lines.push("");
+  lines.push(`_Exported from LumiAgent — ${isoNow}_`);
+  lines.push(`_Started ${new Date(s.createdAt).toISOString().slice(0, 19).replace("T", " ")}_`);
+  lines.push("");
+  lines.push("---");
+  lines.push("");
+  for (const m of s.messages) {
+    if (m.role === "user") {
+      lines.push("## User");
+      lines.push("");
+      lines.push(m.content);
+      lines.push("");
+      lines.push("---");
+      lines.push("");
+      continue;
+    }
+    lines.push("## Assistant");
+    lines.push("");
+    for (const b of m.blocks) {
+      if (b.type === "reasoning") {
+        lines.push("> **Reasoning:**");
+        for (const r of b.content.split("\n")) lines.push(`> ${r}`);
+        lines.push("");
+      } else if (b.type === "text") {
+        lines.push(b.content);
+        lines.push("");
+      } else if (b.type === "warning") {
+        lines.push(`> :warning: ${b.message}`);
+        lines.push("");
+      } else if (b.type === "tool") {
+        lines.push(`**:wrench: Tool call: \`${b.name}\`**`);
+        lines.push("");
+        lines.push("```json");
+        lines.push(JSON.stringify(b.args ?? {}, null, 2));
+        lines.push("```");
+        if (b.result !== undefined) {
+          lines.push("");
+          lines.push(b.is_error ? "**Tool error:**" : "**Tool result:**");
+          lines.push("");
+          let body = b.result;
+          let lang = "";
+          try { body = JSON.stringify(JSON.parse(b.result), null, 2); lang = "json"; }
+          catch { /* not JSON, render verbatim */ }
+          lines.push("```" + lang);
+          lines.push(body);
+          lines.push("```");
+        }
+        lines.push("");
+      }
+    }
+    if (m.usage) {
+      const prefix = m.usage.estimated ? "~" : "";
+      lines.push(`_${prefix}${m.usage.total} tokens, turn ${m.turn}_`);
+      lines.push("");
+    }
+    lines.push("---");
+    lines.push("");
+  }
+  const datePart = new Date().toISOString().slice(0, 10);
+  const safeName = s.characterName.replace(/[\\/:*?"<>|]/g, "-").replace(/\s+/g, "-").replace(/-+/g, "-").slice(0, 60) || "session";
+  const filename = `lumiagent-${safeName}-${s.sessionId.slice(0, 8)}-${datePart}.md`;
+  return { content: lines.join("\n"), filename };
 }
 
 async function handleListCharacterEdits(characterId: string, userId: string): Promise<void> {
@@ -1269,8 +1376,10 @@ function rebuildLlmHistory(messages: readonly (ChatUserMessage | ChatAssistantMe
     const toolCalls: ToolCall[] = [];
     const toolResults: ToolResult[] = [];
     let text = "";
+    let reasoning = "";
     for (const b of m.blocks) {
       if (b.type === "text") text += b.content;
+      else if (b.type === "reasoning") reasoning += b.content;
       else if (b.type === "tool") {
         toolCalls.push({ name: b.name, args: b.args, call_id: b.call_id });
         if (b.result !== undefined) {
@@ -1278,7 +1387,7 @@ function rebuildLlmHistory(messages: readonly (ChatUserMessage | ChatAssistantMe
         }
       }
     }
-    out.push(encodeAssistantTurn(text, toolCalls));
+    out.push(encodeAssistantTurn(text, toolCalls, reasoning || undefined));
     if (toolResults.length > 0) out.push(encodeToolResults(toolResults));
   }
   return out;
@@ -1478,7 +1587,7 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
   const tools = makeInitialToolSchemas();
   const deferredToolSchemas = makeDeferredToolSchemaMap();
   const dispatch = makeToolDispatch();
-  const samplerParams = samplersToWireWithRequired(settings.samplers);
+  const samplerParams: Record<string, unknown> = { ...samplersToWireWithRequired(settings.samplers), parallel_tool_calls: settings.parallelToolCalls };
   let currentTextBlock: AssistantBlock & { type: "text" } | null = null;
   let currentReasoningBlock: AssistantBlock & { type: "reasoning" } | null = null;
   const toolBlocks = new Map<string, AssistantBlock & { type: "tool" }>();
@@ -1589,11 +1698,19 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
       }
     }
   } catch (err) {
-    errored = true;
-    assistant.status = "errored";
-    const msg = (err as Error).message;
-    log("error", `session ${s.sessionId} generation threw: ${msg}`);
-    send({ type: "generation_error", sessionId: s.sessionId, error: msg }, userId);
+    // The user-cancel path throws an AbortError up from runLlmStream / tool
+    // dispatch, but the thrown shape varies per provider (DOMException, Error
+    // with name="AbortError", custom strings). Check the caller's signal
+    // directly: if it fired, treat as a clean stop, not an error toast.
+    if (ac.signal.aborted) {
+      assistant.status = "cancelled";
+    } else {
+      errored = true;
+      assistant.status = "errored";
+      const msg = (err as Error).message;
+      log("error", `session ${s.sessionId} generation threw: ${msg}`);
+      send({ type: "generation_error", sessionId: s.sessionId, error: msg }, userId);
+    }
   }
   activeSessions.delete(s.sessionId);
   s.llmHistory = conv.slice(1);
@@ -1644,6 +1761,7 @@ spindle.onFrontendMessage(async (raw: unknown, userId: string) => {
       case "continue_session": void handleContinueSession(msg.sessionId, msg.connectionId, userId); return;
       case "cancel_generation": handleCancelGeneration(msg.sessionId, userId); return;
       case "delete_session": await handleDeleteSession(msg.sessionId, userId); return;
+      case "export_session_markdown": await handleExportSessionMarkdown(msg.sessionId, userId); return;
       case "list_character_edits": await handleListCharacterEdits(msg.characterId, userId); return;
       case "revert_edit": await handleRevertEdit(msg.characterId, msg.editId, msg.force === true, userId); return;
       case "revert_edits_bulk": await handleRevertEditsBulk(msg.characterId, msg.editIds, userId); return;
@@ -1655,7 +1773,7 @@ spindle.onFrontendMessage(async (raw: unknown, userId: string) => {
       case "list_chats": await handleListChats(msg.characterId, msg.sessionId, userId); return;
       case "set_pinned_chat": await handleSetPinnedChat(msg.sessionId, msg.chatId, userId); return;
       case "get_settings": await handleGetSettings(userId); return;
-      case "update_settings": await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.connectionSupportsPromptCaching ?? true, msg.autoFreeOldToolResults ?? false, msg.cacheMode ?? "full", userId); return;
+      case "update_settings": await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.connectionSupportsPromptCaching ?? true, msg.autoFreeOldToolResults ?? false, msg.cacheMode ?? "full", msg.parallelToolCalls ?? true, userId); return;
       case "get_ui_prefs": await handleGetUiPrefs(userId); return;
       case "update_ui_prefs": await handleUpdateUiPrefs(msg.connectionId, msg.lastSessionId, userId); return;
       case "compact_session": void compactSession(msg.sessionId, userId, "manual"); return;

@@ -41,13 +41,15 @@ function clip(s: string): string {
   return `${head}\n[... ${s.length - MAX_RESULT_CHARS + 300} chars truncated ...]\n${tail}`;
 }
 
-export function encodeAssistantTurn(content: string, toolCalls: readonly ToolCall[]): LlmMessage {
+// DeepSeek thinking-mode rejects continuations whose assistant turn is missing
+// the reasoning that produced its tool calls. Other providers ignore the field.
+export function encodeAssistantTurn(content: string, toolCalls: readonly ToolCall[], reasoning?: string): LlmMessage {
   const parts: LlmMessagePart[] = [];
   if (content.length > 0) parts.push({ type: "text", text: content });
   for (const tc of toolCalls) {
     parts.push({ type: "tool_use", id: tc.call_id, name: tc.name, input: tc.args ?? {}, ...(tc.thought_signature ? { thought_signature: tc.thought_signature } : {}) });
   }
-  return { role: "assistant", content: parts };
+  return { role: "assistant", content: parts, ...(reasoning ? { reasoning_content: reasoning } : {}) };
 }
 
 export function encodeToolResults(results: readonly ToolResult[]): LlmMessage {

@@ -22188,6 +22188,44 @@ Usage:
 });
 
 // src/state/sessions.ts
+function summarizeForIndex(s) {
+  return {
+    sessionId: s.sessionId,
+    characterId: s.characterId,
+    characterName: s.characterName,
+    createdAt: s.createdAt,
+    lastActivityAt: s.lastActivityAt,
+    messageCount: s.messages.length,
+    editCount: s.edits.length,
+    revertedEditCount: s.edits.filter((e) => e.reverted).length
+  };
+}
+async function loadIndex(spindle2, userId) {
+  const raw = await spindle2.userStorage.getJson(INDEX_PATH, { fallback: null, userId });
+  if (!raw || typeof raw !== "object")
+    return null;
+  if (raw.version !== INDEX_SCHEMA_VERSION)
+    return null;
+  return raw;
+}
+async function writeIndex(spindle2, entries, userId) {
+  const payload = { version: INDEX_SCHEMA_VERSION, entries };
+  await spindle2.userStorage.write(INDEX_PATH, JSON.stringify(payload), userId);
+}
+async function upsertIndex(spindle2, entry, userId) {
+  const cur = await loadIndex(spindle2, userId);
+  const next = [entry, ...(cur?.entries ?? []).filter((e) => e.sessionId !== entry.sessionId)];
+  await writeIndex(spindle2, next, userId);
+}
+async function removeFromIndex(spindle2, sessionId, userId) {
+  const cur = await loadIndex(spindle2, userId);
+  if (!cur)
+    return;
+  const next = cur.entries.filter((e) => e.sessionId !== sessionId);
+  if (next.length === cur.entries.length)
+    return;
+  await writeIndex(spindle2, next, userId);
+}
 function path2(sessionId) {
   return `${SESSION_DIR}/${sessionId}.json`;
 }
@@ -22210,6 +22248,9 @@ function newSession(opts) {
 async function saveSession(spindle2, s, userId) {
   s.lastActivityAt = Date.now();
   await spindle2.userStorage.setJson(path2(s.sessionId), s, { userId });
+  try {
+    await upsertIndex(spindle2, summarizeForIndex(s), userId);
+  } catch {}
 }
 async function loadSession(spindle2, sessionId, userId) {
   return spindle2.userStorage.getJson(path2(sessionId), { fallback: null, userId });
@@ -22231,22 +22272,24 @@ async function deleteSessionFile(spindle2, sessionId, userId) {
   try {
     await spindle2.userStorage.delete(path2(sessionId), userId);
   } catch {}
+  try {
+    await removeFromIndex(spindle2, sessionId, userId);
+  } catch {}
 }
-function summarize(s, isActive) {
-  const revertedCount = s.edits.filter((e) => e.reverted).length;
+function entryToWire(e, isActive) {
   return {
-    sessionId: s.sessionId,
-    characterId: s.characterId,
-    characterName: s.characterName,
-    createdAt: s.createdAt,
-    lastActivityAt: s.lastActivityAt,
-    messageCount: s.messages.length,
-    editCount: s.edits.length,
-    revertedEditCount: revertedCount,
+    sessionId: e.sessionId,
+    characterId: e.characterId,
+    characterName: e.characterName,
+    createdAt: e.createdAt,
+    lastActivityAt: e.lastActivityAt,
+    messageCount: e.messageCount,
+    editCount: e.editCount,
+    revertedEditCount: e.revertedEditCount,
     isActive
   };
 }
-async function listSessionSummaries(spindle2, userId, activeIds, filterCharacterId) {
+async function rebuildIndex(spindle2, userId) {
   let names;
   try {
     names = await spindle2.userStorage.list(`${SESSION_DIR}/`, userId);
@@ -22257,18 +22300,36 @@ async function listSessionSummaries(spindle2, userId, activeIds, filterCharacter
   for (const rel of names) {
     if (!rel.endsWith(".json"))
       continue;
+    if (rel === "index.json")
+      continue;
     const id = rel.slice(0, -5);
     const s = await spindle2.userStorage.getJson(`${SESSION_DIR}/${id}.json`, { fallback: null, userId });
     if (!s)
       continue;
-    if (filterCharacterId && s.characterId !== filterCharacterId)
+    out.push(summarizeForIndex(s));
+  }
+  out.sort((a, b) => b.lastActivityAt - a.lastActivityAt);
+  try {
+    await writeIndex(spindle2, out, userId);
+  } catch {}
+  return out;
+}
+async function listSessionSummaries(spindle2, userId, activeIds, filterCharacterId) {
+  const cur = await loadIndex(spindle2, userId);
+  const entries = cur ? cur.entries : await rebuildIndex(spindle2, userId);
+  const out = [];
+  for (const e of entries) {
+    if (filterCharacterId && e.characterId !== filterCharacterId)
       continue;
-    out.push(summarize(s, activeIds.has(s.sessionId)));
+    out.push(entryToWire(e, activeIds.has(e.sessionId)));
   }
   out.sort((a, b) => b.lastActivityAt - a.lastActivityAt);
   return out;
 }
-var SESSION_DIR = "sessions", SCHEMA_VERSION = 1;
+var SESSION_DIR = "sessions", INDEX_PATH, SCHEMA_VERSION = 1, INDEX_SCHEMA_VERSION = 1;
+var init_sessions = __esm(() => {
+  INDEX_PATH = `${SESSION_DIR}/index.json`;
+});
 
 // src/agent/tools/revert-session-edits.ts
 var inputSchema45, revertSessionEditsTool;
@@ -22276,6 +22337,7 @@ var init_revert_session_edits = __esm(() => {
   init_zod();
   init_ledger();
   init_edit_log();
+  init_sessions();
   inputSchema45 = exports_external.object({
     edit_ids: exports_external.array(exports_external.string().min(1)).min(1).max(50).describe("Edit ids from list_session_edits."),
     allow_cross_session: exports_external.boolean().optional().describe("Allow reverting edits you made in a DIFFERENT chat session. Default false: only current-session edits are revertable. Opt in only when the user asks to undo work from an earlier conversation.")
@@ -24795,7 +24857,8 @@ function defaultSettings() {
     toolOutputCapTokens: null,
     connectionSupportsPromptCaching: true,
     autoFreeOldToolResults: false,
-    cacheMode: "full"
+    cacheMode: "full",
+    parallelToolCalls: true
   };
 }
 function coerceCacheMode(v) {
@@ -24831,7 +24894,8 @@ async function loadSettings(spindle2, userId) {
     toolOutputCapTokens: coercePositiveInt(s["toolOutputCapTokens"]),
     connectionSupportsPromptCaching: typeof s["connectionSupportsPromptCaching"] === "boolean" ? s["connectionSupportsPromptCaching"] : true,
     autoFreeOldToolResults: typeof s["autoFreeOldToolResults"] === "boolean" ? s["autoFreeOldToolResults"] : false,
-    cacheMode: coerceCacheMode(s["cacheMode"])
+    cacheMode: coerceCacheMode(s["cacheMode"]),
+    parallelToolCalls: typeof s["parallelToolCalls"] === "boolean" ? s["parallelToolCalls"] : true
   };
 }
 async function saveSettings(spindle2, settings, userId) {
@@ -24941,14 +25005,14 @@ function clip(s) {
 [... ${s.length - MAX_RESULT_CHARS + 300} chars truncated ...]
 ${tail}`;
 }
-function encodeAssistantTurn(content, toolCalls) {
+function encodeAssistantTurn(content, toolCalls, reasoning) {
   const parts = [];
   if (content.length > 0)
     parts.push({ type: "text", text: content });
   for (const tc of toolCalls) {
     parts.push({ type: "tool_use", id: tc.call_id, name: tc.name, input: tc.args ?? {}, ...tc.thought_signature ? { thought_signature: tc.thought_signature } : {} });
   }
-  return { role: "assistant", content: parts };
+  return { role: "assistant", content: parts, ...reasoning ? { reasoning_content: reasoning } : {} };
 }
 function encodeToolResults(results) {
   const parts = results.map((r) => ({
@@ -24992,7 +25056,7 @@ async function* runLlmStream(spindle2, input) {
       };
       if (chunk.reasoning !== undefined)
         response.reasoning = chunk.reasoning;
-      if (chunk.usage) {
+      if (chunk.usage && (chunk.usage.prompt_tokens > 0 || chunk.usage.completion_tokens > 0)) {
         response.usage = {
           prompt: chunk.usage.prompt_tokens,
           completion: chunk.usage.completion_tokens,
@@ -25242,6 +25306,15 @@ async function countResultTokens(spindle2, userId, text, modelId) {
     return Math.ceil(text.length / 3);
   }
 }
+async function estimateUsage(spindle2, userId, conv, content, reasoning, modelId) {
+  const promptText = JSON.stringify(conv);
+  const completionText = (content ?? "") + (reasoning ?? "");
+  const [prompt, completion] = await Promise.all([
+    countResultTokens(spindle2, userId, promptText, modelId),
+    countResultTokens(spindle2, userId, completionText, modelId)
+  ]);
+  return { prompt, completion, total: prompt + completion, estimated: true };
+}
 var DEFAULT_CONTEXT_TOKENS = 128000;
 var DEFAULT_MAX_TURNS = 40;
 var TEXT_TOOL_TAG_NAMES = "(?:invoke|tool_use|tool_call|function_call|function_calls|parameter)";
@@ -25388,6 +25461,7 @@ async function* runAgent(input) {
     let toolCalls = [];
     let finishReason = "";
     let usage;
+    let reasoning;
     let effectiveTools = input.tools;
     if (discoveredToolNames.size > 0) {
       const extras = [];
@@ -25416,12 +25490,18 @@ async function* runAgent(input) {
           toolCalls = ev.response.tool_calls;
           finishReason = ev.response.finish_reason;
           usage = ev.response.usage;
+          reasoning = ev.response.reasoning;
         }
       }
     } catch (err) {
       if (signal.aborted)
         return;
       throw new Error(`LLM call failed: ${err.message}`);
+    }
+    if (usage === undefined) {
+      try {
+        usage = await estimateUsage(input.spindle, input.userId, withRollingCacheBreakpoint(conv, input.cacheMode ?? "full"), content, reasoning, input.tokenizerModelId);
+      } catch {}
     }
     if (turnNum === startingTurn + 1 && content.trim().length === 0 && toolCalls.length === 0) {
       throw new Error(`The model returned no content and no tool calls. Likely causes:
@@ -25461,7 +25541,7 @@ async function* runAgent(input) {
     if (toolCalls.length > 0) {
       const loop = detector.recordToolCalls(toolCalls.map((tc) => ({ name: tc.name, input: tc.args })));
       if (loop) {
-        conv.push(encodeAssistantTurn(content, toolCalls));
+        conv.push(encodeAssistantTurn(content, toolCalls, reasoning));
         yield { type: "warning", message: loop.detail };
         yield { type: "paused_for_input", reason: "loop_detected", detail: loop.detail };
         return;
@@ -25469,7 +25549,7 @@ async function* runAgent(input) {
     } else if (content.trim().length > 0) {
       const loop = detector.recordText(content);
       if (loop) {
-        conv.push(encodeAssistantTurn(content, toolCalls));
+        conv.push(encodeAssistantTurn(content, toolCalls, reasoning));
         yield { type: "warning", message: loop.detail };
         yield { type: "paused_for_input", reason: "loop_detected", detail: loop.detail };
         return;
@@ -25600,7 +25680,7 @@ async function* runAgent(input) {
         yield* drainOutcome(oc);
       }
     }
-    conv.push(encodeAssistantTurn(content, toolCalls));
+    conv.push(encodeAssistantTurn(content, toolCalls, reasoning));
     if (results.length > 0)
       conv.push(encodeToolResults(results));
     const completedEvent = {
@@ -26011,7 +26091,15 @@ async function saveUiPrefs(spindle2, prefs, userId) {
 
 // src/backend.ts
 init_samplers();
+init_sessions();
 var activeSessions = new Map;
+var pendingSessions = new Map;
+async function loadSessionWithPending(sessionId, userId) {
+  const p = pendingSessions.get(sessionId);
+  if (p)
+    return p;
+  return loadSession(spindle, sessionId, userId);
+}
 var DEFAULT_MAX_TURNS_PER_MESSAGE = 80;
 function send(msg, userId) {
   spindle.sendToFrontend(msg, userId);
@@ -26094,7 +26182,7 @@ async function handleListChats(characterId, sessionId, userId) {
   let pinSource = "none";
   if (sessionId) {
     try {
-      const s = await loadSession(spindle, sessionId, userId);
+      const s = await loadSessionWithPending(sessionId, userId);
       if (s) {
         const characterMatch = s.characterId === characterId;
         log("info", `list_chats: loaded session sessionCharacterId=${s.characterId} pinnedChatId=${s.pinnedChatId ?? "null"} characterMatch=${characterMatch}`);
@@ -26278,7 +26366,8 @@ async function handleGetSettings(userId) {
     toolOutputCapDefaultTokens: DEFAULT_TOOL_OUTPUT_CAP_TOKENS,
     connectionSupportsPromptCaching: settings.connectionSupportsPromptCaching,
     autoFreeOldToolResults: settings.autoFreeOldToolResults,
-    cacheMode: settings.cacheMode
+    cacheMode: settings.cacheMode,
+    parallelToolCalls: settings.parallelToolCalls
   }, userId);
 }
 async function resolveCapsForUser(userId) {
@@ -26304,7 +26393,7 @@ async function resolveModelForConnection(connectionId, userId) {
     return;
   }
 }
-async function handleUpdateSettings(persona, systemPromptOverride, samplers, jailbreak, jailbreakPlacement, workspaceCapBytes, toolOutputCapTokens, connectionSupportsPromptCaching, autoFreeOldToolResults, cacheMode, userId) {
+async function handleUpdateSettings(persona, systemPromptOverride, samplers, jailbreak, jailbreakPlacement, workspaceCapBytes, toolOutputCapTokens, connectionSupportsPromptCaching, autoFreeOldToolResults, cacheMode, parallelToolCalls, userId) {
   await saveSettings(spindle, {
     version: 3,
     persona: persona.length > 0 ? persona : DEFAULT_PERSONA,
@@ -26316,7 +26405,8 @@ async function handleUpdateSettings(persona, systemPromptOverride, samplers, jai
     toolOutputCapTokens,
     connectionSupportsPromptCaching,
     autoFreeOldToolResults,
-    cacheMode
+    cacheMode,
+    parallelToolCalls
   }, userId);
   await handleGetSettings(userId);
 }
@@ -26484,7 +26574,7 @@ async function compactSession(sessionId, userId, trigger) {
     const tools = makeInitialToolSchemas();
     const deferredToolSchemas = makeDeferredToolSchemaMap();
     const dispatch = makeToolDispatch();
-    const samplerParams = samplersToWireWithRequired(settings.samplers);
+    const samplerParams = { ...samplersToWireWithRequired(settings.samplers), parallel_tool_calls: settings.parallelToolCalls };
     const assistantId = makeId("msg");
     const assistant = { id: assistantId, role: "assistant", ts: Date.now(), turn: 0, blocks: [{ type: "text", content: "[Compacting context, writing handoff notes...]" }], status: "streaming" };
     s.messages.push(assistant);
@@ -26874,16 +26964,18 @@ async function handleWsDownloadZip(paths, userId) {
 }
 async function handleSetPinnedChat(sessionId, chatId, userId) {
   log("info", `set_pinned_chat sessionId=${sessionId} chatId=${chatId ?? "null"}`);
-  const s = await loadSession(spindle, sessionId, userId);
+  const isPending = pendingSessions.has(sessionId);
+  const s = await loadSessionWithPending(sessionId, userId);
   if (!s) {
     log("warn", `set_pinned_chat: session ${sessionId} not found`);
     send({ type: "generation_error", sessionId, error: "session not found" }, userId);
     return;
   }
-  log("info", `set_pinned_chat: loaded session sessionCharacterId=${s.characterId} prevPinnedChatId=${s.pinnedChatId ?? "null"}`);
+  log("info", `set_pinned_chat: loaded session sessionCharacterId=${s.characterId} prevPinnedChatId=${s.pinnedChatId ?? "null"} pending=${isPending}`);
   s.pinnedChatId = chatId;
-  await saveSession(spindle, s, userId);
-  log("info", `set_pinned_chat: saved, replying pinned_chat_set`);
+  if (!isPending)
+    await saveSession(spindle, s, userId);
+  log("info", `set_pinned_chat: ${isPending ? "updated in-memory pending session" : "saved"}, replying pinned_chat_set`);
   send({ type: "pinned_chat_set", sessionId, chatId }, userId);
 }
 async function handleListSessions(filter, userId) {
@@ -26892,9 +26984,10 @@ async function handleListSessions(filter, userId) {
   send({ type: "sessions_pushed", sessions }, userId);
 }
 async function handleLoadSession(sessionId, userId) {
-  const s = await loadSession(spindle, sessionId, userId);
+  const s = await loadSessionWithPending(sessionId, userId);
   if (!s) {
     log("warn", `load_session: ${sessionId} not found`);
+    send({ type: "session_deleted", sessionId }, userId);
     return;
   }
   send({
@@ -26923,13 +27016,7 @@ async function handleStartSession(sessionId, characterId, connectionId, userId) 
       characterName: c.name,
       connectionId: connectionId ?? null
     });
-    try {
-      await saveSession(spindle, s, userId);
-    } catch (err) {
-      log("error", `saveSession failed for ${sessionId}: ${err.message}`);
-      send({ type: "generation_error", sessionId, error: `failed to persist session: ${err.message}` }, userId);
-      return;
-    }
+    pendingSessions.set(sessionId, s);
     send({
       type: "session_started",
       sessionId,
@@ -26937,7 +27024,6 @@ async function handleStartSession(sessionId, characterId, connectionId, userId) 
       characterName: c.name,
       createdAt: s.createdAt
     }, userId);
-    handleListSessions(undefined, userId);
   } catch (err) {
     const msg = err.message;
     log("error", `start_session ${sessionId} threw: ${msg}`);
@@ -26949,7 +27035,7 @@ async function handleContinueSession(sessionId, connectionId, userId) {
     send({ type: "generation_error", sessionId, error: "session already has a generation in flight" }, userId);
     return;
   }
-  const s = await loadSession(spindle, sessionId, userId);
+  const s = await loadSessionWithPending(sessionId, userId);
   if (!s) {
     send({ type: "generation_error", sessionId, error: `session ${sessionId} not found` }, userId);
     return;
@@ -26966,7 +27052,8 @@ async function handleSendMessage(sessionId, userMessageId, content, connectionId
     send({ type: "generation_error", sessionId, error: "session already has a generation in flight" }, userId);
     return;
   }
-  const s = await loadSession(spindle, sessionId, userId);
+  const wasPending = pendingSessions.has(sessionId);
+  const s = await loadSessionWithPending(sessionId, userId);
   if (!s) {
     send({ type: "generation_error", sessionId, error: `session ${sessionId} not found` }, userId);
     return;
@@ -26975,6 +27062,10 @@ async function handleSendMessage(sessionId, userMessageId, content, connectionId
   s.messages.push(userMsg);
   s.llmHistory.push({ role: "user", content });
   await saveSession(spindle, s, userId);
+  if (wasPending) {
+    pendingSessions.delete(sessionId);
+    handleListSessions(undefined, userId);
+  }
   await handleSendMessageInternal(s, userId, connectionId);
 }
 function handleCancelGeneration(sessionId, userId) {
@@ -26991,6 +27082,7 @@ async function handleDeleteSession(sessionId, userId) {
   const ac = activeSessions.get(sessionId);
   if (ac)
     ac.abort();
+  pendingSessions.delete(sessionId);
   await deleteSessionFile(spindle, sessionId, userId);
   try {
     const { clearSessionTmp: clearSessionTmp2 } = await Promise.resolve().then(() => (init_tmp_store(), exports_tmp_store));
@@ -27000,6 +27092,91 @@ async function handleDeleteSession(sessionId, userId) {
   }
   send({ type: "session_deleted", sessionId }, userId);
   handleListSessions(undefined, userId);
+}
+async function handleExportSessionMarkdown(sessionId, userId) {
+  const s = await loadSession(spindle, sessionId, userId);
+  if (!s) {
+    send({ type: "session_markdown_error", sessionId, error: "Session not found." }, userId);
+    return;
+  }
+  try {
+    const { content, filename } = renderSessionMarkdown(s);
+    send({ type: "session_markdown_ready", sessionId, filename, content }, userId);
+  } catch (err) {
+    send({ type: "session_markdown_error", sessionId, error: err.message }, userId);
+  }
+}
+function renderSessionMarkdown(s) {
+  const lines = [];
+  const isoNow = new Date().toISOString().slice(0, 19).replace("T", " ");
+  lines.push(`# ${s.characterName} \u2014 session ${s.sessionId.slice(0, 8)}`);
+  lines.push("");
+  lines.push(`_Exported from LumiAgent \u2014 ${isoNow}_`);
+  lines.push(`_Started ${new Date(s.createdAt).toISOString().slice(0, 19).replace("T", " ")}_`);
+  lines.push("");
+  lines.push("---");
+  lines.push("");
+  for (const m of s.messages) {
+    if (m.role === "user") {
+      lines.push("## User");
+      lines.push("");
+      lines.push(m.content);
+      lines.push("");
+      lines.push("---");
+      lines.push("");
+      continue;
+    }
+    lines.push("## Assistant");
+    lines.push("");
+    for (const b of m.blocks) {
+      if (b.type === "reasoning") {
+        lines.push("> **Reasoning:**");
+        for (const r of b.content.split(`
+`))
+          lines.push(`> ${r}`);
+        lines.push("");
+      } else if (b.type === "text") {
+        lines.push(b.content);
+        lines.push("");
+      } else if (b.type === "warning") {
+        lines.push(`> :warning: ${b.message}`);
+        lines.push("");
+      } else if (b.type === "tool") {
+        lines.push(`**:wrench: Tool call: \`${b.name}\`**`);
+        lines.push("");
+        lines.push("```json");
+        lines.push(JSON.stringify(b.args ?? {}, null, 2));
+        lines.push("```");
+        if (b.result !== undefined) {
+          lines.push("");
+          lines.push(b.is_error ? "**Tool error:**" : "**Tool result:**");
+          lines.push("");
+          let body = b.result;
+          let lang = "";
+          try {
+            body = JSON.stringify(JSON.parse(b.result), null, 2);
+            lang = "json";
+          } catch {}
+          lines.push("```" + lang);
+          lines.push(body);
+          lines.push("```");
+        }
+        lines.push("");
+      }
+    }
+    if (m.usage) {
+      const prefix = m.usage.estimated ? "~" : "";
+      lines.push(`_${prefix}${m.usage.total} tokens, turn ${m.turn}_`);
+      lines.push("");
+    }
+    lines.push("---");
+    lines.push("");
+  }
+  const datePart = new Date().toISOString().slice(0, 10);
+  const safeName = s.characterName.replace(/[\\/:*?"<>|]/g, "-").replace(/\s+/g, "-").replace(/-+/g, "-").slice(0, 60) || "session";
+  const filename = `lumiagent-${safeName}-${s.sessionId.slice(0, 8)}-${datePart}.md`;
+  return { content: lines.join(`
+`), filename };
 }
 async function handleListCharacterEdits(characterId, userId) {
   const ledger = await loadLedger(spindle, characterId, userId);
@@ -27207,9 +27384,12 @@ function rebuildLlmHistory(messages) {
     const toolCalls = [];
     const toolResults = [];
     let text = "";
+    let reasoning = "";
     for (const b of m.blocks) {
       if (b.type === "text")
         text += b.content;
+      else if (b.type === "reasoning")
+        reasoning += b.content;
       else if (b.type === "tool") {
         toolCalls.push({ name: b.name, args: b.args, call_id: b.call_id });
         if (b.result !== undefined) {
@@ -27217,7 +27397,7 @@ function rebuildLlmHistory(messages) {
         }
       }
     }
-    out.push(encodeAssistantTurn(text, toolCalls));
+    out.push(encodeAssistantTurn(text, toolCalls, reasoning || undefined));
     if (toolResults.length > 0)
       out.push(encodeToolResults(toolResults));
   }
@@ -27434,7 +27614,7 @@ async function handleSendMessageInternal(s, userId, connectionIdOverride) {
   const tools = makeInitialToolSchemas();
   const deferredToolSchemas = makeDeferredToolSchemaMap();
   const dispatch = makeToolDispatch();
-  const samplerParams = samplersToWireWithRequired(settings.samplers);
+  const samplerParams = { ...samplersToWireWithRequired(settings.samplers), parallel_tool_calls: settings.parallelToolCalls };
   let currentTextBlock = null;
   let currentReasoningBlock = null;
   const toolBlocks = new Map;
@@ -27565,11 +27745,15 @@ async function handleSendMessageInternal(s, userId, connectionIdOverride) {
       }
     }
   } catch (err) {
-    errored = true;
-    assistant.status = "errored";
-    const msg = err.message;
-    log("error", `session ${s.sessionId} generation threw: ${msg}`);
-    send({ type: "generation_error", sessionId: s.sessionId, error: msg }, userId);
+    if (ac.signal.aborted) {
+      assistant.status = "cancelled";
+    } else {
+      errored = true;
+      assistant.status = "errored";
+      const msg = err.message;
+      log("error", `session ${s.sessionId} generation threw: ${msg}`);
+      send({ type: "generation_error", sessionId: s.sessionId, error: msg }, userId);
+    }
   }
   activeSessions.delete(s.sessionId);
   s.llmHistory = conv.slice(1);
@@ -27633,6 +27817,9 @@ spindle.onFrontendMessage(async (raw, userId) => {
       case "delete_session":
         await handleDeleteSession(msg.sessionId, userId);
         return;
+      case "export_session_markdown":
+        await handleExportSessionMarkdown(msg.sessionId, userId);
+        return;
       case "list_character_edits":
         await handleListCharacterEdits(msg.characterId, userId);
         return;
@@ -27667,7 +27854,7 @@ spindle.onFrontendMessage(async (raw, userId) => {
         await handleGetSettings(userId);
         return;
       case "update_settings":
-        await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.connectionSupportsPromptCaching ?? true, msg.autoFreeOldToolResults ?? false, msg.cacheMode ?? "full", userId);
+        await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.connectionSupportsPromptCaching ?? true, msg.autoFreeOldToolResults ?? false, msg.cacheMode ?? "full", msg.parallelToolCalls ?? true, userId);
         return;
       case "get_ui_prefs":
         await handleGetUiPrefs(userId);

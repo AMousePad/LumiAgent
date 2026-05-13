@@ -107,6 +107,26 @@ async function countResultTokens(spindle: SpindleAPI, userId: string, text: stri
   }
 }
 
+// Reconstruct usage locally when the provider omitted it (or reported zeros).
+// Prompt = the conv we just sent; completion = generated content + reasoning.
+// Approximate but directionally accurate; UI prefixes with "~".
+async function estimateUsage(
+  spindle: SpindleAPI,
+  userId: string,
+  conv: readonly LlmMessage[],
+  content: string,
+  reasoning: string | undefined,
+  modelId?: string,
+): Promise<{ prompt: number; completion: number; total: number; estimated: true }> {
+  const promptText = JSON.stringify(conv);
+  const completionText = (content ?? "") + (reasoning ?? "");
+  const [prompt, completion] = await Promise.all([
+    countResultTokens(spindle, userId, promptText, modelId),
+    countResultTokens(spindle, userId, completionText, modelId),
+  ]);
+  return { prompt, completion, total: prompt + completion, estimated: true };
+}
+
 const DEFAULT_CONTEXT_TOKENS = 128_000;
 
 const DEFAULT_MAX_TURNS = 40;
@@ -275,7 +295,8 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
     let content = "";
     let toolCalls: readonly ToolCall[] = [];
     let finishReason = "";
-    let usage: { prompt: number; completion: number; total: number } | undefined;
+    let usage: { prompt: number; completion: number; total: number; estimated?: boolean } | undefined;
+    let reasoning: string | undefined;
 
     // Splice discovered deferred tools into the tools list for this turn.
     // The dispatch map already covers every registered tool. This only
@@ -308,11 +329,18 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
           toolCalls = ev.response.tool_calls;
           finishReason = ev.response.finish_reason;
           usage = ev.response.usage;
+          reasoning = ev.response.reasoning;
         }
       }
     } catch (err) {
       if (signal.aborted) return;
       throw new Error(`LLM call failed: ${(err as Error).message}`);
+    }
+
+    if (usage === undefined) {
+      try {
+        usage = await estimateUsage(input.spindle, input.userId, withRollingCacheBreakpoint(conv, input.cacheMode ?? "full"), content, reasoning, input.tokenizerModelId);
+      } catch { /* keep undefined: UI just hides the strip */ }
     }
 
     if (turnNum === startingTurn + 1 && content.trim().length === 0 && toolCalls.length === 0) {
@@ -368,7 +396,7 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
     if (toolCalls.length > 0) {
       const loop = detector.recordToolCalls(toolCalls.map((tc) => ({ name: tc.name, input: tc.args })));
       if (loop) {
-        conv.push(encodeAssistantTurn(content, toolCalls));
+        conv.push(encodeAssistantTurn(content, toolCalls, reasoning));
         yield { type: "warning", message: loop.detail };
         yield { type: "paused_for_input", reason: "loop_detected", detail: loop.detail };
         return;
@@ -376,7 +404,7 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
     } else if (content.trim().length > 0) {
       const loop = detector.recordText(content);
       if (loop) {
-        conv.push(encodeAssistantTurn(content, toolCalls));
+        conv.push(encodeAssistantTurn(content, toolCalls, reasoning));
         yield { type: "warning", message: loop.detail };
         yield { type: "paused_for_input", reason: "loop_detected", detail: loop.detail };
         return;
@@ -537,7 +565,7 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
       }
     }
 
-    conv.push(encodeAssistantTurn(content, toolCalls));
+    conv.push(encodeAssistantTurn(content, toolCalls, reasoning));
     if (results.length > 0) conv.push(encodeToolResults(results));
 
     const completedEvent: AgentEvent = {
