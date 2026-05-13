@@ -187,6 +187,8 @@ export interface ChatSummary {
   readonly isPinned: boolean;
 }
 
+export type PausedReason = "no_tool_calls" | "loop_detected" | "max_turns" | "max_tokens";
+
 export type AgentEvent =
   | { type: "turn_started"; turn: number; assistantMessageId: string }
   | { type: "llm_token"; token: string }
@@ -198,7 +200,7 @@ export type AgentEvent =
   | { type: "edits_resynced" }
   | { type: "sensitivity_override"; call_id: string; sensitivity: "sensitive" | "insensitive" }
   | { type: "turn_completed"; turn: number; finish_reason: string; usage?: { prompt: number; completion: number; total: number } | undefined; cleanedContent?: string | undefined }
-  | { type: "paused_for_input"; reason: "no_tool_calls" | "loop_detected" | "max_turns" | "max_tokens"; detail?: string | undefined }
+  | { type: "paused_for_input"; reason: PausedReason; detail?: string | undefined }
   | { type: "warning"; message: string };
 
 export type FrontendToBackend =

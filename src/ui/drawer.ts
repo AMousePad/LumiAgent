@@ -1,6 +1,5 @@
 import type { SpindleFrontendContext, SpindleModalHandle } from "lumiverse-spindle-types";
 import type {
-  AssistantBlock,
   BackendToFrontend,
   ChatAssistantMessage,
   ChatMessage,
@@ -25,6 +24,7 @@ import { openDiffModal, type DiffModalHandle } from "./diff-modal";
 import { mountWorkspacePanel, type WorkspacePanelHandle } from "./workspace-panel";
 import { mountCharactersPanel, type CharactersPanelHandle } from "./characters-panel";
 import { mountCombo, type ComboHandle } from "./combo";
+import { handleAgentEvent, type AgentEventCtx } from "./agent-event-handler";
 import { ICON_TRASH } from "./icons";
 import { DEFAULT_ICON_DATA_URL } from "../generated/default-icon";
 import { MOUSEY_SITTING_DATA_URL } from "../generated/mousey";
@@ -417,6 +417,12 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
 
   const sendBackend = (msg: FrontendToBackend) => ctx.sendToBackend(msg);
 
+  // Splice the currently-selected connection id into a wire message when set.
+  // Backend heals s.connectionId from this on every entry path; sites that
+  // skip the spread would silently use whatever was last persisted.
+  const withConnection = <T extends object>(msg: T): T =>
+    state.connectionId ? { ...msg, connectionId: state.connectionId } : msg;
+
   const refreshLists = () => {
     sendBackend({ type: "list_characters" });
     sendBackend({ type: "list_connections" });
@@ -719,6 +725,26 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     virtualizer.setCount();
   };
 
+  // Error banners are appended directly to the scroll container (outside the
+  // virtualizer), so they survive rerenderThread by design. Call this on
+  // session change and on the next generation start so they don't accumulate.
+  const clearErrorBanners = (): void => {
+    for (const node of Array.from(thread.querySelectorAll(".la-error-banner"))) {
+      node.remove();
+    }
+  };
+
+  // Single render pass: thread + session bar + composer in one call. Handlers
+  // that change "shape of conversation" state (session switch, message
+  // add/edit/delete, edit revert, generation lifecycle) call this so no one
+  // forgets one of the three. Hot-path streaming events still update parts
+  // surgically; this is for state transitions, not per-token churn.
+  const render = (): void => {
+    rerenderThread();
+    updateSessionBar();
+    updateComposer();
+  };
+
   const liveEditsForAssistantMessage = (assistantMessageId: string): number => {
     const source = state.characterLedger.length > 0 ? state.characterLedger : state.edits;
     return source.filter((e) => e.assistantMessageId === assistantMessageId && !e.reverted).length;
@@ -778,11 +804,11 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
           });
           if (!c.confirmed) return;
         }
-        sendBackend({ type: "edit_user_message", sessionId: state.sessionId, messageId, newContent, editsAction, ...(state.connectionId ? { connectionId: state.connectionId } : {}) });
+        sendBackend(withConnection({ type: "edit_user_message", sessionId: state.sessionId, messageId, newContent, editsAction }));
       },
       onRegenerateAssistant: async (assistantMessageId: string, editsAction: "keep" | "revert") => {
         if (!state.sessionId) return;
-        sendBackend({ type: "regenerate_assistant_message", sessionId: state.sessionId, assistantMessageId, editsAction, ...(state.connectionId ? { connectionId: state.connectionId } : {}) });
+        sendBackend(withConnection({ type: "regenerate_assistant_message", sessionId: state.sessionId, assistantMessageId, editsAction }));
       },
       onEditingChange: (messageId: string | null) => {
         state.editingMessageId = messageId;
@@ -892,16 +918,12 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     state.pendingMessage = null;
     state.pendingMessageId = null;
     state.startingSession = true;
-    rerenderThread();
-    updateSessionBar();
-    updateComposer();
-    const startMsg: FrontendToBackend = {
+    render();
+    sendBackend(withConnection({
       type: "start_session",
       sessionId: state.sessionId,
       characterId: state.characterId,
-      ...(state.connectionId ? { connectionId: state.connectionId } : {}),
-    };
-    sendBackend(startMsg);
+    }));
     clearStartTimeout();
     state.startSessionTimeout = setTimeout(() => {
       if (!state.startingSession) return;
@@ -938,16 +960,12 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     state.startingSession = true;
     state.pendingPinChatId = chatId;
     dlog("pinChatOrQueue: auto-starting session for pin", { sessionId, characterId: state.characterId, chatId });
-    rerenderThread();
-    updateSessionBar();
-    updateComposer();
-    const startMsg: FrontendToBackend = {
+    render();
+    sendBackend(withConnection({
       type: "start_session",
       sessionId,
       characterId: state.characterId,
-      ...(state.connectionId ? { connectionId: state.connectionId } : {}),
-    };
-    sendBackend(startMsg);
+    }));
     clearStartTimeout();
     state.startSessionTimeout = setTimeout(() => {
       if (!state.startingSession) return;
@@ -1627,14 +1645,12 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
 
   const dispatchSendForExisting = (sessionId: string, messageId: string, text: string): void => {
     dlog("dispatchSendForExisting (LLM call)", { sessionId, messageId, textLen: text.length });
-    const out: FrontendToBackend = {
+    sendBackend(withConnection({
       type: "send_message",
       sessionId,
       userMessageId: messageId,
       content: text,
-      ...(state.connectionId ? { connectionId: state.connectionId } : {}),
-    };
-    sendBackend(out);
+    }));
     state.isGenerating = true;
     updateComposer();
   };
@@ -1663,11 +1679,10 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       const canContinue = !!last && last.role === "user" && !!state.sessionId;
       if (!canContinue) return;
       composerStatus.classList.remove("is-error");
-      sendBackend({
+      sendBackend(withConnection({
         type: "continue_session",
         sessionId: state.sessionId!,
-        ...(state.connectionId ? { connectionId: state.connectionId } : {}),
-      });
+      }));
       state.isGenerating = true;
       updateComposer();
       return;
@@ -1693,13 +1708,11 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     state.pendingMessageId = userMsg.id;
     updateSessionBar();
     updateComposer();
-    const startMsg: FrontendToBackend = {
+    sendBackend(withConnection({
       type: "start_session",
       sessionId,
       characterId: state.characterId,
-      ...(state.connectionId ? { connectionId: state.connectionId } : {}),
-    };
-    sendBackend(startMsg);
+    }));
     clearStartTimeout();
     state.startSessionTimeout = setTimeout(() => {
       if (!state.startingSession) return;
@@ -1765,13 +1778,12 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     state.streamingAssistant?.setLoading(false);
   };
 
-  const startAssistantTurn = (assistantMessageId?: string): AssistantHandle => {
-    if (state.streamingAssistant) return state.streamingAssistant;
-    // Prefer the backend-provided id so regenerate / edit-message lookups
-    // from the frontend match what's saved server-side. Falling back to a
-    // local id only matters before the first turn_started event arrives.
+  // Build a fresh streaming bubble + handle keyed by `id`. Caller owns the
+  // decision of whether `id` is backend-provided (turn_started) or local
+  // (token/reasoning/tool fired before turn_started arrived).
+  const createStreamingTurn = (id: string): AssistantHandle => {
     const assistant: ChatAssistantMessage = {
-      id: assistantMessageId ?? makeId("msg"),
+      id,
       role: "assistant",
       ts: Date.now(),
       turn: 0,
@@ -1795,6 +1807,16 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     return handle;
   };
 
+  // turn_started entry point. Adopts the backend's assistantMessageId so
+  // regenerate / edit lookups match server-side records.
+  const adoptStreamingTurn = (assistantMessageId: string): AssistantHandle =>
+    state.streamingAssistant ?? createStreamingTurn(assistantMessageId);
+
+  // Token / reasoning / tool entry point. Gets the existing handle, or
+  // synthesizes one with a local id when an event raced ahead of turn_started.
+  const ensureStreamingTurn = (): AssistantHandle =>
+    state.streamingAssistant ?? createStreamingTurn(makeId("msg"));
+
   const finalizeAssistantTurn = (status: ChatAssistantMessage["status"]) => {
     hideLoading();
     const handle = state.streamingAssistant;
@@ -1804,6 +1826,16 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     msg.status = status;
     state.streamingAssistant = null;
     state.currentAssistantMessage = null;
+  };
+
+  const agentEventCtx: AgentEventCtx = {
+    state,
+    adoptStreamingTurn,
+    ensureStreamingTurn,
+    finalizeAssistantTurn,
+    rerenderThread,
+    updateSessionBar,
+    clearErrorBanners,
   };
 
   ctx.onBackendMessage((raw) => {
@@ -1853,25 +1885,22 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         } else {
           state.messages = [];
           state.edits = [];
-          rerenderThread();
-          updateSessionBar();
-          updateComposer();
+          render();
         }
         break;
       case "session_loaded":
+        clearErrorBanners();
         state.sessionId = msg.sessionId;
         state.characterId = msg.characterId;
         state.characterName = msg.characterName;
         state.messages = [...msg.messages];
         state.edits = [...msg.edits];
         if (state.characters.some((c) => c.id === msg.characterId)) charCombo.setValue(msg.characterId, true);
-        rerenderThread();
-        // Default to the latest message on every session open. Without an
-        // explicit kick the virtualizer's sticky-bottom check runs against
-        // the prior session's scrollTop, which won't be "near bottom".
+        render();
+        // Default to the latest message on every session open. The
+        // virtualizer's sticky-bottom check would otherwise compare against
+        // the prior session's scrollTop.
         virtualizer.scrollToBottom();
-        updateSessionBar();
-        updateComposer();
         persistUiPrefs();
         sendBackend({ type: "list_character_edits", characterId: msg.characterId });
         sendBackend({ type: "list_chats", characterId: msg.characterId, sessionId: msg.sessionId });
@@ -1881,9 +1910,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
           state.sessionId = null;
           state.messages = [];
           state.edits = [];
-          rerenderThread();
-          updateSessionBar();
-          updateComposer();
+          render();
           persistUiPrefs();
         }
         sendBackend({ type: "list_sessions" });
@@ -1895,116 +1922,9 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         updateSessionBar();
         if (state.diffModal) state.diffModal.setEdits(state.edits);
         break;
-      case "chat_event": {
-        const ev = msg.event;
-        if (ev.type === "warning") {
-          // Routed to toast / system prompt; never render inline yellow boxes.
-          break;
-        }
-        if (ev.type === "turn_started") {
-          startAssistantTurn(ev.assistantMessageId);
-          if (state.currentAssistantMessage) state.currentAssistantMessage.turn = ev.turn;
-          break;
-        }
-        if (ev.type === "llm_token") {
-          const h = startAssistantTurn();
-          h.appendToken(ev.token);
-          const a = state.currentAssistantMessage!;
-          const last = a.blocks[a.blocks.length - 1];
-          if (last && last.type === "text") last.content += ev.token;
-          else a.blocks.push({ type: "text", content: ev.token });
-          // ResizeObserver picks up the streaming node's growth and keeps
-          // the size table fresh; the virtualizer auto-sticks if the user
-          // is near the bottom. No explicit scroll needed here.
-          break;
-        }
-        if (ev.type === "llm_reasoning") {
-          const h = startAssistantTurn();
-          h.appendReasoning(ev.token);
-          const a = state.currentAssistantMessage!;
-          const last = a.blocks[a.blocks.length - 1];
-          if (last && last.type === "reasoning") last.content += ev.token;
-          else a.blocks.push({ type: "reasoning", content: ev.token });
-          break;
-        }
-        if (ev.type === "tool_started") {
-          const h = startAssistantTurn();
-          h.startTool(ev.call_id, ev.name, ev.args);
-          state.currentAssistantMessage?.blocks.push({ type: "tool", call_id: ev.call_id, name: ev.name, args: ev.args, edit_ids: [] });
-          break;
-        }
-        if (ev.type === "tool_finished") {
-          const h = state.streamingAssistant;
-          if (h) h.finishTool(ev.call_id, ev.result, ev.is_error, ev.edit_ids, ev.sensitivity);
-          const a = state.currentAssistantMessage;
-          if (a) {
-            for (const b of a.blocks) {
-              if (b.type === "tool" && b.call_id === ev.call_id) {
-                const tb = b as AssistantBlock & { type: "tool" };
-                tb.result = ev.result;
-                tb.is_error = ev.is_error;
-                tb.edit_ids = [...ev.edit_ids];
-                if (ev.sensitivity) tb.sensitivity = ev.sensitivity;
-              }
-            }
-          }
-          break;
-        }
-        if (ev.type === "edit_logged") {
-          state.edits.push(ev.entry);
-          // Mirror into the live character ledger so the workshop counter and
-          // open diff modal pick it up without waiting for a refresh.
-          state.characterLedger.push(ev.entry);
-          if (state.streamingAssistant) state.streamingAssistant.attachEdits([ev.entry]);
-          if (state.diffModal) state.diffModal.setEdits(state.characterLedger);
-          updateSessionBar();
-          break;
-        }
-        if (ev.type === "sensitivity_override") {
-          if (state.streamingAssistant) state.streamingAssistant.setToolSensitivity(ev.call_id, ev.sensitivity);
-          for (const m of state.messages) {
-            if (m.role !== "assistant") continue;
-            for (const b of m.blocks) {
-              if (b.type === "tool" && b.call_id === ev.call_id) b.sensitivity = ev.sensitivity;
-            }
-          }
-          break;
-        }
-        if (ev.type === "turn_completed") {
-          if (state.currentAssistantMessage) {
-            state.currentAssistantMessage.finish_reason = ev.finish_reason;
-            if (ev.usage) {
-              state.currentAssistantMessage.usage = ev.usage;
-              state.streamingAssistant?.setUsage(ev.usage);
-            }
-            if (ev.cleanedContent !== undefined) {
-              // Drop every streaming text block and re-add a single one at
-              // the tail with the cleaned content. The post-stream rerender
-              // (on generation_done) will redraw the bubble from this state.
-              const a = state.currentAssistantMessage;
-              a.blocks = a.blocks.filter((b) => b.type !== "text");
-              if (ev.cleanedContent.trim().length > 0) {
-                a.blocks.push({ type: "text", content: ev.cleanedContent });
-              }
-            }
-          }
-          break;
-        }
-        if (ev.type === "paused_for_input") {
-          if (ev.detail) {
-            const h = state.streamingAssistant;
-            if (h) h.addWarning(ev.detail);
-            state.currentAssistantMessage?.blocks.push({ type: "warning", message: ev.detail });
-          }
-          finalizeAssistantTurn("complete");
-          // Swap the streaming bubble for the rendered one so the Regenerate
-          // action appears immediately. Without this the user has to send a
-          // new message before the post-stream renderer runs.
-          rerenderThread();
-          break;
-        }
+      case "chat_event":
+        handleAgentEvent(msg.event, agentEventCtx);
         break;
-      }
       case "auto_freed": {
         const notice = el("div", "la-error-banner");
         notice.appendChild(el("div", "la-error-banner-title", "Old tool results auto-freed"));
@@ -2036,12 +1956,20 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         // button via renderAssistantBubble (status === "errored" qualifies).
         rerenderThread();
         // Loud inline error block in the thread so the user can't miss it.
+        // Cleared on the next turn_started, on session switch, or manually
+        // via the dismiss button.
         const errBlock = el("div", "la-error-banner");
+        const errHeader = el("div", "la-error-banner-header");
         const errTitle = el("div", "la-error-banner-title", "Generation failed");
+        const errDismiss = el("button", "la-error-banner-dismiss", "✕") as HTMLButtonElement;
+        errDismiss.setAttribute("aria-label", "Dismiss error");
+        errDismiss.title = "Dismiss";
+        errDismiss.addEventListener("click", () => { errBlock.remove(); });
+        errHeader.append(errTitle, errDismiss);
         const errBody = el("pre", "la-error-banner-body", msg.error);
-        errBlock.append(errTitle, errBody);
+        errBlock.append(errHeader, errBody);
         // Banners sit below the virtualizer's spacer at the end of the
-        // scroll container; the parent isn't part of the virtualized list.
+        // scroll container, outside the virtualized list.
         thread.appendChild(errBlock);
         virtualizer.scrollToBottom();
         composerStatus.textContent = "";
@@ -2240,9 +2168,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     }
   });
 
-  rerenderThread();
-  updateSessionBar();
-  updateComposer();
+  render();
   refreshLists();
 
   const adoptActiveChat = (): void => {

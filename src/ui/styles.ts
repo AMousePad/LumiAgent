@@ -220,10 +220,28 @@ ${LOADERS_CSS}
   line-height: 1.5;
   margin: 8px 0;
 }
-.la-error-banner-title {
-  font-weight: 600;
+.la-error-banner-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   margin-bottom: 6px;
 }
+.la-error-banner-title {
+  font-weight: 600;
+}
+.la-error-banner-dismiss {
+  background: transparent;
+  border: none;
+  color: var(--lumiverse-danger);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: var(--lumiverse-radius-sm);
+  opacity: 0.7;
+}
+.la-error-banner-dismiss:hover { opacity: 1; background: var(--lumiverse-danger-015); }
 .la-error-banner-body {
   white-space: pre-wrap;
   word-wrap: break-word;
