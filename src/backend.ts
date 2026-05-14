@@ -357,6 +357,35 @@ async function resolveModelForConnection(connectionId: string | null | undefined
   } catch { return undefined; }
 }
 
+async function resolveProviderForConnection(connectionId: string | null | undefined, userId: string): Promise<string | undefined> {
+  if (!connectionId) return undefined;
+  try {
+    const profile = await spindle.connections.get(connectionId, userId);
+    return profile?.provider;
+  } catch { return undefined; }
+}
+
+// `parallel_tool_calls` is an OpenAI-style parameter. Google rejects unknown
+// top-level fields outright (400 INVALID_ARGUMENT); Anthropic uses a different
+// shape (`tool_choice.disable_parallel_tool_use`). Drop it on providers that
+// don't speak the OpenAI flavour.
+const PARALLEL_TOOLS_INCOMPATIBLE_PROVIDERS: ReadonlySet<string> = new Set([
+  "google",
+  "google-vertex",
+  "anthropic",
+]);
+
+function buildSamplerParams(
+  samplers: Readonly<Record<string, number | null>>,
+  parallelToolCalls: boolean,
+  provider: string | undefined,
+): Record<string, unknown> {
+  const base: Record<string, unknown> = { ...samplersToWireWithRequired(samplers) };
+  if (provider && PARALLEL_TOOLS_INCOMPATIBLE_PROVIDERS.has(provider)) return base;
+  base["parallel_tool_calls"] = parallelToolCalls;
+  return base;
+}
+
 async function handleUpdateSettings(
   persona: string,
   systemPromptOverride: string | null,
@@ -567,7 +596,8 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
     const tools = makeInitialToolSchemas(hasCharacter);
     const deferredToolSchemas = makeDeferredToolSchemaMap(hasCharacter);
     const dispatch = makeToolDispatch();
-    const samplerParams: Record<string, unknown> = { ...samplersToWireWithRequired(settings.samplers), parallel_tool_calls: settings.parallelToolCalls };
+    const provider = await resolveProviderForConnection(s.connectionId, userId);
+    const samplerParams = buildSamplerParams(settings.samplers, settings.parallelToolCalls, provider);
     const assistantId = makeId("msg");
     const assistant: ChatAssistantMessage = { id: assistantId, role: "assistant", ts: Date.now(), turn: 0, blocks: [{ type: "text", content: "[Compacting context, writing handoff notes...]" }], status: "streaming" };
     s.messages.push(assistant);
@@ -1603,7 +1633,8 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
   const tools = makeInitialToolSchemas(hasCharacter);
   const deferredToolSchemas = makeDeferredToolSchemaMap(hasCharacter);
   const dispatch = makeToolDispatch();
-  const samplerParams: Record<string, unknown> = { ...samplersToWireWithRequired(settings.samplers), parallel_tool_calls: settings.parallelToolCalls };
+  const provider = await resolveProviderForConnection(s.connectionId, userId);
+  const samplerParams = buildSamplerParams(settings.samplers, settings.parallelToolCalls, provider);
   let currentTextBlock: AssistantBlock & { type: "text" } | null = null;
   let currentReasoningBlock: AssistantBlock & { type: "reasoning" } | null = null;
   const toolBlocks = new Map<string, AssistantBlock & { type: "tool" }>();

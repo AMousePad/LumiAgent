@@ -34212,6 +34212,28 @@ async function resolveModelForConnection(connectionId, userId) {
     return;
   }
 }
+async function resolveProviderForConnection(connectionId, userId) {
+  if (!connectionId)
+    return;
+  try {
+    const profile = await spindle.connections.get(connectionId, userId);
+    return profile?.provider;
+  } catch {
+    return;
+  }
+}
+var PARALLEL_TOOLS_INCOMPATIBLE_PROVIDERS = new Set([
+  "google",
+  "google-vertex",
+  "anthropic"
+]);
+function buildSamplerParams(samplers, parallelToolCalls, provider) {
+  const base = { ...samplersToWireWithRequired(samplers) };
+  if (provider && PARALLEL_TOOLS_INCOMPATIBLE_PROVIDERS.has(provider))
+    return base;
+  base["parallel_tool_calls"] = parallelToolCalls;
+  return base;
+}
 async function handleUpdateSettings(persona, systemPromptOverride, samplers, jailbreak, jailbreakPlacement, workspaceCapBytes, toolOutputCapTokens, cacheMode, parallelToolCalls, userId) {
   await saveSettings(spindle, {
     version: 3,
@@ -34395,7 +34417,8 @@ async function compactSession(sessionId, userId, trigger) {
     const tools = makeInitialToolSchemas(hasCharacter);
     const deferredToolSchemas = makeDeferredToolSchemaMap(hasCharacter);
     const dispatch = makeToolDispatch();
-    const samplerParams = { ...samplersToWireWithRequired(settings.samplers), parallel_tool_calls: settings.parallelToolCalls };
+    const provider = await resolveProviderForConnection(s.connectionId, userId);
+    const samplerParams = buildSamplerParams(settings.samplers, settings.parallelToolCalls, provider);
     const assistantId = makeId("msg");
     const assistant = { id: assistantId, role: "assistant", ts: Date.now(), turn: 0, blocks: [{ type: "text", content: "[Compacting context, writing handoff notes...]" }], status: "streaming" };
     s.messages.push(assistant);
@@ -35446,7 +35469,8 @@ async function handleSendMessageInternal(s, userId, connectionIdOverride) {
   const tools = makeInitialToolSchemas(hasCharacter);
   const deferredToolSchemas = makeDeferredToolSchemaMap(hasCharacter);
   const dispatch = makeToolDispatch();
-  const samplerParams = { ...samplersToWireWithRequired(settings.samplers), parallel_tool_calls: settings.parallelToolCalls };
+  const provider = await resolveProviderForConnection(s.connectionId, userId);
+  const samplerParams = buildSamplerParams(settings.samplers, settings.parallelToolCalls, provider);
   let currentTextBlock = null;
   let currentReasoningBlock = null;
   const toolBlocks = new Map;
