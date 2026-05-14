@@ -14,6 +14,21 @@ ${LOADERS_CSS}
   overflow: hidden;
 }
 
+/* Fullscreen expansion: drawer breaks out of its host slot to fill the
+ * viewport. position:fixed snaps to the viewport unless an ancestor has
+ * a transform / filter / contain:paint; verified clean on Lumiverse's
+ * drawer chrome. */
+.la-drawer.la-drawer-expanded {
+  position: fixed;
+  inset: 0;
+  width: auto;
+  height: auto;
+  /* Below Spindle's modal backdrop (10003) and Lumiverse SettingsModal
+   * (10001) so dialogs spawned from the expanded drawer still cover it. */
+  z-index: 10000;
+  box-shadow: 0 0 0 1px var(--lumiverse-border), 0 24px 64px rgba(0, 0, 0, 0.45);
+}
+
 /* ─── Header ─── */
 .la-header {
   display: flex; flex-direction: column; gap: 8px;

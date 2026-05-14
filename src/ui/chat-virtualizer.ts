@@ -32,8 +32,11 @@ export class ChatVirtualizer {
   private cleanup: (() => void) | null = null;
   private stickyToBottom = true;
   private scrollListener: (() => void) | null = null;
+  private wheelListener: ((e: Event) => void) | null = null;
+  private pointerDownListener: ((e: Event) => void) | null = null;
   private forceBottomOnNextSync = false;
   private hasFirstRenderHappened = false;
+  private lastTotalSize = 0;
 
   constructor(deps: ChatVirtualizerDeps) {
     this.deps = deps;
@@ -70,10 +73,32 @@ export class ChatVirtualizer {
       onChange: () => this.sync(),
     });
 
+    // Public instance field, not a constructor option in v3. Suppresses the
+    // built-in scroll-position adjustment while the user is scrolling up so a
+    // remeasure on a nearby item doesn't fight the wheel.
+    this.virt.shouldAdjustScrollPositionOnItemSizeChange = (_item, _delta, instance) =>
+      instance.scrollDirection !== "backward";
+
     this.cleanup = this.virt._didMount();
 
     this.scrollListener = () => this.updateStickiness();
     deps.scrollContainer.addEventListener("scroll", this.scrollListener, { passive: true });
+
+    // User-intent listeners. The 80px stickiness threshold serves a different
+    // purpose (re-anchor when the user scrolls back near the bottom); for
+    // *breaking* the stick, any upward gesture is enough — wait for actual
+    // movement away from bottom before letting `sync()` re-snap.
+    this.wheelListener = (raw: Event) => {
+      const e = raw as WheelEvent;
+      if (e.deltaY < 0) this.stickyToBottom = false;
+    };
+    this.pointerDownListener = () => {
+      // Touch / scrollbar drag start. Cheap to clear here, the next scroll
+      // event will re-evaluate via `updateStickiness()`.
+      this.stickyToBottom = false;
+    };
+    deps.scrollContainer.addEventListener("wheel", this.wheelListener, { passive: true });
+    deps.scrollContainer.addEventListener("pointerdown", this.pointerDownListener, { passive: true });
 
     this.sync();
   }
@@ -140,6 +165,14 @@ export class ChatVirtualizer {
     if (this.scrollListener) {
       this.deps.scrollContainer.removeEventListener("scroll", this.scrollListener);
       this.scrollListener = null;
+    }
+    if (this.wheelListener) {
+      this.deps.scrollContainer.removeEventListener("wheel", this.wheelListener);
+      this.wheelListener = null;
+    }
+    if (this.pointerDownListener) {
+      this.deps.scrollContainer.removeEventListener("pointerdown", this.pointerDownListener);
+      this.pointerDownListener = null;
     }
     this.clear();
     if (this.spacer.parentElement) this.spacer.parentElement.removeChild(this.spacer);
@@ -215,13 +248,13 @@ export class ChatVirtualizer {
     }
 
     const stickBottom = (): void => {
-      const el = this.deps.scrollContainer;
-      // Bypass scroll-behavior: smooth for programmatic stick so animation
-      // queues don't fight the user's wheel events.
-      const prevBehavior = el.style.scrollBehavior;
-      el.style.scrollBehavior = "auto";
-      el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
-      el.style.scrollBehavior = prevBehavior;
+      const count = this.deps.getMessages().length;
+      if (count === 0) return;
+      // Route through the virtualizer so its offset observer stays in sync
+      // with the new scrollTop. A direct `el.scrollTop = ...` write triggers
+      // a self-induced scroll event that re-enters sync() and re-pins the
+      // stickyToBottom flag against the user's intent.
+      this.virt.scrollToIndex(count - 1, { align: "end" });
     };
     const isCurrentlyAtBottom = (): boolean => {
       const el = this.deps.scrollContainer;
@@ -229,16 +262,21 @@ export class ChatVirtualizer {
       return distance >= 0 && distance <= STICKY_THRESHOLD_PX;
     };
 
+    const grew = totalSize > this.lastTotalSize;
+    this.lastTotalSize = totalSize;
+
     if (!this.hasFirstRenderHappened) {
       this.hasFirstRenderHappened = items.length > 0;
+      if (this.hasFirstRenderHappened && this.stickyToBottom) stickBottom();
     } else if (this.forceBottomOnNextSync) {
       this.forceBottomOnNextSync = false;
       stickBottom();
-    } else if (this.stickyToBottom && isCurrentlyAtBottom()) {
+    } else if (this.stickyToBottom && grew && this.virt.scrollDirection !== "backward") {
+      // Only re-anchor when the content grew (new message / streaming token).
+      // Pure remeasures (ResizeObserver tick on an existing item) leave the
+      // user's scroll position alone, which was the bounce bug.
       stickBottom();
     } else if (!isCurrentlyAtBottom()) {
-      // User moved away from bottom; refresh the flag so subsequent syncs
-      // honor the new intent even before the scroll event fires.
       this.stickyToBottom = false;
     }
   }

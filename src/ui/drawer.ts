@@ -25,7 +25,7 @@ import { mountWorkspacePanel, type WorkspacePanelHandle } from "./workspace-pane
 import { mountCharactersPanel, type CharactersPanelHandle } from "./characters-panel";
 import { mountCombo, type ComboHandle } from "./combo";
 import { handleAgentEvent, type AgentEventCtx } from "./agent-event-handler";
-import { ICON_TRASH, ICON_DOWNLOAD, ICON_PIN, ICON_PIN_OFF, ICON_NEW, ICON_SESSIONS, ICON_SETTINGS, ICON_TICK, ICON_WORKSHOP } from "./icons";
+import { ICON_TRASH, ICON_DOWNLOAD, ICON_PIN, ICON_PIN_OFF, ICON_NEW, ICON_SESSIONS, ICON_SETTINGS, ICON_TICK, ICON_WORKSHOP, ICON_EXPAND, ICON_COLLAPSE } from "./icons";
 import { DEFAULT_ICON_DATA_URL } from "../generated/default-icon";
 import { MOUSEY_SITTING_DATA_URL } from "../generated/mousey";
 
@@ -197,6 +197,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   };
   const switchSessionBtn = makeIconBtn("", ICON_SESSIONS, "Switch session", "Switch session");
   const newSessionBtn = makeIconBtn("", ICON_NEW, "Start a new chat session", "New session");
+  const expandBtn = makeIconBtn("la-expand-btn", ICON_EXPAND, "Expand to fullscreen", "Expand to fullscreen");
   const settingsBtn = makeIconBtn("", ICON_SETTINGS, "Agent settings", "Agent settings (persona & prompt)");
   const menuBtn = el("button", "la-btn la-icon-btn") as HTMLButtonElement;
   menuBtn.setAttribute("aria-label", "More");
@@ -211,7 +212,41 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   const editsBadge = makeIconBtn("la-changes-btn", ICON_WORKSHOP, "Open diff viewer", "Workshop");
   const editsCount = el("span", "la-changes-count", "0");
   editsBadge.appendChild(editsCount);
-  rowMeta.append(connComboRoot, editsBadge, settingsBtn, menuBtn);
+  rowMeta.append(connComboRoot, editsBadge, expandBtn, settingsBtn, menuBtn);
+
+  let isExpanded = false;
+  let originalParent: Node | null = null;
+  let originalNextSibling: Node | null = null;
+  const setExpanded = (next: boolean): void => {
+    if (isExpanded === next) return;
+    isExpanded = next;
+    if (next) {
+      originalParent = root.parentNode;
+      originalNextSibling = root.nextSibling;
+      document.body.appendChild(root);
+    } else if (originalParent) {
+      if (originalNextSibling && originalNextSibling.parentNode === originalParent) {
+        originalParent.insertBefore(root, originalNextSibling);
+      } else {
+        originalParent.appendChild(root);
+      }
+      originalParent = null;
+      originalNextSibling = null;
+    }
+    root.classList.toggle("la-drawer-expanded", next);
+    expandBtn.innerHTML = next ? ICON_COLLAPSE : ICON_EXPAND;
+    expandBtn.title = next ? "Collapse to drawer" : "Expand to fullscreen";
+    expandBtn.setAttribute("aria-label", expandBtn.title);
+  };
+  expandBtn.addEventListener("click", () => setExpanded(!isExpanded));
+  // Esc collapses while focus is anywhere inside the drawer. Doesn't fight the
+  // composer textarea because the composer doesn't capture Esc.
+  root.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape" && isExpanded) {
+      ev.preventDefault();
+      setExpanded(false);
+    }
+  });
 
   header.append(rowChar, rowMeta);
 
@@ -495,8 +530,17 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     }
   };
 
+  // Ledger fallback: use the character ledger only when there's a character
+  // anchor for it. Without this gate, a session_loaded from a no-character
+  // session would surface the previously-loaded character's ledger.
+  const ledgerSource = (): readonly EditLogEntry[] => {
+    const hasAnchor = state.characterId !== null || state.workshopFocusCharacterId !== null;
+    if (hasAnchor && state.characterLedger.length > 0) return state.characterLedger;
+    return state.edits;
+  };
+
   const updateSessionBar = () => {
-    const source = state.characterLedger.length > 0 ? state.characterLedger : state.edits;
+    const source = ledgerSource();
     const liveEdits = source.filter((e) => !e.reverted).length;
     editsCount.textContent = String(liveEdits);
     if (liveEdits === 0 && source.length === 0) {
@@ -620,8 +664,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   // the modal has never been opened.
   const openWorkshopOnFile = (path: string): void => {
     openDiffs();
-    const rootEl = state.diffModal as unknown as { __focusTab?: (t: string) => void } | null;
-    rootEl?.__focusTab?.("files");
+    state.diffModal?.focusTab("files");
     state.workspacePanel?.focusFile(path);
   };
 
@@ -645,9 +688,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
           state.workshopFocusCharacterId = cid;
           state.workshopFocusCharacterName = name;
           sendBackend({ type: "load_character_workshop", characterId: cid });
-          // Swap the modal to the Edits tab so the user sees the loaded ledger.
-          const rootEl = state.diffModal as unknown as { __focusTab?: (t: string) => void } | null;
-          rootEl?.__focusTab?.("edits");
+          state.diffModal?.focusTab("edits");
         },
       });
     }
@@ -655,7 +696,12 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       getEdits: () => {
         // Focus override: Characters tab can swap the Edits view to another
         // character's ledger. characterLedger is reused as the carrier.
-        return state.characterLedger.length > 0 ? state.characterLedger : state.edits;
+        return ledgerSource();
+      },
+      getScopeLabel: () => {
+        if (state.workshopFocusCharacterId) return state.workshopFocusCharacterName ?? "focused character";
+        if (state.characterId === null) return "no character attached";
+        return state.characterName ?? null;
       },
       onRevert: async (editId) => {
         const cid = state.workshopFocusCharacterId ?? state.characterId;
@@ -752,14 +798,14 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   };
 
   const liveEditsForAssistantMessage = (assistantMessageId: string): number => {
-    const source = state.characterLedger.length > 0 ? state.characterLedger : state.edits;
+    const source = ledgerSource();
     return source.filter((e) => e.assistantMessageId === assistantMessageId && !e.reverted).length;
   };
   const liveEditsAfterUserMessage = (userMessageId: string): number => {
     const idx = state.messages.findIndex((m) => m.id === userMessageId && m.role === "user");
     if (idx < 0) return 0;
     const tailAssistantIds = new Set(state.messages.slice(idx + 1).filter((m) => m.role === "assistant").map((m) => m.id));
-    const source = state.characterLedger.length > 0 ? state.characterLedger : state.edits;
+    const source = ledgerSource();
     return source.filter((e) => e.assistantMessageId !== undefined && tailAssistantIds.has(e.assistantMessageId) && !e.reverted).length;
   };
   const promptEditsAction = async (opts: { liveEditCount: number; action: "edit" | "regenerate" | "delete" }): Promise<"keep" | "revert" | "cancel"> => {
@@ -2039,6 +2085,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       case "session_loaded":
         clearErrorBanners();
         state.sessionId = msg.sessionId;
+        if (state.characterId !== msg.characterId) state.characterLedger = [];
         state.characterId = msg.characterId;
         state.characterName = msg.characterName;
         state.messages = [...msg.messages];

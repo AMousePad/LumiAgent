@@ -44,11 +44,16 @@ export interface DiffModalDeps {
   // Optional: fired whenever the Characters tab is activated so the drawer
   // can re-fetch fresh per-character data.
   onCharactersTabActivated?: () => void;
+  // Optional: a short label describing whose edits are being shown. Surfaces
+  // in the stats line and empty state. Lets the modal distinguish a
+  // no-character session from a character with zero edits.
+  getScopeLabel?(): string | null;
 }
 
 export interface DiffModalHandle {
   setEdits(edits: readonly EditLogEntry[]): void;
   focusEdit(editId: string): void;
+  focusTab(tab: "edits" | "files" | "characters"): void;
   close(): void;
   isOpen(): boolean;
 }
@@ -177,19 +182,15 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
   filesTabBtn.addEventListener("click", () => { if (deps.filesPanel) switchTab("files"); });
   charsTabBtn.addEventListener("click", () => { if (deps.charactersPanel) switchTab("characters"); });
 
-  // Imperative helper so the drawer can switch to Edits after the user picks
-  // a character to focus on.
-  (root as unknown as { __focusTab?: (t: "edits" | "files" | "characters") => void }).__focusTab = switchTab;
-
   root.append(tabs, editsView, filesView, charsView);
 
   let currentEditId: string | null = opts?.initialEditId ?? null;
   let edits: readonly EditLogEntry[] = deps.getEdits();
 
   const refresh = (): void => {
-    // Refresh stats summary.
     const liveCount = edits.filter((e) => !e.reverted).length;
-    stats.textContent = `${liveCount} live / ${edits.length} total`;
+    const scope = deps.getScopeLabel?.();
+    stats.textContent = `${liveCount} live / ${edits.length} total${scope ? ` · ${scope}` : ""}`;
     renderTree();
     renderPane();
   };
@@ -269,7 +270,11 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
   const renderPane = (): void => {
     pane.innerHTML = "";
     if (edits.length === 0) {
-      pane.appendChild(el("div", "la-diff-pane-empty", "Nothing changed in this session yet."));
+      const scope = deps.getScopeLabel?.();
+      const msg = scope
+        ? `Nothing changed in this session yet. (${scope})`
+        : "Nothing changed in this session yet.";
+      pane.appendChild(el("div", "la-diff-pane-empty", msg));
       return;
     }
     const target = currentEditId ? edits.find((e) => e.id === currentEditId) : edits[0];
@@ -343,6 +348,7 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
   return {
     setEdits(next) { if (!open) return; edits = next; refresh(); },
     focusEdit(editId) { if (!open) return; currentEditId = editId; refresh(); },
+    focusTab(tab) { if (!open) return; switchTab(tab); },
     isOpen() { return open; },
     close() { handleClose(); },
   };

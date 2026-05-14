@@ -783,6 +783,21 @@ ${LOADERS_CSS}
   overflow: hidden;
 }
 
+/* Fullscreen expansion: drawer breaks out of its host slot to fill the
+ * viewport. position:fixed snaps to the viewport unless an ancestor has
+ * a transform / filter / contain:paint; verified clean on Lumiverse's
+ * drawer chrome. */
+.la-drawer.la-drawer-expanded {
+  position: fixed;
+  inset: 0;
+  width: auto;
+  height: auto;
+  /* Below Spindle's modal backdrop (10003) and Lumiverse SettingsModal
+   * (10001) so dialogs spawned from the expanded drawer still cover it. */
+  z-index: 10000;
+  box-shadow: 0 0 0 1px var(--lumiverse-border), 0 24px 64px rgba(0, 0, 0, 0.45);
+}
+
 /* ─── Header ─── */
 .la-header {
   display: flex; flex-direction: column; gap: 8px;
@@ -3815,6 +3830,8 @@ var ICON_NEW = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria
 var ICON_SESSIONS = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"/><path d="M7.5 9.5c0 .687.265 1.383.697 1.844l3.009 3.264a1.14 1.14 0 0 0 .407.314 1 1 0 0 0 .783-.004 1.14 1.14 0 0 0 .398-.31l3.008-3.264A2.77 2.77 0 0 0 16.5 9.5 2.5 2.5 0 0 0 12 8a2.5 2.5 0 0 0-4.5 1.5"/></svg>`;
 var ICON_SETTINGS = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="m10 16 1.5 1.5"/><path d="m14 8-1.5-1.5"/><path d="M15 2c-1.798 1.998-2.518 3.995-2.807 5.993"/><path d="m16.5 10.5 1 1"/><path d="m17 6-2.891-2.891"/><path d="M2 15c6.667-6 13.333 0 20-6"/><path d="m20 9 .891.891"/><path d="M3.109 14.109 4 15"/><path d="m6.5 12.5 1 1"/><path d="m7 18 2.891 2.891"/><path d="M9 22c1.798-1.998 2.518-3.995 2.807-5.993"/></svg>`;
 var ICON_WORKSHOP = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="M13 22h5a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v7"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M3.62 18.8A2.25 2.25 0 1 1 7 15.836a2.25 2.25 0 1 1 3.38 2.966l-2.626 2.856a1 1 0 0 1-1.507 0z"/></svg>`;
+var ICON_EXPAND = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/></svg>`;
+var ICON_COLLAPSE = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="m14 10 7-7"/><path d="m3 21 7-7"/></svg>`;
 
 // src/ui/loading.ts
 var WORDS = [
@@ -5686,8 +5703,11 @@ class ChatVirtualizer {
   cleanup = null;
   stickyToBottom = true;
   scrollListener = null;
+  wheelListener = null;
+  pointerDownListener = null;
   forceBottomOnNextSync = false;
   hasFirstRenderHappened = false;
+  lastTotalSize = 0;
   constructor(deps) {
     this.deps = deps;
     deps.scrollContainer.style.overflowAnchor = "none";
@@ -5718,9 +5738,20 @@ class ChatVirtualizer {
       overscan: OVERSCAN,
       onChange: () => this.sync()
     });
+    this.virt.shouldAdjustScrollPositionOnItemSizeChange = (_item, _delta, instance) => instance.scrollDirection !== "backward";
     this.cleanup = this.virt._didMount();
     this.scrollListener = () => this.updateStickiness();
     deps.scrollContainer.addEventListener("scroll", this.scrollListener, { passive: true });
+    this.wheelListener = (raw) => {
+      const e = raw;
+      if (e.deltaY < 0)
+        this.stickyToBottom = false;
+    };
+    this.pointerDownListener = () => {
+      this.stickyToBottom = false;
+    };
+    deps.scrollContainer.addEventListener("wheel", this.wheelListener, { passive: true });
+    deps.scrollContainer.addEventListener("pointerdown", this.pointerDownListener, { passive: true });
     this.sync();
   }
   setCount() {
@@ -5776,6 +5807,14 @@ class ChatVirtualizer {
     if (this.scrollListener) {
       this.deps.scrollContainer.removeEventListener("scroll", this.scrollListener);
       this.scrollListener = null;
+    }
+    if (this.wheelListener) {
+      this.deps.scrollContainer.removeEventListener("wheel", this.wheelListener);
+      this.wheelListener = null;
+    }
+    if (this.pointerDownListener) {
+      this.deps.scrollContainer.removeEventListener("pointerdown", this.pointerDownListener);
+      this.pointerDownListener = null;
     }
     this.clear();
     if (this.spacer.parentElement)
@@ -5836,23 +5875,26 @@ class ChatVirtualizer {
       this.virt.measureElement(node);
     }
     const stickBottom = () => {
-      const el3 = this.deps.scrollContainer;
-      const prevBehavior = el3.style.scrollBehavior;
-      el3.style.scrollBehavior = "auto";
-      el3.scrollTop = Math.max(0, el3.scrollHeight - el3.clientHeight);
-      el3.style.scrollBehavior = prevBehavior;
+      const count = this.deps.getMessages().length;
+      if (count === 0)
+        return;
+      this.virt.scrollToIndex(count - 1, { align: "end" });
     };
     const isCurrentlyAtBottom = () => {
       const el3 = this.deps.scrollContainer;
       const distance = el3.scrollHeight - el3.scrollTop - el3.clientHeight;
       return distance >= 0 && distance <= STICKY_THRESHOLD_PX;
     };
+    const grew = totalSize > this.lastTotalSize;
+    this.lastTotalSize = totalSize;
     if (!this.hasFirstRenderHappened) {
       this.hasFirstRenderHappened = items.length > 0;
+      if (this.hasFirstRenderHappened && this.stickyToBottom)
+        stickBottom();
     } else if (this.forceBottomOnNextSync) {
       this.forceBottomOnNextSync = false;
       stickBottom();
-    } else if (this.stickyToBottom && isCurrentlyAtBottom()) {
+    } else if (this.stickyToBottom && grew && this.virt.scrollDirection !== "backward") {
       stickBottom();
     } else if (!isCurrentlyAtBottom()) {
       this.stickyToBottom = false;
@@ -6028,13 +6070,13 @@ function openDiffModal(ctx, deps, opts) {
     if (deps.charactersPanel)
       switchTab("characters");
   });
-  root.__focusTab = switchTab;
   root.append(tabs, editsView, filesView, charsView);
   let currentEditId = opts?.initialEditId ?? null;
   let edits = deps.getEdits();
   const refresh = () => {
     const liveCount = edits.filter((e) => !e.reverted).length;
-    stats.textContent = `${liveCount} live / ${edits.length} total`;
+    const scope = deps.getScopeLabel?.();
+    stats.textContent = `${liveCount} live / ${edits.length} total${scope ? ` · ${scope}` : ""}`;
     renderTree();
     renderPane();
   };
@@ -6116,7 +6158,9 @@ function openDiffModal(ctx, deps, opts) {
   const renderPane = () => {
     pane.innerHTML = "";
     if (edits.length === 0) {
-      pane.appendChild(el3("div", "la-diff-pane-empty", "Nothing changed in this session yet."));
+      const scope = deps.getScopeLabel?.();
+      const msg = scope ? `Nothing changed in this session yet. (${scope})` : "Nothing changed in this session yet.";
+      pane.appendChild(el3("div", "la-diff-pane-empty", msg));
       return;
     }
     const target = currentEditId ? edits.find((e) => e.id === currentEditId) : edits[0];
@@ -6191,6 +6235,11 @@ function openDiffModal(ctx, deps, opts) {
         return;
       currentEditId = editId;
       refresh();
+    },
+    focusTab(tab) {
+      if (!open)
+        return;
+      switchTab(tab);
     },
     isOpen() {
       return open;
@@ -7218,6 +7267,7 @@ function mountDrawer(ctx) {
   };
   const switchSessionBtn = makeIconBtn("", ICON_SESSIONS, "Switch session", "Switch session");
   const newSessionBtn = makeIconBtn("", ICON_NEW, "Start a new chat session", "New session");
+  const expandBtn = makeIconBtn("la-expand-btn", ICON_EXPAND, "Expand to fullscreen", "Expand to fullscreen");
   const settingsBtn = makeIconBtn("", ICON_SETTINGS, "Agent settings", "Agent settings (persona & prompt)");
   const menuBtn = el9("button", "la-btn la-icon-btn");
   menuBtn.setAttribute("aria-label", "More");
@@ -7231,7 +7281,39 @@ function mountDrawer(ctx) {
   const editsBadge = makeIconBtn("la-changes-btn", ICON_WORKSHOP, "Open diff viewer", "Workshop");
   const editsCount = el9("span", "la-changes-count", "0");
   editsBadge.appendChild(editsCount);
-  rowMeta.append(connComboRoot, editsBadge, settingsBtn, menuBtn);
+  rowMeta.append(connComboRoot, editsBadge, expandBtn, settingsBtn, menuBtn);
+  let isExpanded = false;
+  let originalParent = null;
+  let originalNextSibling = null;
+  const setExpanded = (next) => {
+    if (isExpanded === next)
+      return;
+    isExpanded = next;
+    if (next) {
+      originalParent = root.parentNode;
+      originalNextSibling = root.nextSibling;
+      document.body.appendChild(root);
+    } else if (originalParent) {
+      if (originalNextSibling && originalNextSibling.parentNode === originalParent) {
+        originalParent.insertBefore(root, originalNextSibling);
+      } else {
+        originalParent.appendChild(root);
+      }
+      originalParent = null;
+      originalNextSibling = null;
+    }
+    root.classList.toggle("la-drawer-expanded", next);
+    expandBtn.innerHTML = next ? ICON_COLLAPSE : ICON_EXPAND;
+    expandBtn.title = next ? "Collapse to drawer" : "Expand to fullscreen";
+    expandBtn.setAttribute("aria-label", expandBtn.title);
+  };
+  expandBtn.addEventListener("click", () => setExpanded(!isExpanded));
+  root.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape" && isExpanded) {
+      ev.preventDefault();
+      setExpanded(false);
+    }
+  });
   header.append(rowChar, rowMeta);
   const thread = el9("div", "la-thread");
   const emptyState = el9("div", "la-empty");
@@ -7462,8 +7544,14 @@ function mountDrawer(ctx) {
         connCombo.setValue(def.id, true);
     }
   };
+  const ledgerSource = () => {
+    const hasAnchor = state.characterId !== null || state.workshopFocusCharacterId !== null;
+    if (hasAnchor && state.characterLedger.length > 0)
+      return state.characterLedger;
+    return state.edits;
+  };
   const updateSessionBar = () => {
-    const source = state.characterLedger.length > 0 ? state.characterLedger : state.edits;
+    const source = ledgerSource();
     const liveEdits = source.filter((e) => !e.reverted).length;
     editsCount.textContent = String(liveEdits);
     if (liveEdits === 0 && source.length === 0) {
@@ -7577,8 +7665,7 @@ Force-revert anyway (this overwrites the external change)?`;
   };
   const openWorkshopOnFile = (path) => {
     openDiffs();
-    const rootEl = state.diffModal;
-    rootEl?.__focusTab?.("files");
+    state.diffModal?.focusTab("files");
     state.workspacePanel?.focusFile(path);
   };
   const openDiffs = (initialEditId) => {
@@ -7600,14 +7687,20 @@ Force-revert anyway (this overwrites the external change)?`;
           state.workshopFocusCharacterId = cid;
           state.workshopFocusCharacterName = name;
           sendBackend({ type: "load_character_workshop", characterId: cid });
-          const rootEl = state.diffModal;
-          rootEl?.__focusTab?.("edits");
+          state.diffModal?.focusTab("edits");
         }
       });
     }
     state.diffModal = openDiffModal(ctx, {
       getEdits: () => {
-        return state.characterLedger.length > 0 ? state.characterLedger : state.edits;
+        return ledgerSource();
+      },
+      getScopeLabel: () => {
+        if (state.workshopFocusCharacterId)
+          return state.workshopFocusCharacterName ?? "focused character";
+        if (state.characterId === null)
+          return "no character attached";
+        return state.characterName ?? null;
       },
       onRevert: async (editId) => {
         const cid = state.workshopFocusCharacterId ?? state.characterId;
@@ -7681,7 +7774,7 @@ Force-revert anyway (this overwrites the external change)?`;
     updateComposer();
   };
   const liveEditsForAssistantMessage = (assistantMessageId) => {
-    const source = state.characterLedger.length > 0 ? state.characterLedger : state.edits;
+    const source = ledgerSource();
     return source.filter((e) => e.assistantMessageId === assistantMessageId && !e.reverted).length;
   };
   const liveEditsAfterUserMessage = (userMessageId) => {
@@ -7689,7 +7782,7 @@ Force-revert anyway (this overwrites the external change)?`;
     if (idx < 0)
       return 0;
     const tailAssistantIds = new Set(state.messages.slice(idx + 1).filter((m) => m.role === "assistant").map((m) => m.id));
-    const source = state.characterLedger.length > 0 ? state.characterLedger : state.edits;
+    const source = ledgerSource();
     return source.filter((e) => e.assistantMessageId !== undefined && tailAssistantIds.has(e.assistantMessageId) && !e.reverted).length;
   };
   const promptEditsAction = async (opts) => {
@@ -8925,6 +9018,8 @@ Revert those edits to the character now, or leave them applied?`;
       case "session_loaded":
         clearErrorBanners();
         state.sessionId = msg.sessionId;
+        if (state.characterId !== msg.characterId)
+          state.characterLedger = [];
         state.characterId = msg.characterId;
         state.characterName = msg.characterName;
         state.messages = [...msg.messages];
