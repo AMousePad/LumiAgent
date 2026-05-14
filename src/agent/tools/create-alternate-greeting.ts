@@ -19,6 +19,7 @@ export const createAlternateGreetingTool = defineTool({
     required: ["content"],
   },
   defaultSensitivity: "insensitive",
+  requiresCharacter: true,
   execute: async (input, ctx) => {
     const content = input.content;
     const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);

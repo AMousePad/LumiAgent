@@ -59,6 +59,7 @@ Returns:
   },
   requiresRecentRead: gate,
   defaultSensitivity: "insensitive",
+  requiresCharacter: true,
   execute: async (input, ctx) => {
     let replace = input.replace;
     if (replace === undefined && input.replace_handle) {

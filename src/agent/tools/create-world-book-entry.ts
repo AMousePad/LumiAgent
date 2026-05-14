@@ -37,6 +37,7 @@ export const createWorldBookEntryTool = defineTool({
     required: ["content"],
   },
   defaultSensitivity: "insensitive",
+  requiresCharacter: true,
   execute: async (input, ctx) => {
     const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
     if (!c) return { content: `Error: character ${ctx.characterId} not found`, isError: true };

@@ -180,6 +180,7 @@ Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole
     additionalProperties: false,
   },
   defaultSensitivity: "insensitive",
+  requiresCharacter: true,
   execute: async (input, ctx) => {
     const maxEntries = input.max_entries ?? 200;
     const maxDepth = input.max_depth ?? 4;

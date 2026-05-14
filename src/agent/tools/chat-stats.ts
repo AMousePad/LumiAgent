@@ -22,6 +22,7 @@ export const chatStatsTool = defineTool({
     required: [],
   },
   defaultSensitivity: "insensitive",
+  requiresCharacter: true,
   execute: async (input, ctx) => {
     const resolved = resolveChatId(input, ctx);
     if (typeof resolved !== "string") return { content: `Error: ${resolved.error}`, isError: true };

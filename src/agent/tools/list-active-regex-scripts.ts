@@ -29,6 +29,7 @@ Usage:
     required: ["target"],
   },
   defaultSensitivity: "insensitive",
+  requiresCharacter: true,
   execute: async (input, ctx) => {
     const chatId = input.chat_id ?? ctx.pinnedChatId ?? undefined;
     const useChar = input.use_active_character ?? true;

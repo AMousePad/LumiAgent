@@ -9,21 +9,36 @@ export { isDeferredTool, isReadOnlyTool, listDeferredToolNames, maxResultSizeCha
 
 export type ToolFn = (args: Record<string, unknown>, ctx: ToolCtx) => Promise<string>;
 
-export function makeToolSchemas(): ToolSchema[] {
-  return registry.schemas();
+// In no-character sessions, drop tools whose execution is character-bound so
+// the LLM physically cannot call them. Keeps the system-prompt one-liner the
+// sole place the agent needs to learn what to say to the user about it.
+function passesCharacterGate(name: string, hasCharacter: boolean): boolean {
+  return hasCharacter || !registry.requiresCharacter(name);
+}
+
+// True when the tool requires an active character to function. Exposed so
+// callers (notably system-prompt assembly) can filter deferred-tool listings
+// in no-character sessions.
+export function toolRequiresCharacter(name: string): boolean {
+  return registry.requiresCharacter(name);
+}
+
+export function makeToolSchemas(hasCharacter = true): ToolSchema[] {
+  return registry.schemas().filter((s) => passesCharacterGate(s.name, hasCharacter));
 }
 
 // Schemas shipped in the initial tools list passed to the LLM. Excludes
 // deferred tools (model fetches their schemas via tool_search on demand).
-export function makeInitialToolSchemas(): ToolSchema[] {
-  return registry.schemas().filter((s) => !isDeferredTool(s.name));
+export function makeInitialToolSchemas(hasCharacter = true): ToolSchema[] {
+  return registry.schemas().filter((s) => !isDeferredTool(s.name) && passesCharacterGate(s.name, hasCharacter));
 }
 
 // Lookup table of full schemas for deferred tools. runAgent uses this to
 // re-issue the schemas list once tool_search announces a discovery.
-export function makeDeferredToolSchemaMap(): Record<string, ToolSchema> {
+export function makeDeferredToolSchemaMap(hasCharacter = true): Record<string, ToolSchema> {
   const out: Record<string, ToolSchema> = {};
   for (const name of listDeferredToolNames()) {
+    if (!passesCharacterGate(name, hasCharacter)) continue;
     const s = registry.schemaFor(name);
     if (s) out[name] = s;
   }

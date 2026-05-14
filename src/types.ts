@@ -134,7 +134,7 @@ export interface ChatUserMessage {
 export type AssistantBlock =
   | { type: "text"; content: string }
   | { type: "reasoning"; content: string }
-  | { type: "tool"; call_id: string; name: string; args: Record<string, unknown>; result?: string | undefined; is_error?: boolean | undefined; edit_ids: readonly string[]; sensitivity?: "sensitive" | "insensitive"; freed?: boolean }
+  | { type: "tool"; call_id: string; name: string; args: Record<string, unknown>; result?: string | undefined; is_error?: boolean | undefined; edit_ids: readonly string[]; freed?: boolean }
   | { type: "warning"; message: string };
 
 export interface ChatAssistantMessage {
@@ -152,7 +152,7 @@ export type ChatMessage = ChatUserMessage | ChatAssistantMessage;
 
 export interface SessionSummaryWire {
   readonly sessionId: string;
-  readonly characterId: string;
+  readonly characterId: string | null;
   readonly characterName: string;
   readonly createdAt: number;
   readonly lastActivityAt: number;
@@ -195,11 +195,10 @@ export type AgentEvent =
   | { type: "llm_token"; token: string }
   | { type: "llm_reasoning"; token: string }
   | { type: "tool_started"; call_id: string; name: string; args: Record<string, unknown> }
-  | { type: "tool_finished"; call_id: string; result: string; is_error: boolean; edit_ids: readonly string[]; sensitivity?: "sensitive" | "insensitive" }
+  | { type: "tool_finished"; call_id: string; result: string; is_error: boolean; edit_ids: readonly string[] }
   | { type: "edit_logged"; entry: EditLogEntry }
   | { type: "revert_logged"; editId: string; outcome: RevertOutcomeWire }
   | { type: "edits_resynced" }
-  | { type: "sensitivity_override"; call_id: string; sensitivity: "sensitive" | "insensitive" }
   | { type: "turn_completed"; turn: number; finish_reason: string; usage?: { prompt: number; completion: number; total: number; estimated?: boolean } | undefined; cleanedContent?: string | undefined }
   | { type: "paused_for_input"; reason: PausedReason; detail?: string | undefined }
   | { type: "warning"; message: string };
@@ -207,9 +206,9 @@ export type AgentEvent =
 export type FrontendToBackend =
   | { type: "list_characters" }
   | { type: "list_connections" }
-  | { type: "list_sessions"; characterId?: string | undefined }
+  | { type: "list_sessions"; characterId?: string | null | undefined }
   | { type: "load_session"; sessionId: string }
-  | { type: "start_session"; sessionId: string; characterId: string; connectionId?: string | undefined }
+  | { type: "start_session"; sessionId: string; characterId: string | null; connectionId?: string | undefined }
   | { type: "send_message"; sessionId: string; userMessageId: string; content: string; connectionId?: string | undefined }
   | { type: "continue_session"; sessionId: string; connectionId?: string | undefined }
   | { type: "cancel_generation"; sessionId: string }
@@ -226,7 +225,7 @@ export type FrontendToBackend =
   | { type: "list_chats"; characterId: string; sessionId?: string | undefined }
   | { type: "set_pinned_chat"; sessionId: string; chatId: string | null }
   | { type: "get_settings" }
-  | { type: "update_settings"; persona: string; systemPromptOverride: string | null; samplers: Readonly<Record<string, number | null>>; jailbreak: string; jailbreakPlacement: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes: number | null; toolOutputCapTokens: number | null; connectionSupportsPromptCaching?: boolean; autoFreeOldToolResults?: boolean; cacheMode?: "off" | "system_only" | "full"; parallelToolCalls?: boolean }
+  | { type: "update_settings"; persona: string; systemPromptOverride: string | null; samplers: Readonly<Record<string, number | null>>; jailbreak: string; jailbreakPlacement: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes: number | null; toolOutputCapTokens: number | null; cacheMode?: "off" | "system_only" | "full"; parallelToolCalls?: boolean }
   | { type: "get_ui_prefs" }
   | { type: "update_ui_prefs"; connectionId: string | null; lastSessionId: string | null }
   | { type: "ws_list"; path: string }
@@ -254,15 +253,14 @@ export type BackendToFrontend =
   | { type: "characters_pushed"; characters: readonly CharacterSummary[] }
   | { type: "connections_pushed"; connections: readonly ConnectionSummary[] }
   | { type: "sessions_pushed"; sessions: readonly SessionSummaryWire[] }
-  | { type: "session_started"; sessionId: string; characterId: string; characterName: string; createdAt: number }
-  | { type: "session_loaded"; sessionId: string; characterId: string; characterName: string; createdAt: number; messages: readonly ChatMessage[]; edits: readonly EditLogEntry[] }
+  | { type: "session_started"; sessionId: string; characterId: string | null; characterName: string; createdAt: number }
+  | { type: "session_loaded"; sessionId: string; characterId: string | null; characterName: string; createdAt: number; messages: readonly ChatMessage[]; edits: readonly EditLogEntry[] }
   | { type: "session_deleted"; sessionId: string }
   | { type: "session_markdown_ready"; sessionId: string; filename: string; content: string }
   | { type: "session_markdown_error"; sessionId: string; error: string }
   | { type: "session_reverted"; sessionId: string; entriesRestored: number; entriesFailed: number; scriptsRestored: number; scriptsFailed: number }
   | { type: "character_edits_pushed"; characterId: string; entries: readonly EditLogEntry[] }
   | { type: "chat_event"; sessionId: string; event: AgentEvent }
-  | { type: "auto_freed"; sessionId: string; count: number; bytes: number }
   | { type: "generation_done"; sessionId: string; turns: number }
   | { type: "generation_error"; sessionId: string; error: string }
   | { type: "generation_cancelled"; sessionId: string }
@@ -271,7 +269,7 @@ export type BackendToFrontend =
   | { type: "session_truncated"; sessionId: string; messages: readonly ChatMessage[]; edits: readonly EditLogEntry[] }
   | { type: "chats_pushed"; characterId: string; chats: readonly ChatSummary[]; pinnedChatId: string | null }
   | { type: "pinned_chat_set"; sessionId: string; chatId: string | null }
-  | { type: "settings_pushed"; persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody: string; samplers: Readonly<Record<string, number | null>>; jailbreak: string; jailbreakPlacement: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes: number | null; workspaceCapDefaultBytes: number; workspaceFileCapBytes: number; toolOutputCapTokens: number | null; toolOutputCapDefaultTokens: number; connectionSupportsPromptCaching: boolean; autoFreeOldToolResults: boolean; cacheMode: "off" | "system_only" | "full"; parallelToolCalls: boolean }
+  | { type: "settings_pushed"; persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody: string; samplers: Readonly<Record<string, number | null>>; jailbreak: string; jailbreakPlacement: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes: number | null; workspaceCapDefaultBytes: number; workspaceFileCapBytes: number; toolOutputCapTokens: number | null; toolOutputCapDefaultTokens: number; cacheMode: "off" | "system_only" | "full"; parallelToolCalls: boolean }
   | { type: "ui_prefs_pushed"; connectionId: string | null; lastSessionId: string | null }
   | { type: "ws_listed"; path: string; entries: readonly WorkspaceEntry[] }
   | { type: "ws_text_pushed"; path: string; content: string; sizeBytes: number }

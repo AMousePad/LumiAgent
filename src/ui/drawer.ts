@@ -29,6 +29,10 @@ import { ICON_TRASH, ICON_DOWNLOAD, ICON_PIN, ICON_PIN_OFF, ICON_NEW, ICON_SESSI
 import { DEFAULT_ICON_DATA_URL } from "../generated/default-icon";
 import { MOUSEY_SITTING_DATA_URL } from "../generated/mousey";
 
+// Combobox sentinel for the "(No character)" entry. The dropdown stores it as
+// a string id; everywhere else (state.characterId, wire messages, persisted
+// sessions) carries the null directly.
+const NO_CHARACTER_SENTINEL = "__none__";
 const ICON_STORAGE_KEY = "lumiagent.customIcon.v1";
 const MOUSEY_STORAGE_KEY = "lumiagent.customMousey.v1";
 const DISPLAY_NAME_STORAGE_KEY = "lumiagent.displayName.v1";
@@ -76,7 +80,7 @@ interface UiState {
   characterLedger: EditLogEntry[];
   chatsForCharacter: ChatSummary[];
   pinnedChatId: string | null;
-  settings: { persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody?: string; samplers?: Readonly<Record<string, number | null>>; jailbreak?: string; jailbreakPlacement?: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes?: number | null; workspaceCapDefaultBytes?: number; workspaceFileCapBytes?: number; toolOutputCapTokens?: number | null; toolOutputCapDefaultTokens?: number; connectionSupportsPromptCaching?: boolean; autoFreeOldToolResults?: boolean; cacheMode?: "off" | "system_only" | "full"; parallelToolCalls?: boolean } | null;
+  settings: { persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody?: string; samplers?: Readonly<Record<string, number | null>>; jailbreak?: string; jailbreakPlacement?: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes?: number | null; workspaceCapDefaultBytes?: number; workspaceFileCapBytes?: number; toolOutputCapTokens?: number | null; toolOutputCapDefaultTokens?: number; cacheMode?: "off" | "system_only" | "full"; parallelToolCalls?: boolean } | null;
   pendingPinChatId: string | null;
   // Single-shot, reset after consume so a later list_chats won't re-pin after the user explicitly unpinned.
   autoPinNeeded: boolean;
@@ -442,20 +446,24 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   };
 
   const renderCharOptions = () => {
-    if (state.characters.length === 0) {
-      charCombo.setItems([]);
-      charCombo.setPlaceholder("No characters");
-      charCombo.setDisabled(true);
-      return;
-    }
     charCombo.setDisabled(false);
     charCombo.setPlaceholder("Pick character");
-    charCombo.setItems(state.characters.map((c) => ({
-      id: c.id,
-      label: c.name,
-      sublabel: `${c.world_book_ids.length} WB · ${c.regex_script_count} regex`,
-    })));
-    if (state.characterId) charCombo.setValue(state.characterId, true);
+    // Top entry: general-purpose chat with no character context. Tools that
+    // need a character are filtered out of the schema in this mode.
+    const noneItem = { id: NO_CHARACTER_SENTINEL, label: "(No character)", sublabel: "general chat + workspace only" };
+    if (state.characters.length === 0) {
+      charCombo.setItems([noneItem]);
+    } else {
+      charCombo.setItems([
+        noneItem,
+        ...state.characters.map((c) => ({
+          id: c.id,
+          label: c.name,
+          sublabel: `${c.world_book_ids.length} WB · ${c.regex_script_count} regex`,
+        })),
+      ]);
+    }
+    charCombo.setValue(state.characterId ?? NO_CHARACTER_SENTINEL, true);
   };
 
   const renderConnOptions = () => {
@@ -547,10 +555,8 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       textarea.disabled = false;
       if (state.sessionId) {
         composerStatus.textContent = "";
-      } else if (state.characterId) {
-        composerStatus.textContent = "Type a message and press Send. A new session will start automatically.";
       } else {
-        composerStatus.textContent = "Pick a character first.";
+        composerStatus.textContent = "Type a message and press Send. A new session will start automatically.";
       }
     }
     // Empty textarea behaviour:
@@ -559,7 +565,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     const hasText = textarea.value.trim().length > 0;
     const last = state.messages[state.messages.length - 1];
     const canContinue = !hasText && !!last && last.role === "user";
-    const sendDisabled = !state.characterId || state.startingSession || (!hasText && !canContinue);
+    const sendDisabled = state.startingSession || (!hasText && !canContinue);
     sendBtn.disabled = sendDisabled;
     updateCompactButton();
   };
@@ -854,7 +860,10 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     };
   }
 
-  charCombo.onChange((id) => {
+  charCombo.onChange((rawId) => {
+    // The "(No character)" entry in the dropdown carries a sentinel id; the
+    // rest of the UI/backend models the no-character state as null.
+    const id = rawId === NO_CHARACTER_SENTINEL ? null : rawId;
     const switchingAway = state.sessionId !== null && id !== state.characterId;
     dlog("charCombo change", { newCharacterId: id, prevCharacterId: state.characterId, sessionId: state.sessionId, switchingAway });
     if (switchingAway) {
@@ -884,6 +893,11 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       startNewSession();
       sendBackend({ type: "list_character_edits", characterId: id });
       sendBackend({ type: "list_chats", characterId: id, ...(state.sessionId ? { sessionId: state.sessionId } : {}) });
+    } else {
+      // No-character mode: still spin up a fresh session so the user can talk
+      // to the agent. Ledger/chat data stay empty; tool filtering and the
+      // one-sentence system-prompt directive handle the rest.
+      startNewSession();
     }
   });
   // Sends the full ui-prefs blob to the backend. Cheap enough to call on every
@@ -906,11 +920,6 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   // New-session button and the char-selector autopin flow (selecting a
   // character implicitly "moves us to a new chat" the same way).
   function startNewSession(): void {
-    if (!state.characterId) {
-      composerStatus.textContent = "Pick a character first.";
-      composerStatus.classList.add("is-error");
-      return;
-    }
     if (state.isGenerating || state.startingSession) {
       composerStatus.textContent = "Wait for the current generation to finish.";
       composerStatus.classList.add("is-error");
@@ -1072,7 +1081,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         const isCurrent = s.sessionId === state.sessionId;
         const row = el("div", `la-session-item ${isCurrent ? "is-active" : ""}`);
         const main = el("div", "la-session-item-main");
-        main.append(el("div", undefined, `${s.characterName}`));
+        main.append(el("div", undefined, s.characterId === null ? "(No character)" : s.characterName));
         main.append(el("div", "la-session-item-meta", `${s.messageCount} msg . ${s.editCount} edits${s.revertedEditCount ? ` (${s.revertedEditCount} reverted)` : ""} . ${new Date(s.lastActivityAt).toLocaleString()}`));
         const exportBtn = el("button", "la-session-item-delete") as HTMLButtonElement;
         exportBtn.type = "button";
@@ -1180,7 +1189,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     const modalWidth = Math.max(560, Math.min(Math.floor(viewportW * 0.9), 1360));
     const handle = ctx.ui.showModal({ title: "Agent settings", width: modalWidth, maxHeight: 1080 });
     const wrap = el("div", "la-agent-settings");
-    wrap.appendChild(el("p", "la-modal-note", "Customize how LumiAgent behaves. Saved per-user; applies to your next message."));
+    wrap.appendChild(el("p", "la-modal-note", "Customize how LumiAgent behaves. Changes save automatically on blur and on close, and apply to your next message."));
 
     // --- Persona ---
     wrap.appendChild(el("label", "la-settings-label", "Persona"));
@@ -1286,7 +1295,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     wrap.appendChild(el("hr", "la-settings-divider"));
 
     wrap.appendChild(el("label", "la-settings-label", "Prompt caching"));
-    wrap.appendChild(el("div", "la-settings-hint", "Marks parts of every request as cacheable so supported providers (Anthropic, OpenAI, Bedrock, Gemini) charge a fraction on cache reads. Full mode caches two turns behind the latest message. System only caches the system prompt. Off attaches no markers."));
+    wrap.appendChild(el("div", "la-settings-hint", "Anthropic-only. OpenAI, Gemini, DeepSeek, and other providers cache the prompt prefix automatically upstream regardless of this setting."));
     const cacheModeRow = el("div", "la-settings-row");
     cacheModeRow.append(el("label", "la-settings-row-label", "Cache mode"));
     const cacheModeSelect = document.createElement("select");
@@ -1300,24 +1309,6 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     cacheModeRow.appendChild(cacheModeSelect);
     wrap.appendChild(cacheModeRow);
 
-    const cacheSupportRow = el("div", "la-settings-row");
-    cacheSupportRow.append(el("label", "la-settings-row-label", "Connection supports caching"));
-    const cacheSupportInput = document.createElement("input");
-    cacheSupportInput.type = "checkbox";
-    cacheSupportInput.className = "la-checkbox";
-    cacheSupportRow.appendChild(cacheSupportInput);
-    wrap.appendChild(cacheSupportRow);
-    wrap.appendChild(el("div", "la-settings-hint", "Leave ON for Anthropic, OpenAI, Bedrock, Gemini, OpenRouter (Anthropic routes). Turn OFF for proxies or local models that don't honour cache_control."));
-
-    const autoFreeRow = el("div", "la-settings-row");
-    autoFreeRow.append(el("label", "la-settings-row-label", "Auto-free old tool results"));
-    const autoFreeInput = document.createElement("input");
-    autoFreeInput.type = "checkbox";
-    autoFreeInput.className = "la-checkbox";
-    autoFreeRow.appendChild(autoFreeInput);
-    wrap.appendChild(autoFreeRow);
-    wrap.appendChild(el("div", "la-settings-hint", "Stub-replace insensitive tool results after 10 user turns to save context. Off by default. Turn on if you're on a provider that doesn't honour cache markers AND you see context grow unchecked."));
-
     const parallelToolsRow = el("div", "la-settings-row");
     parallelToolsRow.append(el("label", "la-settings-row-label", "Parallel tool calls"));
     const parallelToolsInput = document.createElement("input");
@@ -1325,7 +1316,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     parallelToolsInput.className = "la-checkbox";
     parallelToolsRow.appendChild(parallelToolsInput);
     wrap.appendChild(parallelToolsRow);
-    wrap.appendChild(el("div", "la-settings-hint", "Leave ON for Anthropic, OpenAI, Google, most OpenRouter routes. Turn OFF for providers that error on parallel tool emission (some Mistral configurations, certain self-hosted setups)."));
+    wrap.appendChild(el("div", "la-settings-hint", "Leave ON for Anthropic, OpenAI, Google, most OpenRouter routes. Turn OFF for providers that error on parallel tool emission."));
 
     wrap.appendChild(el("hr", "la-settings-divider"));
 
@@ -1391,11 +1382,9 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     const status = el("div", "la-composer-status");
     wrap.appendChild(status);
 
-    const actions = el("div", "la-settings-actions");
-    const cancelBtn = el("button", "la-btn", "Cancel") as HTMLButtonElement;
-    const saveBtn = el("button", "la-btn la-btn-primary", "Save") as HTMLButtonElement;
-    actions.append(cancelBtn, saveBtn);
-    wrap.appendChild(actions);
+    // Forward-declared so the sampler slider closures can call it. Real impl
+    // installs below once all inputs are in scope.
+    let commit: () => void = () => {};
 
     let samplerBag: Record<string, number | null> = {
       temperature: null, maxTokens: null, contextSize: null,
@@ -1427,8 +1416,6 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       toolCapInput.placeholder = `${toolDefault}`;
       toolCapInput.value = s.toolOutputCapTokens ? String(s.toolOutputCapTokens) : "";
       cacheModeSelect.value = s.cacheMode ?? "full";
-      cacheSupportInput.checked = s.connectionSupportsPromptCaching ?? true;
-      autoFreeInput.checked = s.autoFreeOldToolResults ?? false;
       parallelToolsInput.checked = s.parallelToolCalls ?? true;
       renderSamplers();
     };
@@ -1438,10 +1425,11 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       renderSamplers();
     };
 
+    // Mirror of state/samplers.ts SAMPLER_DEFS. Keep in sync.
     const SAMPLER_DEFS: ReadonlyArray<{ key: string; label: string; type: "int" | "float"; min: number; max: number; step: number; defaultHint: number }> = [
       { key: "temperature",       label: "Temperature",  type: "float", min: 0, max: 2,       step: 0.01, defaultHint: 1.0 },
-      { key: "maxTokens",         label: "Max Response", type: "int",   min: 1, max: 128000,  step: 1,    defaultHint: 16384 },
-      { key: "contextSize",       label: "Context Size", type: "int",   min: 1, max: 2000000, step: 1,    defaultHint: 128000 },
+      { key: "maxTokens",         label: "Max Response", type: "int",   min: 1, max: 128000,  step: 1,    defaultHint: 65536 },
+      { key: "contextSize",       label: "Context Size", type: "int",   min: 1, max: 2000000, step: 1,    defaultHint: 400000 },
       { key: "topP",              label: "Top P",        type: "float", min: 0, max: 1,       step: 0.01, defaultHint: 0.95 },
       { key: "minP",              label: "Min P",        type: "float", min: 0, max: 1,       step: 0.01, defaultHint: 0 },
       { key: "topK",              label: "Top K",        type: "int",   min: 0, max: 500,     step: 1,    defaultHint: 0 },
@@ -1516,16 +1504,16 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         if (!dragging) return;
         dragging = false;
         try { track.releasePointerCapture(e.pointerId); } catch { /* */ }
-        if (dragValue !== null) { samplerBag[def.key] = dragValue; sync(); }
+        if (dragValue !== null) { samplerBag[def.key] = dragValue; sync(); commit(); }
         dragValue = null;
       });
-      track.addEventListener("dblclick", () => { samplerBag[def.key] = null; sync(); });
-      const commit = (raw: string): void => {
-        if (raw === "") { samplerBag[def.key] = null; sync(); return; }
+      track.addEventListener("dblclick", () => { samplerBag[def.key] = null; sync(); commit(); });
+      const commitFromInput = (raw: string): void => {
+        if (raw === "") { samplerBag[def.key] = null; sync(); commit(); return; }
         const num = def.type === "int" ? parseInt(raw, 10) : parseFloat(raw);
-        if (Number.isFinite(num)) { samplerBag[def.key] = snap(num); sync(); }
+        if (Number.isFinite(num)) { samplerBag[def.key] = snap(num); sync(); commit(); }
       };
-      numInput.addEventListener("change", () => commit(numInput.value));
+      numInput.addEventListener("change", () => commitFromInput(numInput.value));
       numInput.addEventListener("keydown", (e) => {
         if (e.key === "Enter") numInput.blur();
         else if (e.key === "Escape") { numInput.blur(); sync(); }
@@ -1539,56 +1527,27 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       for (const def of SAMPLER_DEFS) samplersList.appendChild(buildSamplerSlider(def));
     };
 
-    populate();
-    const detach = settingsListeners.push(populate);
-    handle.onDismiss(() => detach());
+    const parseCapMb = (raw: string): number | null => {
+      const n = parseInt(raw.trim(), 10);
+      return Number.isFinite(n) && n > 0 ? n * 1024 * 1024 : null;
+    };
+    const parsePosInt = (raw: string): number | null => {
+      const n = parseInt(raw.trim(), 10);
+      return Number.isFinite(n) && n > 0 ? n : null;
+    };
 
-    personaResetBtn.addEventListener("click", () => { if (state.settings) personaArea.value = state.settings.defaultPersona; });
-    promptResetBtn.addEventListener("click", () => { if (state.settings?.defaultSystemPromptBody) promptArea.value = state.settings.defaultSystemPromptBody; });
-    samplersResetBtn.addEventListener("click", () => resetAllSamplers());
-
-    cancelBtn.addEventListener("click", () => handle.dismiss());
-    saveBtn.addEventListener("click", async () => {
+    let lastCommitted = "";
+    commit = (): void => {
       const persona = personaArea.value.trim();
       const promptValue = promptArea.value.trim();
       const defaultBody = state.settings?.defaultSystemPromptBody?.trim() ?? "";
-      // If the body matches default verbatim, treat as "no override" so future
-      // tweaks to the default flow through automatically.
+      // Body matching default verbatim becomes "no override" so future tweaks
+      // to the default flow through automatically.
       const systemPromptOverride = promptValue.length === 0 || promptValue === defaultBody ? null : promptValue;
       const placement = (jbPlacement.value as "system_suffix" | "user_suffix" | "assistant_prefill");
       const newCacheMode = (cacheModeSelect.value as "off" | "system_only" | "full");
-
-      // Anything that ends up in the system message invalidates the prompt
-      // cache when changed. Warn only if one of those actually moved, so users
-      // who only tweak samplers / caps don't get a confirm prompt.
-      const before = state.settings;
-      const promptAffected = !before || (
-        before.persona !== persona
-        || (before.systemPromptOverride ?? null) !== systemPromptOverride
-        || (before.jailbreak ?? "") !== jbArea.value
-        || (before.jailbreakPlacement ?? "system_suffix") !== placement
-        || (before.cacheMode ?? "full") !== newCacheMode
-      );
-      if (promptAffected && before) {
-        const c = await ctx.ui.showConfirm({
-          title: "Saving will invalidate the prompt cache",
-          message: "You changed persona, system prompt body, jailbreak, or cache mode. These live in the system message, so your next message in every active chat pays full uncached pricing while the provider rebuilds the cache prefix. Save anyway?",
-          variant: "danger",
-          confirmLabel: "Save",
-        });
-        if (!c.confirmed) return;
-      }
-
-      const parseCapMb = (raw: string): number | null => {
-        const n = parseInt(raw.trim(), 10);
-        return Number.isFinite(n) && n > 0 ? n * 1024 * 1024 : null;
-      };
-      const parsePosInt = (raw: string): number | null => {
-        const n = parseInt(raw.trim(), 10);
-        return Number.isFinite(n) && n > 0 ? n : null;
-      };
-      sendBackend({
-        type: "update_settings",
+      const payload = {
+        type: "update_settings" as const,
         persona,
         systemPromptOverride,
         samplers: samplerBag,
@@ -1596,15 +1555,39 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         jailbreakPlacement: placement,
         workspaceCapBytes: parseCapMb(wsCapInput.value),
         toolOutputCapTokens: parsePosInt(toolCapInput.value),
-        connectionSupportsPromptCaching: cacheSupportInput.checked,
-        autoFreeOldToolResults: autoFreeInput.checked,
         cacheMode: newCacheMode,
         parallelToolCalls: parallelToolsInput.checked,
-      });
-      status.textContent = "Saved.";
+      };
+      const key = JSON.stringify(payload);
+      if (key === lastCommitted) return;
+      lastCommitted = key;
+      const before = state.settings;
+      const promptCacheBroken = !!before && (
+        before.persona !== persona
+        || (before.systemPromptOverride ?? null) !== systemPromptOverride
+        || (before.jailbreak ?? "") !== jbArea.value
+        || (before.jailbreakPlacement ?? "system_suffix") !== placement
+        || (before.cacheMode ?? "full") !== newCacheMode
+      );
+      sendBackend(payload);
+      status.textContent = promptCacheBroken ? "Saved. Prompt cache invalidates on next message." : "Saved.";
       status.classList.remove("is-error");
-      setTimeout(() => handle.dismiss(), 600);
-    });
+    };
+
+    populate();
+    const detach = settingsListeners.push(populate);
+    handle.onDismiss(() => { commit(); detach(); });
+
+    personaResetBtn.addEventListener("click", () => { if (state.settings) { personaArea.value = state.settings.defaultPersona; commit(); } });
+    promptResetBtn.addEventListener("click", () => { if (state.settings?.defaultSystemPromptBody) { promptArea.value = state.settings.defaultSystemPromptBody; commit(); } });
+    samplersResetBtn.addEventListener("click", () => { resetAllSamplers(); commit(); });
+
+    for (const inp of [personaArea, promptArea, jbArea, wsCapInput, toolCapInput]) {
+      inp.addEventListener("blur", () => commit());
+    }
+    for (const inp of [jbPlacement, cacheModeSelect, parallelToolsInput]) {
+      inp.addEventListener("change", () => commit());
+    }
 
     handle.root.appendChild(wrap);
   };
@@ -1811,11 +1794,6 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
 
   const doSend = (): void => {
     const text = textarea.value.trim();
-    if (!state.characterId) {
-      composerStatus.textContent = "Pick a character first.";
-      composerStatus.classList.add("is-error");
-      return;
-    }
     if (state.isGenerating || state.startingSession) return;
 
     // Empty send: resume the existing turn if the last message is the user's
@@ -1954,15 +1932,33 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     return handle;
   };
 
+  // Re-attach currentAssistantMessage when the streaming handle is still live
+  // but the message pointer was cleared, so block-mutation events don't
+  // silently no-op into a missing reference and desync from the live bubble.
+  const rebindCurrentAssistantMessage = (): void => {
+    if (state.currentAssistantMessage || !state.streamingAssistant) return;
+    for (let i = state.messages.length - 1; i >= 0; i--) {
+      const m = state.messages[i];
+      if (m && m.role === "assistant" && m.status === "streaming") {
+        state.currentAssistantMessage = m;
+        return;
+      }
+    }
+  };
+
   // turn_started entry point. Adopts the backend's assistantMessageId so
   // regenerate / edit lookups match server-side records.
-  const adoptStreamingTurn = (assistantMessageId: string): AssistantHandle =>
-    state.streamingAssistant ?? createStreamingTurn(assistantMessageId);
+  const adoptStreamingTurn = (assistantMessageId: string): AssistantHandle => {
+    if (state.streamingAssistant) { rebindCurrentAssistantMessage(); return state.streamingAssistant; }
+    return createStreamingTurn(assistantMessageId);
+  };
 
   // Token / reasoning / tool entry point. Gets the existing handle, or
   // synthesizes one with a local id when an event raced ahead of turn_started.
-  const ensureStreamingTurn = (): AssistantHandle =>
-    state.streamingAssistant ?? createStreamingTurn(makeId("msg"));
+  const ensureStreamingTurn = (): AssistantHandle => {
+    if (state.streamingAssistant) { rebindCurrentAssistantMessage(); return state.streamingAssistant; }
+    return createStreamingTurn(makeId("msg"));
+  };
 
   const finalizeAssistantTurn = (status: ChatAssistantMessage["status"]) => {
     hideLoading();
@@ -1979,6 +1975,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     state,
     adoptStreamingTurn,
     ensureStreamingTurn,
+    rebindCurrentAssistantMessage,
     finalizeAssistantTurn,
     rerenderThread,
     updateSessionBar,
@@ -2008,7 +2005,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         state.characterName = msg.characterName;
         state.startingSession = false;
         persistUiPrefs();
-        sendBackend({ type: "list_character_edits", characterId: msg.characterId });
+        if (msg.characterId !== null) sendBackend({ type: "list_character_edits", characterId: msg.characterId });
         // Flush a queued pin (from the chat picker auto-start flow).
         if (state.pendingPinChatId !== undefined && state.pendingPinChatId !== null) {
           dlog("session_started: flushing queued pin", { sessionId: msg.sessionId, chatId: state.pendingPinChatId });
@@ -2042,15 +2039,18 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         state.characterName = msg.characterName;
         state.messages = [...msg.messages];
         state.edits = [...msg.edits];
-        if (state.characters.some((c) => c.id === msg.characterId)) charCombo.setValue(msg.characterId, true);
+        if (msg.characterId === null) charCombo.setValue(NO_CHARACTER_SENTINEL, true);
+        else if (state.characters.some((c) => c.id === msg.characterId)) charCombo.setValue(msg.characterId, true);
         render();
         // Default to the latest message on every session open. The
         // virtualizer's sticky-bottom check would otherwise compare against
         // the prior session's scrollTop.
         virtualizer.scrollToBottom();
         persistUiPrefs();
-        sendBackend({ type: "list_character_edits", characterId: msg.characterId });
-        sendBackend({ type: "list_chats", characterId: msg.characterId, sessionId: msg.sessionId });
+        if (msg.characterId !== null) {
+          sendBackend({ type: "list_character_edits", characterId: msg.characterId });
+          sendBackend({ type: "list_chats", characterId: msg.characterId, sessionId: msg.sessionId });
+        }
         break;
       case "session_deleted":
         if (state.sessionId === msg.sessionId) {
@@ -2089,14 +2089,6 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       case "chat_event":
         handleAgentEvent(msg.event, agentEventCtx);
         break;
-      case "auto_freed": {
-        const notice = el("div", "la-error-banner");
-        notice.appendChild(el("div", "la-error-banner-title", "Old tool results auto-freed"));
-        notice.appendChild(el("pre", "la-error-banner-body", `Freed ${msg.count} insensitive tool result${msg.count === 1 ? "" : "s"} (${Math.round(msg.bytes / 1024)} KB) to keep context small. Turn 'Auto-free old tool results' off in Agent Settings to disable.`));
-        thread.appendChild(notice);
-        setTimeout(() => notice.remove(), 8000);
-        break;
-      }
       case "generation_done":
         state.isGenerating = false;
         finalizeAssistantTurn("complete");
@@ -2222,8 +2214,6 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
           workspaceFileCapBytes: msg.workspaceFileCapBytes,
           toolOutputCapTokens: msg.toolOutputCapTokens,
           toolOutputCapDefaultTokens: msg.toolOutputCapDefaultTokens,
-          connectionSupportsPromptCaching: msg.connectionSupportsPromptCaching,
-          autoFreeOldToolResults: msg.autoFreeOldToolResults,
           cacheMode: msg.cacheMode,
           parallelToolCalls: msg.parallelToolCalls,
         };

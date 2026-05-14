@@ -24,6 +24,7 @@ Usage:
     required: ["script_id", "patch"],
   },
   defaultSensitivity: "insensitive",
+  requiresCharacter: true,
   execute: async (input, ctx) => {
     const id = input.script_id;
     const patch = input.patch as RegexScriptUpdateDTO;

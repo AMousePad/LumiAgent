@@ -101,6 +101,7 @@ Returns:
     additionalProperties: false,
   },
   defaultSensitivity: "insensitive",
+  requiresCharacter: true,
   execute: async (input, ctx) => {
     const path = input.path.trim();
     const value = input.value;

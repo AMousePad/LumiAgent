@@ -52,6 +52,7 @@ Usage:
   },
   requiresRecentRead: gate,
   defaultSensitivity: "insensitive",
+  requiresCharacter: true,
   execute: async (input, ctx) => {
     const draftOrigin = `edit_external:${input.surface_id}/${input.item_id}/${input.field}`;
     let replace = input.replace;

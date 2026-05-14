@@ -15,6 +15,7 @@ export const deleteRegexScriptTool = defineTool({
     required: ["script_id"],
   },
   defaultSensitivity: "insensitive",
+  requiresCharacter: true,
   execute: async (input, ctx) => {
     const id = input.script_id;
     const before = await ctx.spindle.regex_scripts.get(id, ctx.userId);

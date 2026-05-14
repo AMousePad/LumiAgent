@@ -14,10 +14,14 @@ export interface ToolDefinition<TInput = unknown> {
   readonly inputSchema: ZodType<TInput>;
   readonly jsonSchema: Record<string, unknown>;
   readonly requiresRecentRead?: ReadGate;
-  // Default classification for this tool's result. The user (or the AI via
-  // mark_tool_results) can override per-call. Insensitive results are eligible
-  // for auto-free after 10 user turns on non-cached models, never on cached.
+  // Vestigial after auto-free was ripped, kept required to avoid touching
+  // every tool file. Removable in a future cleanup pass.
   readonly defaultSensitivity: Sensitivity;
+  // True when the tool's execution is meaningless without an active character
+  // (path-based card surface, card mutators, chat/ledger/phone-line ops, etc).
+  // Filtered out of the schemas the LLM sees when state.characterId is null,
+  // so the agent literally cannot call them in no-character sessions.
+  readonly requiresCharacter?: boolean;
   // Both default false (safe). isReadOnly is a strict statement that the call
   // performs no spindle/userStorage writes and pushes nothing onto the edit
   // ledger. isConcurrencySafe means it's safe to run alongside other
@@ -51,6 +55,7 @@ export function defineTool<TInput>(config: {
   jsonSchema: Record<string, unknown>;
   requiresRecentRead?: ReadGate;
   defaultSensitivity: Sensitivity;
+  requiresCharacter?: boolean;
   isReadOnly?: (input: TInput) => boolean;
   isConcurrencySafe?: (input: TInput) => boolean;
   validateInput?: (input: TInput, ctx: ToolCtx) => Promise<ValidationResult> | ValidationResult;
@@ -89,6 +94,12 @@ export class ToolRegistry {
     const t = this.map.get(name);
     if (!t) return undefined;
     return { name: t.name, description: t.description, parameters: t.jsonSchema };
+  }
+
+  // True when the tool requires an active character. Used by the LLM-facing
+  // schema build to drop char-required tools in no-character sessions.
+  requiresCharacter(name: string): boolean {
+    return this.map.get(name)?.requiresCharacter === true;
   }
 }
 

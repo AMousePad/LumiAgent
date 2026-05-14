@@ -26,6 +26,7 @@ Usage:
     required: [],
   },
   defaultSensitivity: "insensitive",
+  requiresCharacter: true,
   execute: async (input, ctx) => {
     const chatId = input.chat_id ?? ctx.pinnedChatId;
     if (!chatId) return { content: JSON.stringify({ error: "no chat_id and no pinned chat" }), isError: true };

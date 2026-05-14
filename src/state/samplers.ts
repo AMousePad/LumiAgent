@@ -25,8 +25,8 @@ export interface SamplerDef {
 
 export const SAMPLER_DEFS: readonly SamplerDef[] = [
   { key: "temperature",       label: "Temperature",  type: "float", min: 0, max: 2,       step: 0.01, defaultHint: 1.0 },
-  { key: "maxTokens",         label: "Max Response", type: "int",   min: 1, max: 128000,  step: 1,    defaultHint: 32768 },
-  { key: "contextSize",       label: "Context Size", type: "int",   min: 1, max: 2000000, step: 1,    defaultHint: 200000 },
+  { key: "maxTokens",         label: "Max Response", type: "int",   min: 1, max: 128000,  step: 1,    defaultHint: 65536 },
+  { key: "contextSize",       label: "Context Size", type: "int",   min: 1, max: 2000000, step: 1,    defaultHint: 400000 },
   { key: "topP",              label: "Top P",        type: "float", min: 0, max: 1,       step: 0.01, defaultHint: 0.95 },
   { key: "minP",              label: "Min P",        type: "float", min: 0, max: 1,       step: 0.01, defaultHint: 0 },
   { key: "topK",              label: "Top K",        type: "int",   min: 0, max: 500,     step: 1,    defaultHint: 0 },

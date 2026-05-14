@@ -23,7 +23,6 @@ export interface ToolCtx {
   // The agent ran a squash. The loop emits an edits_resynced event the
   // backend uses to push the fresh ledger view to the frontend.
   pushLedgerResync(): void;
-  markSensitivity(callId: string, sensitivity: "sensitive" | "insensitive"): void;
   // tool_search calls this to register newly-discovered deferred tools so the
   // loop expands the tools list passed to runLlmStream on subsequent turns.
   // Tools that ignore deferred state can leave this unset.

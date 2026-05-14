@@ -13,7 +13,7 @@ const INDEX_SCHEMA_VERSION = 1;
 
 interface SessionIndexEntry {
   readonly sessionId: string;
-  readonly characterId: string;
+  readonly characterId: string | null;
   readonly characterName: string;
   readonly createdAt: number;
   readonly lastActivityAt: number;
@@ -69,7 +69,11 @@ async function removeFromIndex(spindle: SpindleAPI, sessionId: string, userId: s
 export interface PersistedSession {
   readonly version: number;
   readonly sessionId: string;
-  readonly characterId: string;
+  // Null means "no character selected": a general-purpose session without
+  // access to the path-based card surface, ledger, chat tools, or external
+  // providers. The agent is told to redirect character-specific work to a
+  // character-pinned session via the system prompt.
+  readonly characterId: string | null;
   readonly characterName: string;
   connectionId: string | null;
   readonly createdAt: number;
@@ -83,10 +87,6 @@ export interface PersistedSession {
   // signal for when to compact.
   lastPromptTokens?: number;
   compactedAt?: number;
-  // Per-call-id overrides emitted by the AI via mark_tool_results, or by the
-  // user via manual UI. Resolves at auto-free time, ahead of the tool's
-  // defaultSensitivity. Sparse, keyed by call_id.
-  sensitivityOverrides?: Record<string, "sensitive" | "insensitive">;
   // Snapshot of workspace/agent/agent.md taken when this session's first
   // system prompt was built. Frozen for the life of the session so mid-chat
   // edits to the file don't invalidate the prompt cache. `null` means the
@@ -101,7 +101,7 @@ function path(sessionId: string): string {
 
 export function newSession(opts: {
   sessionId: string;
-  characterId: string;
+  characterId: string | null;
   characterName: string;
   connectionId: string | null;
 }): PersistedSession {
@@ -199,13 +199,13 @@ export async function listSessionSummaries(
   spindle: SpindleAPI,
   userId: string,
   activeIds: ReadonlySet<string>,
-  filterCharacterId?: string,
+  filterCharacterId?: string | null,
 ): Promise<SessionSummaryWire[]> {
   const cur = await loadIndex(spindle, userId);
   const entries = cur ? cur.entries : await rebuildIndex(spindle, userId);
   const out: SessionSummaryWire[] = [];
   for (const e of entries) {
-    if (filterCharacterId && e.characterId !== filterCharacterId) continue;
+    if (filterCharacterId !== undefined && e.characterId !== filterCharacterId) continue;
     out.push(entryToWire(e, activeIds.has(e.sessionId)));
   }
   out.sort((a, b) => b.lastActivityAt - a.lastActivityAt);

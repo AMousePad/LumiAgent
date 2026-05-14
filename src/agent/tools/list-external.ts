@@ -25,6 +25,7 @@ Returns:
     required: ["surface_id"],
   },
   defaultSensitivity: "insensitive",
+  requiresCharacter: true,
   execute: async (input, ctx) => {
     const { discoverProviders, findSurface } = await import("../../phoneline/registry");
     const { makeConsentPromptFn } = await import("../../phoneline/consent");

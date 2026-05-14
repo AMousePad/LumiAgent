@@ -14,9 +14,8 @@ import type {
   RevertOutcomeWire,
 } from "./types";
 import { runAgent } from "./agent/loop";
-import { listDeferredToolNames, makeDeferredToolSchemaMap, makeInitialToolSchemas, makeToolDispatch } from "./agent/tools";
+import { listDeferredToolNames, makeDeferredToolSchemaMap, makeInitialToolSchemas, makeToolDispatch, toolRequiresCharacter } from "./agent/tools";
 import { systemMessageWithCache } from "./agent/cache-control";
-import { applyAutoFree } from "./agent/auto-free";
 import { buildGeneralSystemPrompt } from "./tasks/general";
 import { revertEditWithCheck, revertEdit, writeFieldValue } from "./state/edit-log";
 import { appendEntries, entriesView, findEntry, loadLedger, persistLedgerNow, purgeAllRevertedInMemory, squashMessage } from "./state/ledger";
@@ -208,7 +207,8 @@ async function resolveExternalProviders(userId: string): Promise<import("./tasks
   }
 }
 
-async function resolveExtensionSystemPrompts(userId: string, characterId: string): Promise<string> {
+async function resolveExtensionSystemPrompts(userId: string, characterId: string | null): Promise<string> {
+  if (characterId === null) return "";
   try {
     const { fetchSystemPromptContributions } = await import("./phoneline/prompt");
     const { makeConsentPromptFn } = await import("./phoneline/consent");
@@ -262,7 +262,7 @@ async function handleRevokePhonelinePairing(userId: string, identifier: string):
 }
 
 async function buildSessionSystemMessage(
-  c: CharacterDTO,
+  c: CharacterDTO | null,
   s: PersistedSession,
   settings: AgentSettings,
   userId: string,
@@ -274,14 +274,15 @@ async function buildSessionSystemMessage(
   if (s.frozenAgentNotes === undefined) {
     s.frozenAgentNotes = await loadAgentNotes(userId);
   }
+  const hasCharacter = c !== null;
   let prompt = buildGeneralSystemPrompt({
-    characterName: c.name,
-    externalProviders: await resolveExternalProviders(userId),
-    extensionSystemPrompts: await resolveExtensionSystemPrompts(userId, c.id),
+    characterName: hasCharacter ? c.name : "",
+    externalProviders: hasCharacter ? await resolveExternalProviders(userId) : [],
+    extensionSystemPrompts: await resolveExtensionSystemPrompts(userId, hasCharacter ? c.id : null),
     persona: settings.persona,
     systemPromptOverride: settings.systemPromptOverride,
     agentNotes: s.frozenAgentNotes,
-    deferredToolNames: listDeferredToolNames(),
+    deferredToolNames: listDeferredToolNames().filter((n) => hasCharacter || !toolRequiresCharacter(n)),
   });
   if (settings.jailbreak.trim().length > 0 && settings.jailbreakPlacement === "system_suffix") {
     prompt = `${prompt}\n\n${settings.jailbreak}`;
@@ -318,8 +319,6 @@ async function handleGetSettings(userId: string): Promise<void> {
     workspaceFileCapBytes: WORKSPACE_FILE_CAP_BYTES,
     toolOutputCapTokens: settings.toolOutputCapTokens,
     toolOutputCapDefaultTokens: DEFAULT_TOOL_OUTPUT_CAP_TOKENS,
-    connectionSupportsPromptCaching: settings.connectionSupportsPromptCaching,
-    autoFreeOldToolResults: settings.autoFreeOldToolResults,
     cacheMode: settings.cacheMode,
     parallelToolCalls: settings.parallelToolCalls,
   }, userId);
@@ -357,8 +356,6 @@ async function handleUpdateSettings(
   jailbreakPlacement: "system_suffix" | "user_suffix" | "assistant_prefill",
   workspaceCapBytes: number | null,
   toolOutputCapTokens: number | null,
-  connectionSupportsPromptCaching: boolean,
-  autoFreeOldToolResults: boolean,
   cacheMode: "off" | "system_only" | "full",
   parallelToolCalls: boolean,
   userId: string,
@@ -372,8 +369,6 @@ async function handleUpdateSettings(
     jailbreakPlacement,
     workspaceCapBytes,
     toolOutputCapTokens,
-    connectionSupportsPromptCaching,
-    autoFreeOldToolResults,
     cacheMode,
     parallelToolCalls,
   }, userId);
@@ -498,7 +493,7 @@ function emitContextUsage(s: PersistedSession, contextTokens: number, userId: st
 
 function resolveContextTokens(samplers: Readonly<Record<string, number | null>>): number {
   const v = samplers["contextSize"];
-  return typeof v === "number" && v > 0 ? v : 128_000;
+  return typeof v === "number" && v > 0 ? v : 400_000;
 }
 
 function shouldAutoCompact(s: PersistedSession, samplers: Readonly<Record<string, number | null>>): boolean {
@@ -538,8 +533,11 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
   }
   const s = await loadSession(spindle, sessionId, userId);
   if (!s) { send({ type: "ws_error", error: "Session not found." }, userId); return; }
-  const c = await spindle.characters.get(s.characterId, userId);
-  if (!c) { send({ type: "ws_error", error: "Character not found." }, userId); return; }
+  let c: CharacterDTO | null = null;
+  if (s.characterId !== null) {
+    c = await spindle.characters.get(s.characterId, userId);
+    if (!c) { send({ type: "ws_error", error: "Character not found." }, userId); return; }
+  }
 
   send({ type: "compaction_started", sessionId }, userId);
 
@@ -556,8 +554,9 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
     const compactPrompt = buildCompactionInstruction(maxHandoffChars);
     const conv: LlmMessage[] = [systemMsg, ...s.llmHistory, { role: "user", content: compactPrompt }];
 
-    const tools = makeInitialToolSchemas();
-    const deferredToolSchemas = makeDeferredToolSchemaMap();
+    const hasCharacter = s.characterId !== null;
+    const tools = makeInitialToolSchemas(hasCharacter);
+    const deferredToolSchemas = makeDeferredToolSchemaMap(hasCharacter);
     const dispatch = makeToolDispatch();
     const samplerParams: Record<string, unknown> = { ...samplersToWireWithRequired(settings.samplers), parallel_tool_calls: settings.parallelToolCalls };
     const assistantId = makeId("msg");
@@ -934,7 +933,7 @@ async function handleSetPinnedChat(sessionId: string, chatId: string | null, use
   send({ type: "pinned_chat_set", sessionId, chatId }, userId);
 }
 
-async function handleListSessions(filter: string | undefined, userId: string): Promise<void> {
+async function handleListSessions(filter: string | null | undefined, userId: string): Promise<void> {
   const activeIds = new Set(activeSessions.keys());
   const sessions = await listSessionSummaries(spindle, userId, activeIds, filter);
   send({ type: "sessions_pushed", sessions }, userId);
@@ -961,13 +960,17 @@ async function handleLoadSession(sessionId: string, userId: string): Promise<voi
   }, userId);
 }
 
-async function handleStartSession(sessionId: string, characterId: string, connectionId: string | undefined, userId: string): Promise<void> {
-  log("info", `start_session sessionId=${sessionId} characterId=${characterId}`);
+async function handleStartSession(sessionId: string, characterId: string | null, connectionId: string | undefined, userId: string): Promise<void> {
+  log("info", `start_session sessionId=${sessionId} characterId=${characterId ?? "(none)"}`);
   try {
-    const c = await spindle.characters.get(characterId, userId);
-    if (!c) {
-      send({ type: "generation_error", sessionId, error: `character ${characterId} not found` }, userId);
-      return;
+    let characterName = "";
+    if (characterId !== null) {
+      const c = await spindle.characters.get(characterId, userId);
+      if (!c) {
+        send({ type: "generation_error", sessionId, error: `character ${characterId} not found` }, userId);
+        return;
+      }
+      characterName = c.name;
     }
     // Seed system files so the agent has its custom-tools index and notes
     // available from turn one. Idempotent; restored if the user deleted them.
@@ -977,7 +980,7 @@ async function handleStartSession(sessionId: string, characterId: string, connec
     const s = newSession({
       sessionId,
       characterId,
-      characterName: c.name,
+      characterName,
       connectionId: connectionId ?? null,
     });
     // Hold in memory only. First send_message promotes to persisted. Avoids
@@ -988,7 +991,7 @@ async function handleStartSession(sessionId: string, characterId: string, connec
       type: "session_started",
       sessionId,
       characterId,
-      characterName: c.name,
+      characterName,
       createdAt: s.createdAt,
     }, userId);
     // No list refresh: an empty session shouldn't appear in the picker.
@@ -1352,7 +1355,12 @@ async function handleRevertSession(sessionId: string, userId: string): Promise<v
   }
   // Revert every live edit made during this session via the ledger. Walking
   // newest-first minimises cascade noise because later patches reverted
-  // explicitly won't show up as collateral damage of earlier ones.
+  // explicitly won't show up as collateral damage of earlier ones. No-character
+  // sessions can't have edits, so this is effectively a no-op for them.
+  if (s.characterId === null) {
+    send({ type: "session_reverted", sessionId, entriesRestored: 0, entriesFailed: 0, scriptsRestored: 0, scriptsFailed: 0 }, userId);
+    return;
+  }
   const sessionEditIds = [...s.edits].filter((e) => !e.reverted).map((e) => e.id).reverse();
   const r = await revertEditsBatch(s.characterId, s.edits.filter((e) => sessionEditIds.includes(e.id)).reverse(), userId);
   for (const edit of s.edits) (edit as { reverted: boolean }).reverted = true;
@@ -1436,7 +1444,7 @@ async function handleDeleteMessage(sessionId: string, messageId: string, editsAc
 
   if (target.role === "assistant" && editsAction === "revert") {
     const editsToRevert = s.edits.filter((e) => e.assistantMessageId === target.id && !e.reverted);
-    if (editsToRevert.length > 0) {
+    if (editsToRevert.length > 0 && s.characterId !== null) {
       await revertEditsBatch(s.characterId, editsToRevert, userId);
       for (const e of s.edits) if (editsToRevert.some((x) => x.id === e.id)) { e.reverted = true; e.revertedAt = Date.now(); }
     }
@@ -1510,7 +1518,7 @@ async function handleEditUserMessage(sessionId: string, messageId: string, newCo
   // Collect edits made in messages STRICTLY AFTER the edited user message.
   const tailMessageIds = new Set(s.messages.slice(idx + 1).filter((m) => m.role === "assistant").map((m) => m.id));
   const editsToReview = s.edits.filter((e) => e.assistantMessageId !== undefined && tailMessageIds.has(e.assistantMessageId) && !e.reverted);
-  if (editsAction === "revert" && editsToReview.length > 0) {
+  if (editsAction === "revert" && editsToReview.length > 0 && s.characterId !== null) {
     await revertEditsBatch(s.characterId, editsToReview, userId);
     for (const e of s.edits) if (editsToReview.some((x) => x.id === e.id)) { e.reverted = true; e.revertedAt = Date.now(); }
   }
@@ -1544,7 +1552,7 @@ async function handleRegenerateAssistant(sessionId: string, assistantMessageId: 
 
   const tailMessageIds = new Set(s.messages.slice(idx).filter((m) => m.role === "assistant").map((m) => m.id));
   const editsToReview = s.edits.filter((e) => e.assistantMessageId !== undefined && tailMessageIds.has(e.assistantMessageId) && !e.reverted);
-  if (editsAction === "revert" && editsToReview.length > 0) {
+  if (editsAction === "revert" && editsToReview.length > 0 && s.characterId !== null) {
     await revertEditsBatch(s.characterId, editsToReview, userId);
     for (const e of s.edits) if (editsToReview.some((x) => x.id === e.id)) { e.reverted = true; e.revertedAt = Date.now(); }
   }
@@ -1565,19 +1573,15 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
   if (connectionIdOverride && s.connectionId !== connectionIdOverride) {
     s.connectionId = connectionIdOverride;
   }
-  const c = await spindle.characters.get(s.characterId, userId);
-  if (!c) { send({ type: "generation_error", sessionId: s.sessionId, error: `character ${s.characterId} not found` }, userId); return; }
+  let c: CharacterDTO | null = null;
+  if (s.characterId !== null) {
+    c = await spindle.characters.get(s.characterId, userId);
+    if (!c) { send({ type: "generation_error", sessionId: s.sessionId, error: `character ${s.characterId} not found` }, userId); return; }
+  }
   const ac = new AbortController();
   activeSessions.set(s.sessionId, ac);
 
   const settings = await loadSettings(spindle, userId);
-  const autoFreeInternal = applyAutoFree(s.llmHistory, s.messages, settings.autoFreeOldToolResults, s.sensitivityOverrides);
-  if (autoFreeInternal.freedCount > 0) {
-    s.llmHistory = autoFreeInternal.llmHistory;
-    s.messages = autoFreeInternal.messages;
-    await saveSession(spindle, s, userId);
-    send({ type: "auto_freed", sessionId: s.sessionId, count: autoFreeInternal.freedCount, bytes: autoFreeInternal.freedBytes }, userId);
-  }
   const systemMsg = await buildSessionSystemMessage(c, s, settings, userId);
   const conv: LlmMessage[] = [systemMsg, ...s.llmHistory];
   applyJailbreakNonSystem(conv, settings);
@@ -1586,8 +1590,9 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
   const assistant: ChatAssistantMessage = { id: assistantId, role: "assistant", ts: Date.now(), turn: 0, blocks: [], status: "streaming" };
   s.messages.push(assistant);
 
-  const tools = makeInitialToolSchemas();
-  const deferredToolSchemas = makeDeferredToolSchemaMap();
+  const hasCharacter = s.characterId !== null;
+  const tools = makeInitialToolSchemas(hasCharacter);
+  const deferredToolSchemas = makeDeferredToolSchemaMap(hasCharacter);
   const dispatch = makeToolDispatch();
   const samplerParams: Record<string, unknown> = { ...samplersToWireWithRequired(settings.samplers), parallel_tool_calls: settings.parallelToolCalls };
   let currentTextBlock: AssistantBlock & { type: "text" } | null = null;
@@ -1637,15 +1642,20 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
             block.result = ev.result;
             block.is_error = ev.is_error;
             block.edit_ids = [...ev.edit_ids];
-            if (ev.sensitivity) block.sensitivity = ev.sensitivity;
           }
           break;
         }
         case "edit_logged":
+          // Ledger / edit-events are character-scoped; in no-character sessions
+          // the char-required tools that produce edits are filtered out of the
+          // schema, so this branch is defensive: it can't fire unless a future
+          // char-agnostic tool starts pushing edits.
+          if (s.characterId === null) break;
           s.edits.push(ev.entry);
           void appendEntries(spindle, s.characterId, [ev.entry], userId).catch((e) => log("warn", `ledger append failed: ${(e as Error).message}`));
           break;
         case "revert_logged": {
+          if (s.characterId === null) break;
           // Agent-driven revert (revert_session_edits). Ledger persistence already
           // happened inside the tool; mirror into session.edits and notify
           // the frontend the same way user-driven workshop reverts do.
@@ -1662,22 +1672,13 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
           break;
         }
         case "edits_resynced": {
+          if (s.characterId === null) break;
+          const charId = s.characterId;
           // Squash mutated the ledger; push the fresh view so the workshop
           // Edits tab reflects the consolidated entries.
-          void loadLedger(spindle, s.characterId, userId)
-            .then((l) => send({ type: "character_edits_pushed", characterId: s.characterId, entries: entriesView(l) }, userId))
+          void loadLedger(spindle, charId, userId)
+            .then((l) => send({ type: "character_edits_pushed", characterId: charId, entries: entriesView(l) }, userId))
             .catch((e) => log("warn", `edits resync failed: ${(e as Error).message}`));
-          break;
-        }
-        case "sensitivity_override": {
-          if (!s.sensitivityOverrides) s.sensitivityOverrides = {};
-          s.sensitivityOverrides[ev.call_id] = ev.sensitivity;
-          for (const m of s.messages) {
-            if (m.role !== "assistant") continue;
-            for (const b of m.blocks) {
-              if (b.type === "tool" && b.call_id === ev.call_id) b.sensitivity = ev.sensitivity;
-            }
-          }
           break;
         }
         case "warning":
@@ -1718,7 +1719,7 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
   s.llmHistory = conv.slice(1);
   if (ac.signal.aborted && !errored) assistant.status = "cancelled";
   await saveSession(spindle, s, userId);
-  await autosquashAndNotify(s.characterId, assistantId, userId);
+  if (s.characterId !== null) await autosquashAndNotify(s.characterId, assistantId, userId);
   if (ac.signal.aborted) send({ type: "generation_cancelled", sessionId: s.sessionId }, userId);
   else if (!errored) {
     send({ type: "generation_done", sessionId: s.sessionId, turns: lastTurn }, userId);
@@ -1775,7 +1776,7 @@ spindle.onFrontendMessage(async (raw: unknown, userId: string) => {
       case "list_chats": await handleListChats(msg.characterId, msg.sessionId, userId); return;
       case "set_pinned_chat": await handleSetPinnedChat(msg.sessionId, msg.chatId, userId); return;
       case "get_settings": await handleGetSettings(userId); return;
-      case "update_settings": await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.connectionSupportsPromptCaching ?? true, msg.autoFreeOldToolResults ?? false, msg.cacheMode ?? "full", msg.parallelToolCalls ?? true, userId); return;
+      case "update_settings": await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.cacheMode ?? "full", msg.parallelToolCalls ?? true, userId); return;
       case "get_ui_prefs": await handleGetUiPrefs(userId); return;
       case "update_ui_prefs": await handleUpdateUiPrefs(msg.connectionId, msg.lastSessionId, userId); return;
       case "compact_session": void compactSession(msg.sessionId, userId, "manual"); return;

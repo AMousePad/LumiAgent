@@ -36,8 +36,7 @@ export interface AssistantHandle {
   appendToken(token: string): void;
   appendReasoning(token: string): void;
   startTool(callId: string, name: string, args: Record<string, unknown>): void;
-  finishTool(callId: string, result: string, isError: boolean, editIds: readonly string[], sensitivity?: "sensitive" | "insensitive"): void;
-  setToolSensitivity(callId: string, sensitivity: "sensitive" | "insensitive", freed?: boolean): void;
+  finishTool(callId: string, result: string, isError: boolean, editIds: readonly string[]): void;
   attachEdits(edits: readonly EditLogEntry[]): void;
   addWarning(message: string): void;
   setStatus(status: ChatAssistantMessage["status"]): void;
@@ -245,8 +244,7 @@ function buildToolCard(callId: string, name: string, args: Record<string, unknow
     confirmTimer = setTimeout(resetConfirm, 4000);
   });
   // The caret carries success/error state via color (is-done / is-error
-  // classes on the card). Free stays anchored to the right next to the
-  // sensitivity chip it acts on.
+  // classes on the card). Free stays anchored right next to the badge.
   head.append(caret, spinner, activity, sensBadge, freeBtn);
   const body = el("div", "la-tool-body");
   const argsSection = el("div", "la-tool-body-section");
@@ -274,7 +272,7 @@ function buildToolCard(callId: string, name: string, args: Record<string, unknow
   return card;
 }
 
-function applyToolCardSensitivity(card: HTMLElement, sensitivity: "sensitive" | "insensitive" | undefined, freed: boolean | undefined): void {
+function applyToolCardFreed(card: HTMLElement, freed: boolean | undefined): void {
   const badge = card.querySelector(".la-tool-sens") as HTMLElement | null;
   const freeBtn = card.querySelector(".la-tool-free-btn") as HTMLButtonElement | null;
   if (!badge || !freeBtn) return;
@@ -285,17 +283,7 @@ function applyToolCardSensitivity(card: HTMLElement, sensitivity: "sensitive" | 
     freeBtn.style.display = "none";
     return;
   }
-  if (sensitivity === "sensitive") {
-    badge.textContent = "sensitive";
-    badge.className = "la-tool-sens la-tool-sens-sensitive";
-    badge.style.display = "";
-  } else if (sensitivity === "insensitive") {
-    badge.textContent = "insensitive";
-    badge.className = "la-tool-sens la-tool-sens-insensitive";
-    badge.style.display = "";
-  } else {
-    badge.style.display = "none";
-  }
+  badge.style.display = "none";
   freeBtn.style.display = "";
 }
 
@@ -551,7 +539,7 @@ export function renderStaticAssistant(msg: ChatAssistantMessage, deps: ChatThrea
       card.classList.add(block.is_error ? "is-error" : "is-done");
       const resultPre = card.querySelector(".la-tool-body-result pre") as HTMLElement | null;
       if (resultPre) resultPre.textContent = block.result ?? "";
-      applyToolCardSensitivity(card, block.sensitivity, block.freed);
+      applyToolCardFreed(card, block.freed);
       bubble.appendChild(card);
       for (const eid of block.edit_ids) {
         const entry = lookup(eid);
@@ -719,14 +707,13 @@ export function createStreamingAssistant(deps: ChatThreadDeps): AssistantHandle 
       toolCardsByCallId.set(callId, card);
       moveLoadingToTail();
     },
-    finishTool(callId, result, isError, editIds, sensitivity) {
+    finishTool(callId, result, isError, editIds) {
       const card = toolCardsByCallId.get(callId);
       if (!card) return;
       card.classList.remove("is-running");
       card.classList.add(isError ? "is-error" : "is-done");
       const resultPre = card.querySelector(".la-tool-body-result pre") as HTMLElement | null;
       if (resultPre) resultPre.textContent = result;
-      if (sensitivity) applyToolCardSensitivity(card, sensitivity, false);
       pendingForTools.set(callId, [...editIds]);
       if (editIds.length === 0) return;
       const card2 = ensureEditsCard();
@@ -734,11 +721,6 @@ export function createStreamingAssistant(deps: ChatThreadDeps): AssistantHandle 
         const entry = editIndex.get(id);
         if (entry) card2.add(entry);
       }
-    },
-    setToolSensitivity(callId, sensitivity, freed) {
-      const card = toolCardsByCallId.get(callId);
-      if (!card) return;
-      applyToolCardSensitivity(card, sensitivity, freed);
     },
     attachEdits(edits) {
       for (const e of edits) editIndex.set(e.id, e);

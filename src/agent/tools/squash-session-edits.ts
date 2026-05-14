@@ -23,6 +23,7 @@ Usage:
     additionalProperties: false,
   },
   defaultSensitivity: "insensitive",
+  requiresCharacter: true,
   execute: async (input, ctx) => {
     if (!ctx.assistantMessageId) return { content: "Error: no active assistant message; squash_session_edits only valid inside an agent response.", isError: true };
     const result = await squashMessage(ctx.spindle, ctx.characterId, ctx.assistantMessageId, ctx.userId, { sealed: true });

@@ -16,6 +16,7 @@ export const deleteWorldBookEntryTool = defineTool({
     required: ["entry_id"],
   },
   defaultSensitivity: "insensitive",
+  requiresCharacter: true,
   execute: async (input, ctx) => {
     const id = input.entry_id;
     const before = await ctx.spindle.world_books.entries.get(id, ctx.userId);

@@ -21,6 +21,7 @@ Usage:
     required: ["patch"],
   },
   defaultSensitivity: "insensitive",
+  requiresCharacter: true,
   execute: async (input, ctx) => {
     const patch = input.patch as CharacterUpdateDTO;
     const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);

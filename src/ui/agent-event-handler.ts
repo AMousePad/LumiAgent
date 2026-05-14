@@ -17,6 +17,10 @@ export interface AgentEventCtx {
   readonly state: AgentEventState;
   adoptStreamingTurn(assistantMessageId: string): AssistantHandle;
   ensureStreamingTurn(): AssistantHandle;
+  // Re-point state.currentAssistantMessage at the streaming message in state.messages
+  // when the handle is live but the pointer was lost. Called by handlers that
+  // mutate block state without going through ensureStreamingTurn.
+  rebindCurrentAssistantMessage(): void;
   finalizeAssistantTurn(status: ChatAssistantMessage["status"]): void;
   rerenderThread(): void;
   updateSessionBar(): void;
@@ -61,7 +65,8 @@ export function handleAgentEvent(ev: AgentEvent, ctx: AgentEventCtx): void {
       });
       return;
     case "tool_finished": {
-      ctx.state.streamingAssistant?.finishTool(ev.call_id, ev.result, ev.is_error, ev.edit_ids, ev.sensitivity);
+      ctx.state.streamingAssistant?.finishTool(ev.call_id, ev.result, ev.is_error, ev.edit_ids);
+      ctx.rebindCurrentAssistantMessage();
       const a = ctx.state.currentAssistantMessage;
       if (!a) return;
       for (const b of a.blocks) {
@@ -70,7 +75,6 @@ export function handleAgentEvent(ev: AgentEvent, ctx: AgentEventCtx): void {
           tb.result = ev.result;
           tb.is_error = ev.is_error;
           tb.edit_ids = [...ev.edit_ids];
-          if (ev.sensitivity) tb.sensitivity = ev.sensitivity;
         }
       }
       return;
@@ -84,16 +88,8 @@ export function handleAgentEvent(ev: AgentEvent, ctx: AgentEventCtx): void {
       ctx.state.diffModal?.setEdits(ctx.state.characterLedger);
       ctx.updateSessionBar();
       return;
-    case "sensitivity_override":
-      ctx.state.streamingAssistant?.setToolSensitivity(ev.call_id, ev.sensitivity);
-      for (const m of ctx.state.messages) {
-        if (m.role !== "assistant") continue;
-        for (const b of m.blocks) {
-          if (b.type === "tool" && b.call_id === ev.call_id) b.sensitivity = ev.sensitivity;
-        }
-      }
-      return;
     case "turn_completed": {
+      ctx.rebindCurrentAssistantMessage();
       const a = ctx.state.currentAssistantMessage;
       if (!a) return;
       a.finish_reason = ev.finish_reason;
@@ -114,6 +110,7 @@ export function handleAgentEvent(ev: AgentEvent, ctx: AgentEventCtx): void {
     case "paused_for_input":
       if (ev.detail) {
         ctx.state.streamingAssistant?.addWarning(ev.detail);
+        ctx.rebindCurrentAssistantMessage();
         ctx.state.currentAssistantMessage?.blocks.push({ type: "warning", message: ev.detail });
       }
       ctx.finalizeAssistantTurn("complete");

@@ -29,6 +29,7 @@ Usage:
     additionalProperties: false,
   },
   defaultSensitivity: "insensitive",
+  requiresCharacter: true,
   execute: async (input, ctx) => {
     const allowCrossSession = input.allow_cross_session === true;
     const ledger = await loadLedger(ctx.spindle, ctx.characterId, ctx.userId);

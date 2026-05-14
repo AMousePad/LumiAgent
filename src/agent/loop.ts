@@ -66,7 +66,7 @@ export interface RunAgentInput {
   readonly spindle: SpindleAPI;
   readonly userId: string;
   readonly sessionId: string;
-  readonly characterId: string;
+  readonly characterId: string | null;
   readonly assistantMessageId: string;
   readonly pinnedChatId: string | null;
   readonly conversation: LlmMessage[];
@@ -127,7 +127,7 @@ async function estimateUsage(
   return { prompt, completion, total: prompt + completion, estimated: true };
 }
 
-const DEFAULT_CONTEXT_TOKENS = 128_000;
+const DEFAULT_CONTEXT_TOKENS = 400_000;
 
 const DEFAULT_MAX_TURNS = 40;
 
@@ -255,7 +255,6 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
     readonly edits: EditRecord[];
     readonly reverts: Array<{ editId: string; outcome: RevertOutcomeWire }>;
     resync: boolean;
-    readonly sensitivity: Array<{ callId: string; sensitivity: "sensitive" | "insensitive" }>;
   }
 
   function makeCallCtx(buffer: CallBuffer): ToolCtx {
@@ -263,7 +262,11 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
       spindle: input.spindle,
       userId: input.userId,
       sessionId: input.sessionId,
-      characterId: input.characterId,
+      // ctx exposes `string` so char-agnostic tools don't pay the null-check
+      // tax. Char-required tools are filtered out of the schema list when
+      // input.characterId is null, so the sentinel never actually reaches a
+      // tool that depends on it.
+      characterId: input.characterId ?? "",
       assistantMessageId: input.assistantMessageId,
       pinnedChatId: input.pinnedChatId,
       signal,
@@ -273,7 +276,6 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
       pushEdit: (rec) => { buffer.edits.push(rec); },
       pushRevert: (editId, outcome) => { buffer.reverts.push({ editId, outcome }); },
       pushLedgerResync: () => { buffer.resync = true; },
-      markSensitivity: (callId, sensitivity) => { buffer.sensitivity.push({ callId, sensitivity }); },
       discoverTools: (names) => {
         for (const n of names) {
           if (deferredSchemas[n]) discoveredToolNames.add(n);
@@ -426,7 +428,7 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
     }
 
     const executeOne = async (tc: ToolCall): Promise<CallOutcome> => {
-      const buffer: CallBuffer = { edits: [], reverts: [], resync: false, sensitivity: [] };
+      const buffer: CallBuffer = { edits: [], reverts: [], resync: false };
       const fn = input.dispatch[tc.name];
       if (!fn) {
         const msg = `Unknown tool '${tc.name}'. Available: ${Object.keys(input.dispatch).join(", ")}`;
@@ -500,24 +502,23 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
     }
 
     const drainOutcome = function* (oc: CallOutcome): Generator<AgentEvent, void, void> {
+      // characterId is sentinel-coerced to "" in no-character sessions; defensive
+      // since char-required tools (the only edit producers) are filtered out of
+      // the schema in that mode and can't reach this branch.
       const editsForCall: EditLogEntry[] = oc.buffer.edits.map((rec) =>
-        newEditEntry(input.sessionId, input.characterId, oc.tc.call_id, oc.tc.name, turnNum, rec, input.assistantMessageId),
+        newEditEntry(input.sessionId, input.characterId ?? "", oc.tc.call_id, oc.tc.name, turnNum, rec, input.assistantMessageId),
       );
       newEdits.push(...editsForCall);
       results.push({ call_id: oc.tc.call_id, name: oc.tc.name, content: oc.resultText, ...(oc.isError ? { is_error: true } : {}) });
       for (const e of editsForCall) yield { type: "edit_logged", entry: e };
       for (const r of oc.buffer.reverts) yield { type: "revert_logged", editId: r.editId, outcome: r.outcome };
       if (oc.buffer.resync) yield { type: "edits_resynced" };
-      for (const o of oc.buffer.sensitivity) yield { type: "sensitivity_override", call_id: o.callId, sensitivity: o.sensitivity };
-      const toolDef = reg.registry.get(oc.tc.name);
-      const sensitivity = toolDef?.defaultSensitivity ?? "insensitive";
       yield {
         type: "tool_finished",
         call_id: oc.tc.call_id,
         result: oc.resultText,
         is_error: oc.isError,
         edit_ids: editsForCall.map((e) => e.id),
-        sensitivity,
       };
     };
 

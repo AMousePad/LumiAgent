@@ -90,6 +90,7 @@ Usage:
     additionalProperties: false,
   },
   defaultSensitivity: "insensitive",
+  requiresCharacter: true,
   execute: async (input, ctx) => {
     if (!ctx.callFrontend) return { content: "Error: frontend translation bridge unavailable in this context.", isError: true };
     const include = new Set<typeof INCLUDE_VALUES[number]>(input.include ?? DEFAULT_INCLUDE);

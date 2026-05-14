@@ -28,6 +28,7 @@ Usage:
     additionalProperties: false,
   },
   defaultSensitivity: "insensitive",
+  requiresCharacter: true,
   execute: async (input, ctx) => {
     const scope = input.scope ?? "current_message";
     const includeReverted = input.include_reverted ?? false;

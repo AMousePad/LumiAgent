@@ -40,6 +40,7 @@ Wraps the \`rename_asset\` WS op so the LumiRealm runtime refresh hooks fire (as
     required: ["source", "old_name", "new_name"],
   },
   defaultSensitivity: "insensitive",
+  requiresCharacter: true,
   execute: async (input, ctx) => {
     const provider = await findLumirealm(ctx);
     if (!provider) return { content: "Error: LumiRealm phone line not available (not installed or consent denied).", isError: true };

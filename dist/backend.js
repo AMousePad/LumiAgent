@@ -2508,6 +2508,9 @@ class ToolRegistry {
       return;
     return { name: t.name, description: t.description, parameters: t.jsonSchema };
   }
+  requiresCharacter(name) {
+    return this.map.get(name)?.requiresCharacter === true;
+  }
 }
 function formatZodError(err) {
   return err.issues.map((i) => `  \u2022 ${i.path.length > 0 ? i.path.join(".") : "(root)"}: ${i.message}`).join(`
@@ -17582,6 +17585,7 @@ Returns:
       required: ["entries"]
     },
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const scopes = input.scopes ?? ["character", "world_books", "regex_scripts", "extensions"];
       const dryRun = input.dry_run ?? false;
@@ -17900,6 +17904,7 @@ Wraps the \`delete_asset\` WS op so the LumiRealm runtime refresh hooks fire.`,
       required: ["source", "asset_name"]
     },
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const provider = await findLumirealm(ctx);
       if (!provider)
@@ -17958,6 +17963,7 @@ Wraps the \`rename_asset\` WS op so the LumiRealm runtime refresh hooks fire (as
       required: ["source", "old_name", "new_name"]
     },
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const provider = await findLumirealm2(ctx);
       if (!provider)
@@ -18487,6 +18493,7 @@ Sorted by match_chars descending so the worst offenders surface first.`,
       additionalProperties: false
     },
     defaultSensitivity: "sensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const langKey = input.source_lang ?? "cjk";
       const minChars = input.min_chars ?? 1;
@@ -18592,6 +18599,7 @@ var init_chat_stats = __esm(() => {
       required: []
     },
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const resolved = resolveChatId(input, ctx);
       if (typeof resolved !== "string")
@@ -18706,6 +18714,7 @@ var init_create_alternate_greeting = __esm(() => {
       required: ["content"]
     },
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const content = input.content;
       const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
@@ -18761,6 +18770,7 @@ var init_create_regex_script = __esm(() => {
       required: ["name", "find_regex"]
     },
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const placement = input.placement ?? ["ai_output"];
       const create = {
@@ -18826,6 +18836,7 @@ var init_create_world_book_entry = __esm(() => {
       required: ["content"]
     },
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
       if (!c)
@@ -19389,6 +19400,7 @@ var init_delete_alternate_greeting = __esm(() => {
       required: ["index"]
     },
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
       if (!c)
@@ -19429,6 +19441,7 @@ var init_delete_regex_script = __esm(() => {
       required: ["script_id"]
     },
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const id = input.script_id;
       const before = await ctx.spindle.regex_scripts.get(id, ctx.userId);
@@ -19459,6 +19472,7 @@ var init_delete_world_book_entry = __esm(() => {
       required: ["entry_id"]
     },
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const id = input.entry_id;
       const before = await ctx.spindle.world_books.entries.get(id, ctx.userId);
@@ -19746,6 +19760,7 @@ Usage:
     },
     requiresRecentRead: gate,
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const draftOrigin = `edit_external:${input.surface_id}/${input.item_id}/${input.field}`;
       let replace = input.replace;
@@ -19898,6 +19913,7 @@ Returns:
     },
     requiresRecentRead: gate2,
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       let replace = input.replace;
       if (replace === undefined && input.replace_handle) {
@@ -21029,6 +21045,7 @@ Scoping:
       additionalProperties: false
     },
     defaultSensitivity: "sensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const cap = Math.min(GREP_MAX_CAP, Math.max(1, Math.floor(input.max_matches ?? GREP_DEFAULT_MAX)));
       const perLineCap = Math.max(1, Math.floor(input.max_hits_per_line ?? GREP_DEFAULT_HITS_PER_LINE));
@@ -21145,6 +21162,7 @@ var init_grep_chat_messages = __esm(() => {
       required: ["pattern"]
     },
     defaultSensitivity: "sensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const resolved = resolveChatId2(input, ctx);
       if (typeof resolved !== "string")
@@ -21242,6 +21260,7 @@ Usage:
       required: ["surface_id", "pattern"]
     },
     defaultSensitivity: "sensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const { discoverProviders: discoverProviders2, findSurface: findSurface2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
       const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
@@ -21488,6 +21507,7 @@ One tool, one path argument.`,
       additionalProperties: false
     },
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const path2 = input.path.trim();
       if (path2 === "rx" || path2 === "regex_scripts") {
@@ -21725,6 +21745,7 @@ Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole
       additionalProperties: false
     },
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const maxEntries = input.max_entries ?? 200;
       const maxDepth = input.max_depth ?? 4;
@@ -21805,6 +21826,7 @@ Returns:
     },
     requiresRecentRead: gate4,
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       let next = input.new_content;
       if (next === undefined && input.new_content_handle) {
@@ -21965,6 +21987,7 @@ Returns:
       additionalProperties: false
     },
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const path2 = input.path.trim();
       const value = input.value;
@@ -22056,6 +22079,7 @@ Lua state keys (\`__name\`) need a valid JSON string in \`value\`; the runtime w
       required: ["chat_id", "key", "value"]
     },
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const provider = await findLumirealm3(ctx);
       if (!provider)
@@ -22104,6 +22128,7 @@ For changes that EVERY user of the card should see, edit \`char/extensions/lumir
       required: ["character_id", "text"]
     },
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const provider = await findLumirealm4(ctx);
       if (!provider)
@@ -22153,6 +22178,7 @@ Toggle DEFINITIONS (what toggles exist, what type, what default) live in module 
       required: ["chat_id", "key", "value"]
     },
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const provider = await findLumirealm5(ctx);
       if (!provider)
@@ -22194,6 +22220,7 @@ var init_list_chat_messages = __esm(() => {
       required: []
     },
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       let chatId = input.chat_id;
       if (!chatId) {
@@ -22240,6 +22267,7 @@ var init_list_chats_for_character = __esm(() => {
     inputSchema: inputSchema42,
     jsonSchema: { type: "object", properties: {}, required: [] },
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (_input, ctx) => {
       let active = null;
       try {
@@ -22287,6 +22315,7 @@ Returns:
       required: ["surface_id"]
     },
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const { discoverProviders: discoverProviders2, findSurface: findSurface2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
       const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
@@ -22336,6 +22365,7 @@ Usage:
       additionalProperties: false
     },
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const scope = input.scope ?? "current_message";
       const includeReverted = input.include_reverted ?? false;
@@ -22374,35 +22404,6 @@ Usage:
   });
 });
 
-// src/agent/tools/mark-tool-results.ts
-var inputSchema45, markToolResultsTool;
-var init_mark_tool_results = __esm(() => {
-  init_zod();
-  inputSchema45 = exports_external.object({
-    call_ids: exports_external.array(exports_external.string().min(1)).min(1).describe("Tool call ids to retag (the call_id you got back from each tool_use)."),
-    sensitivity: exports_external.enum(["sensitive", "insensitive"]).describe("'sensitive' keeps the result indefinitely; 'insensitive' makes it eligible for auto-free after 10 user turns on non-cached connections.")
-  });
-  markToolResultsTool = defineTool({
-    name: "mark_tool_results",
-    description: "Retag prior tool results as sensitive or insensitive. Use this when the default classification is wrong for your workflow. Mark a result 'sensitive' if you'll need its full content in a later turn (a long greeting you're translating across turns, a chat-message dump you'll keep grepping). Mark 'insensitive' once you've extracted what you needed (the original read for a now-completed edit, a glossary survey that's been applied). On cached connections this only affects UI display, no auto-free runs. On non-cached connections, insensitive results auto-free after 10 user turns to save context.",
-    inputSchema: inputSchema45,
-    jsonSchema: {
-      type: "object",
-      properties: {
-        call_ids: { type: "array", items: { type: "string" }, description: "Tool call ids to retag." },
-        sensitivity: { type: "string", enum: ["sensitive", "insensitive"], description: "New classification." }
-      },
-      required: ["call_ids", "sensitivity"]
-    },
-    defaultSensitivity: "insensitive",
-    execute: async (input, ctx) => {
-      for (const id of input.call_ids)
-        ctx.markSensitivity(id, input.sensitivity);
-      return { content: JSON.stringify({ retagged: input.call_ids.length, sensitivity: input.sensitivity }) };
-    }
-  });
-});
-
 // src/agent/tools/module-attach.ts
 async function findLumirealm6(ctx) {
   const { discoverProviders: discoverProviders2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
@@ -22411,10 +22412,10 @@ async function findLumirealm6(ctx) {
   const providers = await discoverProviders2(ctx.spindle, ctx.userId, promptFn);
   return providers.find((p) => p.id === "lumirealm") ?? null;
 }
-var inputSchema46, moduleAttachTool;
+var inputSchema45, moduleAttachTool;
 var init_module_attach = __esm(() => {
   init_zod();
-  inputSchema46 = exports_external.object({
+  inputSchema45 = exports_external.object({
     character_id: exports_external.string().min(1),
     module_id: exports_external.string().min(1)
   });
@@ -22423,7 +22424,7 @@ var init_module_attach = __esm(() => {
     description: `Attach a LumiRealm module to a character. Adds the module's lorebook + regex artifacts to the character and makes its triggers, bg-html embedding, and toggle DSL active in chats for that character. Use \`list_external({surface_id:"module_envelope"})\` first to see available modules.
 
 Wraps the \`attach_module\` WS op so artifact install + refresh hooks fire.`,
-    inputSchema: inputSchema46,
+    inputSchema: inputSchema45,
     jsonSchema: {
       type: "object",
       properties: {
@@ -22433,6 +22434,7 @@ Wraps the \`attach_module\` WS op so artifact install + refresh hooks fire.`,
       required: ["character_id", "module_id"]
     },
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const provider = await findLumirealm6(ctx);
       if (!provider)
@@ -22458,10 +22460,10 @@ async function findLumirealm7(ctx) {
   const providers = await discoverProviders2(ctx.spindle, ctx.userId, promptFn);
   return providers.find((p) => p.id === "lumirealm") ?? null;
 }
-var inputSchema47, moduleDetachTool;
+var inputSchema46, moduleDetachTool;
 var init_module_detach = __esm(() => {
   init_zod();
-  inputSchema47 = exports_external.object({
+  inputSchema46 = exports_external.object({
     character_id: exports_external.string().min(1),
     module_id: exports_external.string().min(1)
   });
@@ -22470,7 +22472,7 @@ var init_module_detach = __esm(() => {
     description: `Detach a LumiRealm module from a character. Removes its installed lorebook + regex artifacts and stops its triggers / bg-html / toggles from running for that character. The module envelope stays in the user's library (not deleted).
 
 Wraps the \`detach_module\` WS op so artifact uninstall + refresh hooks fire.`,
-    inputSchema: inputSchema47,
+    inputSchema: inputSchema46,
     jsonSchema: {
       type: "object",
       properties: {
@@ -22480,6 +22482,7 @@ Wraps the \`detach_module\` WS op so artifact uninstall + refresh hooks fire.`,
       required: ["character_id", "module_id"]
     },
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const provider = await findLumirealm7(ctx);
       if (!provider)
@@ -22498,10 +22501,10 @@ Wraps the \`detach_module\` WS op so artifact uninstall + refresh hooks fire.`,
 });
 
 // src/agent/tools/random-pick.ts
-var inputSchema48, randomPickTool;
+var inputSchema47, randomPickTool;
 var init_random_pick = __esm(() => {
   init_zod();
-  inputSchema48 = exports_external.object({
+  inputSchema47 = exports_external.object({
     items: exports_external.array(exports_external.unknown()),
     count: exports_external.number().optional(),
     replacement: exports_external.boolean().optional()
@@ -22516,7 +22519,7 @@ Returns:
 - \`count\`       \u2014 how many were picked.
 - \`replacement\` \u2014 whether duplicates were allowed.
 - \`picks\`       \u2014 array of the chosen items, same element type you passed in. If \`items\` was \`[{path, label}, ...]\` then \`picks[0].path\` is the pick's path.`,
-    inputSchema: inputSchema48,
+    inputSchema: inputSchema47,
     jsonSchema: {
       type: "object",
       properties: {
@@ -22554,12 +22557,12 @@ Returns:
 });
 
 // src/agent/tools/read.ts
-var inputSchema49, readTool;
+var inputSchema48, readTool;
 var init_read = __esm(() => {
   init_zod();
   init__gates();
   init__path_v2();
-  inputSchema49 = exports_external.object({
+  inputSchema48 = exports_external.object({
     path: exports_external.string().min(3).describe("Slash-separated path to a string leaf. Examples: 'char/description', 'char/first_mes', 'char/alternate_greetings/0', 'char/extensions/lumirealm.payload.background_html', 'rx/<scriptId>/replace_string', 'wb/<entryId>/content', 'wb/<entryId>/comment'."),
     offset: exports_external.number().int().positive().optional().describe("1-based starting line number."),
     limit: exports_external.number().int().positive().optional().describe("Max lines to return.")
@@ -22580,7 +22583,7 @@ Path grammar:
 Records the path as 'recently read' so a subsequent \`edit\` on the same path passes the read-gate.
 
 Returns: a plain string body. Most of the time that's line-numbered text (\`   1\\tcontent line\\n   2\\t...\`). If the body would exceed the per-call budget it spills, and you get JSON of the form \`{spilled: true, tmp_handle: "tmp_...", peek, total_chars, total_lines, hint}\` \u2014 pass \`tmp_handle\` to \`tmp_grep\` / \`tmp_read\` / \`tmp_stat\` from there.`,
-    inputSchema: inputSchema49,
+    inputSchema: inputSchema48,
     jsonSchema: {
       type: "object",
       properties: {
@@ -22592,6 +22595,7 @@ Returns: a plain string body. Most of the time that's line-numbered text (\`   1
       additionalProperties: false
     },
     defaultSensitivity: "sensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       let leaf;
       try {
@@ -22643,10 +22647,10 @@ async function readChatMessagesImpl(ctx, chatId, offsetIn, limitIn) {
   const out = await spillOrReturn(ctx, payload, `read_chat_messages:${chatId}`, "If you only need a few specific messages, narrow the offset/limit. For search, use grep_chat_messages instead.");
   return { content: out };
 }
-var CHAT_MESSAGES_DEFAULT_LIMIT = 100, CHAT_MESSAGES_MAX_LIMIT = 500, CHAT_MESSAGE_PREVIEW_CHARS = 1200, inputSchema50, readChatMessagesTool;
+var CHAT_MESSAGES_DEFAULT_LIMIT = 100, CHAT_MESSAGES_MAX_LIMIT = 500, CHAT_MESSAGE_PREVIEW_CHARS = 1200, inputSchema49, readChatMessagesTool;
 var init_read_chat_messages = __esm(() => {
   init_zod();
-  inputSchema50 = exports_external.object({
+  inputSchema49 = exports_external.object({
     chat_id: exports_external.string().optional(),
     offset: exports_external.number().optional(),
     limit: exports_external.number().optional()
@@ -22661,7 +22665,7 @@ Usage:
 - Returns messages in chronological order with role / content / send_date / swipe metadata. Active swipe is the \`content\` field; other swipes live on \`swipes[]\`.
 - Default limit 100, cap 500. Most chats fit in one call.
 - If \`chat_id\` is "pinned" but no chat is pinned, returns \`{pinned: false, note}\` and the agent should ask the user to pin one.`,
-    inputSchema: inputSchema50,
+    inputSchema: inputSchema49,
     jsonSchema: {
       type: "object",
       properties: {
@@ -22672,6 +22676,7 @@ Usage:
       required: []
     },
     defaultSensitivity: "sensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const requested = input.chat_id;
       if (requested === undefined || requested === "pinned") {
@@ -22686,11 +22691,11 @@ Usage:
 });
 
 // src/agent/tools/read-external.ts
-var inputSchema51, readExternalTool;
+var inputSchema50, readExternalTool;
 var init_read_external = __esm(() => {
   init_zod();
   init__gates();
-  inputSchema51 = exports_external.object({
+  inputSchema50 = exports_external.object({
     surface_id: exports_external.string().min(1),
     item_id: exports_external.string().min(1),
     field: exports_external.string().optional()
@@ -22705,7 +22710,7 @@ Usage:
 - Big results spill to a tmp handle.
 
 Returns: JSON \`{surface_id, item_id, field, value_chars, value}\`. \`value\` is the raw string when the field is a string, otherwise the JSON-stringified payload (string form, not a parsed object). Spilled responses become a tmp envelope \`{spilled: true, tmp_handle, peek, ...}\` \u2014 pass \`tmp_handle\` to \`tmp_grep\` / \`tmp_read\`.`,
-    inputSchema: inputSchema51,
+    inputSchema: inputSchema50,
     jsonSchema: {
       type: "object",
       properties: {
@@ -22716,6 +22721,7 @@ Returns: JSON \`{surface_id, item_id, field, value_chars, value}\`. \`value\` is
       required: ["surface_id", "item_id"]
     },
     defaultSensitivity: "sensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const { discoverProviders: discoverProviders2, findSurface: findSurface2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
       const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
@@ -22885,7 +22891,7 @@ async function listSessionSummaries(spindle2, userId, activeIds, filterCharacter
   const entries = cur ? cur.entries : await rebuildIndex(spindle2, userId);
   const out = [];
   for (const e of entries) {
-    if (filterCharacterId && e.characterId !== filterCharacterId)
+    if (filterCharacterId !== undefined && e.characterId !== filterCharacterId)
       continue;
     out.push(entryToWire(e, activeIds.has(e.sessionId)));
   }
@@ -22898,13 +22904,13 @@ var init_sessions = __esm(() => {
 });
 
 // src/agent/tools/revert-session-edits.ts
-var inputSchema52, revertSessionEditsTool;
+var inputSchema51, revertSessionEditsTool;
 var init_revert_session_edits = __esm(() => {
   init_zod();
   init_ledger();
   init_edit_log();
   init_sessions();
-  inputSchema52 = exports_external.object({
+  inputSchema51 = exports_external.object({
     edit_ids: exports_external.array(exports_external.string().min(1)).min(1).max(50).describe("Edit ids from list_session_edits."),
     allow_cross_session: exports_external.boolean().optional().describe("Allow reverting edits you made in a DIFFERENT chat session. Default false: only current-session edits are revertable. Opt in only when the user asks to undo work from an earlier conversation.")
   }).strict();
@@ -22917,7 +22923,7 @@ Usage:
 - Set \`allow_cross_session: true\` to revert edits from earlier sessions on this character. Use sparingly; the user from those earlier sessions doesn't know about the change.
 - Cascade-aware: if a later edit depended on a reverted one and can no longer apply, it gets reverted too and listed under \`cascadedEditIds\`.
 - Edit ids come from \`list_session_edits\`.`,
-    inputSchema: inputSchema52,
+    inputSchema: inputSchema51,
     jsonSchema: {
       type: "object",
       properties: {
@@ -22928,6 +22934,7 @@ Usage:
       additionalProperties: false
     },
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const allowCrossSession = input.allow_cross_session === true;
       const ledger = await loadLedger(ctx.spindle, ctx.characterId, ctx.userId);
@@ -22982,16 +22989,16 @@ Usage:
 });
 
 // src/agent/tools/roll-dice.ts
-var inputSchema53, rollDiceTool;
+var inputSchema52, rollDiceTool;
 var init_roll_dice = __esm(() => {
   init_zod();
-  inputSchema53 = exports_external.object({
+  inputSchema52 = exports_external.object({
     spec: exports_external.string().min(1)
   });
   rollDiceTool = defineTool({
     name: "roll_dice",
     description: "Roll dice in standard NdM[+K] notation, e.g. '3d6', '1d20+4', '2d10-1'. Returns each roll and the total. Use this instead of guessing numbers when the user asks for a dice roll.",
-    inputSchema: inputSchema53,
+    inputSchema: inputSchema52,
     jsonSchema: {
       type: "object",
       properties: { spec: { type: "string", description: "Dice spec, e.g. '3d6+2'." } },
@@ -23023,11 +23030,11 @@ var init_roll_dice = __esm(() => {
 });
 
 // src/agent/tools/squash-session-edits.ts
-var inputSchema54, squashSessionEditsTool;
+var inputSchema53, squashSessionEditsTool;
 var init_squash_session_edits = __esm(() => {
   init_zod();
   init_ledger();
-  inputSchema54 = exports_external.object({
+  inputSchema53 = exports_external.object({
     phase_label: exports_external.string().max(120).optional().describe("Optional label for what this phase represented (e.g. 'translation pass', 'tone refactor'). Stored on the merged patch's description.")
   }).strict();
   squashSessionEditsTool = defineTool({
@@ -23038,7 +23045,7 @@ Usage:
 - Call mid-response to commit a phase of work before starting another (translation pass \u2192 seal \u2192 tone refactor).
 - End-of-message autosquash never merges across sealed patches; phases stay revertable as discrete units.
 - If never called, all edits in this response get auto-squashed into one patch per file at the end of the message.`,
-    inputSchema: inputSchema54,
+    inputSchema: inputSchema53,
     jsonSchema: {
       type: "object",
       properties: {
@@ -23047,6 +23054,7 @@ Usage:
       additionalProperties: false
     },
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       if (!ctx.assistantMessageId)
         return { content: "Error: no active assistant message; squash_session_edits only valid inside an agent response.", isError: true };
@@ -23118,12 +23126,12 @@ async function loadAllWorldBookEntries2(ctx, c) {
   }
   return out;
 }
-var SURVEY_DEFAULT_MIN_LEN = 2, SURVEY_DEFAULT_TOP_N = 60, CJK_RUN_RE, inputSchema55, surveyCjkTool;
+var SURVEY_DEFAULT_MIN_LEN = 2, SURVEY_DEFAULT_TOP_N = 60, CJK_RUN_RE, inputSchema54, surveyCjkTool;
 var init_survey_cjk = __esm(() => {
   init_zod();
   init__surfaces();
   CJK_RUN_RE = /[\u3040-\u309F\u30A0-\u30FF\u31F0-\u31FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7A3\u8C48-\uFAFF]+/g;
-  inputSchema55 = exports_external.object({
+  inputSchema54 = exports_external.object({
     scopes: exports_external.array(exports_external.enum(["character", "world_books", "regex_scripts", "extensions"])).optional(),
     min_length: exports_external.number().optional(),
     top_n: exports_external.number().optional()
@@ -23138,7 +23146,7 @@ Returns:
 - \`total_runs\`         \u2014 sum of occurrences across all surfaces.
 - \`returned\`, \`truncated\` \u2014 how many made it into \`top\` and whether some were dropped.
 - \`top\` \u2014 array of \`{text, count, distinct_surfaces, sample_surfaces}\`, sorted by count descending. \`sample_surfaces\` is up to 4 surface names where the run appears.`,
-    inputSchema: inputSchema55,
+    inputSchema: inputSchema54,
     jsonSchema: {
       type: "object",
       properties: {
@@ -23149,6 +23157,7 @@ Returns:
       required: []
     },
     defaultSensitivity: "sensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const scopes = input.scopes ?? ["character", "world_books", "regex_scripts", "extensions"];
       const minLen = Math.max(1, Math.floor(input.min_length ?? SURVEY_DEFAULT_MIN_LEN));
@@ -23215,10 +23224,10 @@ Returns:
 });
 
 // src/agent/tools/test-regex.ts
-var inputSchema56, testRegexTool;
+var inputSchema55, testRegexTool;
 var init_test_regex = __esm(() => {
   init_zod();
-  inputSchema56 = exports_external.object({
+  inputSchema55 = exports_external.object({
     pattern: exports_external.string(),
     flags: exports_external.string().optional(),
     sample: exports_external.string()
@@ -23226,7 +23235,7 @@ var init_test_regex = __esm(() => {
   testRegexTool = defineTool({
     name: "test_regex",
     description: "Compile a regex and test it against a sample. Returns whether it matches, the match, and capture groups.",
-    inputSchema: inputSchema56,
+    inputSchema: inputSchema55,
     jsonSchema: {
       type: "object",
       properties: {
@@ -23260,7 +23269,7 @@ function looksLikeRegexPattern(s) {
 function isNonEmptyString(v) {
   return typeof v === "string" && v.length > 0;
 }
-var INCLUDE_VALUES, inputSchema57, DEFAULT_INCLUDE, DEFAULT_MIN_CHARS = 2, translateCardStringsTool;
+var INCLUDE_VALUES, inputSchema56, DEFAULT_INCLUDE, DEFAULT_MIN_CHARS = 2, translateCardStringsTool;
 var init_translate_card_strings = __esm(() => {
   init_zod();
   INCLUDE_VALUES = [
@@ -23272,7 +23281,7 @@ var init_translate_card_strings = __esm(() => {
     "alternate_greetings",
     "world_book_entries"
   ];
-  inputSchema57 = exports_external.object({
+  inputSchema56 = exports_external.object({
     source_lang: exports_external.string().min(2).max(10).describe("BCP-47 source language tag (e.g. 'ko', 'ja', 'zh-Hans'). Chrome's Translator API picks the on-device model from this."),
     target_lang: exports_external.string().min(2).max(10).describe("BCP-47 target language tag (e.g. 'en'). Same caveat as source_lang."),
     include: exports_external.array(exports_external.enum(INCLUDE_VALUES)).optional().describe("Which surfaces to translate. Default: regex_scripts + lumirealm_bghtml + lumirealm_lua + lumirealm_scriptstate. Skips alternate_greetings, character_fields, world_book_entries by default since those are prose you should review yourself."),
@@ -23290,7 +23299,7 @@ Usage:
 - \`include\` defaults to mechanical surfaces (regex_scripts + lumirealm_bghtml + lumirealm_lua + lumirealm_scriptstate). Prose surfaces are opt-in.
 - Requires Chrome desktop with the Translator API for the source\u2192target pair.
 - After application, use \`list_session_edits\` + \`read\` to proof-check each touched path.`,
-    inputSchema: inputSchema57,
+    inputSchema: inputSchema56,
     jsonSchema: {
       type: "object",
       properties: {
@@ -23304,6 +23313,7 @@ Usage:
       additionalProperties: false
     },
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       if (!ctx.callFrontend)
         return { content: "Error: frontend translation bridge unavailable in this context.", isError: true };
@@ -23614,10 +23624,10 @@ function grepText(text, re, maxRemaining) {
   }
   return out;
 }
-var TMP_GREP_DEFAULT_MAX = 100, TMP_GREP_MAX_CAP = 1000, GREP_PREVIEW_CHARS2 = 150, inputSchema58, tmpGrepTool;
+var TMP_GREP_DEFAULT_MAX = 100, TMP_GREP_MAX_CAP = 1000, GREP_PREVIEW_CHARS2 = 150, inputSchema57, tmpGrepTool;
 var init_tmp_grep = __esm(() => {
   init_zod();
-  inputSchema58 = exports_external.object({
+  inputSchema57 = exports_external.object({
     handle: exports_external.string(),
     pattern: exports_external.string(),
     flags: exports_external.string().optional(),
@@ -23632,7 +23642,7 @@ Returns:
 - \`handle\`, \`pattern\`, \`flags\` \u2014 request echoes.
 - \`match_count\`, \`truncated\` \u2014 total hits returned, and whether the cap fired.
 - \`hits\` \u2014 array of \`{line, match, preview}\`. \`line\` is 1-indexed against the tmp file, \`preview\` is the line trimmed to ~150 chars.`,
-    inputSchema: inputSchema58,
+    inputSchema: inputSchema57,
     jsonSchema: {
       type: "object",
       properties: {
@@ -23678,14 +23688,14 @@ Returns:
 });
 
 // src/agent/tools/tmp-list.ts
-var inputSchema59, tmpListTool;
+var inputSchema58, tmpListTool;
 var init_tmp_list = __esm(() => {
   init_zod();
-  inputSchema59 = exports_external.object({});
+  inputSchema58 = exports_external.object({});
   tmpListTool = defineTool({
     name: "tmp_list",
     description: "List active tmp handles for this user across all sessions. Returns newest-first with handle, origin, total_chars, total_lines, createdAt. Per-user cap is 50 files OR 30MB; oldest are auto-evicted on the next spill.",
-    inputSchema: inputSchema59,
+    inputSchema: inputSchema58,
     jsonSchema: { type: "object", properties: {}, required: [] },
     defaultSensitivity: "insensitive",
     execute: async (_input, ctx) => {
@@ -23706,10 +23716,10 @@ var init_tmp_list = __esm(() => {
 });
 
 // src/agent/tools/tmp-read.ts
-var TMP_READ_DEFAULT_LIMIT = 200, TMP_READ_MAX_LIMIT = 4000, inputSchema60, tmpReadTool;
+var TMP_READ_DEFAULT_LIMIT = 200, TMP_READ_MAX_LIMIT = 4000, inputSchema59, tmpReadTool;
 var init_tmp_read = __esm(() => {
   init_zod();
-  inputSchema60 = exports_external.object({
+  inputSchema59 = exports_external.object({
     handle: exports_external.string(),
     offset: exports_external.number().optional(),
     limit: exports_external.number().optional()
@@ -23723,7 +23733,7 @@ For JSON-shaped spills (\`list\`, \`inspect\`, \`grep\`, \`audit_card_coverage\`
 For prose spills (chat logs, large string leaves), reading by offset/limit is fine. Always pair this tool with \`tmp_stat\` first to learn total_lines before deciding on a range.
 
 Returns: a string body. First line is a metadata header \`[origin=..., total_lines=N, total_chars=M]\` followed by the line-numbered slice. NOT JSON, parse line-by-line.`,
-    inputSchema: inputSchema60,
+    inputSchema: inputSchema59,
     jsonSchema: {
       type: "object",
       properties: {
@@ -23752,10 +23762,10 @@ ${sliced}` : sliced;
 });
 
 // src/agent/tools/tmp-stat.ts
-var inputSchema61, tmpStatTool;
+var inputSchema60, tmpStatTool;
 var init_tmp_stat = __esm(() => {
   init_zod();
-  inputSchema61 = exports_external.object({
+  inputSchema60 = exports_external.object({
     handle: exports_external.string()
   });
   tmpStatTool = defineTool({
@@ -23767,7 +23777,7 @@ Returns:
 - \`total_chars\`, \`total_lines\` \u2014 body size.
 - \`createdAt\`            \u2014 ms epoch.
 - \`origin\`               \u2014 short tag of the tool that produced the spill (e.g. \`read:char/first_mes\`, \`list:wb/<id>\`).`,
-    inputSchema: inputSchema61,
+    inputSchema: inputSchema60,
     jsonSchema: {
       type: "object",
       properties: { handle: { type: "string" } },
@@ -23785,10 +23795,10 @@ Returns:
 });
 
 // src/agent/tools/update-character.ts
-var inputSchema62, updateCharacterTool;
+var inputSchema61, updateCharacterTool;
 var init_update_character = __esm(() => {
   init_zod();
-  inputSchema62 = exports_external.object({
+  inputSchema61 = exports_external.object({
     patch: exports_external.record(exports_external.string(), exports_external.unknown())
   });
   updateCharacterTool = defineTool({
@@ -23799,13 +23809,14 @@ Usage:
 - Pass only the fields to change in \`patch\`.
 - For a single field's find/replace use \`edit({path: "char/<field>", ...})\`.
 - For wholesale overwrite of a single field use \`rewrite\` or \`set\`.`,
-    inputSchema: inputSchema62,
+    inputSchema: inputSchema61,
     jsonSchema: {
       type: "object",
       properties: { patch: { type: "object", additionalProperties: true } },
       required: ["patch"]
     },
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const patch = input.patch;
       const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
@@ -23828,10 +23839,10 @@ Usage:
 });
 
 // src/agent/tools/update-external.ts
-var inputSchema63, updateExternalTool;
+var inputSchema62, updateExternalTool;
 var init_update_external = __esm(() => {
   init_zod();
-  inputSchema63 = exports_external.object({
+  inputSchema62 = exports_external.object({
     surface_id: exports_external.string().min(1),
     item_id: exports_external.string().min(1),
     field: exports_external.string().min(1),
@@ -23844,7 +23855,7 @@ var init_update_external = __esm(() => {
 Usage:
 - Use for non-string fields (arrays, objects, numbers) or when overwriting the entire field.
 - For find/replace inside a long string field, prefer \`edit_external\`.`,
-    inputSchema: inputSchema63,
+    inputSchema: inputSchema62,
     jsonSchema: {
       type: "object",
       properties: {
@@ -23856,6 +23867,7 @@ Usage:
       required: ["surface_id", "item_id", "field", "value"]
     },
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const { surface_id: surfaceId, item_id: itemId, field, value } = input;
       const { discoverProviders: discoverProviders2, findSurface: findSurface2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
@@ -23904,10 +23916,10 @@ Usage:
 });
 
 // src/agent/tools/update-regex-script.ts
-var inputSchema64, updateRegexScriptTool;
+var inputSchema63, updateRegexScriptTool;
 var init_update_regex_script = __esm(() => {
   init_zod();
-  inputSchema64 = exports_external.object({
+  inputSchema63 = exports_external.object({
     script_id: exports_external.string().min(1),
     patch: exports_external.record(exports_external.string(), exports_external.unknown())
   });
@@ -23918,7 +23930,7 @@ var init_update_regex_script = __esm(() => {
 Usage:
 - Path-based \`edit\` / \`rewrite\` only address \`rx/<id>/find_regex\` and \`rx/<id>/replace_string\`. Metadata goes through here: \`name\`, \`flags\`, \`disabled\`, \`placement\`, \`target\`, \`sort_order\`, \`description\`, \`folder\`.
 - Pass only the fields to change in \`patch\`.`,
-    inputSchema: inputSchema64,
+    inputSchema: inputSchema63,
     jsonSchema: {
       type: "object",
       properties: {
@@ -23928,6 +23940,7 @@ Usage:
       required: ["script_id", "patch"]
     },
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const id = input.script_id;
       const patch = input.patch;
@@ -23949,11 +23962,11 @@ Usage:
 });
 
 // src/agent/tools/update-world-book-entry.ts
-var inputSchema65, updateWorldBookEntryTool;
+var inputSchema64, updateWorldBookEntryTool;
 var init_update_world_book_entry = __esm(() => {
   init_zod();
   init__surfaces();
-  inputSchema65 = exports_external.object({
+  inputSchema64 = exports_external.object({
     entry_id: exports_external.string().min(1),
     patch: exports_external.record(exports_external.string(), exports_external.unknown())
   });
@@ -23965,7 +23978,7 @@ Usage:
 - Path-based \`edit\` / \`rewrite\` only address \`wb/<id>/content\` and \`wb/<id>/comment\`. Metadata goes through here: \`key\` array, \`keysecondary\`, \`priority\`, \`disabled\`, \`constant\`, \`position\`, \`depth\`, \`role\`, \`selective\`, \`selectiveLogic\`.
 - Pass only the fields to change in \`patch\`.
 - For content edits prefer \`edit\` / \`rewrite\`.`,
-    inputSchema: inputSchema65,
+    inputSchema: inputSchema64,
     jsonSchema: {
       type: "object",
       properties: {
@@ -23975,6 +23988,7 @@ Usage:
       required: ["entry_id", "patch"]
     },
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const id = input.entry_id;
       const patch = input.patch;
@@ -23997,10 +24011,10 @@ Usage:
 });
 
 // src/agent/tools/count-tokens.ts
-var inputSchema66, countTokensTool;
+var inputSchema65, countTokensTool;
 var init_count_tokens = __esm(() => {
   init_zod();
-  inputSchema66 = exports_external.object({
+  inputSchema65 = exports_external.object({
     text: exports_external.string().optional(),
     chat_id: exports_external.string().optional(),
     model: exports_external.string().optional()
@@ -24010,7 +24024,7 @@ var init_count_tokens = __esm(() => {
   countTokensTool = defineTool({
     name: "count_tokens",
     description: "Server-side token count using the active model's real tokenizer. Pass `text` for an arbitrary string or `chat_id` for a stored chat (omit chat_id to use the pinned chat). Optional `model` overrides the tokenizer. Returns { total_tokens, model, tokenizer_name, approximate }.",
-    inputSchema: inputSchema66,
+    inputSchema: inputSchema65,
     jsonSchema: {
       type: "object",
       properties: {
@@ -24044,10 +24058,10 @@ var init_count_tokens = __esm(() => {
 });
 
 // src/agent/tools/dry-run-prompt.ts
-var inputSchema67, dryRunPromptTool;
+var inputSchema66, dryRunPromptTool;
 var init_dry_run_prompt = __esm(() => {
   init_zod();
-  inputSchema67 = exports_external.object({
+  inputSchema66 = exports_external.object({
     chat_id: exports_external.string().optional(),
     connection_id: exports_external.string().optional(),
     persona_id: exports_external.string().optional(),
@@ -24056,7 +24070,7 @@ var init_dry_run_prompt = __esm(() => {
   dryRunPromptTool = defineTool({
     name: "dry_run_prompt",
     description: "Run Lumiverse's prompt-assembly pipeline WITHOUT calling the LLM. Returns the exact messages that would be sent, plus a per-block breakdown (system / persona / world info entries / character fields / chat memory / chat history / etc.), token count, model, provider, world-info activation stats, and memory stats. THE definitive way to answer 'why is the AI saying X' or 'what's actually in the prompt'. Defaults to the pinned chat. The full messages array often spills to a tmp handle.",
-    inputSchema: inputSchema67,
+    inputSchema: inputSchema66,
     jsonSchema: {
       type: "object",
       properties: {
@@ -24068,6 +24082,7 @@ var init_dry_run_prompt = __esm(() => {
       required: []
     },
     defaultSensitivity: "sensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const chatId = input.chat_id ?? ctx.pinnedChatId;
       if (!chatId) {
@@ -24104,16 +24119,17 @@ var init_dry_run_prompt = __esm(() => {
 });
 
 // src/agent/tools/get-active-chat.ts
-var inputSchema68, getActiveChatTool;
+var inputSchema67, getActiveChatTool;
 var init_get_active_chat = __esm(() => {
   init_zod();
-  inputSchema68 = exports_external.object({}).strict();
+  inputSchema67 = exports_external.object({}).strict();
   getActiveChatTool = defineTool({
     name: "get_active_chat",
     description: "Get the user's currently active chat (whatever the frontend is showing). Different from the pinned chat \u2014 pinned is what THIS agent session reads from; active is what the user is looking at right now in their main chat panel. Returns null if no chat is open.",
-    inputSchema: inputSchema68,
+    inputSchema: inputSchema67,
     jsonSchema: { type: "object", properties: {}, required: [] },
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (_input, ctx) => {
       try {
         const chat = await ctx.spindle.chats.getActive(ctx.userId);
@@ -24128,11 +24144,11 @@ var init_get_active_chat = __esm(() => {
 });
 
 // src/agent/tools/list-active-regex-scripts.ts
-var TARGETS, inputSchema69, listActiveRegexScriptsTool;
+var TARGETS, inputSchema68, listActiveRegexScriptsTool;
 var init_list_active_regex_scripts = __esm(() => {
   init_zod();
   TARGETS = ["prompt", "response", "display"];
-  inputSchema69 = exports_external.object({
+  inputSchema68 = exports_external.object({
     target: exports_external.enum(TARGETS),
     chat_id: exports_external.string().optional(),
     use_active_character: exports_external.boolean().optional()
@@ -24145,7 +24161,7 @@ Usage:
 - \`target\`: \`prompt\` runs on text sent to the model, \`response\` runs on raw model output before storage, \`display\` runs at render time on stored content.
 - Merges global + character + chat scopes and orders by scope tier then sort_order, matching Lumiverse's runtime ordering.
 - Use to figure out what's rewriting the model's output before digging into individual scripts.`,
-    inputSchema: inputSchema69,
+    inputSchema: inputSchema68,
     jsonSchema: {
       type: "object",
       properties: {
@@ -24156,6 +24172,7 @@ Usage:
       required: ["target"]
     },
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const chatId = input.chat_id ?? ctx.pinnedChatId ?? undefined;
       const useChar = input.use_active_character ?? true;
@@ -24189,10 +24206,10 @@ Usage:
 });
 
 // src/agent/tools/list-activated-world-info.ts
-var inputSchema70, listActivatedWorldInfoTool;
+var inputSchema69, listActivatedWorldInfoTool;
 var init_list_activated_world_info = __esm(() => {
   init_zod();
-  inputSchema70 = exports_external.object({
+  inputSchema69 = exports_external.object({
     chat_id: exports_external.string().optional()
   }).strict();
   listActivatedWorldInfoTool = defineTool({
@@ -24203,7 +24220,7 @@ Usage:
 - Returns { id, comment, keys, source: 'keyword'|'vector', score? } per entry.
 - Use to debug "is this lorebook entry actually firing?" before reading the entry's content.
 - Defaults to pinned chat.`,
-    inputSchema: inputSchema70,
+    inputSchema: inputSchema69,
     jsonSchema: {
       type: "object",
       properties: {
@@ -24212,6 +24229,7 @@ Usage:
       required: []
     },
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const chatId = input.chat_id ?? ctx.pinnedChatId;
       if (!chatId)
@@ -24228,10 +24246,10 @@ Usage:
 });
 
 // src/agent/tools/list-chat-memories.ts
-var inputSchema71, listChatMemoriesTool;
+var inputSchema70, listChatMemoriesTool;
 var init_list_chat_memories = __esm(() => {
   init_zod();
-  inputSchema71 = exports_external.object({
+  inputSchema70 = exports_external.object({
     chat_id: exports_external.string().optional(),
     top_k: exports_external.number().int().min(1).max(50).optional()
   }).strict();
@@ -24244,7 +24262,7 @@ Usage:
 - Response includes { chunks, formatted, count, enabled, settingsSource }.
 - Defaults to pinned chat.
 - Use to understand what historical context is being surfaced into the current generation.`,
-    inputSchema: inputSchema71,
+    inputSchema: inputSchema70,
     jsonSchema: {
       type: "object",
       properties: {
@@ -24254,6 +24272,7 @@ Usage:
       required: []
     },
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const chatId = input.chat_id ?? ctx.pinnedChatId;
       if (!chatId)
@@ -24273,14 +24292,14 @@ Usage:
 });
 
 // src/agent/tools/get-lumiverse-version.ts
-var inputSchema72, getLumiverseVersionTool;
+var inputSchema71, getLumiverseVersionTool;
 var init_get_lumiverse_version = __esm(() => {
   init_zod();
-  inputSchema72 = exports_external.object({}).strict();
+  inputSchema71 = exports_external.object({}).strict();
   getLumiverseVersionTool = defineTool({
     name: "get_lumiverse_version",
     description: "Get the running Lumiverse backend and frontend semantic version strings. Useful when the user reports a bug or behaviour that depends on a specific build \u2014 surface the version before guessing.",
-    inputSchema: inputSchema72,
+    inputSchema: inputSchema71,
     jsonSchema: { type: "object", properties: {}, required: [] },
     defaultSensitivity: "insensitive",
     execute: async (_input, ctx) => {
@@ -24298,14 +24317,14 @@ var init_get_lumiverse_version = __esm(() => {
 });
 
 // src/agent/tools/get-user-info.ts
-var inputSchema73, getUserInfoTool;
+var inputSchema72, getUserInfoTool;
 var init_get_user_info = __esm(() => {
   init_zod();
-  inputSchema73 = exports_external.object({}).strict();
+  inputSchema72 = exports_external.object({}).strict();
   getUserInfoTool = defineTool({
     name: "get_user_info",
     description: "Get the user's Lumiverse role (`user` / `admin` / `operator`) and visibility (whether they have the app open in any browser session right now). Useful for tailoring suggestions or skipping toasts when the user can't see them.",
-    inputSchema: inputSchema73,
+    inputSchema: inputSchema72,
     jsonSchema: { type: "object", properties: {}, required: [] },
     defaultSensitivity: "insensitive",
     execute: async (_input, ctx) => {
@@ -24323,14 +24342,14 @@ var init_get_user_info = __esm(() => {
 });
 
 // src/agent/tools/list-connections.ts
-var inputSchema74, listConnectionsTool;
+var inputSchema73, listConnectionsTool;
 var init_list_connections = __esm(() => {
   init_zod();
-  inputSchema74 = exports_external.object({}).strict();
+  inputSchema73 = exports_external.object({}).strict();
   listConnectionsTool = defineTool({
     name: "list_connections",
     description: "List the user's configured LLM connection profiles. Returns id, name, provider, api_url, model, is_default, has_api_key (boolean \u2014 never the actual key). Use to see what providers/models are available, or to figure out which connection a chat is using.",
-    inputSchema: inputSchema74,
+    inputSchema: inputSchema73,
     jsonSchema: { type: "object", properties: {}, required: [] },
     defaultSensitivity: "insensitive",
     execute: async (_input, ctx) => {
@@ -24355,10 +24374,10 @@ var init_list_connections = __esm(() => {
 });
 
 // src/agent/tools/list-databank-documents.ts
-var inputSchema75, listDatabankDocumentsTool;
+var inputSchema74, listDatabankDocumentsTool;
 var init_list_databank_documents = __esm(() => {
   init_zod();
-  inputSchema75 = exports_external.object({
+  inputSchema74 = exports_external.object({
     databank_id: exports_external.string().min(1),
     limit: exports_external.number().int().min(1).max(500).optional(),
     offset: exports_external.number().int().min(0).optional()
@@ -24366,7 +24385,7 @@ var init_list_databank_documents = __esm(() => {
   listDatabankDocumentsTool = defineTool({
     name: "list_databank_documents",
     description: "List documents in a databank. Returns metadata only \u2014 id, name, mime_type, file_size, total_chunks, status. Use read_databank_document to fetch a document's full extracted text.",
-    inputSchema: inputSchema75,
+    inputSchema: inputSchema74,
     jsonSchema: {
       type: "object",
       properties: {
@@ -24404,10 +24423,10 @@ var init_list_databank_documents = __esm(() => {
 });
 
 // src/agent/tools/list-databanks.ts
-var inputSchema76, listDatabanksTool;
+var inputSchema75, listDatabanksTool;
 var init_list_databanks = __esm(() => {
   init_zod();
-  inputSchema76 = exports_external.object({
+  inputSchema75 = exports_external.object({
     scope: exports_external.enum(["global", "character", "chat"]).optional(),
     scope_id: exports_external.string().nullable().optional(),
     limit: exports_external.number().int().min(1).max(500).optional(),
@@ -24416,7 +24435,7 @@ var init_list_databanks = __esm(() => {
   listDatabanksTool = defineTool({
     name: "list_databanks",
     description: "List the user's databanks (RAG document collections). Optional scope filter: global / character / chat. Pass scope_id to scope to a specific character or chat (omit for the active character / pinned chat as the natural default). Returns metadata only \u2014 id, name, scope, document_count, enabled.",
-    inputSchema: inputSchema76,
+    inputSchema: inputSchema75,
     jsonSchema: {
       type: "object",
       properties: {
@@ -24460,17 +24479,17 @@ var init_list_databanks = __esm(() => {
 });
 
 // src/agent/tools/list-personas.ts
-var inputSchema77, listPersonasTool;
+var inputSchema76, listPersonasTool;
 var init_list_personas = __esm(() => {
   init_zod();
-  inputSchema77 = exports_external.object({
+  inputSchema76 = exports_external.object({
     limit: exports_external.number().int().min(1).max(500).optional(),
     offset: exports_external.number().int().min(0).optional()
   }).strict();
   listPersonasTool = defineTool({
     name: "list_personas",
     description: "List the user's personas (identity profiles used as the {{user}} side of chats). Returns metadata only \u2014 id, name, title, folder, is_default, attached_world_book_id, image_id, description char count. Use read_persona for a specific one's full description and metadata.",
-    inputSchema: inputSchema77,
+    inputSchema: inputSchema76,
     jsonSchema: {
       type: "object",
       properties: {
@@ -24507,17 +24526,17 @@ var init_list_personas = __esm(() => {
 });
 
 // src/agent/tools/list-variables.ts
-var inputSchema78, listVariablesTool;
+var inputSchema77, listVariablesTool;
 var init_list_variables = __esm(() => {
   init_zod();
-  inputSchema78 = exports_external.object({
+  inputSchema77 = exports_external.object({
     scope: exports_external.enum(["chat", "local", "global", "macro"]),
     chat_id: exports_external.string().optional()
   }).strict();
   listVariablesTool = defineTool({
     name: "list_variables",
     description: "List all variables in a given scope. Scopes: `chat` (chat.metadata.chat_variables, persisted across generations, what Risu/LumiRealm Lua and triggers write via setvar / setChatVar), `macro` (chat.metadata.macro_variables, LumiRealm's macro-state store, separate path from chat_variables), `local` (chat-bound ephemeral runtime variables), `global` (user-level). Pass chat_id for chat/local/macro scopes (defaults to pinned chat).",
-    inputSchema: inputSchema78,
+    inputSchema: inputSchema77,
     jsonSchema: {
       type: "object",
       properties: {
@@ -24555,16 +24574,16 @@ var init_list_variables = __esm(() => {
 });
 
 // src/agent/tools/read-connection.ts
-var inputSchema79, readConnectionTool;
+var inputSchema78, readConnectionTool;
 var init_read_connection = __esm(() => {
   init_zod();
-  inputSchema79 = exports_external.object({
+  inputSchema78 = exports_external.object({
     connection_id: exports_external.string().min(1)
   }).strict();
   readConnectionTool = defineTool({
     name: "read_connection",
     description: "Read a single LLM connection profile by id. Returns full metadata including custom fields. API keys are never exposed (only `has_api_key` boolean).",
-    inputSchema: inputSchema79,
+    inputSchema: inputSchema78,
     jsonSchema: {
       type: "object",
       properties: {
@@ -24587,16 +24606,16 @@ var init_read_connection = __esm(() => {
 });
 
 // src/agent/tools/read-databank.ts
-var inputSchema80, readDatabankTool;
+var inputSchema79, readDatabankTool;
 var init_read_databank = __esm(() => {
   init_zod();
-  inputSchema80 = exports_external.object({
+  inputSchema79 = exports_external.object({
     databank_id: exports_external.string().min(1)
   }).strict();
   readDatabankTool = defineTool({
     name: "read_databank",
     description: "Read a single databank's metadata (name, description, scope, enabled, document count). Use list_databank_documents and read_databank_document to drill into contents.",
-    inputSchema: inputSchema80,
+    inputSchema: inputSchema79,
     jsonSchema: {
       type: "object",
       properties: {
@@ -24619,17 +24638,17 @@ var init_read_databank = __esm(() => {
 });
 
 // src/agent/tools/read-databank-document.ts
-var inputSchema81, readDatabankDocumentTool;
+var inputSchema80, readDatabankDocumentTool;
 var init_read_databank_document = __esm(() => {
   init_zod();
-  inputSchema81 = exports_external.object({
+  inputSchema80 = exports_external.object({
     document_id: exports_external.string().min(1),
     meta_only: exports_external.boolean().optional()
   }).strict();
   readDatabankDocumentTool = defineTool({
     name: "read_databank_document",
     description: "Read a databank document. Returns metadata always; with meta_only=false (default), also returns the full extracted text content (spills to a tmp handle if large).",
-    inputSchema: inputSchema81,
+    inputSchema: inputSchema80,
     jsonSchema: {
       type: "object",
       properties: {
@@ -24657,10 +24676,10 @@ var init_read_databank_document = __esm(() => {
 });
 
 // src/agent/tools/read-persona.ts
-var inputSchema82, readPersonaTool;
+var inputSchema81, readPersonaTool;
 var init_read_persona = __esm(() => {
   init_zod();
-  inputSchema82 = exports_external.object({
+  inputSchema81 = exports_external.object({
     persona_id: exports_external.string().optional(),
     which: exports_external.enum(["active", "default"]).optional()
   }).strict().refine((v) => v.persona_id !== undefined !== (v.which !== undefined), {
@@ -24669,7 +24688,7 @@ var init_read_persona = __esm(() => {
   readPersonaTool = defineTool({
     name: "read_persona",
     description: "Read a single persona's full content. Pass `persona_id` for a specific one, or `which: 'active'` for the currently-selected persona / `which: 'default'` for the user's default. Returns full description plus all metadata. The persona's description text gets injected into the prompt as {{user}} / {{persona}}.",
-    inputSchema: inputSchema82,
+    inputSchema: inputSchema81,
     jsonSchema: {
       type: "object",
       properties: {
@@ -24701,10 +24720,10 @@ var init_read_persona = __esm(() => {
 });
 
 // src/agent/tools/read-persona-world-book.ts
-var inputSchema83, readPersonaWorldBookTool;
+var inputSchema82, readPersonaWorldBookTool;
 var init_read_persona_world_book = __esm(() => {
   init_zod();
-  inputSchema83 = exports_external.object({
+  inputSchema82 = exports_external.object({
     persona_id: exports_external.string().min(1)
   }).strict();
   readPersonaWorldBookTool = defineTool({
@@ -24715,7 +24734,7 @@ Usage:
 - Personas can carry their own world book separate from the character's.
 - Use \`list({path: "wb/<id>"})\` on the returned id to enumerate entries.
 - Returns null if the persona has no attached WB.`,
-    inputSchema: inputSchema83,
+    inputSchema: inputSchema82,
     jsonSchema: {
       type: "object",
       properties: {
@@ -24738,10 +24757,10 @@ Usage:
 });
 
 // src/agent/tools/read-variable.ts
-var inputSchema84, readVariableTool;
+var inputSchema83, readVariableTool;
 var init_read_variable = __esm(() => {
   init_zod();
-  inputSchema84 = exports_external.object({
+  inputSchema83 = exports_external.object({
     scope: exports_external.enum(["chat", "local", "global", "macro"]),
     key: exports_external.string().min(1),
     chat_id: exports_external.string().optional()
@@ -24749,7 +24768,7 @@ var init_read_variable = __esm(() => {
   readVariableTool = defineTool({
     name: "read_variable",
     description: "Read a single variable by name from a given scope (chat / local / global / macro). `chat` is chat.metadata.chat_variables (Risu/LumiRealm setvar target). `macro` is chat.metadata.macro_variables (LumiRealm macro-state, separate path). Returns { exists, value }. For chat/local/macro scopes, chat_id defaults to the pinned chat.",
-    inputSchema: inputSchema84,
+    inputSchema: inputSchema83,
     jsonSchema: {
       type: "object",
       properties: {
@@ -24797,10 +24816,10 @@ var init_read_variable = __esm(() => {
 });
 
 // src/agent/tools/resolve-macros.ts
-var inputSchema85, resolveMacrosTool;
+var inputSchema84, resolveMacrosTool;
 var init_resolve_macros = __esm(() => {
   init_zod();
-  inputSchema85 = exports_external.object({
+  inputSchema84 = exports_external.object({
     template: exports_external.string().min(1),
     chat_id: exports_external.string().optional(),
     use_active_character: exports_external.boolean().optional()
@@ -24808,7 +24827,7 @@ var init_resolve_macros = __esm(() => {
   resolveMacrosTool = defineTool({
     name: "resolve_macros",
     description: "Resolve `{{macro}}` placeholders in arbitrary text using Lumiverse's macro engine. Always runs in non-committing dry mode (`commit: false`) so extension macro handlers don't side-effect. Pass chat_id (defaults to pinned) for chat-scoped macros (variables, history, etc.) and use_active_character to bind {{char}} / character fields to the currently active card. Returns { text, diagnostics }.",
-    inputSchema: inputSchema85,
+    inputSchema: inputSchema84,
     jsonSchema: {
       type: "object",
       properties: {
@@ -24819,6 +24838,7 @@ var init_resolve_macros = __esm(() => {
       required: ["template"]
     },
     defaultSensitivity: "insensitive",
+    requiresCharacter: true,
     execute: async (input, ctx) => {
       const chatId = input.chat_id ?? ctx.pinnedChatId ?? undefined;
       const useChar = input.use_active_character ?? true;
@@ -24842,7 +24862,7 @@ var init_resolve_macros = __esm(() => {
 });
 
 // src/agent/tools/todo-write.ts
-var todoSchema, inputSchema86, todoWriteTool;
+var todoSchema, inputSchema85, todoWriteTool;
 var init_todo_write = __esm(() => {
   init_zod();
   todoSchema = exports_external.object({
@@ -24850,7 +24870,7 @@ var init_todo_write = __esm(() => {
     activeForm: exports_external.string().min(1).describe("Present-continuous form ('Running tests', 'Fixing the bug')."),
     status: exports_external.enum(["pending", "in_progress", "completed"]).describe("Current state of the task.")
   }).strict();
-  inputSchema86 = exports_external.object({
+  inputSchema85 = exports_external.object({
     todos: exports_external.array(todoSchema).min(1).describe("The full updated todo list. Replaces the previous list wholesale, not a partial patch. At most one item should be 'in_progress' at a time.")
   }).strict();
   todoWriteTool = defineTool({
@@ -24873,7 +24893,7 @@ Rules:
 - At most ONE item should be 'in_progress' at a time.
 - Mark items 'completed' as soon as they're done. Don't batch completions.
 - Drop items that are no longer relevant by omitting them from the new list.`,
-    inputSchema: inputSchema86,
+    inputSchema: inputSchema85,
     jsonSchema: {
       type: "object",
       properties: {
@@ -24944,11 +24964,11 @@ ${lines.join(`
 `)}
 </functions>`;
 }
-var inputSchema87, toolSearchTool;
+var inputSchema86, toolSearchTool;
 var init_tool_search = __esm(() => {
   init_zod();
   init__registry();
-  inputSchema87 = exports_external.object({
+  inputSchema86 = exports_external.object({
     query: exports_external.string().min(1).describe("Either 'select:Name1,Name2' to fetch named tools directly, or a free-text keyword search (matches against tool name + description)."),
     max_results: exports_external.number().int().positive().max(20).optional().describe("Max keyword-search results (default 5). Ignored for select: queries.")
   }).strict();
@@ -24964,7 +24984,7 @@ Query forms:
 - "select:read_persona,list_personas" - fetch these exact tools by name
 - "regex" - keyword search, returns up to max_results best matches
 - "lorebook entry" - multi-word keyword search`,
-    inputSchema: inputSchema87,
+    inputSchema: inputSchema86,
     jsonSchema: {
       type: "object",
       properties: {
@@ -25111,7 +25131,6 @@ var init__registry = __esm(() => {
   init_list_chats_for_character();
   init_list_external();
   init_list_session_edits();
-  init_mark_tool_results();
   init_module_attach();
   init_module_detach();
   init_random_pick();
@@ -25184,7 +25203,6 @@ var init__registry = __esm(() => {
     "custom_tool_list",
     "custom_tool_delete",
     "roll_dice",
-    "mark_tool_results",
     "count_cjk_chars",
     "test_regex",
     "ask_user_question",
@@ -25302,7 +25320,6 @@ var init__registry = __esm(() => {
   registry2.register(listChatsForCharacterTool);
   registry2.register(listExternalTool);
   registry2.register(listSessionEditsTool);
-  registry2.register(markToolResultsTool);
   registry2.register(moduleAttachTool);
   registry2.register(moduleDetachTool);
   registry2.register(randomPickTool);
@@ -25406,8 +25423,8 @@ var init_samplers = __esm(() => {
   ];
   SAMPLER_DEFS = [
     { key: "temperature", label: "Temperature", type: "float", min: 0, max: 2, step: 0.01, defaultHint: 1 },
-    { key: "maxTokens", label: "Max Response", type: "int", min: 1, max: 128000, step: 1, defaultHint: 32768 },
-    { key: "contextSize", label: "Context Size", type: "int", min: 1, max: 2000000, step: 1, defaultHint: 200000 },
+    { key: "maxTokens", label: "Max Response", type: "int", min: 1, max: 128000, step: 1, defaultHint: 65536 },
+    { key: "contextSize", label: "Context Size", type: "int", min: 1, max: 2000000, step: 1, defaultHint: 400000 },
     { key: "topP", label: "Top P", type: "float", min: 0, max: 1, step: 0.01, defaultHint: 0.95 },
     { key: "minP", label: "Min P", type: "float", min: 0, max: 1, step: 0.01, defaultHint: 0 },
     { key: "topK", label: "Top K", type: "int", min: 0, max: 500, step: 1, defaultHint: 0 },
@@ -25458,8 +25475,6 @@ function defaultSettings() {
     jailbreakPlacement: "system_suffix",
     workspaceCapBytes: null,
     toolOutputCapTokens: null,
-    connectionSupportsPromptCaching: true,
-    autoFreeOldToolResults: false,
     cacheMode: "full",
     parallelToolCalls: true
   };
@@ -25495,8 +25510,6 @@ async function loadSettings(spindle2, userId) {
     jailbreakPlacement: coerceJailbreakPlacement(s["jailbreakPlacement"]),
     workspaceCapBytes: coercePositiveInt(s["workspaceCapBytes"]),
     toolOutputCapTokens: coercePositiveInt(s["toolOutputCapTokens"]),
-    connectionSupportsPromptCaching: typeof s["connectionSupportsPromptCaching"] === "boolean" ? s["connectionSupportsPromptCaching"] : true,
-    autoFreeOldToolResults: typeof s["autoFreeOldToolResults"] === "boolean" ? s["autoFreeOldToolResults"] : false,
     cacheMode: coerceCacheMode(s["cacheMode"]),
     parallelToolCalls: typeof s["parallelToolCalls"] === "boolean" ? s["parallelToolCalls"] : true
   };
@@ -25672,7 +25685,8 @@ async function* runLlmStream(spindle2, input) {
 }
 
 // src/agent/cache-control.ts
-var LAG_USER_TURNS = 2;
+var LAG_USER_TURNS = 1;
+var FREED_STUB_PREFIX = "[freed:";
 function systemMessageWithCache(text, mode) {
   if (mode === "off") {
     return { role: "system", content: text };
@@ -25692,10 +25706,36 @@ function withRollingCacheBreakpoint(conv, mode) {
   }
   if (userIdxs.length <= LAG_USER_TURNS)
     return conv;
-  const targetIdx = userIdxs[userIdxs.length - 1 - LAG_USER_TURNS];
+  let candidateUserIdx = userIdxs.length - 1 - LAG_USER_TURNS;
+  const earliestFreedConvIdx = findEarliestFreedConvIdx(conv);
+  if (earliestFreedConvIdx >= 0) {
+    let cap = -1;
+    for (let j = 0;j < userIdxs.length; j++) {
+      if (userIdxs[j] < earliestFreedConvIdx)
+        cap = j;
+      else
+        break;
+    }
+    if (cap < 0)
+      return conv;
+    candidateUserIdx = Math.min(candidateUserIdx, cap);
+  }
+  const targetIdx = userIdxs[candidateUserIdx];
   const out = conv.slice();
   out[targetIdx] = stampCacheControl(out[targetIdx]);
   return out;
+}
+function findEarliestFreedConvIdx(conv) {
+  for (let i = 0;i < conv.length; i++) {
+    const m = conv[i];
+    if (m.role !== "user" || typeof m.content === "string")
+      continue;
+    for (const p of m.content) {
+      if (p.type === "tool_result" && p.content.startsWith(FREED_STUB_PREFIX))
+        return i;
+    }
+  }
+  return -1;
 }
 function isPureToolResult(m) {
   if (typeof m.content === "string")
@@ -25836,12 +25876,20 @@ class RecentReadsCache {
 
 // src/agent/tools.ts
 init__registry();
-function makeInitialToolSchemas() {
-  return registry2.schemas().filter((s) => !isDeferredTool(s.name));
+function passesCharacterGate(name, hasCharacter) {
+  return hasCharacter || !registry2.requiresCharacter(name);
 }
-function makeDeferredToolSchemaMap() {
+function toolRequiresCharacter(name) {
+  return registry2.requiresCharacter(name);
+}
+function makeInitialToolSchemas(hasCharacter = true) {
+  return registry2.schemas().filter((s) => !isDeferredTool(s.name) && passesCharacterGate(s.name, hasCharacter));
+}
+function makeDeferredToolSchemaMap(hasCharacter = true) {
   const out = {};
   for (const name of listDeferredToolNames()) {
+    if (!passesCharacterGate(name, hasCharacter))
+      continue;
     const s = registry2.schemaFor(name);
     if (s)
       out[name] = s;
@@ -25918,7 +25966,7 @@ async function estimateUsage(spindle2, userId, conv, content, reasoning, modelId
   ]);
   return { prompt, completion, total: prompt + completion, estimated: true };
 }
-var DEFAULT_CONTEXT_TOKENS = 128000;
+var DEFAULT_CONTEXT_TOKENS = 400000;
 var DEFAULT_MAX_TURNS = 40;
 var TEXT_TOOL_TAG_NAMES = "(?:invoke|tool_use|tool_call|function_call|function_calls|parameter)";
 var PAIRED_TAG_RX = new RegExp(`<\\s*${TEXT_TOOL_TAG_NAMES}\\b[\\s\\S]*?<\\/\\s*${TEXT_TOOL_TAG_NAMES}\\s*>`, "gi");
@@ -26022,7 +26070,7 @@ async function* runAgent(input) {
       spindle: input.spindle,
       userId: input.userId,
       sessionId: input.sessionId,
-      characterId: input.characterId,
+      characterId: input.characterId ?? "",
       assistantMessageId: input.assistantMessageId,
       pinnedChatId: input.pinnedChatId,
       signal,
@@ -26039,9 +26087,6 @@ async function* runAgent(input) {
       },
       pushLedgerResync: () => {
         buffer.resync = true;
-      },
-      markSensitivity: (callId, sensitivity) => {
-        buffer.sensitivity.push({ callId, sensitivity });
       },
       discoverTools: (names) => {
         for (const n of names) {
@@ -26163,7 +26208,7 @@ async function* runAgent(input) {
     const results = [];
     const newEdits = [];
     const executeOne = async (tc) => {
-      const buffer = { edits: [], reverts: [], resync: false, sensitivity: [] };
+      const buffer = { edits: [], reverts: [], resync: false };
       const fn = input.dispatch[tc.name];
       if (!fn) {
         const msg = `Unknown tool '${tc.name}'. Available: ${Object.keys(input.dispatch).join(", ")}`;
@@ -26224,7 +26269,7 @@ async function* runAgent(input) {
         batches.push({ concurrent, calls: [tc] });
     }
     const drainOutcome = function* (oc) {
-      const editsForCall = oc.buffer.edits.map((rec) => newEditEntry(input.sessionId, input.characterId, oc.tc.call_id, oc.tc.name, turnNum, rec, input.assistantMessageId));
+      const editsForCall = oc.buffer.edits.map((rec) => newEditEntry(input.sessionId, input.characterId ?? "", oc.tc.call_id, oc.tc.name, turnNum, rec, input.assistantMessageId));
       newEdits.push(...editsForCall);
       results.push({ call_id: oc.tc.call_id, name: oc.tc.name, content: oc.resultText, ...oc.isError ? { is_error: true } : {} });
       for (const e of editsForCall)
@@ -26233,17 +26278,12 @@ async function* runAgent(input) {
         yield { type: "revert_logged", editId: r.editId, outcome: r.outcome };
       if (oc.buffer.resync)
         yield { type: "edits_resynced" };
-      for (const o of oc.buffer.sensitivity)
-        yield { type: "sensitivity_override", call_id: o.callId, sensitivity: o.sensitivity };
-      const toolDef = reg.registry.get(oc.tc.name);
-      const sensitivity = toolDef?.defaultSensitivity ?? "insensitive";
       yield {
         type: "tool_finished",
         call_id: oc.tc.call_id,
         result: oc.resultText,
         is_error: oc.isError,
-        edit_ids: editsForCall.map((e) => e.id),
-        sensitivity
+        edit_ids: editsForCall.map((e) => e.id)
       };
     };
     for (const batch of batches) {
@@ -26324,87 +26364,6 @@ async function* runAgent(input) {
   };
 }
 
-// src/agent/auto-free.ts
-var AUTO_FREE_LAG_USER_TURNS = 10;
-function applyAutoFree(llmHistory, messages, enabled, overrides) {
-  if (!enabled)
-    return { llmHistory, messages, freedCount: 0, freedBytes: 0 };
-  const userTurnIdxs = [];
-  for (let i = 0;i < llmHistory.length; i++) {
-    if (llmHistory[i].role === "user" && !isPureToolResult2(llmHistory[i]))
-      userTurnIdxs.push(i);
-  }
-  if (userTurnIdxs.length <= AUTO_FREE_LAG_USER_TURNS)
-    return { llmHistory, messages, freedCount: 0, freedBytes: 0 };
-  const cutoff = userTurnIdxs[userTurnIdxs.length - 1 - AUTO_FREE_LAG_USER_TURNS];
-  const freedIds = new Set;
-  const sensitivityByCallId = new Map;
-  for (const m of messages) {
-    if (m.role !== "assistant")
-      continue;
-    for (const b of m.blocks) {
-      if (b.type === "tool" && !b.freed) {
-        const override = overrides?.[b.call_id];
-        const sens = override ?? b.sensitivity ?? "insensitive";
-        sensitivityByCallId.set(b.call_id, sens);
-      }
-    }
-  }
-  let freedBytes = 0;
-  const newHistory = llmHistory.slice();
-  for (let i = 0;i <= cutoff; i++) {
-    const m = newHistory[i];
-    if (m.role !== "user" || typeof m.content === "string")
-      continue;
-    const parts = m.content;
-    let mutated = false;
-    const nextParts = parts.map((p) => {
-      if (p.type !== "tool_result")
-        return p;
-      const sens = sensitivityByCallId.get(p.tool_use_id);
-      if (sens !== "insensitive")
-        return p;
-      if (p.content.startsWith("[freed:"))
-        return p;
-      const originalChars = p.content.length;
-      freedBytes += originalChars;
-      freedIds.add(p.tool_use_id);
-      mutated = true;
-      return {
-        type: "tool_result",
-        tool_use_id: p.tool_use_id,
-        content: `[freed: tool result was ${originalChars} chars, auto-freed after ${AUTO_FREE_LAG_USER_TURNS} user turns. The model cannot reference this content. Re-call the tool if needed.]`,
-        ...p.is_error ? { is_error: true } : {}
-      };
-    });
-    if (mutated)
-      newHistory[i] = { ...m, content: nextParts };
-  }
-  if (freedIds.size === 0)
-    return { llmHistory, messages, freedCount: 0, freedBytes: 0 };
-  const newMessages = messages.map((m) => {
-    if (m.role !== "assistant")
-      return m;
-    let touched = false;
-    const nextBlocks = m.blocks.map((b) => {
-      if (b.type === "tool" && freedIds.has(b.call_id) && !b.freed) {
-        touched = true;
-        return { ...b, freed: true };
-      }
-      return b;
-    });
-    if (!touched)
-      return m;
-    return { ...m, blocks: nextBlocks };
-  });
-  return { llmHistory: newHistory, messages: newMessages, freedCount: freedIds.size, freedBytes };
-}
-function isPureToolResult2(m) {
-  if (typeof m.content === "string")
-    return false;
-  return m.content.length > 0 && m.content.every((p) => p.type === "tool_result");
-}
-
 // src/tasks/general.ts
 function buildGeneralSystemPrompt(params) {
   const extensionSection = params.extensionSystemPrompts.trim().length > 0 ? `
@@ -26451,7 +26410,7 @@ ${surfaceLines}`;
 ---
 
 ` : "";
-  const contextLine = `Active character: "${params.characterName}".`;
+  const contextLine = params.characterName.trim().length > 0 ? `Active character: "${params.characterName}".` : "No character is selected, so card / chat / ledger / external-provider tools are unavailable; if the user wants work on a specific character, tell them to switch to that character's chat (you can write `workspace/HANDOFF.md` first summarising what they want done so the next agent can pick it up).";
   const body = params.systemPromptOverride !== null && params.systemPromptOverride.trim().length > 0 ? params.systemPromptOverride : BUILTIN_PROMPT_BODY;
   return `${personaBlock}${contextLine}
 
@@ -26511,8 +26470,6 @@ Flow for "translate the third greeting":
 If you find yourself making more than 2-3 \`edit\` calls on one field, switch to \`rewrite\`. Wholesale rewrites are ONE call. If a rewrite is huge and risky, sketch a paragraph, ask "apply this style?", pause.
 
 **Draft handles.** If a write tool fails after you sent a large payload, the error includes a handle like tmp_xyz123. Next call, pass the matching *_handle field instead of re-emitting (\`rewrite\` \u2192 new_content_handle, \`edit\` \u2192 replace_handle, \`fs_write\` \u2192 content_handle). Handle is good for the session.
-
-**Tool-result sensitivity.** Results auto-classified sensitive (read_* / grep_* / survey_cjk / tmp_*) or insensitive (everything else). On non-cached models, insensitive results auto-free after 10 user turns. Override with \`mark_tool_results({call_ids, sensitivity})\` \u2014 mark old reads insensitive once you're done with them, mark sticky context sensitive.
 
 # Talking to the user
 
@@ -26872,6 +26829,8 @@ async function resolveExternalProviders(userId) {
   }
 }
 async function resolveExtensionSystemPrompts(userId, characterId) {
+  if (characterId === null)
+    return "";
   try {
     const { fetchSystemPromptContributions: fetchSystemPromptContributions2 } = await Promise.resolve().then(() => (init_prompt(), exports_prompt));
     const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
@@ -26922,14 +26881,15 @@ async function buildSessionSystemMessage(c, s, settings, userId) {
   if (s.frozenAgentNotes === undefined) {
     s.frozenAgentNotes = await loadAgentNotes(userId);
   }
+  const hasCharacter = c !== null;
   let prompt = buildGeneralSystemPrompt({
-    characterName: c.name,
-    externalProviders: await resolveExternalProviders(userId),
-    extensionSystemPrompts: await resolveExtensionSystemPrompts(userId, c.id),
+    characterName: hasCharacter ? c.name : "",
+    externalProviders: hasCharacter ? await resolveExternalProviders(userId) : [],
+    extensionSystemPrompts: await resolveExtensionSystemPrompts(userId, hasCharacter ? c.id : null),
     persona: settings.persona,
     systemPromptOverride: settings.systemPromptOverride,
     agentNotes: s.frozenAgentNotes,
-    deferredToolNames: listDeferredToolNames()
+    deferredToolNames: listDeferredToolNames().filter((n) => hasCharacter || !toolRequiresCharacter(n))
   });
   if (settings.jailbreak.trim().length > 0 && settings.jailbreakPlacement === "system_suffix") {
     prompt = `${prompt}
@@ -26964,8 +26924,6 @@ async function handleGetSettings(userId) {
     workspaceFileCapBytes: WORKSPACE_FILE_CAP_BYTES,
     toolOutputCapTokens: settings.toolOutputCapTokens,
     toolOutputCapDefaultTokens: DEFAULT_TOOL_OUTPUT_CAP_TOKENS,
-    connectionSupportsPromptCaching: settings.connectionSupportsPromptCaching,
-    autoFreeOldToolResults: settings.autoFreeOldToolResults,
     cacheMode: settings.cacheMode,
     parallelToolCalls: settings.parallelToolCalls
   }, userId);
@@ -26993,7 +26951,7 @@ async function resolveModelForConnection(connectionId, userId) {
     return;
   }
 }
-async function handleUpdateSettings(persona, systemPromptOverride, samplers, jailbreak, jailbreakPlacement, workspaceCapBytes, toolOutputCapTokens, connectionSupportsPromptCaching, autoFreeOldToolResults, cacheMode, parallelToolCalls, userId) {
+async function handleUpdateSettings(persona, systemPromptOverride, samplers, jailbreak, jailbreakPlacement, workspaceCapBytes, toolOutputCapTokens, cacheMode, parallelToolCalls, userId) {
   await saveSettings(spindle, {
     version: 3,
     persona: persona.length > 0 ? persona : DEFAULT_PERSONA,
@@ -27003,8 +26961,6 @@ async function handleUpdateSettings(persona, systemPromptOverride, samplers, jai
     jailbreakPlacement,
     workspaceCapBytes,
     toolOutputCapTokens,
-    connectionSupportsPromptCaching,
-    autoFreeOldToolResults,
     cacheMode,
     parallelToolCalls
   }, userId);
@@ -27116,7 +27072,7 @@ function emitContextUsage(s, contextTokens, userId) {
 }
 function resolveContextTokens(samplers) {
   const v = samplers["contextSize"];
-  return typeof v === "number" && v > 0 ? v : 128000;
+  return typeof v === "number" && v > 0 ? v : 400000;
 }
 function shouldAutoCompact(s, samplers) {
   const promptTokens = s.lastPromptTokens ?? 0;
@@ -27156,10 +27112,13 @@ async function compactSession(sessionId, userId, trigger) {
     send({ type: "ws_error", error: "Session not found." }, userId);
     return;
   }
-  const c = await spindle.characters.get(s.characterId, userId);
-  if (!c) {
-    send({ type: "ws_error", error: "Character not found." }, userId);
-    return;
+  let c = null;
+  if (s.characterId !== null) {
+    c = await spindle.characters.get(s.characterId, userId);
+    if (!c) {
+      send({ type: "ws_error", error: "Character not found." }, userId);
+      return;
+    }
   }
   send({ type: "compaction_started", sessionId }, userId);
   const settings = await loadSettings(spindle, userId);
@@ -27171,8 +27130,9 @@ async function compactSession(sessionId, userId, trigger) {
     const systemMsg = await buildSessionSystemMessage(c, s, settings, userId);
     const compactPrompt = buildCompactionInstruction(maxHandoffChars);
     const conv = [systemMsg, ...s.llmHistory, { role: "user", content: compactPrompt }];
-    const tools = makeInitialToolSchemas();
-    const deferredToolSchemas = makeDeferredToolSchemaMap();
+    const hasCharacter = s.characterId !== null;
+    const tools = makeInitialToolSchemas(hasCharacter);
+    const deferredToolSchemas = makeDeferredToolSchemaMap(hasCharacter);
     const dispatch = makeToolDispatch();
     const samplerParams = { ...samplersToWireWithRequired(settings.samplers), parallel_tool_calls: settings.parallelToolCalls };
     const assistantId = makeId("msg");
@@ -27606,19 +27566,23 @@ async function handleLoadSession(sessionId, userId) {
   }, userId);
 }
 async function handleStartSession(sessionId, characterId, connectionId, userId) {
-  log("info", `start_session sessionId=${sessionId} characterId=${characterId}`);
+  log("info", `start_session sessionId=${sessionId} characterId=${characterId ?? "(none)"}`);
   try {
-    const c = await spindle.characters.get(characterId, userId);
-    if (!c) {
-      send({ type: "generation_error", sessionId, error: `character ${characterId} not found` }, userId);
-      return;
+    let characterName = "";
+    if (characterId !== null) {
+      const c = await spindle.characters.get(characterId, userId);
+      if (!c) {
+        send({ type: "generation_error", sessionId, error: `character ${characterId} not found` }, userId);
+        return;
+      }
+      characterName = c.name;
     }
     const { ensureSystemFiles: ensureSystemFiles2 } = await Promise.resolve().then(() => (init_system_files(), exports_system_files));
     await ensureSystemFiles2(spindle, userId).catch((e) => log("warn", `ensureSystemFiles failed: ${e.message}`));
     const s = newSession({
       sessionId,
       characterId,
-      characterName: c.name,
+      characterName,
       connectionId: connectionId ?? null
     });
     pendingSessions.set(sessionId, s);
@@ -27626,7 +27590,7 @@ async function handleStartSession(sessionId, characterId, connectionId, userId) 
       type: "session_started",
       sessionId,
       characterId,
-      characterName: c.name,
+      characterName,
       createdAt: s.createdAt
     }, userId);
   } catch (err) {
@@ -27965,6 +27929,10 @@ async function handleRevertSession(sessionId, userId) {
     send({ type: "generation_error", sessionId, error: "session not found" }, userId);
     return;
   }
+  if (s.characterId === null) {
+    send({ type: "session_reverted", sessionId, entriesRestored: 0, entriesFailed: 0, scriptsRestored: 0, scriptsFailed: 0 }, userId);
+    return;
+  }
   const sessionEditIds = [...s.edits].filter((e) => !e.reverted).map((e) => e.id).reverse();
   const r = await revertEditsBatch(s.characterId, s.edits.filter((e) => sessionEditIds.includes(e.id)).reverse(), userId);
   for (const edit of s.edits)
@@ -28050,7 +28018,7 @@ async function handleDeleteMessage(sessionId, messageId, editsAction, userId) {
   const target = s.messages[idx];
   if (target.role === "assistant" && editsAction === "revert") {
     const editsToRevert = s.edits.filter((e) => e.assistantMessageId === target.id && !e.reverted);
-    if (editsToRevert.length > 0) {
+    if (editsToRevert.length > 0 && s.characterId !== null) {
       await revertEditsBatch(s.characterId, editsToRevert, userId);
       for (const e of s.edits)
         if (editsToRevert.some((x) => x.id === e.id)) {
@@ -28134,7 +28102,7 @@ async function handleEditUserMessage(sessionId, messageId, newContent, editsActi
   }
   const tailMessageIds = new Set(s.messages.slice(idx + 1).filter((m) => m.role === "assistant").map((m) => m.id));
   const editsToReview = s.edits.filter((e) => e.assistantMessageId !== undefined && tailMessageIds.has(e.assistantMessageId) && !e.reverted);
-  if (editsAction === "revert" && editsToReview.length > 0) {
+  if (editsAction === "revert" && editsToReview.length > 0 && s.characterId !== null) {
     await revertEditsBatch(s.characterId, editsToReview, userId);
     for (const e of s.edits)
       if (editsToReview.some((x) => x.id === e.id)) {
@@ -28177,7 +28145,7 @@ async function handleRegenerateAssistant(sessionId, assistantMessageId, editsAct
   }
   const tailMessageIds = new Set(s.messages.slice(idx).filter((m) => m.role === "assistant").map((m) => m.id));
   const editsToReview = s.edits.filter((e) => e.assistantMessageId !== undefined && tailMessageIds.has(e.assistantMessageId) && !e.reverted);
-  if (editsAction === "revert" && editsToReview.length > 0) {
+  if (editsAction === "revert" && editsToReview.length > 0 && s.characterId !== null) {
     await revertEditsBatch(s.characterId, editsToReview, userId);
     for (const e of s.edits)
       if (editsToReview.some((x) => x.id === e.id)) {
@@ -28195,29 +28163,26 @@ async function handleSendMessageInternal(s, userId, connectionIdOverride) {
   if (connectionIdOverride && s.connectionId !== connectionIdOverride) {
     s.connectionId = connectionIdOverride;
   }
-  const c = await spindle.characters.get(s.characterId, userId);
-  if (!c) {
-    send({ type: "generation_error", sessionId: s.sessionId, error: `character ${s.characterId} not found` }, userId);
-    return;
+  let c = null;
+  if (s.characterId !== null) {
+    c = await spindle.characters.get(s.characterId, userId);
+    if (!c) {
+      send({ type: "generation_error", sessionId: s.sessionId, error: `character ${s.characterId} not found` }, userId);
+      return;
+    }
   }
   const ac = new AbortController;
   activeSessions.set(s.sessionId, ac);
   const settings = await loadSettings(spindle, userId);
-  const autoFreeInternal = applyAutoFree(s.llmHistory, s.messages, settings.autoFreeOldToolResults, s.sensitivityOverrides);
-  if (autoFreeInternal.freedCount > 0) {
-    s.llmHistory = autoFreeInternal.llmHistory;
-    s.messages = autoFreeInternal.messages;
-    await saveSession(spindle, s, userId);
-    send({ type: "auto_freed", sessionId: s.sessionId, count: autoFreeInternal.freedCount, bytes: autoFreeInternal.freedBytes }, userId);
-  }
   const systemMsg = await buildSessionSystemMessage(c, s, settings, userId);
   const conv = [systemMsg, ...s.llmHistory];
   applyJailbreakNonSystem(conv, settings);
   const assistantId = makeId("msg");
   const assistant = { id: assistantId, role: "assistant", ts: Date.now(), turn: 0, blocks: [], status: "streaming" };
   s.messages.push(assistant);
-  const tools = makeInitialToolSchemas();
-  const deferredToolSchemas = makeDeferredToolSchemaMap();
+  const hasCharacter = s.characterId !== null;
+  const tools = makeInitialToolSchemas(hasCharacter);
+  const deferredToolSchemas = makeDeferredToolSchemaMap(hasCharacter);
   const dispatch = makeToolDispatch();
   const samplerParams = { ...samplersToWireWithRequired(settings.samplers), parallel_tool_calls: settings.parallelToolCalls };
   let currentTextBlock = null;
@@ -28285,16 +28250,18 @@ async function handleSendMessageInternal(s, userId, connectionIdOverride) {
             block.result = ev.result;
             block.is_error = ev.is_error;
             block.edit_ids = [...ev.edit_ids];
-            if (ev.sensitivity)
-              block.sensitivity = ev.sensitivity;
           }
           break;
         }
         case "edit_logged":
+          if (s.characterId === null)
+            break;
           s.edits.push(ev.entry);
           appendEntries(spindle, s.characterId, [ev.entry], userId).catch((e) => log("warn", `ledger append failed: ${e.message}`));
           break;
         case "revert_logged": {
+          if (s.characterId === null)
+            break;
           if (ev.outcome.kind === "clean" || ev.outcome.kind === "noop_already_reverted") {
             const idsToMark = new Set([ev.editId]);
             if (ev.outcome.kind === "clean" && ev.outcome.cascadedEditIds) {
@@ -28312,21 +28279,10 @@ async function handleSendMessageInternal(s, userId, connectionIdOverride) {
           break;
         }
         case "edits_resynced": {
-          loadLedger(spindle, s.characterId, userId).then((l) => send({ type: "character_edits_pushed", characterId: s.characterId, entries: entriesView(l) }, userId)).catch((e) => log("warn", `edits resync failed: ${e.message}`));
-          break;
-        }
-        case "sensitivity_override": {
-          if (!s.sensitivityOverrides)
-            s.sensitivityOverrides = {};
-          s.sensitivityOverrides[ev.call_id] = ev.sensitivity;
-          for (const m of s.messages) {
-            if (m.role !== "assistant")
-              continue;
-            for (const b of m.blocks) {
-              if (b.type === "tool" && b.call_id === ev.call_id)
-                b.sensitivity = ev.sensitivity;
-            }
-          }
+          if (s.characterId === null)
+            break;
+          const charId = s.characterId;
+          loadLedger(spindle, charId, userId).then((l) => send({ type: "character_edits_pushed", characterId: charId, entries: entriesView(l) }, userId)).catch((e) => log("warn", `edits resync failed: ${e.message}`));
           break;
         }
         case "warning":
@@ -28365,7 +28321,8 @@ async function handleSendMessageInternal(s, userId, connectionIdOverride) {
   if (ac.signal.aborted && !errored)
     assistant.status = "cancelled";
   await saveSession(spindle, s, userId);
-  await autosquashAndNotify(s.characterId, assistantId, userId);
+  if (s.characterId !== null)
+    await autosquashAndNotify(s.characterId, assistantId, userId);
   if (ac.signal.aborted)
     send({ type: "generation_cancelled", sessionId: s.sessionId }, userId);
   else if (!errored) {
@@ -28459,7 +28416,7 @@ spindle.onFrontendMessage(async (raw, userId) => {
         await handleGetSettings(userId);
         return;
       case "update_settings":
-        await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.connectionSupportsPromptCaching ?? true, msg.autoFreeOldToolResults ?? false, msg.cacheMode ?? "full", msg.parallelToolCalls ?? true, userId);
+        await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.cacheMode ?? "full", msg.parallelToolCalls ?? true, userId);
         return;
       case "get_ui_prefs":
         await handleGetUiPrefs(userId);

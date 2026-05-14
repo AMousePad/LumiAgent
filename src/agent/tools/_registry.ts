@@ -44,7 +44,6 @@ import { listChatMessagesTool } from "./list-chat-messages";
 import { listChatsForCharacterTool } from "./list-chats-for-character";
 import { listExternalTool } from "./list-external";
 import { listSessionEditsTool } from "./list-session-edits";
-import { markToolResultsTool } from "./mark-tool-results";
 import { moduleAttachTool } from "./module-attach";
 import { moduleDetachTool } from "./module-detach";
 import { randomPickTool } from "./random-pick";
@@ -115,7 +114,7 @@ const DEFERRED_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   // Custom-tool authoring. custom_tool_run stays loaded; saved recipes are rare.
   "custom_tool_save", "custom_tool_list", "custom_tool_delete",
   // Genuinely-niche utilities.
-  "roll_dice", "mark_tool_results", "count_cjk_chars", "test_regex",
+  "roll_dice", "count_cjk_chars", "test_regex",
   // Mid-task user prompt, rare.
   "ask_user_question",
   // LumiRealm-specific mutations. Each is rare per session; deferred until
@@ -245,7 +244,6 @@ registry.register(listChatMessagesTool);
 registry.register(listChatsForCharacterTool);
 registry.register(listExternalTool);
 registry.register(listSessionEditsTool);
-registry.register(markToolResultsTool);
 registry.register(moduleAttachTool);
 registry.register(moduleDetachTool);
 registry.register(randomPickTool);

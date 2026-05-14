@@ -38,6 +38,7 @@ Returns: a plain string body. Most of the time that's line-numbered text (\`   1
     additionalProperties: false,
   },
   defaultSensitivity: "sensitive",
+  requiresCharacter: true,
   execute: async (input, ctx) => {
     let leaf;
     try { leaf = await resolveRead(ctx, input.path); }

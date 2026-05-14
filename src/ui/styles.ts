@@ -351,6 +351,8 @@ ${LOADERS_CSS}
 }
 
 .la-settings-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.la-settings-row.is-disabled { opacity: 0.55; }
+.la-settings-row.is-disabled .la-settings-row-label { color: var(--lumiverse-text-muted); }
 .la-settings-row-label {
   font-size: 12px; color: var(--lumiverse-text-muted);
 }

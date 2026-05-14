@@ -73,6 +73,7 @@ Usage:
     required: [],
   },
   defaultSensitivity: "sensitive",
+  requiresCharacter: true,
   execute: async (input, ctx) => {
     const requested = input.chat_id;
     if (requested === undefined || requested === "pinned") {

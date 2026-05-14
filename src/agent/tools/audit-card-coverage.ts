@@ -245,6 +245,7 @@ Sorted by match_chars descending so the worst offenders surface first.`,
     additionalProperties: false,
   },
   defaultSensitivity: "sensitive",
+  requiresCharacter: true,
   execute: async (input, ctx) => {
     const langKey = input.source_lang ?? "cjk";
     const minChars = input.min_chars ?? 1;

@@ -112,6 +112,7 @@ Scoping:
     additionalProperties: false,
   },
   defaultSensitivity: "sensitive",
+  requiresCharacter: true,
   execute: async (input, ctx) => {
     const cap = Math.min(GREP_MAX_CAP, Math.max(1, Math.floor(input.max_matches ?? GREP_DEFAULT_MAX)));
     const perLineCap = Math.max(1, Math.floor(input.max_hits_per_line ?? GREP_DEFAULT_HITS_PER_LINE));

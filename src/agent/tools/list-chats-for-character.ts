@@ -9,6 +9,7 @@ export const listChatsForCharacterTool = defineTool({
   inputSchema,
   jsonSchema: { type: "object", properties: {}, required: [] },
   defaultSensitivity: "insensitive",
+  requiresCharacter: true,
   execute: async (_input, ctx) => {
     let active: { id: string } | null = null;
     try { active = await ctx.spindle.chats.getActive(ctx.userId) ?? null; } catch { /* permission may not be granted */ }

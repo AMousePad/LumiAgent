@@ -10,6 +10,11 @@ export interface ExternalProviderSummary {
 }
 
 export interface GeneralPromptParams {
+  // Empty string means no character is selected. The prompt swaps the active-
+  // character context line for a one-sentence no-character notice; tool
+  // filtering keeps the agent from calling card / chat / ledger / external
+  // tools in that mode, so the rest of the body's instructions about them
+  // become unreachable rather than misleading.
   readonly characterName: string;
   readonly externalProviders: readonly ExternalProviderSummary[];
   // Already-concatenated system-prompt fragments fetched from each discovered
@@ -75,7 +80,9 @@ export function buildGeneralSystemPrompt(params: GeneralPromptParams): string {
     ? `${params.persona.trim()}\n\n---\n\n`
     : "";
 
-  const contextLine = `Active character: "${params.characterName}".`;
+  const contextLine = params.characterName.trim().length > 0
+    ? `Active character: "${params.characterName}".`
+    : "No character is selected, so card / chat / ledger / external-provider tools are unavailable; if the user wants work on a specific character, tell them to switch to that character's chat (you can write `workspace/HANDOFF.md` first summarising what they want done so the next agent can pick it up).";
 
   const body = params.systemPromptOverride !== null && params.systemPromptOverride.trim().length > 0
     ? params.systemPromptOverride
@@ -140,8 +147,6 @@ Flow for "translate the third greeting":
 If you find yourself making more than 2-3 \`edit\` calls on one field, switch to \`rewrite\`. Wholesale rewrites are ONE call. If a rewrite is huge and risky, sketch a paragraph, ask "apply this style?", pause.
 
 **Draft handles.** If a write tool fails after you sent a large payload, the error includes a handle like tmp_xyz123. Next call, pass the matching *_handle field instead of re-emitting (\`rewrite\` → new_content_handle, \`edit\` → replace_handle, \`fs_write\` → content_handle). Handle is good for the session.
-
-**Tool-result sensitivity.** Results auto-classified sensitive (read_* / grep_* / survey_cjk / tmp_*) or insensitive (everything else). On non-cached models, insensitive results auto-free after 10 user turns. Override with \`mark_tool_results({call_ids, sensitivity})\` — mark old reads insensitive once you're done with them, mark sticky context sensitive.
 
 # Talking to the user
 

@@ -24,6 +24,7 @@ export const listChatMessagesTool = defineTool({
     required: [],
   },
   defaultSensitivity: "insensitive",
+  requiresCharacter: true,
   execute: async (input, ctx) => {
     let chatId = input.chat_id;
     if (!chatId) {

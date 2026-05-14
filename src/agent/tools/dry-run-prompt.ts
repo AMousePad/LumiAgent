@@ -24,6 +24,7 @@ export const dryRunPromptTool = defineTool({
     required: [],
   },
   defaultSensitivity: "sensitive",
+  requiresCharacter: true,
   execute: async (input, ctx) => {
     const chatId = input.chat_id ?? ctx.pinnedChatId;
     if (!chatId) {

@@ -30,6 +30,7 @@ Wraps the \`attach_module\` WS op so artifact install + refresh hooks fire.`,
     required: ["character_id", "module_id"],
   },
   defaultSensitivity: "insensitive",
+  requiresCharacter: true,
   execute: async (input, ctx) => {
     const provider = await findLumirealm(ctx);
     if (!provider) return { content: "Error: LumiRealm phone line not available (not installed or consent denied).", isError: true };
