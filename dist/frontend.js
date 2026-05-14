@@ -8720,8 +8720,9 @@ Revert those edits to the character now, or leave them applied?`;
     }
   });
   const rollingAnchorId = () => {
-    const mode = state.settings?.cacheMode ?? "full";
-    if (mode !== "full")
+    const conn = state.connections.find((c) => c.id === state.connectionId);
+    const isAnthropic = (conn?.provider ?? "").toLowerCase().startsWith("anthropic");
+    if (isAnthropic && (state.settings?.cacheMode ?? "full") !== "full")
       return null;
     const userMsgs = state.messages.filter((m) => m.role === "user");
     if (userMsgs.length <= 2)

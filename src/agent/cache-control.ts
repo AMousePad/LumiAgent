@@ -1,8 +1,16 @@
 import type { LlmMessage } from "../types";
 
-// Anchor on the latest-but-one user turn. Anthropic pays write premium on
-// the small per-turn delta, in exchange for almost everything staying cached.
+// Primary anchor on the latest-but-one user turn. Anthropic pays write
+// premium on the small per-turn delta, in exchange for almost everything
+// staying cached.
 const LAG_USER_TURNS = 1;
+
+// Deeper rolling anchors, measured as additional lag past LAG_USER_TURNS.
+// Anchors at N-1, N-4, N-7. Sub-prefixes of the primary anchor, so the
+// shared bytes write once (Anthropic dedupes cache_creation_input_tokens
+// across markers within the same prefix). Each deeper anchor turns an
+// edit-at-recent-turn from a full-prefix rebuild into a delta rebuild.
+const ADDITIONAL_LAGS = [3, 6] as const;
 
 // Anchoring at-or-after a freed stub would write a cache snapshot that
 // diverges from the un-mutated prefix earlier sends cached.
@@ -21,8 +29,9 @@ export function systemMessageWithCache(text: string, mode: CacheMode): LlmMessag
   };
 }
 
-// Rolling breakpoint on the (current - LAG_USER_TURNS)-th user turn, or
-// earlier if a freed stub forces the anchor back. Active only in "full".
+// Rolling breakpoints on user turns N-1, N-4, N-7. A freed stub between
+// anchors drops the ones past it, leaving the deeper survivors as live
+// fallback cache hits. Active only in "full".
 export function withRollingCacheBreakpoint(conv: LlmMessage[], mode: CacheMode): LlmMessage[] {
   if (mode !== "full") return conv;
 
@@ -32,24 +41,33 @@ export function withRollingCacheBreakpoint(conv: LlmMessage[], mode: CacheMode):
   }
   if (userIdxs.length <= LAG_USER_TURNS) return conv;
 
-  let candidateUserIdx = userIdxs.length - 1 - LAG_USER_TURNS;
+  const primaryUserIdx = userIdxs.length - 1 - LAG_USER_TURNS;
 
-  // Anchor must sit strictly before any freed stub so the cache write
-  // captures only bytes that won't mutate later.
+  // Each anchor must sit strictly before any freed stub so the cache write
+  // captures only bytes that won't mutate later. Anchors past the stub get
+  // DROPPED, not clamped, so surviving deeper anchors keep their natural
+  // positions instead of all collapsing onto the same fallback point.
   const earliestFreedConvIdx = findEarliestFreedConvIdx(conv);
-  if (earliestFreedConvIdx >= 0) {
-    let cap = -1;
-    for (let j = 0; j < userIdxs.length; j++) {
-      if (userIdxs[j]! < earliestFreedConvIdx) cap = j;
-      else break;
-    }
-    if (cap < 0) return conv;
-    candidateUserIdx = Math.min(candidateUserIdx, cap);
-  }
+  const isAlive = (userIdx: number): boolean => {
+    if (userIdx < 0) return false;
+    if (earliestFreedConvIdx < 0) return true;
+    return userIdxs[userIdx]! < earliestFreedConvIdx;
+  };
 
-  const targetIdx = userIdxs[candidateUserIdx]!;
+  const candidates: number[] = [];
+  const pushIf = (idx: number): void => {
+    if (!isAlive(idx)) return;
+    if (!candidates.includes(idx)) candidates.push(idx);
+  };
+  pushIf(primaryUserIdx);
+  for (const extra of ADDITIONAL_LAGS) pushIf(primaryUserIdx - extra);
+  if (candidates.length === 0) return conv;
+
   const out = conv.slice();
-  out[targetIdx] = stampCacheControl(out[targetIdx]!);
+  for (const userIdx of candidates) {
+    const targetIdx = userIdxs[userIdx]!;
+    out[targetIdx] = stampCacheControl(out[targetIdx]!);
+  }
   return out;
 }
 

@@ -96,7 +96,10 @@ export async function resolveRead(ctx: ToolCtx, path: string): Promise<ResolvedL
       if (extPath.length === 0) throw new PathError(path, "extensions requires a sub-path");
       const segs = parseExtensionPath(extPath);
       const v = getAtPath(c.extensions ?? {}, segs);
-      if (typeof v !== "string") throw new PathError(path, `extension path resolves to ${typeof v}, not string`);
+      if (typeof v !== "string") {
+        const shape = Array.isArray(v) ? "array" : typeof v;
+        throw new PathError(path, `extension path resolves to ${shape}, not string. Use \`list({path: "char/extensions/${extPath}"})\` to walk its structure, or \`set({path, value})\` to write the whole subtree.`);
+      }
       return {
         key: `char/extensions/${extPath}`,
         surface: "extension",

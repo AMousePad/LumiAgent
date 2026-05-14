@@ -25600,6 +25600,7 @@ async function* runLlmStream(spindle2, input) {
 
 // src/agent/cache-control.ts
 var LAG_USER_TURNS = 1;
+var ADDITIONAL_LAGS = [3, 6];
 var FREED_STUB_PREFIX = "[freed:";
 function systemMessageWithCache(text, mode) {
   if (mode === "off") {
@@ -25620,23 +25621,32 @@ function withRollingCacheBreakpoint(conv, mode) {
   }
   if (userIdxs.length <= LAG_USER_TURNS)
     return conv;
-  let candidateUserIdx = userIdxs.length - 1 - LAG_USER_TURNS;
+  const primaryUserIdx = userIdxs.length - 1 - LAG_USER_TURNS;
   const earliestFreedConvIdx = findEarliestFreedConvIdx(conv);
-  if (earliestFreedConvIdx >= 0) {
-    let cap = -1;
-    for (let j = 0;j < userIdxs.length; j++) {
-      if (userIdxs[j] < earliestFreedConvIdx)
-        cap = j;
-      else
-        break;
-    }
-    if (cap < 0)
-      return conv;
-    candidateUserIdx = Math.min(candidateUserIdx, cap);
-  }
-  const targetIdx = userIdxs[candidateUserIdx];
+  const isAlive = (userIdx) => {
+    if (userIdx < 0)
+      return false;
+    if (earliestFreedConvIdx < 0)
+      return true;
+    return userIdxs[userIdx] < earliestFreedConvIdx;
+  };
+  const candidates = [];
+  const pushIf = (idx) => {
+    if (!isAlive(idx))
+      return;
+    if (!candidates.includes(idx))
+      candidates.push(idx);
+  };
+  pushIf(primaryUserIdx);
+  for (const extra of ADDITIONAL_LAGS)
+    pushIf(primaryUserIdx - extra);
+  if (candidates.length === 0)
+    return conv;
   const out = conv.slice();
-  out[targetIdx] = stampCacheControl(out[targetIdx]);
+  for (const userIdx of candidates) {
+    const targetIdx = userIdxs[userIdx];
+    out[targetIdx] = stampCacheControl(out[targetIdx]);
+  }
   return out;
 }
 function findEarliestFreedConvIdx(conv) {

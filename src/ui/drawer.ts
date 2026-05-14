@@ -1864,11 +1864,15 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   });
 
   // Returns the id of the user message that's currently the rolling cache
-  // anchor (2 user-turns behind the latest). Null when conversation is too
-  // short to lag or caching is off.
+  // anchor (2 user-turns behind the latest). Anthropic-only gate on
+  // cacheMode, because that setting only governs cache_control marker
+  // stamping. Other providers (OpenAI, DeepSeek, Gemini, OpenRouter routes
+  // to them) auto-cache the prompt prefix upstream regardless, so the
+  // visual cue should still appear.
   const rollingAnchorId = (): string | null => {
-    const mode = state.settings?.cacheMode ?? "full";
-    if (mode !== "full") return null;
+    const conn = state.connections.find((c) => c.id === state.connectionId);
+    const isAnthropic = (conn?.provider ?? "").toLowerCase().startsWith("anthropic");
+    if (isAnthropic && (state.settings?.cacheMode ?? "full") !== "full") return null;
     const userMsgs = state.messages.filter((m) => m.role === "user");
     if (userMsgs.length <= 2) return null;
     return userMsgs[userMsgs.length - 1 - 2]?.id ?? null;
