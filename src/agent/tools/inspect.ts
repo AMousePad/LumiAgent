@@ -234,7 +234,6 @@ One tool, one path argument.`,
     required: ["path"],
     additionalProperties: false,
   },
-  defaultSensitivity: "insensitive",
   requiresCharacter: true,
   execute: async (input, ctx) => {
     const path = input.path.trim();

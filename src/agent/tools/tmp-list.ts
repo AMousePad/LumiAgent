@@ -8,7 +8,6 @@ export const tmpListTool = defineTool({
   description: "List active tmp handles for this user across all sessions. Returns newest-first with handle, origin, total_chars, total_lines, createdAt. Per-user cap is 50 files OR 30MB; oldest are auto-evicted on the next spill.",
   inputSchema,
   jsonSchema: { type: "object", properties: {}, required: [] },
-  defaultSensitivity: "insensitive",
   execute: async (_input, ctx) => {
     const { listAllTmpForUser, TMP_MAX_FILES_PER_USER, TMP_MAX_BYTES_PER_USER } = await import("../../state/tmp-store");
     const entries = await listAllTmpForUser(ctx.spindle, ctx.userId);

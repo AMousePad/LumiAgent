@@ -28,7 +28,6 @@ Usage:
     required: ["edit_ids"],
     additionalProperties: false,
   },
-  defaultSensitivity: "insensitive",
   requiresCharacter: true,
   execute: async (input, ctx) => {
     const allowCrossSession = input.allow_cross_session === true;

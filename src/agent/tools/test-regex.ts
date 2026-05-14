@@ -20,7 +20,6 @@ export const testRegexTool = defineTool({
     },
     required: ["pattern", "sample"],
   },
-  defaultSensitivity: "insensitive",
   execute: async (input) => {
     const flags = input.flags ?? "";
     let re: RegExp;

@@ -14,7 +14,6 @@ export const finishTool = defineTool({
     properties: { summary: { type: "string" } },
     required: ["summary"],
   },
-  defaultSensitivity: "insensitive",
   execute: async (input, ctx) => {
     ctx.setFinished(input.summary);
     return { content: "OK. Task marked complete." };

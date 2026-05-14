@@ -17,7 +17,6 @@ export const fsListTool = defineTool({
     },
     required: [],
   },
-  defaultSensitivity: "insensitive",
   execute: async (input, ctx) => {
     const ws = await import("../../state/workspace");
     const path = input.path ?? "";

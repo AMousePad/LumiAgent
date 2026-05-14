@@ -31,7 +31,6 @@ Toggle DEFINITIONS (what toggles exist, what type, what default) live in module 
     },
     required: ["chat_id", "key", "value"],
   },
-  defaultSensitivity: "insensitive",
   requiresCharacter: true,
   execute: async (input, ctx) => {
     const provider = await findLumirealm(ctx);

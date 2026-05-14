@@ -16,7 +16,6 @@ export const readConnectionTool = defineTool({
     },
     required: ["connection_id"],
   },
-  defaultSensitivity: "insensitive",
   execute: async (input, ctx) => {
     try {
       const c = await ctx.spindle.connections.get(input.connection_id, ctx.userId);

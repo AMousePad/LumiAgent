@@ -36,7 +36,6 @@ export const grepChatMessagesTool = defineTool({
     },
     required: ["pattern"],
   },
-  defaultSensitivity: "sensitive",
   requiresCharacter: true,
   execute: async (input, ctx) => {
     const resolved = resolveChatId(input, ctx);

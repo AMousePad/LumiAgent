@@ -84,7 +84,6 @@ Returns:
     },
     required: [],
   },
-  defaultSensitivity: "sensitive",
   requiresCharacter: true,
   execute: async (input, ctx) => {
     const scopes = (input.scopes ?? ["character", "world_books", "regex_scripts", "extensions"]) as readonly string[];

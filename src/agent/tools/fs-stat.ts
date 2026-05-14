@@ -16,7 +16,6 @@ export const fsStatTool = defineTool({
     },
     required: ["path"],
   },
-  defaultSensitivity: "insensitive",
   execute: async (input, ctx) => {
     const ws = await import("../../state/workspace");
     const node = await ws.stat(ctx.spindle, ctx.userId, input.path);

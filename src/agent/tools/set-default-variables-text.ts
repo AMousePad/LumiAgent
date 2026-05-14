@@ -29,7 +29,6 @@ For changes that EVERY user of the card should see, edit \`char/extensions/lumir
     },
     required: ["character_id", "text"],
   },
-  defaultSensitivity: "insensitive",
   requiresCharacter: true,
   execute: async (input, ctx) => {
     const provider = await findLumirealm(ctx);

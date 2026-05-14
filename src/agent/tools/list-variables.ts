@@ -19,7 +19,6 @@ export const listVariablesTool = defineTool({
     },
     required: ["scope"],
   },
-  defaultSensitivity: "insensitive",
   execute: async (input, ctx) => {
     try {
       let map: Record<string, string>;

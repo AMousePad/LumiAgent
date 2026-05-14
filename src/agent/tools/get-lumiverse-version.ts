@@ -8,7 +8,6 @@ export const getLumiverseVersionTool = defineTool({
   description: "Get the running Lumiverse backend and frontend semantic version strings. Useful when the user reports a bug or behaviour that depends on a specific build — surface the version before guessing.",
   inputSchema,
   jsonSchema: { type: "object", properties: {}, required: [] },
-  defaultSensitivity: "insensitive",
   execute: async (_input, ctx) => {
     try {
       const [backend, frontend] = await Promise.all([

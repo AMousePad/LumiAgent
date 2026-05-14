@@ -31,7 +31,6 @@ export const createRegexScriptTool = defineTool({
     },
     required: ["name", "find_regex"],
   },
-  defaultSensitivity: "insensitive",
   requiresCharacter: true,
   execute: async (input, ctx) => {
     const placement = (input.placement ?? ["ai_output"]) as RegexPlacementDTO[];

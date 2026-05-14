@@ -14,7 +14,6 @@ export const customToolDeleteTool = defineTool({
     properties: { name: { type: "string" } },
     required: ["name"],
   },
-  defaultSensitivity: "insensitive",
   execute: async (input, ctx) => {
     const ct = await import("../../state/custom-tools");
     const ok = await ct.deleteCustomTool(ctx.spindle, ctx.userId, input.name);

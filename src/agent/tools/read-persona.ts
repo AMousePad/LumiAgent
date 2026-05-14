@@ -21,7 +21,6 @@ export const readPersonaTool = defineTool({
     },
     required: [],
   },
-  defaultSensitivity: "sensitive",
   execute: async (input, ctx) => {
     try {
       let persona: Awaited<ReturnType<typeof ctx.spindle.personas.get>>;

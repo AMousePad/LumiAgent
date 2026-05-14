@@ -20,7 +20,6 @@ export const listDatabankDocumentsTool = defineTool({
     },
     required: ["databank_id"],
   },
-  defaultSensitivity: "insensitive",
   execute: async (input, ctx) => {
     try {
       const res = await ctx.spindle.databanks.documents.list(input.databank_id, {

@@ -36,7 +36,6 @@ export const fsEditTool = defineTool({
     required: ["path", "find"],
   },
   requiresRecentRead: gate,
-  defaultSensitivity: "insensitive",
   execute: async (input, ctx) => {
     let replace = input.replace;
     if (replace === undefined && input.replace_handle) {

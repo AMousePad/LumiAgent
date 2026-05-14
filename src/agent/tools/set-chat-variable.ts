@@ -33,7 +33,6 @@ Lua state keys (\`__name\`) need a valid JSON string in \`value\`; the runtime w
     },
     required: ["chat_id", "key", "value"],
   },
-  defaultSensitivity: "insensitive",
   requiresCharacter: true,
   execute: async (input, ctx) => {
     const provider = await findLumirealm(ctx);

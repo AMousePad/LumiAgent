@@ -23,7 +23,6 @@ export const fsWriteTool = defineTool({
     },
     required: ["path"],
   },
-  defaultSensitivity: "insensitive",
   execute: async (input, ctx) => {
     let content = input.content;
     if (content === undefined && input.content_handle) {

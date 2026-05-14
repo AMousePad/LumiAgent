@@ -18,7 +18,6 @@ export const listPersonasTool = defineTool({
     },
     required: [],
   },
-  defaultSensitivity: "insensitive",
   execute: async (input, ctx) => {
     try {
       const res = await ctx.spindle.personas.list({

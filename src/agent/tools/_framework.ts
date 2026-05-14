@@ -6,17 +6,12 @@ export interface ToolResult {
   readonly isError?: boolean;
 }
 
-export type Sensitivity = "sensitive" | "insensitive";
-
 export interface ToolDefinition<TInput = unknown> {
   readonly name: string;
   readonly description: string;
   readonly inputSchema: ZodType<TInput>;
   readonly jsonSchema: Record<string, unknown>;
   readonly requiresRecentRead?: ReadGate;
-  // Vestigial after auto-free was ripped, kept required to avoid touching
-  // every tool file. Removable in a future cleanup pass.
-  readonly defaultSensitivity: Sensitivity;
   // True when the tool's execution is meaningless without an active character
   // (path-based card surface, card mutators, chat/ledger/phone-line ops, etc).
   // Filtered out of the schemas the LLM sees when state.characterId is null,
@@ -54,7 +49,6 @@ export function defineTool<TInput>(config: {
   inputSchema: ZodType<TInput>;
   jsonSchema: Record<string, unknown>;
   requiresRecentRead?: ReadGate;
-  defaultSensitivity: Sensitivity;
   requiresCharacter?: boolean;
   isReadOnly?: (input: TInput) => boolean;
   isConcurrencySafe?: (input: TInput) => boolean;

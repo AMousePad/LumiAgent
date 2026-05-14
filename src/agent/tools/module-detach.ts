@@ -29,7 +29,6 @@ Wraps the \`detach_module\` WS op so artifact uninstall + refresh hooks fire.`,
     },
     required: ["character_id", "module_id"],
   },
-  defaultSensitivity: "insensitive",
   requiresCharacter: true,
   execute: async (input, ctx) => {
     const provider = await findLumirealm(ctx);

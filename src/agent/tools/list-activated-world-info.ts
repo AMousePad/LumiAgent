@@ -22,7 +22,6 @@ Usage:
     },
     required: [],
   },
-  defaultSensitivity: "insensitive",
   requiresCharacter: true,
   execute: async (input, ctx) => {
     const chatId = input.chat_id ?? ctx.pinnedChatId;

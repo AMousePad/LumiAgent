@@ -37,7 +37,6 @@ Returns: a plain string body. Most of the time that's line-numbered text (\`   1
     required: ["path"],
     additionalProperties: false,
   },
-  defaultSensitivity: "sensitive",
   requiresCharacter: true,
   execute: async (input, ctx) => {
     let leaf;

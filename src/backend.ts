@@ -903,8 +903,8 @@ async function handleSetPinnedChat(sessionId: string, chatId: string | null, use
   const isPending = pendingSessions.has(sessionId);
   const s = await loadSessionWithPending(sessionId, userId);
   if (!s) {
-    log("warn", `set_pinned_chat: session ${sessionId} not found`);
-    send({ type: "generation_error", sessionId, error: "session not found" }, userId);
+    log("warn", `set_pinned_chat: session ${sessionId} not found, evicting frontend`);
+    send({ type: "session_deleted", sessionId }, userId);
     return;
   }
   const prevPin = s.pinnedChatId ?? null;
@@ -915,8 +915,6 @@ async function handleSetPinnedChat(sessionId: string, chatId: string | null, use
   // system note on llmHistory so the next turn sees it. The chat name/id
   // stays out of the system prompt (cache-stable) but the agent learns from
   // a one-shot note here that it should re-read via read_chat_messages.
-  // Only relevant once the session is persisted and has run at least once;
-  // pending sessions haven't sent anything yet.
   if (!isPending && s.llmHistory.length > 0 && prevPin !== chatId) {
     const note = chatId === null
       ? "[Note from the system: the user just unpinned the chat that was previously pinned for context. From now on, `read_chat_messages` (no chat_id) will return `{pinned: false}`. If the user references 'this chat' or 'the conversation', tell them to pin one again.]"
@@ -962,40 +960,42 @@ async function handleLoadSession(sessionId: string, userId: string): Promise<voi
 
 async function handleStartSession(sessionId: string, characterId: string | null, connectionId: string | undefined, userId: string): Promise<void> {
   log("info", `start_session sessionId=${sessionId} characterId=${characterId ?? "(none)"}`);
+  // Stage the pending session synchronously so a follow-up set_pinned_chat or
+  // list_chats arriving while we await character lookup or system-file seeding
+  // still finds the session. characterName fills in below once we resolve it.
+  const s = newSession({
+    sessionId,
+    characterId,
+    characterName: "",
+    connectionId: connectionId ?? null,
+  });
+  pendingSessions.set(sessionId, s);
+
   try {
-    let characterName = "";
     if (characterId !== null) {
       const c = await spindle.characters.get(characterId, userId);
       if (!c) {
+        pendingSessions.delete(sessionId);
         send({ type: "generation_error", sessionId, error: `character ${characterId} not found` }, userId);
         return;
       }
-      characterName = c.name;
+      (s as { characterName: string }).characterName = c.name;
     }
     // Seed system files so the agent has its custom-tools index and notes
-    // available from turn one. Idempotent; restored if the user deleted them.
+    // available from turn one. Idempotent, restored if the user deleted them.
     const { ensureSystemFiles } = await import("./state/system-files");
     await ensureSystemFiles(spindle, userId).catch((e) => log("warn", `ensureSystemFiles failed: ${(e as Error).message}`));
-
-    const s = newSession({
-      sessionId,
-      characterId,
-      characterName,
-      connectionId: connectionId ?? null,
-    });
-    // Hold in memory only. First send_message promotes to persisted. Avoids
-    // clutter from sessions the user opens and abandons.
-    pendingSessions.set(sessionId, s);
 
     send({
       type: "session_started",
       sessionId,
       characterId,
-      characterName,
+      characterName: s.characterName,
       createdAt: s.createdAt,
     }, userId);
-    // No list refresh: an empty session shouldn't appear in the picker.
+    // No list refresh, an empty session shouldn't appear in the picker.
   } catch (err) {
+    pendingSessions.delete(sessionId);
     const msg = (err as Error).message;
     log("error", `start_session ${sessionId} threw: ${msg}`);
     send({ type: "generation_error", sessionId, error: `start_session failed: ${msg}` }, userId);

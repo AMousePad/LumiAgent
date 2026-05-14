@@ -89,7 +89,6 @@ Usage:
     required: ["source_lang", "target_lang"],
     additionalProperties: false,
   },
-  defaultSensitivity: "insensitive",
   requiresCharacter: true,
   execute: async (input, ctx) => {
     if (!ctx.callFrontend) return { content: "Error: frontend translation bridge unavailable in this context.", isError: true };

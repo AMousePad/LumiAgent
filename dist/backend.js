@@ -17584,7 +17584,6 @@ Returns:
       },
       required: ["entries"]
     },
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const scopes = input.scopes ?? ["character", "world_books", "regex_scripts", "extensions"];
@@ -17840,7 +17839,6 @@ The runtime always appends an automatic "Other" option that lets the user type a
       required: ["questions"],
       additionalProperties: false
     },
-    defaultSensitivity: "sensitive",
     execute: async (input, ctx) => {
       if (!ctx.callFrontend) {
         return {
@@ -17903,7 +17901,6 @@ Wraps the \`delete_asset\` WS op so the LumiRealm runtime refresh hooks fire.`,
       },
       required: ["source", "asset_name"]
     },
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const provider = await findLumirealm(ctx);
@@ -17962,7 +17959,6 @@ Wraps the \`rename_asset\` WS op so the LumiRealm runtime refresh hooks fire (as
       },
       required: ["source", "old_name", "new_name"]
     },
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const provider = await findLumirealm2(ctx);
@@ -18492,7 +18488,6 @@ Sorted by match_chars descending so the worst offenders surface first.`,
       },
       additionalProperties: false
     },
-    defaultSensitivity: "sensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const langKey = input.source_lang ?? "cjk";
@@ -18598,7 +18593,6 @@ var init_chat_stats = __esm(() => {
       properties: { chat_id: { type: "string", description: "Optional. Omit to use the pinned chat." } },
       required: []
     },
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const resolved = resolveChatId(input, ctx);
@@ -18674,7 +18668,6 @@ var init_count_cjk_chars = __esm(() => {
       properties: { text: { type: "string" } },
       required: ["text"]
     },
-    defaultSensitivity: "insensitive",
     execute: async (input) => {
       const counts = {};
       let total = 0;
@@ -18713,7 +18706,6 @@ var init_create_alternate_greeting = __esm(() => {
       },
       required: ["content"]
     },
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const content = input.content;
@@ -18769,7 +18761,6 @@ var init_create_regex_script = __esm(() => {
       },
       required: ["name", "find_regex"]
     },
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const placement = input.placement ?? ["ai_output"];
@@ -18835,7 +18826,6 @@ var init_create_world_book_entry = __esm(() => {
       },
       required: ["content"]
     },
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
@@ -19188,7 +19178,6 @@ var init_custom_tool_delete = __esm(() => {
       properties: { name: { type: "string" } },
       required: ["name"]
     },
-    defaultSensitivity: "insensitive",
     execute: async (input, ctx) => {
       const ct = await Promise.resolve().then(() => (init_custom_tools(), exports_custom_tools));
       const ok = await ct.deleteCustomTool(ctx.spindle, ctx.userId, input.name);
@@ -19207,7 +19196,6 @@ var init_custom_tool_list = __esm(() => {
     description: "List every custom tool the agent has authored in this workspace. Returns name, description, param count, step count. Cheap; call this whenever you suspect a recipe already exists for the user's request.",
     inputSchema: inputSchema12,
     jsonSchema: { type: "object", properties: {}, required: [] },
-    defaultSensitivity: "insensitive",
     execute: async (_input, ctx) => {
       const ct = await Promise.resolve().then(() => (init_custom_tools(), exports_custom_tools));
       const entries = await ct.listCustomTools(ctx.spindle, ctx.userId);
@@ -19297,7 +19285,6 @@ Budget: 50 steps / depth 4 / 60s wall-clock.
         args: { type: "object", description: "Named-mode only: args matching the saved recipe's `params` schema." }
       }
     },
-    defaultSensitivity: "insensitive",
     execute: async (input, ctx) => {
       const ct = await Promise.resolve().then(() => (init_custom_tools(), exports_custom_tools));
       const dispatch = ctx.__dispatch;
@@ -19364,7 +19351,6 @@ var init_custom_tool_save = __esm(() => {
       },
       required: ["manifest"]
     },
-    defaultSensitivity: "insensitive",
     execute: async (input, ctx) => {
       const ct = await Promise.resolve().then(() => (init_custom_tools(), exports_custom_tools));
       let manifest;
@@ -19399,7 +19385,6 @@ var init_delete_alternate_greeting = __esm(() => {
       properties: { index: { type: "number" } },
       required: ["index"]
     },
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
@@ -19440,7 +19425,6 @@ var init_delete_regex_script = __esm(() => {
       properties: { script_id: { type: "string" } },
       required: ["script_id"]
     },
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const id = input.script_id;
@@ -19471,7 +19455,6 @@ var init_delete_world_book_entry = __esm(() => {
       properties: { entry_id: { type: "string" } },
       required: ["entry_id"]
     },
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const id = input.entry_id;
@@ -19759,7 +19742,6 @@ Usage:
       required: ["surface_id", "item_id", "field", "find"]
     },
     requiresRecentRead: gate,
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const draftOrigin = `edit_external:${input.surface_id}/${input.item_id}/${input.field}`;
@@ -19912,7 +19894,6 @@ Returns:
       additionalProperties: false
     },
     requiresRecentRead: gate2,
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       let replace = input.replace;
@@ -19998,7 +19979,6 @@ var init_finish = __esm(() => {
       properties: { summary: { type: "string" } },
       required: ["summary"]
     },
-    defaultSensitivity: "insensitive",
     execute: async (input, ctx) => {
       ctx.setFinished(input.summary);
       return { content: "OK. Task marked complete." };
@@ -20359,7 +20339,6 @@ var init_fs_delete = __esm(() => {
       },
       required: ["path"]
     },
-    defaultSensitivity: "insensitive",
     execute: async (input, ctx) => {
       const ws = await Promise.resolve().then(() => (init_workspace(), exports_workspace));
       const recursive = input.recursive ?? false;
@@ -20414,7 +20393,6 @@ var init_fs_edit = __esm(() => {
       required: ["path", "find"]
     },
     requiresRecentRead: gate3,
-    defaultSensitivity: "insensitive",
     execute: async (input, ctx) => {
       let replace = input.replace;
       if (replace === undefined && input.replace_handle) {
@@ -20481,7 +20459,6 @@ var init_fs_list = __esm(() => {
       },
       required: []
     },
-    defaultSensitivity: "insensitive",
     execute: async (input, ctx) => {
       const ws = await Promise.resolve().then(() => (init_workspace(), exports_workspace));
       const path2 = input.path ?? "";
@@ -20511,7 +20488,6 @@ var init_fs_mkdir = __esm(() => {
       },
       required: ["path"]
     },
-    defaultSensitivity: "insensitive",
     execute: async (input, ctx) => {
       const ws = await Promise.resolve().then(() => (init_workspace(), exports_workspace));
       await ws.makeDir(ctx.spindle, ctx.userId, input.path);
@@ -20540,7 +20516,6 @@ var init_fs_move = __esm(() => {
       },
       required: ["from", "to"]
     },
-    defaultSensitivity: "insensitive",
     execute: async (input, ctx) => {
       const ws = await Promise.resolve().then(() => (init_workspace(), exports_workspace));
       await ws.movePath(ctx.spindle, ctx.userId, input.from, input.to);
@@ -20572,7 +20547,6 @@ var init_fs_read = __esm(() => {
       },
       required: ["path"]
     },
-    defaultSensitivity: "sensitive",
     execute: async (input, ctx) => {
       const ws = await Promise.resolve().then(() => (init_workspace(), exports_workspace));
       const node = await ws.stat(ctx.spindle, ctx.userId, input.path);
@@ -20607,7 +20581,6 @@ var init_fs_stat = __esm(() => {
       },
       required: ["path"]
     },
-    defaultSensitivity: "insensitive",
     execute: async (input, ctx) => {
       const ws = await Promise.resolve().then(() => (init_workspace(), exports_workspace));
       const node = await ws.stat(ctx.spindle, ctx.userId, input.path);
@@ -20817,7 +20790,6 @@ var init_fs_unzip = __esm(() => {
       },
       required: ["zip_path", "dest_dir"]
     },
-    defaultSensitivity: "insensitive",
     execute: async (input, ctx) => {
       const ws = await Promise.resolve().then(() => (init_workspace(), exports_workspace));
       const { parseZip: parseZip2 } = await Promise.resolve().then(() => exports_zip);
@@ -20865,7 +20837,6 @@ var init_fs_write = __esm(() => {
       },
       required: ["path"]
     },
-    defaultSensitivity: "insensitive",
     execute: async (input, ctx) => {
       let content = input.content;
       if (content === undefined && input.content_handle) {
@@ -20911,7 +20882,6 @@ var init_fs_zip = __esm(() => {
       },
       required: ["paths", "output"]
     },
-    defaultSensitivity: "insensitive",
     execute: async (input, ctx) => {
       const ws = await Promise.resolve().then(() => (init_workspace(), exports_workspace));
       const { buildZip: buildZip2 } = await Promise.resolve().then(() => exports_zip);
@@ -21044,7 +21014,6 @@ Scoping:
       required: ["pattern"],
       additionalProperties: false
     },
-    defaultSensitivity: "sensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const cap = Math.min(GREP_MAX_CAP, Math.max(1, Math.floor(input.max_matches ?? GREP_DEFAULT_MAX)));
@@ -21161,7 +21130,6 @@ var init_grep_chat_messages = __esm(() => {
       },
       required: ["pattern"]
     },
-    defaultSensitivity: "sensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const resolved = resolveChatId2(input, ctx);
@@ -21259,7 +21227,6 @@ Usage:
       },
       required: ["surface_id", "pattern"]
     },
-    defaultSensitivity: "sensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const { discoverProviders: discoverProviders2, findSurface: findSurface2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
@@ -21506,7 +21473,6 @@ One tool, one path argument.`,
       required: ["path"],
       additionalProperties: false
     },
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const path2 = input.path.trim();
@@ -21744,7 +21710,6 @@ Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole
       required: ["path"],
       additionalProperties: false
     },
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const maxEntries = input.max_entries ?? 200;
@@ -21825,7 +21790,6 @@ Returns:
       additionalProperties: false
     },
     requiresRecentRead: gate4,
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       let next = input.new_content;
@@ -21986,7 +21950,6 @@ Returns:
       required: ["path", "value"],
       additionalProperties: false
     },
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const path2 = input.path.trim();
@@ -22078,7 +22041,6 @@ Lua state keys (\`__name\`) need a valid JSON string in \`value\`; the runtime w
       },
       required: ["chat_id", "key", "value"]
     },
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const provider = await findLumirealm3(ctx);
@@ -22127,7 +22089,6 @@ For changes that EVERY user of the card should see, edit \`char/extensions/lumir
       },
       required: ["character_id", "text"]
     },
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const provider = await findLumirealm4(ctx);
@@ -22177,7 +22138,6 @@ Toggle DEFINITIONS (what toggles exist, what type, what default) live in module 
       },
       required: ["chat_id", "key", "value"]
     },
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const provider = await findLumirealm5(ctx);
@@ -22219,7 +22179,6 @@ var init_list_chat_messages = __esm(() => {
       },
       required: []
     },
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       let chatId = input.chat_id;
@@ -22266,7 +22225,6 @@ var init_list_chats_for_character = __esm(() => {
     description: "List all of the user's chat sessions for the ACTIVE character. Returns id, name, updated_at, message_count, is_active (whether the host is currently showing this chat). Use this to discover what chats exist before reading messages, or to suggest one for the user to pin.",
     inputSchema: inputSchema42,
     jsonSchema: { type: "object", properties: {}, required: [] },
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (_input, ctx) => {
       let active = null;
@@ -22314,7 +22272,6 @@ Returns:
       },
       required: ["surface_id"]
     },
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const { discoverProviders: discoverProviders2, findSurface: findSurface2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
@@ -22364,7 +22321,6 @@ Usage:
       },
       additionalProperties: false
     },
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const scope = input.scope ?? "current_message";
@@ -22433,7 +22389,6 @@ Wraps the \`attach_module\` WS op so artifact install + refresh hooks fire.`,
       },
       required: ["character_id", "module_id"]
     },
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const provider = await findLumirealm6(ctx);
@@ -22481,7 +22436,6 @@ Wraps the \`detach_module\` WS op so artifact uninstall + refresh hooks fire.`,
       },
       required: ["character_id", "module_id"]
     },
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const provider = await findLumirealm7(ctx);
@@ -22529,7 +22483,6 @@ Returns:
       },
       required: ["items"]
     },
-    defaultSensitivity: "insensitive",
     execute: async (input) => {
       const items = input.items;
       if (items.length === 0)
@@ -22594,7 +22547,6 @@ Returns: a plain string body. Most of the time that's line-numbered text (\`   1
       required: ["path"],
       additionalProperties: false
     },
-    defaultSensitivity: "sensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       let leaf;
@@ -22675,7 +22627,6 @@ Usage:
       },
       required: []
     },
-    defaultSensitivity: "sensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const requested = input.chat_id;
@@ -22720,7 +22671,6 @@ Returns: JSON \`{surface_id, item_id, field, value_chars, value}\`. \`value\` is
       },
       required: ["surface_id", "item_id"]
     },
-    defaultSensitivity: "sensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const { discoverProviders: discoverProviders2, findSurface: findSurface2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
@@ -22933,7 +22883,6 @@ Usage:
       required: ["edit_ids"],
       additionalProperties: false
     },
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const allowCrossSession = input.allow_cross_session === true;
@@ -23004,7 +22953,6 @@ var init_roll_dice = __esm(() => {
       properties: { spec: { type: "string", description: "Dice spec, e.g. '3d6+2'." } },
       required: ["spec"]
     },
-    defaultSensitivity: "insensitive",
     execute: async (input) => {
       const spec = input.spec.trim().toLowerCase();
       const m = /^(\d+)d(\d+)\s*([+-]\s*\d+)?$/.exec(spec);
@@ -23053,7 +23001,6 @@ Usage:
       },
       additionalProperties: false
     },
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       if (!ctx.assistantMessageId)
@@ -23156,7 +23103,6 @@ Returns:
       },
       required: []
     },
-    defaultSensitivity: "sensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const scopes = input.scopes ?? ["character", "world_books", "regex_scripts", "extensions"];
@@ -23245,7 +23191,6 @@ var init_test_regex = __esm(() => {
       },
       required: ["pattern", "sample"]
     },
-    defaultSensitivity: "insensitive",
     execute: async (input) => {
       const flags = input.flags ?? "";
       let re;
@@ -23312,7 +23257,6 @@ Usage:
       required: ["source_lang", "target_lang"],
       additionalProperties: false
     },
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       if (!ctx.callFrontend)
@@ -23654,7 +23598,6 @@ Returns:
       },
       required: ["handle", "pattern"]
     },
-    defaultSensitivity: "sensitive",
     execute: async (input, ctx) => {
       const flagsExtra = input.flags ?? "";
       const caseInsensitive = input.case_insensitive ?? false;
@@ -23697,7 +23640,6 @@ var init_tmp_list = __esm(() => {
     description: "List active tmp handles for this user across all sessions. Returns newest-first with handle, origin, total_chars, total_lines, createdAt. Per-user cap is 50 files OR 30MB; oldest are auto-evicted on the next spill.",
     inputSchema: inputSchema58,
     jsonSchema: { type: "object", properties: {}, required: [] },
-    defaultSensitivity: "insensitive",
     execute: async (_input, ctx) => {
       const { listAllTmpForUser: listAllTmpForUser2, TMP_MAX_FILES_PER_USER: TMP_MAX_FILES_PER_USER2, TMP_MAX_BYTES_PER_USER: TMP_MAX_BYTES_PER_USER2 } = await Promise.resolve().then(() => (init_tmp_store(), exports_tmp_store));
       const entries = await listAllTmpForUser2(ctx.spindle, ctx.userId);
@@ -23743,7 +23685,6 @@ Returns: a string body. First line is a metadata header \`[origin=..., total_lin
       },
       required: ["handle"]
     },
-    defaultSensitivity: "sensitive",
     execute: async (input, ctx) => {
       const { readTmp: readTmp2, statTmp: statTmp2 } = await Promise.resolve().then(() => (init_tmp_store(), exports_tmp_store));
       const body = await readTmp2(ctx.spindle, ctx.sessionId, ctx.userId, input.handle);
@@ -23783,7 +23724,6 @@ Returns:
       properties: { handle: { type: "string" } },
       required: ["handle"]
     },
-    defaultSensitivity: "insensitive",
     execute: async (input, ctx) => {
       const { statTmp: statTmp2 } = await Promise.resolve().then(() => (init_tmp_store(), exports_tmp_store));
       const info = await statTmp2(ctx.spindle, ctx.sessionId, ctx.userId, input.handle);
@@ -23815,7 +23755,6 @@ Usage:
       properties: { patch: { type: "object", additionalProperties: true } },
       required: ["patch"]
     },
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const patch = input.patch;
@@ -23866,7 +23805,6 @@ Usage:
       },
       required: ["surface_id", "item_id", "field", "value"]
     },
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const { surface_id: surfaceId, item_id: itemId, field, value } = input;
@@ -23939,7 +23877,6 @@ Usage:
       },
       required: ["script_id", "patch"]
     },
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const id = input.script_id;
@@ -23987,7 +23924,6 @@ Usage:
       },
       required: ["entry_id", "patch"]
     },
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const id = input.entry_id;
@@ -24034,7 +23970,6 @@ var init_count_tokens = __esm(() => {
       },
       required: []
     },
-    defaultSensitivity: "insensitive",
     execute: async (input, ctx) => {
       try {
         const opts = {
@@ -24081,7 +24016,6 @@ var init_dry_run_prompt = __esm(() => {
       },
       required: []
     },
-    defaultSensitivity: "sensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const chatId = input.chat_id ?? ctx.pinnedChatId;
@@ -24128,7 +24062,6 @@ var init_get_active_chat = __esm(() => {
     description: "Get the user's currently active chat (whatever the frontend is showing). Different from the pinned chat \u2014 pinned is what THIS agent session reads from; active is what the user is looking at right now in their main chat panel. Returns null if no chat is open.",
     inputSchema: inputSchema67,
     jsonSchema: { type: "object", properties: {}, required: [] },
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (_input, ctx) => {
       try {
@@ -24171,7 +24104,6 @@ Usage:
       },
       required: ["target"]
     },
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const chatId = input.chat_id ?? ctx.pinnedChatId ?? undefined;
@@ -24228,7 +24160,6 @@ Usage:
       },
       required: []
     },
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const chatId = input.chat_id ?? ctx.pinnedChatId;
@@ -24271,7 +24202,6 @@ Usage:
       },
       required: []
     },
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const chatId = input.chat_id ?? ctx.pinnedChatId;
@@ -24301,7 +24231,6 @@ var init_get_lumiverse_version = __esm(() => {
     description: "Get the running Lumiverse backend and frontend semantic version strings. Useful when the user reports a bug or behaviour that depends on a specific build \u2014 surface the version before guessing.",
     inputSchema: inputSchema71,
     jsonSchema: { type: "object", properties: {}, required: [] },
-    defaultSensitivity: "insensitive",
     execute: async (_input, ctx) => {
       try {
         const [backend, frontend] = await Promise.all([
@@ -24326,7 +24255,6 @@ var init_get_user_info = __esm(() => {
     description: "Get the user's Lumiverse role (`user` / `admin` / `operator`) and visibility (whether they have the app open in any browser session right now). Useful for tailoring suggestions or skipping toasts when the user can't see them.",
     inputSchema: inputSchema72,
     jsonSchema: { type: "object", properties: {}, required: [] },
-    defaultSensitivity: "insensitive",
     execute: async (_input, ctx) => {
       try {
         const [role, visible] = await Promise.all([
@@ -24351,7 +24279,6 @@ var init_list_connections = __esm(() => {
     description: "List the user's configured LLM connection profiles. Returns id, name, provider, api_url, model, is_default, has_api_key (boolean \u2014 never the actual key). Use to see what providers/models are available, or to figure out which connection a chat is using.",
     inputSchema: inputSchema73,
     jsonSchema: { type: "object", properties: {}, required: [] },
-    defaultSensitivity: "insensitive",
     execute: async (_input, ctx) => {
       try {
         const list = await ctx.spindle.connections.list(ctx.userId);
@@ -24395,7 +24322,6 @@ var init_list_databank_documents = __esm(() => {
       },
       required: ["databank_id"]
     },
-    defaultSensitivity: "insensitive",
     execute: async (input, ctx) => {
       try {
         const res = await ctx.spindle.databanks.documents.list(input.databank_id, {
@@ -24446,7 +24372,6 @@ var init_list_databanks = __esm(() => {
       },
       required: []
     },
-    defaultSensitivity: "insensitive",
     execute: async (input, ctx) => {
       try {
         let scopeId = input.scope_id;
@@ -24498,7 +24423,6 @@ var init_list_personas = __esm(() => {
       },
       required: []
     },
-    defaultSensitivity: "insensitive",
     execute: async (input, ctx) => {
       try {
         const res = await ctx.spindle.personas.list({
@@ -24545,7 +24469,6 @@ var init_list_variables = __esm(() => {
       },
       required: ["scope"]
     },
-    defaultSensitivity: "insensitive",
     execute: async (input, ctx) => {
       try {
         let map2;
@@ -24591,7 +24514,6 @@ var init_read_connection = __esm(() => {
       },
       required: ["connection_id"]
     },
-    defaultSensitivity: "insensitive",
     execute: async (input, ctx) => {
       try {
         const c = await ctx.spindle.connections.get(input.connection_id, ctx.userId);
@@ -24623,7 +24545,6 @@ var init_read_databank = __esm(() => {
       },
       required: ["databank_id"]
     },
-    defaultSensitivity: "insensitive",
     execute: async (input, ctx) => {
       try {
         const d = await ctx.spindle.databanks.get(input.databank_id, ctx.userId);
@@ -24657,7 +24578,6 @@ var init_read_databank_document = __esm(() => {
       },
       required: ["document_id"]
     },
-    defaultSensitivity: "sensitive",
     execute: async (input, ctx) => {
       try {
         const meta3 = await ctx.spindle.databanks.documents.get(input.document_id, ctx.userId);
@@ -24697,7 +24617,6 @@ var init_read_persona = __esm(() => {
       },
       required: []
     },
-    defaultSensitivity: "sensitive",
     execute: async (input, ctx) => {
       try {
         let persona;
@@ -24742,7 +24661,6 @@ Usage:
       },
       required: ["persona_id"]
     },
-    defaultSensitivity: "insensitive",
     execute: async (input, ctx) => {
       try {
         const wb = await ctx.spindle.personas.getWorldBook(input.persona_id, ctx.userId);
@@ -24778,7 +24696,6 @@ var init_read_variable = __esm(() => {
       },
       required: ["scope", "key"]
     },
-    defaultSensitivity: "insensitive",
     execute: async (input, ctx) => {
       try {
         if (input.scope === "global") {
@@ -24837,7 +24754,6 @@ var init_resolve_macros = __esm(() => {
       },
       required: ["template"]
     },
-    defaultSensitivity: "insensitive",
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const chatId = input.chat_id ?? ctx.pinnedChatId ?? undefined;
@@ -24915,7 +24831,6 @@ Rules:
       required: ["todos"],
       additionalProperties: false
     },
-    defaultSensitivity: "sensitive",
     execute: async (input) => {
       const inProgressCount = input.todos.filter((t) => t.status === "in_progress").length;
       const pending2 = input.todos.filter((t) => t.status === "pending").length;
@@ -24994,7 +24909,6 @@ Query forms:
       required: ["query"],
       additionalProperties: false
     },
-    defaultSensitivity: "sensitive",
     execute: async (input, ctx) => {
       const maxResults = input.max_results ?? 5;
       const deferredNames = listDeferredToolNames();
@@ -27527,8 +27441,8 @@ async function handleSetPinnedChat(sessionId, chatId, userId) {
   const isPending = pendingSessions.has(sessionId);
   const s = await loadSessionWithPending(sessionId, userId);
   if (!s) {
-    log("warn", `set_pinned_chat: session ${sessionId} not found`);
-    send({ type: "generation_error", sessionId, error: "session not found" }, userId);
+    log("warn", `set_pinned_chat: session ${sessionId} not found, evicting frontend`);
+    send({ type: "session_deleted", sessionId }, userId);
     return;
   }
   const prevPin = s.pinnedChatId ?? null;
@@ -27567,33 +27481,34 @@ async function handleLoadSession(sessionId, userId) {
 }
 async function handleStartSession(sessionId, characterId, connectionId, userId) {
   log("info", `start_session sessionId=${sessionId} characterId=${characterId ?? "(none)"}`);
+  const s = newSession({
+    sessionId,
+    characterId,
+    characterName: "",
+    connectionId: connectionId ?? null
+  });
+  pendingSessions.set(sessionId, s);
   try {
-    let characterName = "";
     if (characterId !== null) {
       const c = await spindle.characters.get(characterId, userId);
       if (!c) {
+        pendingSessions.delete(sessionId);
         send({ type: "generation_error", sessionId, error: `character ${characterId} not found` }, userId);
         return;
       }
-      characterName = c.name;
+      s.characterName = c.name;
     }
     const { ensureSystemFiles: ensureSystemFiles2 } = await Promise.resolve().then(() => (init_system_files(), exports_system_files));
     await ensureSystemFiles2(spindle, userId).catch((e) => log("warn", `ensureSystemFiles failed: ${e.message}`));
-    const s = newSession({
-      sessionId,
-      characterId,
-      characterName,
-      connectionId: connectionId ?? null
-    });
-    pendingSessions.set(sessionId, s);
     send({
       type: "session_started",
       sessionId,
       characterId,
-      characterName,
+      characterName: s.characterName,
       createdAt: s.createdAt
     }, userId);
   } catch (err) {
+    pendingSessions.delete(sessionId);
     const msg = err.message;
     log("error", `start_session ${sessionId} threw: ${msg}`);
     send({ type: "generation_error", sessionId, error: `start_session failed: ${msg}` }, userId);

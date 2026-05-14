@@ -25,7 +25,6 @@ Usage:
     },
     required: ["entry_id", "patch"],
   },
-  defaultSensitivity: "insensitive",
   requiresCharacter: true,
   execute: async (input, ctx) => {
     const id = input.entry_id;

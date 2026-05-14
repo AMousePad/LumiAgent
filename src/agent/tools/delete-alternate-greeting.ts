@@ -14,7 +14,6 @@ export const deleteAlternateGreetingTool = defineTool({
     properties: { index: { type: "number" } },
     required: ["index"],
   },
-  defaultSensitivity: "insensitive",
   requiresCharacter: true,
   execute: async (input, ctx) => {
     const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);

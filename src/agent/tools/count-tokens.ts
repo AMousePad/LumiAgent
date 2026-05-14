@@ -22,7 +22,6 @@ export const countTokensTool = defineTool({
     },
     required: [],
   },
-  defaultSensitivity: "insensitive",
   execute: async (input, ctx) => {
     try {
       const opts = {

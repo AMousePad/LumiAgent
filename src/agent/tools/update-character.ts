@@ -20,7 +20,6 @@ Usage:
     properties: { patch: { type: "object", additionalProperties: true } },
     required: ["patch"],
   },
-  defaultSensitivity: "insensitive",
   requiresCharacter: true,
   execute: async (input, ctx) => {
     const patch = input.patch as CharacterUpdateDTO;

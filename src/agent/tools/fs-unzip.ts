@@ -18,7 +18,6 @@ export const fsUnzipTool = defineTool({
     },
     required: ["zip_path", "dest_dir"],
   },
-  defaultSensitivity: "insensitive",
   execute: async (input, ctx) => {
     const ws = await import("../../state/workspace");
     const { parseZip } = await import("../../state/zip");

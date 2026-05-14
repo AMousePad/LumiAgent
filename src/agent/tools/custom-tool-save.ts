@@ -16,7 +16,6 @@ export const customToolSaveTool = defineTool({
     },
     required: ["manifest"],
   },
-  defaultSensitivity: "insensitive",
   execute: async (input, ctx) => {
     const ct = await import("../../state/custom-tools");
     let manifest;

@@ -21,7 +21,6 @@ export const chatStatsTool = defineTool({
     properties: { chat_id: { type: "string", description: "Optional. Omit to use the pinned chat." } },
     required: [],
   },
-  defaultSensitivity: "insensitive",
   requiresCharacter: true,
   execute: async (input, ctx) => {
     const resolved = resolveChatId(input, ctx);

@@ -22,7 +22,6 @@ export const listDatabanksTool = defineTool({
     },
     required: [],
   },
-  defaultSensitivity: "insensitive",
   execute: async (input, ctx) => {
     try {
       let scopeId = input.scope_id;

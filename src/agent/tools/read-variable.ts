@@ -20,7 +20,6 @@ export const readVariableTool = defineTool({
     },
     required: ["scope", "key"],
   },
-  defaultSensitivity: "insensitive",
   execute: async (input, ctx) => {
     try {
       if (input.scope === "global") {

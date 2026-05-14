@@ -14,7 +14,6 @@ export const deleteRegexScriptTool = defineTool({
     properties: { script_id: { type: "string" } },
     required: ["script_id"],
   },
-  defaultSensitivity: "insensitive",
   requiresCharacter: true,
   execute: async (input, ctx) => {
     const id = input.script_id;

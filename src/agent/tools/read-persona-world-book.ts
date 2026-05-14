@@ -21,7 +21,6 @@ Usage:
     },
     required: ["persona_id"],
   },
-  defaultSensitivity: "insensitive",
   execute: async (input, ctx) => {
     try {
       const wb = await ctx.spindle.personas.getWorldBook(input.persona_id, ctx.userId);

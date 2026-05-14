@@ -26,7 +26,6 @@ Usage:
     },
     required: ["surface_id", "item_id", "field", "value"],
   },
-  defaultSensitivity: "insensitive",
   requiresCharacter: true,
   execute: async (input, ctx) => {
     const { surface_id: surfaceId, item_id: itemId, field, value } = input;

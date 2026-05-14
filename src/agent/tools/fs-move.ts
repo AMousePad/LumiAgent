@@ -18,7 +18,6 @@ export const fsMoveTool = defineTool({
     },
     required: ["from", "to"],
   },
-  defaultSensitivity: "insensitive",
   execute: async (input, ctx) => {
     const ws = await import("../../state/workspace");
     await ws.movePath(ctx.spindle, ctx.userId, input.from, input.to);

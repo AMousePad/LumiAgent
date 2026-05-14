@@ -19,7 +19,6 @@ export const readDatabankDocumentTool = defineTool({
     },
     required: ["document_id"],
   },
-  defaultSensitivity: "sensitive",
   execute: async (input, ctx) => {
     try {
       const meta = await ctx.spindle.databanks.documents.get(input.document_id, ctx.userId);

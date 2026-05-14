@@ -62,7 +62,6 @@ Returns:
     },
     required: ["handle", "pattern"],
   },
-  defaultSensitivity: "sensitive",
   execute: async (input, ctx) => {
     const flagsExtra = input.flags ?? "";
     const caseInsensitive = input.case_insensitive ?? false;

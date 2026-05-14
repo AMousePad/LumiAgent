@@ -16,7 +16,6 @@ export const fsMkdirTool = defineTool({
     },
     required: ["path"],
   },
-  defaultSensitivity: "insensitive",
   execute: async (input, ctx) => {
     const ws = await import("../../state/workspace");
     await ws.makeDir(ctx.spindle, ctx.userId, input.path);

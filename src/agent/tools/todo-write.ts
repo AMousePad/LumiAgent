@@ -57,7 +57,6 @@ Rules:
     required: ["todos"],
     additionalProperties: false,
   },
-  defaultSensitivity: "sensitive",
   execute: async (input) => {
     const inProgressCount = input.todos.filter((t) => t.status === "in_progress").length;
     const pending = input.todos.filter((t) => t.status === "pending").length;

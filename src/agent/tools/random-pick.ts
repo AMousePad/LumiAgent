@@ -27,7 +27,6 @@ Returns:
     },
     required: ["items"],
   },
-  defaultSensitivity: "insensitive",
   execute: async (input) => {
     const items = input.items;
     if (items.length === 0) return { content: "Error: 'items' is empty", isError: true };

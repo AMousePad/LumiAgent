@@ -8,7 +8,6 @@ export const listChatsForCharacterTool = defineTool({
   description: "List all of the user's chat sessions for the ACTIVE character. Returns id, name, updated_at, message_count, is_active (whether the host is currently showing this chat). Use this to discover what chats exist before reading messages, or to suggest one for the user to pin.",
   inputSchema,
   jsonSchema: { type: "object", properties: {}, required: [] },
-  defaultSensitivity: "insensitive",
   requiresCharacter: true,
   execute: async (_input, ctx) => {
     let active: { id: string } | null = null;

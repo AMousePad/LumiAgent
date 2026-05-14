@@ -91,7 +91,6 @@ The runtime always appends an automatic "Other" option that lets the user type a
   },
   // Sensitive so the agent's own question + the user's answer survive
   // auto-free and stay visible to the model across the rest of the session.
-  defaultSensitivity: "sensitive",
   execute: async (input, ctx) => {
     if (!ctx.callFrontend) {
       return {

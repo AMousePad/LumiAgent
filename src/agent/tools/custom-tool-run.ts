@@ -94,7 +94,6 @@ Budget: 50 steps / depth 4 / 60s wall-clock.
       args: { type: "object", description: "Named-mode only: args matching the saved recipe's `params` schema." },
     },
   },
-  defaultSensitivity: "insensitive",
   execute: async (input, ctx) => {
     const ct = await import("../../state/custom-tools");
     const dispatch = (ctx as CtxWithDispatch).__dispatch;

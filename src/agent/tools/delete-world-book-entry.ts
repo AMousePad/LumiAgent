@@ -15,7 +15,6 @@ export const deleteWorldBookEntryTool = defineTool({
     properties: { entry_id: { type: "string" } },
     required: ["entry_id"],
   },
-  defaultSensitivity: "insensitive",
   requiresCharacter: true,
   execute: async (input, ctx) => {
     const id = input.entry_id;

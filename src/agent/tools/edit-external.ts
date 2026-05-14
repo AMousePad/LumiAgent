@@ -51,7 +51,6 @@ Usage:
     required: ["surface_id", "item_id", "field", "find"],
   },
   requiresRecentRead: gate,
-  defaultSensitivity: "insensitive",
   requiresCharacter: true,
   execute: async (input, ctx) => {
     const draftOrigin = `edit_external:${input.surface_id}/${input.item_id}/${input.field}`;

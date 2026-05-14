@@ -166,6 +166,15 @@ function describeToolActivity(name: string, args: Record<string, unknown>): { ki
       return { kind: "write", verb: "Updating", target: `todos (${todos.length})` };
     }
     case "finish": return { kind: "finish", verb: "Marking", target: "task complete" };
+    case "custom_tool_run": {
+      const named = s("name");
+      if (named) return { kind: "read", verb: "Running", target: `recipe '${named}'` };
+      const steps = Array.isArray(args["steps"]) ? args["steps"] as Array<{ call?: unknown }> : [];
+      const calls = steps.map((st) => typeof st?.call === "string" ? st.call : null).filter((c): c is string => c !== null);
+      if (calls.length === 0) return { kind: "read", verb: "Chaining", target: "(empty pipe)" };
+      const shown = calls.length <= 4 ? calls.join(" → ") : `${calls.slice(0, 3).join(" → ")} → … (${calls.length} steps)`;
+      return { kind: "read", verb: "Chaining", target: shown };
+    }
     default: return { kind: "read", verb: "Calling", target: name };
   }
 }

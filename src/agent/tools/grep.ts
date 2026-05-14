@@ -111,7 +111,6 @@ Scoping:
     required: ["pattern"],
     additionalProperties: false,
   },
-  defaultSensitivity: "sensitive",
   requiresCharacter: true,
   execute: async (input, ctx) => {
     const cap = Math.min(GREP_MAX_CAP, Math.max(1, Math.floor(input.max_matches ?? GREP_DEFAULT_MAX)));

@@ -8,7 +8,6 @@ export const getUserInfoTool = defineTool({
   description: "Get the user's Lumiverse role (`user` / `admin` / `operator`) and visibility (whether they have the app open in any browser session right now). Useful for tailoring suggestions or skipping toasts when the user can't see them.",
   inputSchema,
   jsonSchema: { type: "object", properties: {}, required: [] },
-  defaultSensitivity: "insensitive",
   execute: async (_input, ctx) => {
     try {
       const [role, visible] = await Promise.all([

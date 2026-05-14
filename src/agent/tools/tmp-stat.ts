@@ -20,7 +20,6 @@ Returns:
     properties: { handle: { type: "string" } },
     required: ["handle"],
   },
-  defaultSensitivity: "insensitive",
   execute: async (input, ctx) => {
     const { statTmp } = await import("../../state/tmp-store");
     const info = await statTmp(ctx.spindle, ctx.sessionId, ctx.userId, input.handle);

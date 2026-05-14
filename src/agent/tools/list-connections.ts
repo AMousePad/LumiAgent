@@ -8,7 +8,6 @@ export const listConnectionsTool = defineTool({
   description: "List the user's configured LLM connection profiles. Returns id, name, provider, api_url, model, is_default, has_api_key (boolean — never the actual key). Use to see what providers/models are available, or to figure out which connection a chat is using.",
   inputSchema,
   jsonSchema: { type: "object", properties: {}, required: [] },
-  defaultSensitivity: "insensitive",
   execute: async (_input, ctx) => {
     try {
       const list = await ctx.spindle.connections.list(ctx.userId);

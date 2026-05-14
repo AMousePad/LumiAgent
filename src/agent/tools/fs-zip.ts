@@ -18,7 +18,6 @@ export const fsZipTool = defineTool({
     },
     required: ["paths", "output"],
   },
-  defaultSensitivity: "insensitive",
   execute: async (input, ctx) => {
     const ws = await import("../../state/workspace");
     const { buildZip } = await import("../../state/zip");

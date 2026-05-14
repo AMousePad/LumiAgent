@@ -43,7 +43,6 @@ Returns:
     additionalProperties: false,
   },
   requiresRecentRead: gate,
-  defaultSensitivity: "insensitive",
   requiresCharacter: true,
   execute: async (input, ctx) => {
     let next = input.new_content;

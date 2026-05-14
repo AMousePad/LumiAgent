@@ -31,7 +31,6 @@ Usage:
     },
     required: ["surface_id", "pattern"],
   },
-  defaultSensitivity: "sensitive",
   requiresCharacter: true,
   execute: async (input, ctx) => {
     const { discoverProviders, findSurface } = await import("../../phoneline/registry");

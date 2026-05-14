@@ -69,7 +69,6 @@ Query forms:
   // Sensitive so auto-free never wipes the <functions> block. The
   // seed-from-history scan in the loop reads those names back to avoid
   // re-issuing tool_search on every new user message.
-  defaultSensitivity: "sensitive",
   execute: async (input, ctx) => {
     const maxResults = input.max_results ?? 5;
     const deferredNames = listDeferredToolNames();

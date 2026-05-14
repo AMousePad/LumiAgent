@@ -30,7 +30,6 @@ Returns: a string body. First line is a metadata header \`[origin=..., total_lin
     },
     required: ["handle"],
   },
-  defaultSensitivity: "sensitive",
   execute: async (input, ctx) => {
     const { readTmp, statTmp } = await import("../../state/tmp-store");
     const body = await readTmp(ctx.spindle, ctx.sessionId, ctx.userId, input.handle);

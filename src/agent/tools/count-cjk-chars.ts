@@ -30,7 +30,6 @@ export const countCjkCharsTool = defineTool({
     properties: { text: { type: "string" } },
     required: ["text"],
   },
-  defaultSensitivity: "insensitive",
   execute: async (input) => {
     const counts: Record<string, number> = {};
     let total = 0;

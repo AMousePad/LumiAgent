@@ -29,7 +29,6 @@ Returns: JSON \`{surface_id, item_id, field, value_chars, value}\`. \`value\` is
     },
     required: ["surface_id", "item_id"],
   },
-  defaultSensitivity: "sensitive",
   requiresCharacter: true,
   execute: async (input, ctx) => {
     const { discoverProviders, findSurface } = await import("../../phoneline/registry");

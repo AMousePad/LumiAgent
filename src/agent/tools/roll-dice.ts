@@ -14,7 +14,6 @@ export const rollDiceTool = defineTool({
     properties: { spec: { type: "string", description: "Dice spec, e.g. '3d6+2'." } },
     required: ["spec"],
   },
-  defaultSensitivity: "insensitive",
   execute: async (input) => {
     const spec = input.spec.trim().toLowerCase();
     const m = /^(\d+)d(\d+)\s*([+-]\s*\d+)?$/.exec(spec);
