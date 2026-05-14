@@ -283,6 +283,8 @@ export type BackendToFrontend =
   | { type: "characters_storage_pushed"; entries: readonly CharacterStorageEntry[]; workspaceUsedBytes: number; workspaceCapBytes: number }
   | { type: "character_squashed"; characterId: string; ledgerCleared: boolean }
   | { type: "phoneline_pairings_pushed"; pairings: ReadonlyArray<{ identifier: string; displayName: string; allowed: boolean; decidedAt: number }> }
+  | { type: "notify_missing_permissions"; missing: readonly string[]; purposes: Readonly<Record<string, string>> }
+  | { type: "host_version_warning"; hostVersion: string | null; minimum: string; message: string }
   | { type: "frontend_rpc_request"; rpcId: string; op: string; args: unknown };
 
 export interface CharacterStorageEntry {

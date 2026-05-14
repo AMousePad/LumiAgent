@@ -35,6 +35,15 @@ import {
   spliceRevertedFromSession as spliceReverted,
   type PersistedSession,
 } from "./state/sessions";
+import {
+  initPermissions,
+  getMissingPermissions,
+  getMissingPermissionPurposes,
+  isPermissionsLoaded,
+  subscribeToMissingChanges,
+  PERMISSION_PURPOSE,
+} from "./state/permissions";
+import { initHostVersionCheck, getHostVersionWarning } from "./state/version-check";
 
 const activeSessions = new Map<string, AbortController>();
 
@@ -1747,11 +1756,63 @@ async function autosquashAndNotify(characterId: string, assistantMessageId: stri
   }
 }
 
+// Userids seen by the worker for this process lifetime, so permission
+// changes can fan out to every connected user.
+const capturedUserIds = new Set<string>();
+
+function broadcastMissingPermissions(missing: readonly string[]): void {
+  const purposes: Record<string, string> = {};
+  for (const p of missing) purposes[p] = PERMISSION_PURPOSE[p] ?? p;
+  for (const userId of capturedUserIds) {
+    try {
+      send({ type: "notify_missing_permissions", missing, purposes }, userId);
+    } catch (err) {
+      log("warn", `permissions: sendToFrontend failed userId=${userId}: ${(err as Error).message}`);
+    }
+  }
+}
+
+function captureUserId(userId: string): void {
+  if (capturedUserIds.has(userId)) return;
+  capturedUserIds.add(userId);
+  if (isPermissionsLoaded()) {
+    const missing = getMissingPermissions();
+    const purposes = getMissingPermissionPurposes();
+    try {
+      send({ type: "notify_missing_permissions", missing, purposes }, userId);
+    } catch { /* */ }
+  }
+  const warning = getHostVersionWarning();
+  if (warning) {
+    try {
+      send({
+        type: "host_version_warning",
+        hostVersion: warning.hostVersion,
+        minimum: warning.minimum,
+        message: warning.message,
+      }, userId);
+    } catch { /* */ }
+  }
+}
+
+void initPermissions({ info: (m) => log("info", m), warn: (m) => log("warn", m) });
+void initHostVersionCheck({ info: (m) => log("info", m), warn: (m) => log("warn", m) });
+
+subscribeToMissingChanges((missing) => {
+  broadcastMissingPermissions(missing);
+  if (missing.length > 0) {
+    log("warn", `permissions.changed: broadcast notify_missing_permissions to ${capturedUserIds.size} user(s) missing=[${missing.join(",")}]`);
+  } else {
+    log("info", `permissions.changed: all required perms granted, broadcast empty set to ${capturedUserIds.size} user(s) to auto-dismiss`);
+  }
+});
+
 spindle.onFrontendMessage(async (raw: unknown, userId: string) => {
   if (!userId) {
     log("warn", `dropped message without userId`);
     return;
   }
+  captureUserId(userId);
   const msg = raw as FrontendToBackend;
   try {
     switch (msg.type) {

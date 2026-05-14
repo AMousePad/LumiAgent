@@ -18020,8 +18020,10 @@ async function resolveRead(ctx, path2) {
         throw new PathError(path2, "extensions requires a sub-path");
       const segs = parseExtensionPath(extPath);
       const v2 = getAtPath2(c.extensions ?? {}, segs);
-      if (typeof v2 !== "string")
-        throw new PathError(path2, `extension path resolves to ${typeof v2}, not string`);
+      if (typeof v2 !== "string") {
+        const shape = Array.isArray(v2) ? "array" : typeof v2;
+        throw new PathError(path2, `extension path resolves to ${shape}, not string. Use \`list({path: "char/extensions/${extPath}"})\` to walk its structure, or \`set({path, value})\` to write the whole subtree.`);
+      }
       return {
         key: `char/extensions/${extPath}`,
         surface: "extension",
@@ -26594,6 +26596,195 @@ async function saveUiPrefs(spindle2, prefs, userId) {
 // src/backend.ts
 init_samplers();
 init_sessions();
+
+// src/state/permissions.ts
+var REQUIRED_PERMISSIONS = [
+  "generation",
+  "characters",
+  "world_books",
+  "regex_scripts",
+  "chats",
+  "chat_mutation",
+  "ui_panels",
+  "personas",
+  "databanks"
+];
+var PERMISSION_PURPOSE = {
+  generation: "dispatch LLM calls for the agent loop",
+  characters: "read and edit character cards",
+  world_books: "read and edit lorebooks",
+  regex_scripts: "read and edit regex scripts",
+  chats: "read chats and message history",
+  chat_mutation: "edit pinned chat messages when the agent acts on them",
+  ui_panels: "mount the LumiAgent drawer",
+  personas: "read the active persona for {{user}} resolution",
+  databanks: "read databank documents"
+};
+var granted = new Set;
+var loaded = false;
+var missingChangeListeners = new Set;
+function computeMissing() {
+  return REQUIRED_PERMISSIONS.filter((p) => !granted.has(p));
+}
+async function initPermissions(log) {
+  const api2 = spindle.permissions;
+  if (!api2?.getGranted) {
+    log.warn("permissions.init: spindle.permissions API unavailable on this host");
+    return;
+  }
+  try {
+    const list = await api2.getGranted();
+    for (const p of list)
+      granted.add(p);
+    loaded = true;
+    log.info(`permissions.init: granted=[${[...granted].join(",")}]`);
+  } catch (err) {
+    log.warn(`permissions.init: getGranted failed: ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
+  if (api2.onChanged) {
+    try {
+      api2.onChanged((detail) => {
+        granted.clear();
+        for (const p of detail.allGranted)
+          granted.add(p);
+        const missing = computeMissing();
+        log.info(`permissions.changed: ${detail.permission}=${detail.granted ? "granted" : "revoked"} ` + `granted=[${detail.allGranted.join(",")}] missing=[${missing.join(",")}]`);
+        for (const fn of missingChangeListeners) {
+          try {
+            fn(missing);
+          } catch (err) {
+            log.warn(`permissions.changed: listener threw: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+      });
+    } catch (err) {
+      log.warn(`permissions.init: onChanged subscribe failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+}
+function isPermissionsLoaded() {
+  return loaded;
+}
+function getMissingPermissions() {
+  if (!loaded)
+    return [];
+  return computeMissing();
+}
+function getMissingPermissionPurposes() {
+  const out = {};
+  for (const p of getMissingPermissions())
+    out[p] = PERMISSION_PURPOSE[p] ?? p;
+  return out;
+}
+function subscribeToMissingChanges(handler) {
+  missingChangeListeners.add(handler);
+  return () => {
+    missingChangeListeners.delete(handler);
+  };
+}
+// spindle.json
+var spindle_default = {
+  version: "0.2.0",
+  name: "LumiAgent",
+  identifier: "lumiagent",
+  author: "amousepad",
+  github: "https://github.com/AMousePad/LumiAgent",
+  homepage: "https://github.com/AMousePad/LumiAgent",
+  description: "Agentic LLM workbench for your Lumiverse (\u02F6>\u2A4A<\u02F6)",
+  permissions: [
+    "generation",
+    "characters",
+    "world_books",
+    "regex_scripts",
+    "chats",
+    "chat_mutation",
+    "ui_panels",
+    "personas",
+    "databanks"
+  ],
+  entry_backend: "dist/backend.js",
+  entry_frontend: "dist/frontend.js",
+  minimum_lumiverse_version: "0.9.7"
+};
+
+// src/state/version-check.ts
+var MINIMUM_LUMIVERSE_VERSION = spindle_default.minimum_lumiverse_version;
+function compareVersions(a, b) {
+  const parse5 = (v) => {
+    const core2 = v.split(/[-+]/)[0] ?? v;
+    return core2.split(".").map((part) => {
+      const n = parseInt(part, 10);
+      return Number.isFinite(n) ? n : 0;
+    });
+  };
+  const pa = parse5(a);
+  const pb = parse5(b);
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0;i < len; i++) {
+    const ai = pa[i] ?? 0;
+    const bi = pb[i] ?? 0;
+    if (ai > bi)
+      return 1;
+    if (ai < bi)
+      return -1;
+  }
+  return 0;
+}
+function checkHostVersion(hostVersion, minimum) {
+  if (!hostVersion) {
+    return {
+      needsUpdate: false,
+      hostVersion: null,
+      minimum,
+      message: `Lumiverse version could not be determined, skipping minimum-version check (required minimum ${minimum})`
+    };
+  }
+  const cmp = compareVersions(hostVersion, minimum);
+  if (cmp >= 0) {
+    return {
+      needsUpdate: false,
+      hostVersion,
+      minimum,
+      message: `Lumiverse ${hostVersion} satisfies LumiAgent's minimum of ${minimum}`
+    };
+  }
+  return {
+    needsUpdate: true,
+    hostVersion,
+    minimum,
+    message: `LumiAgent requires Lumiverse ${minimum} or newer, but this host is running ${hostVersion}. Some features may fail or behave unexpectedly. Update Lumiverse for the intended experience.`
+  };
+}
+var cached2 = null;
+async function initHostVersionCheck(log) {
+  let backend = null;
+  let frontend = null;
+  try {
+    backend = await spindle.version.getBackend();
+  } catch (err) {
+    log.warn(`host-version: getBackend failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  try {
+    frontend = await spindle.version.getFrontend();
+  } catch (err) {
+    log.warn(`host-version: getFrontend failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  const result = checkHostVersion(backend, MINIMUM_LUMIVERSE_VERSION);
+  cached2 = result;
+  const tag = result.needsUpdate ? "WARN" : "ok";
+  log.info(`host-version: lumiverse backend=${backend ?? "unknown"} frontend=${frontend ?? "unknown"} min=${MINIMUM_LUMIVERSE_VERSION} ${tag}`);
+  if (result.needsUpdate)
+    log.warn(result.message);
+  return result;
+}
+function getHostVersionWarning() {
+  if (!cached2 || !cached2.needsUpdate)
+    return null;
+  return cached2;
+}
+
+// src/backend.ts
 var activeSessions = new Map;
 var pendingSessions = new Map;
 async function loadSessionWithPending(sessionId, userId) {
@@ -28269,11 +28460,58 @@ async function autosquashAndNotify(characterId, assistantMessageId, userId) {
     log("warn", `autosquash failed for ${characterId}/${assistantMessageId}: ${err.message}`);
   }
 }
+var capturedUserIds = new Set;
+function broadcastMissingPermissions(missing) {
+  const purposes = {};
+  for (const p of missing)
+    purposes[p] = PERMISSION_PURPOSE[p] ?? p;
+  for (const userId of capturedUserIds) {
+    try {
+      send({ type: "notify_missing_permissions", missing, purposes }, userId);
+    } catch (err) {
+      log("warn", `permissions: sendToFrontend failed userId=${userId}: ${err.message}`);
+    }
+  }
+}
+function captureUserId(userId) {
+  if (capturedUserIds.has(userId))
+    return;
+  capturedUserIds.add(userId);
+  if (isPermissionsLoaded()) {
+    const missing = getMissingPermissions();
+    const purposes = getMissingPermissionPurposes();
+    try {
+      send({ type: "notify_missing_permissions", missing, purposes }, userId);
+    } catch {}
+  }
+  const warning = getHostVersionWarning();
+  if (warning) {
+    try {
+      send({
+        type: "host_version_warning",
+        hostVersion: warning.hostVersion,
+        minimum: warning.minimum,
+        message: warning.message
+      }, userId);
+    } catch {}
+  }
+}
+initPermissions({ info: (m) => log("info", m), warn: (m) => log("warn", m) });
+initHostVersionCheck({ info: (m) => log("info", m), warn: (m) => log("warn", m) });
+subscribeToMissingChanges((missing) => {
+  broadcastMissingPermissions(missing);
+  if (missing.length > 0) {
+    log("warn", `permissions.changed: broadcast notify_missing_permissions to ${capturedUserIds.size} user(s) missing=[${missing.join(",")}]`);
+  } else {
+    log("info", `permissions.changed: all required perms granted, broadcast empty set to ${capturedUserIds.size} user(s) to auto-dismiss`);
+  }
+});
 spindle.onFrontendMessage(async (raw, userId) => {
   if (!userId) {
     log("warn", `dropped message without userId`);
     return;
   }
+  captureUserId(userId);
   const msg = raw;
   try {
     switch (msg.type) {

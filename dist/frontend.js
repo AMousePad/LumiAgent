@@ -954,6 +954,53 @@ ${LOADERS_CSS}
 .la-chat-pin-btn { color: var(--lumiverse-text-muted); }
 .la-chat-pin-btn:hover { color: var(--lumiverse-text); }
 
+.la-perm-modal { padding: 4px 0; }
+.la-perm-lead {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--lumiverse-text);
+}
+.la-perm-list {
+  margin: 0 0 12px;
+  padding: 0 0 0 18px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--lumiverse-text);
+}
+.la-perm-list li { margin-bottom: 4px; }
+.la-perm-name {
+  font-family: var(--lumiverse-font-mono, ui-monospace, monospace);
+  font-weight: 600;
+  color: var(--lumiverse-primary, var(--lumiverse-text));
+}
+.la-perm-note {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--lumiverse-text);
+  background: var(--lumiverse-bg-elevated, transparent);
+  border: 1px solid var(--lumiverse-border);
+  border-radius: var(--lumiverse-radius);
+}
+.la-perm-emphasize { font-weight: 600; }
+.la-perm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.la-perm-ok {
+  padding: 6px 14px;
+  border-radius: var(--lumiverse-radius);
+  border: 1px solid var(--lumiverse-border);
+  background: var(--lumiverse-primary, var(--lumiverse-bg-elevated));
+  color: var(--lumiverse-primary-contrast, var(--lumiverse-text));
+  font-size: 13px;
+  cursor: pointer;
+}
+.la-perm-ok:hover { filter: brightness(1.1); }
+
 .la-modal-note {
   margin: 0 0 8px;
   padding: 0;
@@ -9199,9 +9246,149 @@ Revert those edits to the character now, or leave them applied?`;
   };
 }
 
+// src/ui/permissions-modal.ts
+function setupPermissionsModal(opts) {
+  const { ctx, log } = opts;
+  let current = null;
+  let lastShownKey = null;
+  function show(msg) {
+    if (msg.missing.length === 0) {
+      if (current) {
+        try {
+          current.dismiss();
+        } catch {}
+        current = null;
+      }
+      lastShownKey = null;
+      return;
+    }
+    const key = [...msg.missing].sort().join(",");
+    if (key === lastShownKey)
+      return;
+    lastShownKey = key;
+    if (current) {
+      try {
+        current.dismiss();
+      } catch {}
+      current = null;
+    }
+    let modal;
+    try {
+      modal = ctx.ui.showModal({ title: "LumiAgent: missing permissions", width: 520 });
+    } catch (err) {
+      log("error", "permissions-modal: showModal failed", err);
+      return;
+    }
+    current = modal;
+    const root = modal.root;
+    root.classList.add("la-perm-modal");
+    const lead = document.createElement("p");
+    lead.className = "la-perm-lead";
+    lead.textContent = msg.missing.length === 1 ? "LumiAgent needs one permission that hasn't been granted." : `LumiAgent needs ${msg.missing.length} permissions that haven't been granted.`;
+    root.appendChild(lead);
+    const list = document.createElement("ul");
+    list.className = "la-perm-list";
+    for (const perm of msg.missing) {
+      const li = document.createElement("li");
+      const name = document.createElement("span");
+      name.className = "la-perm-name";
+      name.textContent = perm;
+      li.appendChild(name);
+      const purpose = msg.purposes[perm];
+      if (purpose)
+        li.appendChild(document.createTextNode(`: ${purpose}`));
+      list.appendChild(li);
+    }
+    root.appendChild(list);
+    const note = document.createElement("div");
+    note.className = "la-perm-note";
+    note.appendChild(document.createTextNode("Grant them, then toggle LumiAgent "));
+    const emphasis = document.createElement("span");
+    emphasis.className = "la-perm-emphasize";
+    emphasis.textContent = "off and back on";
+    note.appendChild(emphasis);
+    note.appendChild(document.createTextNode(" in the Extensions panel."));
+    root.appendChild(note);
+    const actions = document.createElement("div");
+    actions.className = "la-perm-actions";
+    const okBtn = document.createElement("button");
+    okBtn.type = "button";
+    okBtn.className = "la-perm-ok";
+    okBtn.textContent = "Got it";
+    okBtn.addEventListener("click", () => {
+      try {
+        modal.dismiss();
+      } catch {}
+    });
+    actions.appendChild(okBtn);
+    root.appendChild(actions);
+    modal.onDismiss(() => {
+      if (current === modal)
+        current = null;
+    });
+    queueMicrotask(() => {
+      try {
+        okBtn.focus();
+      } catch {}
+    });
+  }
+  return {
+    handleBackendMessage(msg) {
+      if (msg.type === "notify_missing_permissions")
+        show(msg);
+    },
+    destroy() {
+      if (current) {
+        try {
+          current.dismiss();
+        } catch {}
+        current = null;
+      }
+    }
+  };
+}
+
+// src/ui/version-modal.ts
+function setupVersionModal(opts) {
+  const { ctx } = opts;
+  let shown = false;
+  return {
+    handleBackendMessage(msg) {
+      if (msg.type !== "host_version_warning")
+        return;
+      if (shown)
+        return;
+      shown = true;
+      ctx.ui.showConfirm({
+        title: "Update Lumiverse",
+        message: msg.message,
+        confirmLabel: "OK",
+        cancelLabel: "Dismiss",
+        variant: "warning"
+      }).catch(() => {});
+    }
+  };
+}
+
 // src/frontend.ts
 function setup(ctx) {
   mountDrawer(ctx);
+  const log = (level, msg, err) => {
+    const prefix = "[lumiagent]";
+    if (level === "error")
+      console.error(prefix, msg, err);
+    else if (level === "warn")
+      console.warn(prefix, msg);
+    else
+      console.log(prefix, msg);
+  };
+  const permissionsModal = setupPermissionsModal({ ctx, log });
+  const versionModal = setupVersionModal({ ctx });
+  ctx.onBackendMessage((raw) => {
+    const msg = raw;
+    permissionsModal.handleBackendMessage(msg);
+    versionModal.handleBackendMessage(msg);
+  });
 }
 export {
   setup
