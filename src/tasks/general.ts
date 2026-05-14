@@ -207,6 +207,8 @@ These tools answer "what's actually configured / running":
 
 Per-user filesystem under \`workspace/\`, shared with the user via the Files tab. Tools: \`fs_list\`, \`fs_stat\`, \`fs_read\` (line-numbered, paginated, spills), \`fs_write\` (auto-mkdir), \`fs_edit\` (unique-find), \`fs_delete\`, \`fs_move\`, \`fs_mkdir\`, \`fs_zip\`, \`fs_unzip\`. The user sees everything — treat it as shared scratch, not a private cache.
 
+The host's user-facing documentation is seeded at \`workspace/docs/lumiverse/\` (organized by topic: \`characters/\`, \`chatting/\`, \`connections/\`, \`world-books/\`, \`personas/\`, \`presets/\`, \`extensions/\`, \`settings/\`, \`reference/\`, etc.). When the user asks "how do I do X in Lumiverse" or "what does feature Y do", \`fs_list docs/lumiverse\` to orient, then \`fs_read\` the relevant file. The user can edit or delete these; treat anything still present as authoritative.
+
 # Piping tool calls (custom_tool_run)
 
 \`custom_tool_run\` runs multiple built-in tool calls in a single turn. Two patterns:

@@ -1,5 +1,6 @@
 import type { SpindleAPI } from "lumiverse-spindle-types";
 import { absPath, normaliseRelPath } from "./workspace";
+import { LUMIVERSE_DOCS, LUMIVERSE_DOCS_VERSION } from "../generated/lumiverse-docs";
 
 // Workspace files / directories the agent depends on. Created lazily on
 // session start and on every Files-tab refresh; the workspace can't delete
@@ -116,6 +117,26 @@ async function ensureDir(spindle: SpindleAPI, userId: string, relPath: string): 
   try { await spindle.userStorage.mkdir(absPath(relPath), userId); } catch { /* already exists is fine */ }
 }
 
+// Lumiverse user-docs are bundled at build time and seeded under
+// docs/lumiverse/ on first run (and when LUMIVERSE_DOCS_VERSION changes).
+// A version marker at docs/lumiverse/.version gates the seed so we don't
+// re-stat 70+ files every session start, and so user-deleted docs stay
+// deleted between session starts. To pick up updated bundled docs, the
+// user can delete the marker (or the whole folder) and re-open a session.
+const LUMIVERSE_DOCS_ROOT = "docs/lumiverse";
+const LUMIVERSE_DOCS_MARKER = `${LUMIVERSE_DOCS_ROOT}/.version`;
+
+async function seedLumiverseDocsIfNeeded(spindle: SpindleAPI, userId: string): Promise<void> {
+  if (Object.keys(LUMIVERSE_DOCS).length === 0) return;
+  const existing = await readFromStorage<string>(spindle, userId, LUMIVERSE_DOCS_MARKER);
+  if (existing !== null && existing.trim() === LUMIVERSE_DOCS_VERSION) return;
+  for (const rel of Object.keys(LUMIVERSE_DOCS)) {
+    const full = `${LUMIVERSE_DOCS_ROOT}/${rel}`;
+    await writeIfMissing(spindle, userId, full, LUMIVERSE_DOCS[rel]!);
+  }
+  await spindle.userStorage.write(absPath(LUMIVERSE_DOCS_MARKER), LUMIVERSE_DOCS_VERSION, userId);
+}
+
 // Idempotent. Creates anything missing; leaves existing content alone.
 // Safe to call on every session start and every Files-tab refresh — when
 // the user deletes a system file by going around our protection, the next
@@ -125,6 +146,7 @@ export async function ensureSystemFiles(spindle: SpindleAPI, userId: string): Pr
   await writeIfMissing(spindle, userId, "custom_tools/tools.md", TOOLS_MD_TEMPLATE);
   await writeIfMissing(spindle, userId, "custom_tools/example/tool.json", EXAMPLE_TOOL_JSON);
   await writeIfMissing(spindle, userId, "agent/agent.md", AGENT_MD_TEMPLATE);
+  await seedLumiverseDocsIfNeeded(spindle, userId);
 }
 
 // Path to surface in the Settings → "Open agent notes" shortcut.

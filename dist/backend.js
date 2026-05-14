@@ -19988,6 +19988,7135 @@ var init_finish = __esm(() => {
   });
 });
 
+// src/generated/lumiverse-docs.ts
+var LUMIVERSE_DOCS_VERSION = "c01e49c24ccbd65c", LUMIVERSE_DOCS;
+var init_lumiverse_docs = __esm(() => {
+  LUMIVERSE_DOCS = {
+    "characters/alternate-fields.md": `# Alternate Fields & Avatars\r
+\r
+Sometimes you want a character to behave differently depending on the context \u2014 a different personality for a comedy scenario, a different description after a time skip, or a different avatar for a costume change. Alternate fields and avatars let you create these variants without duplicating the entire character.\r
+\r
+---\r
+\r
+## Alternate Fields\r
+\r
+Alternate fields let you create multiple versions of a character's **description**, **personality**, and **scenario** fields. You can then select which version to use on a per-chat basis.\r
+\r
+### Creating Alternate Fields\r
+\r
+1. Open the character editor\r
+2. Click on the field you want to create a variant for (description, personality, or scenario)\r
+3. Click **Add Variant**\r
+4. Give the variant a label (e.g., "Post-Timeskip," "Comedy Mode," "Dark Timeline")\r
+5. Write the alternate content\r
+6. Save the character\r
+\r
+You can create as many variants as you want for each field.\r
+\r
+### Using Alternate Fields in Chat\r
+\r
+1. Open a chat with the character\r
+2. Click the **Alternate Fields** button in the input area action bar\r
+3. Select which variant to use for each field\r
+4. Your selection applies to this chat only \u2014 other chats with the same character keep their own selections\r
+\r
+When an alternate field is active, it replaces the character's base field content during prompt assembly. The macros \`{{description}}\`, \`{{personality}}\`, and \`{{scenario}}\` resolve to the selected variant instead of the default.\r
+\r
+---\r
+\r
+## Alternate Avatars\r
+\r
+Give your character multiple avatar options \u2014 different outfits, different art styles, or different phases of the story.\r
+\r
+### Adding Alternate Avatars\r
+\r
+1. Open the character editor\r
+2. Go to the avatar section\r
+3. Click **Add Alternate Avatar**\r
+4. Upload an image and give it a label\r
+5. Repeat for as many variants as you want\r
+\r
+### Switching Avatars in Chat\r
+\r
+1. In an active chat, click the character's portrait or the avatar switcher\r
+2. Choose from the available avatars\r
+3. The avatar changes for this chat only\r
+\r
+The selected avatar is stored per-chat, so different conversations can show different looks for the same character.\r
+\r
+---\r
+\r
+## How It Works Behind the Scenes\r
+\r
+- Alternate fields are stored in the character's extensions data \u2014 no extra database tables needed\r
+- Per-chat selections are stored in the chat's metadata\r
+- During prompt assembly, selected variants override the base fields before macros are resolved\r
+- When exporting as CHARX, all alternate fields and avatars are included in the \`lumiverse_modules.json\` bundle\r
+`,
+    "characters/creating-characters.md": `# Creating Characters\r
+\r
+Building a character from scratch gives you full control over how the AI portrays them.\r
+\r
+---\r
+\r
+## Creating a New Character\r
+\r
+1. Open the **Character Browser** panel\r
+2. Click **New Character**\r
+3. Fill in the fields you want (only **Name** is required)\r
+4. Optionally upload an avatar image\r
+5. Click **Save**\r
+\r
+---\r
+\r
+## Field Guide\r
+\r
+Here's how each field influences the AI's behavior:\r
+\r
+### Name\r
+\r
+The character's name as it appears in chat. This is also what macros like \`{{char}}\` resolve to. Keep it consistent \u2014 the AI uses this to know who it's speaking as.\r
+\r
+### Description\r
+\r
+The most important field for character definition. Include physical appearance, background, key personality traits, relationships, and anything the AI should always know about this character.\r
+\r
+!!! tip "Be specific"\r
+    Instead of "She is nice," try "She speaks softly and often pauses mid-sentence to choose her words carefully. She avoids conflict but has a sharp wit when comfortable."\r
+\r
+### Personality\r
+\r
+A focused summary of traits. Some people use this for a trait list (e.g., "curious, stubborn, secretly kind") while others write a brief paragraph. It's inserted separately from the description, so avoid repeating yourself.\r
+\r
+### Scenario\r
+\r
+Sets the scene. What's happening when the conversation starts? Where are the characters? What's the context? This field is great for establishing the "world" of the roleplay without cluttering the description.\r
+\r
+### First Message\r
+\r
+The character's opening line when you start a new chat. This is crucial \u2014 it sets the tone for the entire conversation. A well-written first message demonstrates the character's voice, establishes the setting, and gives you something to respond to.\r
+\r
+!!! tip "Alternate greetings"\r
+    You can add multiple first messages by clicking **Add Alternate Greeting**. When starting a new chat, you'll be asked which greeting to use. Great for different scenarios with the same character.\r
+\r
+### Example Messages\r
+\r
+Sample exchanges that show the AI *how* the character talks. Format them like this:\r
+\r
+\`\`\`\r
+<START>\r
+{{user}}: How are you today?\r
+{{char}}: *adjusts glasses* Oh, you know. Same old existential dread, different Tuesday. *smirks* At least the coffee's decent.\r
+\`\`\`\r
+\r
+Use \`<START>\` to separate different example conversations. These aren't included in the chat itself \u2014 they're training examples the AI references for tone and style.\r
+\r
+### System Prompt\r
+\r
+Direct instructions to the AI about how to play this character. Unlike the description (which is *about* the character), the system prompt tells the AI what to *do*.\r
+\r
+Example: "Write in third person limited perspective. Include inner thoughts in italics. Keep responses between 2-4 paragraphs."\r
+\r
+### Post-History Instructions\r
+\r
+Similar to the system prompt, but injected *after* the chat history instead of before it. This is useful for reminders the AI should see right before generating its response.\r
+\r
+### Creator Notes\r
+\r
+Notes for other users (or yourself) about the character. These are **never sent to the AI** \u2014 they're purely informational. Use them for usage tips, recommended settings, or changelog notes.\r
+\r
+### Tags\r
+\r
+Labels for organizing your library. Add tags like "fantasy," "sci-fi," "male," "OC," etc. You can filter your Character Browser by tags.\r
+\r
+---\r
+\r
+## Uploading an Avatar\r
+\r
+Click the avatar area in the character editor to upload an image. Supported formats: PNG, JPG, WebP, GIF. The image is stored in Lumiverse's image system with an auto-generated thumbnail.\r
+\r
+---\r
+\r
+## Duplicating a Character\r
+\r
+Want to create a variant of an existing character? Click the **Duplicate** button on any character card. This creates a full copy with "(Copy)" appended to the name. Edit the copy without affecting the original.\r
+\r
+---\r
+\r
+## Exporting Characters\r
+\r
+Share your characters by exporting them:\r
+\r
+1. Open the character in the editor\r
+2. Click **Export**\r
+3. Choose a format:\r
+    - **JSON** \u2014 Clean data file (smallest, universal)\r
+    - **PNG** \u2014 Avatar image with embedded character data (most portable)\r
+    - **CHARX** \u2014 Full bundle including expressions, alternate fields, and avatars (most complete)\r
+\r
+PNG exports are the standard sharing format \u2014 they look like normal images but carry all the character data inside.\r
+`,
+    "characters/expressions.md": `# Expressions\r
+\r
+Expressions are visual emotion sprites that change dynamically as the conversation progresses. When enabled, the character's portrait updates to reflect their current mood \u2014 smiling when happy, frowning when upset, blushing when embarrassed.\r
+\r
+---\r
+\r
+## How It Works\r
+\r
+1. You upload a set of labeled images (e.g., "happy," "sad," "angry," "neutral")\r
+2. After each AI response, a lightweight sidecar LLM call analyzes the conversation\r
+3. It picks the expression that best matches the character's current emotional state\r
+4. The portrait panel updates to show that expression\r
+\r
+The detection happens automatically in the background \u2014 you don't need to do anything during the conversation.\r
+\r
+---\r
+\r
+## Setting Up Expressions\r
+\r
+### Upload a ZIP\r
+\r
+The easiest method \u2014 prepare a ZIP file with images named after emotions:\r
+\r
+\`\`\`\r
+expressions.zip\r
+\u251C\u2500\u2500 neutral.png\r
+\u251C\u2500\u2500 happy.png\r
+\u251C\u2500\u2500 sad.png\r
+\u251C\u2500\u2500 angry.png\r
+\u251C\u2500\u2500 surprised.png\r
+\u251C\u2500\u2500 embarrassed.png\r
+\u2514\u2500\u2500 thinking.png\r
+\`\`\`\r
+\r
+1. Open the character editor\r
+2. Go to the **Expressions** tab\r
+3. Click **Import ZIP**\r
+4. Select your ZIP file\r
+\r
+The filenames (minus the extension) become the expression labels.\r
+\r
+### Map from Gallery\r
+\r
+If your expression images are already uploaded to Lumiverse's image system:\r
+\r
+1. Open the **Expressions** tab in the character editor\r
+2. Click **From Gallery**\r
+3. Map each gallery image to an expression label\r
+\r
+### Manual Setup\r
+\r
+Add expressions one at a time:\r
+\r
+1. Open the **Expressions** tab\r
+2. Click **Add Expression**\r
+3. Upload an image and give it a label\r
+\r
+---\r
+\r
+## Expression Config\r
+\r
+| Setting | Description |\r
+|---------|-------------|\r
+| **Enabled** | Toggle expressions on/off for this character |\r
+| **Default Expression** | Which expression to show when no detection has run yet (usually "neutral") |\r
+\r
+---\r
+\r
+## Expression Labels\r
+\r
+You can use any label names you want. Common ones include:\r
+\r
+\`neutral\` \`happy\` \`sad\` \`angry\` \`surprised\` \`embarrassed\` \`thinking\` \`smirk\` \`scared\` \`confused\` \`excited\` \`blushing\` \`crying\` \`laughing\` \`serious\` \`flirty\` \`annoyed\` \`worried\`\r
+\r
+Use labels that match how your character naturally emotes. You don't need dozens \u2014 even 4-6 well-chosen expressions create a lively portrait.\r
+\r
+---\r
+\r
+## Detection Modes\r
+\r
+Expression detection is controlled by the \`expressionDetection\` setting:\r
+\r
+| Mode | Behavior |\r
+|------|----------|\r
+| **Auto** | Uses the sidecar connection to detect expressions after each generation |\r
+| **Council** | Expression detection runs as a council tool (when council is active) |\r
+| **Off** | No automatic detection \u2014 expressions stay on the default |\r
+\r
+---\r
+\r
+## Tips\r
+\r
+!!! tip "Use transparent PNGs"\r
+    Expression images with transparent backgrounds look best \u2014 they overlay cleanly on the portrait panel regardless of the theme.\r
+\r
+!!! tip "Keep it lightweight"\r
+    Expression detection uses a small, fast sidecar LLM call. It adds minimal latency to generation, but if you want to eliminate it entirely, set detection to "Off."\r
+\r
+!!! tip "Group chats"\r
+    Each character in a group chat can have their own expression set. The portrait panel shows the currently focused character's expression.\r
+`,
+    "characters/importing-characters.md": `# Importing Characters\r
+\r
+The fastest way to populate your character library is by importing existing character cards. Lumiverse supports multiple import methods and formats.\r
+\r
+---\r
+\r
+## Supported Formats\r
+\r
+| Format | Extension | Description |\r
+|--------|-----------|-------------|\r
+| **PNG Card** | \`.png\` | An image file with character data embedded in metadata chunks |\r
+| **JSON Card** | \`.json\` | Raw character data (CCSv1, v2, or v3 format) |\r
+| **CHARX Bundle** | \`.charx\` | A ZIP archive containing the card JSON, avatar, expressions, and other assets |\r
+\r
+All three Character Card Specification versions (v1, v2, v3) are auto-detected and converted.\r
+\r
+---\r
+\r
+## Import from File\r
+\r
+1. Open the **Character Browser** panel\r
+2. Click the **Import** button\r
+3. Select your file(s) or drag them into the drop zone\r
+4. The character appears in your library immediately\r
+\r
+For PNG cards, the image itself becomes the character's avatar.\r
+\r
+---\r
+\r
+## Import from URL\r
+\r
+You can import directly from popular character hosting sites:\r
+\r
+1. Open the **Character Browser** panel\r
+2. Click **Import from URL**\r
+3. Paste the URL and click **Import**\r
+\r
+### Supported Sites\r
+\r
+- **Chub.ai** \u2014 \`https://chub.ai/characters/author/name\`\r
+- **CharacterHub** \u2014 \`https://characterhub.org/characters/author/name\`\r
+- **JanitorAI** \u2014 \`https://janitorai.com/characters/...\`\r
+- **Direct links** \u2014 Any URL pointing to a \`.png\`, \`.json\`, or \`.charx\` file\r
+\r
+The avatar is automatically downloaded when available.\r
+\r
+---\r
+\r
+## Bulk Import\r
+\r
+Need to import many characters at once? Use bulk import:\r
+\r
+1. Open the **Character Browser** panel\r
+2. Click **Import** and select multiple files (up to 500 at a time)\r
+3. A progress modal shows the status of each import\r
+4. When finished, you'll see a summary of successes, skips, and failures\r
+\r
+### Skip Duplicates\r
+\r
+Enable **Skip Duplicates** during bulk import to avoid creating copies of characters you already have. Characters are matched by exact name.\r
+\r
+---\r
+\r
+## Embedded Lorebooks\r
+\r
+Some character cards include an embedded **World Book** (lorebook) in their data. When you import such a character:\r
+\r
+- The lorebook is automatically created as a separate World Book\r
+- It's linked to the character so it activates in their chats\r
+- The import summary tells you the lorebook name and entry count\r
+\r
+You can view and edit the imported lorebook in the [World Books](../world-books/index.md) panel.\r
+\r
+---\r
+\r
+## CHARX Modules\r
+\r
+CHARX bundles can include Lumiverse-specific modules:\r
+\r
+- **Expressions** \u2014 Emotion-to-image mappings for dynamic character sprites\r
+- **Alternate Fields** \u2014 Variant descriptions, personalities, and scenarios\r
+- **Alternate Avatars** \u2014 Multiple avatar options\r
+\r
+These are automatically imported and attached to the character. The import summary tells you exactly what was included.\r
+\r
+---\r
+\r
+## Migrating from SillyTavern\r
+\r
+If you're coming from SillyTavern, Lumiverse includes a full interactive migration tool that imports characters, chat history, world books, and personas in one go. See the [Migrating from SillyTavern](../getting-started/installation.md#migrating-from-sillytavern) guide for the complete walkthrough.\r
+`,
+    "characters/index.md": `# Characters\r
+\r
+Characters are the AI personas you interact with in Lumiverse. Each character has a name, avatar, personality description, and other fields that tell the AI how to behave.\r
+\r
+---\r
+\r
+## What Makes Up a Character?\r
+\r
+Every character has these core fields:\r
+\r
+| Field | Purpose |\r
+|-------|---------|\r
+| **Name** | The character's display name |\r
+| **Avatar** | A profile image |\r
+| **Description** | Physical appearance, background, and traits |\r
+| **Personality** | Personality traits and disposition |\r
+| **Scenario** | The setting or situation for the conversation |\r
+| **First Message** | The opening message when a new chat starts |\r
+| **Example Messages** | Sample dialogue showing how the character speaks |\r
+| **System Prompt** | Instructions to the AI about how to play this character |\r
+| **Post-History Instructions** | Instructions injected after the chat history |\r
+| **Creator Notes** | Notes from the character's creator (not sent to the AI) |\r
+| **Tags** | Organizational labels for filtering |\r
+\r
+Not every field needs to be filled in \u2014 only **Name** is required. Use as much or as little as fits your needs.\r
+\r
+---\r
+\r
+## Quick Links\r
+\r
+- [Importing Characters](importing-characters.md) \u2014 Bring in character cards from files or URLs\r
+- [Creating Characters](creating-characters.md) \u2014 Build a character from scratch\r
+- [Expressions](expressions.md) \u2014 Add visual expressions that change with the conversation mood\r
+- [Alternate Fields & Avatars](alternate-fields.md) \u2014 Create variants of descriptions, personalities, and avatars\r
+\r
+---\r
+\r
+## Character Cards & Compatibility\r
+\r
+Lumiverse uses the **Character Card Specification** (CCSv3), the same format used by SillyTavern, Chub.ai, and other platforms. This means:\r
+\r
+- Characters exported from other apps work in Lumiverse\r
+- Characters created in Lumiverse can be exported and shared\r
+- PNG character cards (images with embedded data) are fully supported\r
+- CHARX bundles (ZIP archives) are supported, including Lumiverse-specific modules\r
+\r
+---\r
+\r
+## Managing Characters\r
+\r
+From the **Character Browser** panel, you can:\r
+\r
+- **Search** \u2014 Find characters by name or creator\r
+- **Filter** \u2014 Filter by tags\r
+- **Sort** \u2014 By name, creation date, recent use, or random shuffle\r
+- **Favorite** \u2014 Mark characters as favorites for quick access\r
+- **Duplicate** \u2014 Create a copy of any character\r
+- **Delete** \u2014 Remove characters you no longer need\r
+- **Export** \u2014 Save characters as JSON, PNG, or CHARX files\r
+\r
+Switch between **grid**, **list**, and **single** view modes depending on how you like to browse.\r
+`,
+    "chatting/attachments.md": `# Attachments\r
+\r
+You can send images and audio files alongside your messages. When the AI supports multimodal input (vision or audio), it can see and respond to your attachments.\r
+\r
+---\r
+\r
+## Sending an Attachment\r
+\r
+1. Click the **Attachment** button in the input area (or drag a file into the chat)\r
+2. Select an image or audio file\r
+3. The attachment appears as a preview in the input area\r
+4. Type your message (optional) and send\r
+\r
+The attachment is uploaded to Lumiverse's image system and stored alongside the message.\r
+\r
+---\r
+\r
+## Supported Formats\r
+\r
+| Type | Formats |\r
+|------|---------|\r
+| **Images** | PNG, JPG, WebP, GIF |\r
+| **Audio** | WAV, MP3, and other common audio formats |\r
+\r
+---\r
+\r
+## How the AI Sees Attachments\r
+\r
+When you send a message with an attachment, Lumiverse converts the file to base64 and includes it as multipart content in the prompt. The AI receives both the text and the media together.\r
+\r
+!!! note "Model support"\r
+    Not all AI models support vision or audio input. If your current model doesn't support it, the attachment is still saved with the message but may not influence the AI's response. Check your provider's model capabilities.\r
+\r
+Provider-specific formatting is handled automatically:\r
+\r
+- **OpenAI** \u2014 Uses \`image_url\` and \`input_audio\` content parts\r
+- **Anthropic** \u2014 Uses \`image\` source blocks\r
+- **Google** \u2014 Uses \`inlineData\` parts\r
+\r
+---\r
+\r
+## Viewing Attachments\r
+\r
+Attachments appear inline in the message. Click on an image attachment to open it in the **Image Lightbox** for a full-size view.\r
+`,
+    "chatting/authors-note.md": `# Author's Note\r
+\r
+The Author's Note is a hidden instruction you can inject into the conversation at a specific depth. It's like a director's whisper to the AI \u2014 the characters don't "see" it, but it shapes how the AI writes.\r
+\r
+---\r
+\r
+## What Is It?\r
+\r
+An Author's Note is a short piece of text inserted into the prompt at a configurable depth in the message history. Unlike system prompts (which go at the top), the Author's Note sits *within* the conversation context, making it highly influential on the AI's next response.\r
+\r
+---\r
+\r
+## Setting Up an Author's Note\r
+\r
+1. In an active chat, click the **Author's Note** button (or find it in the chat controls)\r
+2. Write your instruction\r
+3. Configure:\r
+    - **Depth** \u2014 How many messages from the end to insert it (default: 4). Lower numbers = closer to the end = more influence.\r
+    - **Position** \u2014 Where relative to the insertion point\r
+    - **Role** \u2014 The message role (system, user, or assistant)\r
+\r
+### Example Author's Notes\r
+\r
+- \`[Style: vivid descriptions, focus on sensory details, slow pacing]\`\r
+- \`[The storm is getting worse. The power could go out at any moment.]\`\r
+- \`[Write the next response as a flashback to the character's childhood.]\`\r
+- \`[Increase tension. Something is watching from the shadows.]\`\r
+\r
+---\r
+\r
+## How Depth Works\r
+\r
+Depth controls where the Author's Note appears in the message list:\r
+\r
+- **Depth 0** \u2014 Right at the end, just before the AI generates (strongest influence)\r
+- **Depth 4** \u2014 Four messages back from the end (default, balanced)\r
+- **Depth 10** \u2014 Ten messages back (subtler influence)\r
+\r
+Think of it like recency \u2014 the closer to the end, the more the AI "remembers" it when writing.\r
+\r
+---\r
+\r
+## Per-Chat Setting\r
+\r
+The Author's Note is saved per-chat. Each conversation can have its own note with different content, depth, and role. Changes take effect on the next generation.\r
+\r
+---\r
+\r
+## Tips\r
+\r
+!!! tip "Use brackets"\r
+    Wrapping your note in brackets like \`[instruction here]\` helps the AI recognize it as a meta-instruction rather than dialogue.\r
+\r
+!!! tip "Keep it short"\r
+    The Author's Note should be concise \u2014 one or two sentences. Long notes eat into your context window and can confuse the AI.\r
+\r
+!!! tip "Change it as the story evolves"\r
+    The Author's Note isn't set-and-forget. Update it as the scene changes to keep guiding the narrative in the direction you want.\r
+`,
+    "chatting/branching.md": `# Branching\r
+\r
+Branching lets you fork a conversation at any message, creating a new chat that diverges from that point. It's like a "save point" \u2014 you can explore a different direction without losing the original conversation.\r
+\r
+---\r
+\r
+## How to Branch\r
+\r
+1. Hover over any message in the chat\r
+2. Click the **Branch** button\r
+3. A new chat is created, containing all messages up to (and including) the one you branched from\r
+4. Continue the new chat in a different direction\r
+\r
+The original chat is untouched. You now have two separate conversations that share the same history up to the branch point.\r
+\r
+---\r
+\r
+## When to Use Branching\r
+\r
+- **Exploring "what if" scenarios** \u2014 Branch at a decision point and try different choices\r
+- **Preserving good conversations** \u2014 Before taking a risky story turn, branch so you can always go back\r
+- **Testing different approaches** \u2014 Branch and try different user messages to see how the AI responds\r
+- **Parallel storylines** \u2014 Maintain multiple timelines of the same story\r
+\r
+---\r
+\r
+## Branch vs. Swipe\r
+\r
+| Feature | Swipes | Branching |\r
+|---------|--------|-----------|\r
+| **Scope** | Alternate versions of a single message | Entire new conversation from a point |\r
+| **Shared history** | Same chat, same context | New chat, copied context |\r
+| **Navigation** | Left/right arrows on the message | Separate chat in your chat list |\r
+| **Best for** | Trying different phrasings | Exploring different story paths |\r
+\r
+Use **swipes** when you want a different version of one response. Use **branching** when you want to take the whole story in a new direction.\r
+\r
+---\r
+\r
+## Finding Branches\r
+\r
+Branched chats appear as regular chats in your chat list. They're associated with the same character as the original. You can view the branch tree from the **Branch Tree Panel** to see how your conversations have diverged.\r
+`,
+    "chatting/group-chats.md": `# Group Chats\r
+\r
+Group chats let you have conversations with **multiple AI characters at once**. Characters interact with you and with each other, creating dynamic multi-character scenes.\r
+\r
+---\r
+\r
+## Creating a Group Chat\r
+\r
+1. Open the **Character Browser** panel\r
+2. Select multiple characters (use the group chat button or multi-select mode)\r
+3. Click **Create Group Chat**\r
+4. Each character's greeting message appears in sequence\r
+\r
+Alternatively, you can add characters to an existing group chat later.\r
+\r
+---\r
+\r
+## How Group Chats Work\r
+\r
+In a group chat, characters take turns responding. After you send a message:\r
+\r
+- The AI generates a response as one of the characters\r
+- The "focused" character is typically auto-selected, but you can choose who responds next\r
+- Each character has their own personality, description, and expression set\r
+\r
+Characters are aware of each other \u2014 they can address one another by name and react to what others have said.\r
+\r
+---\r
+\r
+## Adding & Removing Members\r
+\r
+### Adding a Member\r
+\r
+1. Open the chat\r
+2. Use the group member bar or settings to **Add Member**\r
+3. Select a character\r
+4. Choose whether to include their greeting message\r
+\r
+When a new member joins, you can optionally inject their first message into the conversation as an introduction.\r
+\r
+### Removing a Member\r
+\r
+1. Open the group member bar\r
+2. Click **Remove** on the character you want to remove\r
+\r
+A group chat must always have at least 2 characters. If you remove a member that was the chat's "primary" character, the first remaining member takes over that role.\r
+\r
+---\r
+\r
+## Muting Characters\r
+\r
+Sometimes you want a character present in the scene but not actively speaking. **Muting** a character:\r
+\r
+- Excludes them from auto-target selection (they won't be chosen to respond automatically)\r
+- Removes them from the \`{{groupNotMuted}}\` macro\r
+- Keeps them in the chat \u2014 they can still be manually targeted\r
+\r
+To mute or unmute, use the member controls in the group chat bar.\r
+\r
+---\r
+\r
+## Targeting a Specific Character\r
+\r
+In group chats, you can specify which character should respond next:\r
+\r
+- The AI auto-selects based on context by default\r
+- You can override this by clicking a character's name in the group member bar before generating\r
+- The \`{{charGroupFocused}}\` macro resolves to the currently targeted character\r
+\r
+---\r
+\r
+## Group Chat Macros\r
+\r
+These macros are especially useful in group chat presets:\r
+\r
+| Macro | Resolves To |\r
+|-------|-------------|\r
+| \`{{group}}\` | Comma-separated list of all character names |\r
+| \`{{groupNotMuted}}\` | Names of non-muted characters |\r
+| \`{{groupOthers}}\` | Names of characters other than the focused one |\r
+| \`{{groupMemberCount}}\` | Number of characters in the group |\r
+| \`{{groupLastSpeaker}}\` | Name of the character who spoke last |\r
+| \`{{isGroupChat}}\` | "yes" or "no" |\r
+| \`{{charGroupFocused}}\` | The currently targeted character's name |\r
+\r
+---\r
+\r
+## Tips for Good Group Chats\r
+\r
+!!! tip "Keep groups small"\r
+    2-4 characters work best. With more than 5, conversations can become chaotic and harder for the AI to track.\r
+\r
+!!! tip "Give characters distinct voices"\r
+    Make sure each character has a clearly different personality, speech pattern, or perspective. This helps the AI distinguish between them.\r
+\r
+!!! tip "Use muting strategically"\r
+    Mute characters who are "in the room" but not central to the current scene. Unmute them when it's their time to contribute.\r
+`,
+    "chatting/guided-generation.md": `# Guided Generation\r
+\r
+Guided generation lets you attach reusable prompt fragments to your messages \u2014 short instructions that shape the AI's response without you having to type them every time.\r
+\r
+---\r
+\r
+## What Are Guides?\r
+\r
+A guide is a saved piece of text that gets injected into the prompt at a specific position. You might create guides like:\r
+\r
+- "Write in first person, present tense" (system position)\r
+- "Respond with only dialogue, no narration" (system position)\r
+- "Focus on the character's internal thoughts" (before message)\r
+\r
+Guides are managed in **Settings > Guided Gen** and toggled on/off from the input area.\r
+\r
+---\r
+\r
+## Creating a Guide\r
+\r
+1. Open **Settings > Guided Gen**\r
+2. Click **New Guide**\r
+3. Fill in:\r
+    - **Name** \u2014 A label for quick identification\r
+    - **Content** \u2014 The prompt text (supports macros)\r
+    - **Position** \u2014 Where it's injected (see below)\r
+    - **Mode** \u2014 Persistent or one-shot\r
+\r
+---\r
+\r
+## Position\r
+\r
+| Position | Where It Goes |\r
+|----------|---------------|\r
+| **System** | Injected as a separate system message in the prompt |\r
+| **Before Message** | Prepended to your last user message |\r
+| **After Message** | Appended to your last user message |\r
+\r
+Multiple guides can be active at the same time. If several guides share the same position, their content is joined with newlines.\r
+\r
+---\r
+\r
+## Mode\r
+\r
+| Mode | Behavior |\r
+|------|----------|\r
+| **Persistent** | Stays active until you manually turn it off |\r
+| **One-Shot** | Automatically disables itself after one generation |\r
+\r
+One-shot is useful for single-turn instructions like "Respond with a haiku" or "Write this scene as a flashback."\r
+\r
+---\r
+\r
+## Using Guides in Chat\r
+\r
+1. Click the **Guides** icon in the input area action bar\r
+2. Toggle any guide on or off\r
+3. Active guides are applied to the next generation\r
+\r
+You can have multiple guides active simultaneously \u2014 they stack.\r
+\r
+---\r
+\r
+## Tips\r
+\r
+!!! tip "Use guides for recurring instructions"\r
+    Instead of typing "keep it under 2 paragraphs" in every message, create a persistent guide for it. Toggle it off when you want longer responses.\r
+\r
+!!! tip "One-shot for experiments"\r
+    Want to try a different writing style for just one response? Create a one-shot guide. It applies once and disappears.\r
+`,
+    "chatting/index.md": `# Chatting\r
+\r
+Chatting is the heart of Lumiverse. Once you have a character and a connection set up, everything revolves around the conversation.\r
+\r
+---\r
+\r
+## What You Can Do\r
+\r
+| Feature | Description |\r
+|---------|-------------|\r
+| [Starting a Chat](starting-a-chat.md) | Create new conversations with one or more characters |\r
+| [Messages & Swipes](messages-and-swipes.md) | Send, edit, delete, regenerate messages and explore alternate responses |\r
+| [Group Chats](group-chats.md) | Conversations with multiple AI characters at once |\r
+| [Branching](branching.md) | Fork a conversation at any point to explore different paths |\r
+| [Author's Note](authors-note.md) | Inject hidden instructions into the conversation |\r
+| [Attachments](attachments.md) | Send images and audio alongside your messages |\r
+| [Speech-to-Text](speech-to-text.md) | Dictate messages with Web Speech or Whisper/STT connections |\r
+| [OOC Comments](ooc.md) | Out-of-character asides and meta-commentary |\r
+| [Loom Summary](loom-summary.md) | Automatic and manual story summarization |\r
+| [Long-Term Memory](memory.md) | Recall relevant past moments via vector search |\r
+| [Guided Generation](guided-generation.md) | Reusable prompt fragments that shape responses |\r
+| [Quick Replies](quick-replies.md) | Pre-written message templates for fast input |\r
+| [Regen Feedback](regen-feedback.md) | Guide regenerations with specific feedback |\r
+\r
+---\r
+\r
+## How a Chat Works\r
+\r
+When you send a message, here's what happens behind the scenes:\r
+\r
+1. Your message is saved to the chat\r
+2. Lumiverse assembles the full **prompt** \u2014 your preset blocks, character data, persona, world book entries, chat history, and any active macros\r
+3. The assembled prompt is sent to your AI provider via the active **connection**\r
+4. Tokens stream back in real time, appearing word-by-word in the chat\r
+5. When generation finishes, the complete response is saved as a message\r
+\r
+The entire prompt assembly process is configurable through [Presets](../presets/index.md), and you can preview exactly what the AI sees using the **Dry Run** feature.\r
+\r
+---\r
+\r
+## Chat Management\r
+\r
+From the **Landing Page** or the **Manage Chats** modal, you can:\r
+\r
+- **View recent chats** \u2014 Grouped by character with last message previews\r
+- **Delete chats** \u2014 Remove conversations you no longer need\r
+- **Export chats** \u2014 Save the full conversation as JSON data\r
+`,
+    "chatting/loom-summary.md": `# Loom Summary\r
+\r
+As conversations grow long, older messages fall out of the AI's context window. The Loom Summary system solves this by generating structured summaries of your chat history, preserving key story beats, character developments, and unresolved threads in a compact form the AI can reference.\r
+\r
+---\r
+\r
+## How It Works\r
+\r
+The summarizer analyzes recent messages and produces a structured summary organized into categories. This summary is stored in the chat's metadata and available via the \`{{loomSummary}}\` macro. Include that macro in your preset, and the AI always has access to the story so far \u2014 even after the raw messages have scrolled out of context.\r
+\r
+---\r
+\r
+## Modes\r
+\r
+Open the **Summary Editor** panel to configure summarization:\r
+\r
+| Mode | Behavior |\r
+|------|----------|\r
+| **Disabled** | No summarization |\r
+| **Automatic** | A new summary is generated every N messages |\r
+| **Manual** | You click "Generate" to create a summary on demand |\r
+\r
+### Automatic Mode Settings\r
+\r
+| Setting | Description |\r
+|---------|-------------|\r
+| **Interval** | How many new messages before auto-generating (e.g., every 10 messages) |\r
+| **Auto Context** | How many recent messages to include in each summarization pass |\r
+\r
+### Manual Mode Settings\r
+\r
+| Setting | Description |\r
+|---------|-------------|\r
+| **Manual Context** | How many recent messages to include when you click Generate |\r
+\r
+---\r
+\r
+## Summary Structure\r
+\r
+The generated summary is organized into seven categories, each with item limits to keep it compact:\r
+\r
+| Category | Max Items | What It Captures |\r
+|----------|:---------:|------------------|\r
+| **Completed Objectives** | 7 | Resolved story arcs, achieved milestones, concluded conflicts |\r
+| **Focused Objectives** | 5 | Active story threads \u2014 what's happening right now |\r
+| **Foreshadowing Beats** | 5 | Hints seeded for future events, promises, warnings |\r
+| **Character Developments** | 7 | Meaningful changes in personality, beliefs, skills, emotional state |\r
+| **Memorable Actions** | 7 | Significant physical events \u2014 combat, gestures, locations visited |\r
+| **Memorable Dialogues** | 5 | Impactful words \u2014 confessions, promises, threats, revelations |\r
+| **Relationships** | 5 | Evolving dynamics \u2014 trust, tension, affection, rivalry |\r
+\r
+When a category reaches its limit, the summarizer consolidates related items or retires the least relevant ones. Active conflicts and unresolved threads are never silently dropped.\r
+\r
+---\r
+\r
+## API Source\r
+\r
+Choose which AI model generates summaries:\r
+\r
+| Option | Description |\r
+|--------|-------------|\r
+| **Active Connection** | Uses whatever connection is currently selected |\r
+| **Dedicated Connection** | Uses a specific connection, consistent across all summaries |\r
+\r
+A dedicated connection is useful if you want summaries generated by a cheaper/faster model while your main connection handles the conversation.\r
+\r
+---\r
+\r
+## Message Limits\r
+\r
+You can also limit how many raw messages are included in the prompt context:\r
+\r
+1. Enable **Limit messages in context**\r
+2. Set a **message count** (e.g., keep the last 20 messages)\r
+3. Older messages are trimmed from the context\r
+4. Use \`{{loomSummary}}\` in your preset to retain knowledge from the trimmed messages\r
+\r
+This lets you maintain a tight context window while preserving long-term story continuity through the summary.\r
+\r
+### Scene Break Splitting\r
+\r
+When enabled, the summarizer respects intentional scene boundaries (\`---\`, \`***\`, \`===\`) in your chat. Messages between scene breaks are treated as narrative units, keeping the summary coherent across chapters and time jumps.\r
+\r
+---\r
+\r
+## Using the Summary Editor\r
+\r
+The Summary Editor panel shows your current summary with these controls:\r
+\r
+- **Generate** \u2014 Create a new summary from recent messages\r
+- **Refresh** \u2014 Reload the summary from chat metadata\r
+- **Clear** \u2014 Delete the summary for this chat\r
+- **Save** \u2014 Save manual edits you've made to the summary text\r
+\r
+You can manually edit the summary at any time \u2014 useful for correcting mistakes, adding context the AI missed, or steering the narrative record.\r
+\r
+---\r
+\r
+## Tips\r
+\r
+!!! tip "Include {{loomSummary}} in your preset"\r
+    The summary does nothing unless your preset references it. Add \`{{loomSummary}}\` in a block (typically before the chat history) so the AI can read the accumulated story context.\r
+\r
+!!! tip "Manual mode for important moments"\r
+    Even in automatic mode, you can manually generate a summary at any time. Do this after major plot events to make sure they're captured before the next auto-interval.\r
+\r
+!!! tip "Pair with message limits"\r
+    The most effective setup: limit raw messages to ~20-30, enable auto-summarization every 10 messages, and include \`{{loomSummary}}\` in your preset. This keeps your context lean while preserving the entire story.\r
+`,
+    "chatting/memory-cortex.md": `# Memory Cortex\r
+\r
+Memory Cortex is an advanced memory layer that sits on top of [Long-Term Memory](memory.md). While basic long-term memory retrieves relevant text chunks by similarity, the cortex understands *what happened* \u2014 tracking characters, relationships, emotional beats, and narrative arcs across your entire conversation.\r
+\r
+---\r
+\r
+## What Does It Add?\r
+\r
+| Feature | Long-Term Memory | Memory Cortex |\r
+|---------|:---:|:---:|\r
+| Retrieve relevant past passages | Yes | Yes |\r
+| Track named characters, locations, factions | - | Yes |\r
+| Map relationships between entities | - | Yes |\r
+| Score narrative importance (salience) | - | Yes |\r
+| Detect emotional tones | - | Yes |\r
+| Summarize story arcs | - | Yes |\r
+| Attribute font colors to characters | - | Yes |\r
+\r
+Memory Cortex doesn't replace long-term memory \u2014 it enhances it. With the cortex enabled, retrieved memories are ranked using narrative importance, emotional resonance, and entity relevance in addition to raw text similarity.\r
+\r
+---\r
+\r
+## Getting Started\r
+\r
+### 1. Enable the Cortex\r
+\r
+Open **Settings > Memory Cortex** and flip the master toggle on.\r
+\r
+### 2. Pick a Preset\r
+\r
+Three presets configure the cortex for different use cases:\r
+\r
+| Preset | Entity Tracking | Salience Scoring | Consolidation | Sidecar LLM | Best For |\r
+|--------|:---:|:---:|:---:|:---:|------|\r
+| **Simple** | Heuristic | Heuristic | Off | Off | Casual chats, low overhead |\r
+| **Standard** | Heuristic | Heuristic | On | Off | Most roleplay (recommended) |\r
+| **Advanced** | Heuristic + LLM | Heuristic + LLM | On | On | Long epics, maximum accuracy |\r
+\r
+!!! tip "Start with Standard"\r
+    Standard gives you entity tracking, salience scoring, and consolidation using zero-cost heuristics \u2014 no extra API calls. You can always upgrade to Advanced later.\r
+\r
+### 3. Rebuild Existing Chats\r
+\r
+If you enable the cortex on a chat that already has history, click **Rebuild** in the Memory Cortex settings. This processes all existing chunks through the cortex pipeline. New messages are processed automatically going forward.\r
+\r
+---\r
+\r
+## How It Works\r
+\r
+Every time a message is sent, the cortex processes the corresponding chunk through several layers:\r
+\r
+### Salience Scoring\r
+\r
+Each chunk gets a narrative importance score (0.0 to 1.0) based on:\r
+\r
+- **Emotional signals** \u2014 grief, joy, tension, intimacy, betrayal, and more\r
+- **Narrative flags** \u2014 first meetings, deaths, promises, confessions, departures\r
+- **Dialogue content** \u2014 commitments, revelations, emotional declarations\r
+- **Character actions** \u2014 named characters doing emotionally significant things\r
+- **Milestone markers** \u2014 "for the first time", "nothing would be the same"\r
+- **Information density** \u2014 scenes with many proper nouns and new facts\r
+\r
+High-salience memories resist decay over time. Pivotal moments (score above 0.7 or carrying narrative flags like \`death\` or \`promise\`) are protected as **core memories** \u2014 they decay 5x slower and never drop below a 0.5 retrieval floor.\r
+\r
+### Entity Tracking\r
+\r
+The cortex extracts and tracks named entities from your chat:\r
+\r
+- **Characters** \u2014 detected by verb adjacency ("Melina sighed"), dialogue attribution, interaction patterns\r
+- **Locations** \u2014 detected by suffixes ("Sixth Street"), locative phrases ("arrived at Dustwell")\r
+- **Factions** \u2014 detected by collective nouns ("Sons of Calydon"), business suffixes ("PubSec")\r
+- **Items** \u2014 detected by weapon/vehicle verbs ("wielding the Starblade")\r
+\r
+Each entity accumulates facts, emotional associations, and a salience profile over time. The entity graph handles aliases automatically \u2014 if a character named "Pulchra Fellini" is sometimes called "Pulchra" or "Pul", those references are resolved to the same entity.\r
+\r
+You can browse entities in the **Memory panel** (sidebar > Memory > Entities tab). Delete any that were incorrectly extracted.\r
+\r
+### Relationship Mapping\r
+\r
+When two named entities appear in the same chunk, the cortex analyzes their interaction:\r
+\r
+- **Verb-mediated** \u2014 "Melina protected Caesar" (ally, positive sentiment)\r
+- **Relational nouns** \u2014 "Melina's brother" near "Caesar" (sibling)\r
+- **Coordinated action** \u2014 "Melina and Caesar fought together" (ally)\r
+- **Terms of address** \u2014 endearments or hostile language in dialogue\r
+- **Physical proximity** \u2014 two characters described near each other\r
+\r
+Relationships are reinforced each time they're observed, building a strength score over time.\r
+\r
+### Consolidation\r
+\r
+As your chat grows, older chunks are compressed into summaries:\r
+\r
+- **Scene summaries** (Tier 1) \u2014 groups of chunks consolidated into a single paragraph capturing key events\r
+- **Story arcs** (Tier 2) \u2014 groups of scene summaries compressed into high-level arc descriptions\r
+\r
+Consolidation triggers automatically when enough unconsolidated chunks accumulate (configurable threshold). This keeps the memory footprint bounded while preserving narrative continuity.\r
+\r
+You can view consolidations in the **Memory panel** (sidebar > Memory > Stats > Consolidations).\r
+\r
+### Emotional Recall\r
+\r
+When you generate a new message, the cortex analyzes the emotional tone of recent messages and boosts retrieval of memories with matching emotions. A sad scene naturally surfaces memories of past grief and loss. A tense confrontation recalls previous conflicts.\r
+\r
+This "Proustian recall" works alongside semantic similarity \u2014 memories that are both topically relevant *and* emotionally resonant score highest.\r
+\r
+---\r
+\r
+## Sidecar LLM (Tier 2)\r
+\r
+For maximum accuracy, you can assign a secondary LLM connection to assist the cortex. This sidecar model handles:\r
+\r
+- **Deeper entity extraction** \u2014 catches entities the heuristic misses\r
+- **Better relationship detection** \u2014 understands implied relationships\r
+- **Calibrated salience scoring** \u2014 judges narrative importance by consequence, not just keyword presence\r
+- **Font color attribution** \u2014 identifies which character owns each HTML color tag\r
+- **Key fact extraction** \u2014 pulls concrete, memorable facts from each passage\r
+- **Generative consolidation** \u2014 produces coherent narrative summaries instead of sentence extractions\r
+\r
+### Setting Up a Sidecar\r
+\r
+1. In **Memory Cortex settings**, select a **Connection Profile** under the Sidecar section\r
+2. Choose a **Model** (smaller, faster models work well here \u2014 the sidecar doesn't need to be creative)\r
+3. Adjust **Temperature** (0.1 recommended for factual extraction)\r
+4. Set **Parallel Requests** to control how many concurrent LLM calls run during a rebuild\r
+\r
+!!! note "Sidecar Costs"\r
+    The sidecar makes one LLM call per chunk during live chat, and one per chunk during rebuilds. A chat with 200 chunks would make 200 API calls on rebuild. Choose an inexpensive model for the sidecar to keep costs reasonable.\r
+\r
+The sidecar results are merged with heuristic results \u2014 the heuristic always runs as a baseline, and the LLM supplements it. If the sidecar call fails for any reason, the heuristic result is used as a fallback.\r
+\r
+---\r
+\r
+## Memory Panel\r
+\r
+The sidebar's **Memory** tab gives you a live view of the cortex data for the current chat:\r
+\r
+### Entities Tab\r
+Browse all tracked entities \u2014 characters, locations, items, factions. Each entity card shows:\r
+\r
+- Type and status (active, inactive, deceased)\r
+- Mention count and salience average\r
+- Description (auto-populated from first appearance)\r
+- Known facts\r
+- Emotional profile (top emotional associations)\r
+- Aliases\r
+\r
+You can delete incorrectly extracted entities directly from this panel.\r
+\r
+### Colors Tab\r
+Shows font color attributions \u2014 which hex color belongs to which character, with confidence scores. Useful for chats where characters use distinct colors for speech, thought, or narration.\r
+\r
+### Stats Tab\r
+Overview of the cortex data:\r
+\r
+- Memory chunks (total and vectorized)\r
+- Entities (active and archived)\r
+- Relations between entities\r
+- Consolidations (scene summaries and arcs)\r
+- Salience records\r
+\r
+Click any stat card to drill down into the raw records.\r
+\r
+---\r
+\r
+## Macros\r
+\r
+Memory Cortex data is available in your presets through macros. Add these via **Add Prompt > Memory Cortex** in the preset editor:\r
+\r
+| Macro | Returns |\r
+|-------|---------|\r
+| \`{{entities}}\` | Active entity snapshots with facts and relationships |\r
+| \`{{entityFacts::Name}}\` | Facts about a specific entity (e.g., \`{{entityFacts::Melina}}\`) |\r
+| \`{{relationships}}\` | Active relationship edges between entities |\r
+| \`{{arc}}\` | Current narrative arc summary |\r
+| \`{{memorySalience}}\` | The single highest-importance memory from retrieval |\r
+| \`{{cortexActive}}\` | \`"yes"\` or \`"no"\` for conditional blocks |\r
+| \`{{entityCount}}\` | Number of entities in the current context |\r
+| \`{{characterColors}}\` | Character speech / thought / narration color guidance derived from cortex state |\r
+\r
+The standard memory macros (\`{{memories}}\`, \`{{memoriesRaw}}\`, etc.) continue to work alongside cortex macros. When the cortex is enabled, \`{{memories}}\` returns cortex-enhanced results formatted in shadow-prompt style.\r
+\r
+---\r
+\r
+## Configuration Reference\r
+\r
+### Formatter Mode\r
+\r
+Controls how retrieved memories are formatted for the prompt:\r
+\r
+| Mode | Style |\r
+|------|-------|\r
+| **Shadow** | Prose-register context with "do not recite" instructions (default) |\r
+| **Attributed** | Each memory labeled with source and salience |\r
+| **Clinical** | Bullet-point factual summaries |\r
+| **Minimal** | Raw content, minimal formatting |\r
+\r
+### Decay Settings\r
+\r
+Memories lose relevance over time through a decay function:\r
+\r
+| Setting | Description |\r
+|---------|-------------|\r
+| **Half-Life (turns)** | After this many messages, a memory's recency score halves |\r
+| **Reinforcement Weight** | How much retrieval boosts a memory's score (prevents useful memories from decaying) |\r
+| **Core Memory Threshold** | Salience score above which a memory becomes a protected "core memory" |\r
+| **Core Memory Flags** | Narrative flags that automatically mark a memory as core (e.g., death, promise) |\r
+\r
+### Entity Pruning\r
+\r
+Keeps the entity graph bounded:\r
+\r
+| Setting | Description |\r
+|---------|-------------|\r
+| **Enabled** | Toggle automatic pruning |\r
+| **Stale After (messages)** | Entities not seen for this many messages get archived |\r
+| **Min Confidence** | Minimum extraction confidence to create new entities |\r
+\r
+### Protected Terms\r
+\r
+The **entity whitelist** lets you specify proper nouns that should always be recognized as entities, even if they look like common words. Useful for fantasy names that might be filtered out.\r
+\r
+---\r
+\r
+## Tips\r
+\r
+!!! tip "Rebuild after changing settings"\r
+    If you change chunking parameters or enable the sidecar, click **Rebuild** to reprocess all chunks. The cortex detects stale data automatically on the next generation, but a manual rebuild ensures immediate freshness.\r
+\r
+!!! tip "Delete bad entities early"\r
+    If you spot an incorrectly extracted entity (like a common word being tracked as a character), delete it from the Memory panel. This prevents it from accumulating relationships and facts that pollute the graph.\r
+\r
+!!! tip "Pair with Loom Summary"\r
+    The cortex excels at granular recall (specific moments, entity facts, relationships). [Loom Summary](loom-summary.md) provides a structured overview of the whole story. Use both for comprehensive long-term coherence.\r
+\r
+!!! tip "Sidecar model selection"\r
+    For the sidecar, prioritize speed and cost over creativity. Models like Gemini Flash, Haiku, or GPT-4o-mini work well \u2014 the sidecar does structured extraction, not creative writing.\r
+\r
+!!! tip "Check the Stats tab"\r
+    The Stats tab shows whether salience records are sourced from "heuristic" or "sidecar". After a rebuild with a sidecar configured, you should see "sidecar" entries. If everything still shows "heuristic", check that your sidecar connection is configured correctly.\r
+`,
+    "chatting/memory.md": `# Long-Term Memory\r
+\r
+Long-term memory gives the AI the ability to recall relevant moments from earlier in the conversation \u2014 even if those moments have long since scrolled out of the context window. It works by chunking your chat history into vectors and retrieving the most relevant pieces on each generation.\r
+\r
+---\r
+\r
+## How It Works\r
+\r
+1. Your chat history is split into **chunks** (groups of messages)\r
+2. Each chunk is converted to a vector embedding (a numerical representation of its meaning)\r
+3. When you generate a new message, recent context is used as a search query\r
+4. The most semantically similar chunks are retrieved and injected into the prompt\r
+5. The AI "remembers" relevant past events, even from hundreds of messages ago\r
+\r
+!!! note "Requires Embeddings"\r
+    Long-term memory requires the [Embeddings](../settings/embeddings.md) system to be configured. Without an embedding provider, memory cannot vectorize or search your chat history.\r
+\r
+---\r
+\r
+## Quick Presets\r
+\r
+Choose a preset to auto-configure all memory parameters:\r
+\r
+| Preset | Target Tokens | Max Tokens | Overlap | Exclusion Window | Best For |\r
+|--------|:---:|:---:|:---:|:---:|------------|\r
+| **Conservative** | 600 | 1,200 | 100 | 30 messages | Tight token budgets, focused recall |\r
+| **Balanced** | 800 | 1,600 | 120 | 20 messages | General use (recommended) |\r
+| **Aggressive** | 1,000 | 2,000 | 200 | 15 messages | Long stories where history matters |\r
+| **Manual** | Custom | Custom | Custom | Custom | Full control over every parameter |\r
+\r
+---\r
+\r
+## Chunking Parameters\r
+\r
+These control how your chat history is divided into pieces:\r
+\r
+| Parameter | Description |\r
+|-----------|-------------|\r
+| **Target Tokens** | The ideal size for each chunk. The system aims for this length. |\r
+| **Max Tokens** | Hard ceiling \u2014 no chunk exceeds this size. |\r
+| **Overlap Tokens** | How many tokens of context are shared between adjacent chunks. Prevents information from being lost at chunk boundaries. |\r
+| **Max Messages / Chunk** | Cap on messages per chunk (0 = unlimited). |\r
+| **Time Gap Split** | Split chunks when there's a gap of N+ minutes between messages (0 = disabled). |\r
+| **Split on Scene Breaks** | Automatically split at \`---\`, \`***\`, \`===\` markers. |\r
+\r
+**Example:** With target 800 and overlap 120, a long conversation might produce chunks of ~800 tokens each, where the last ~120 tokens of Chunk 1 also appear at the start of Chunk 2. This overlap ensures the AI can follow context across chunk boundaries.\r
+\r
+---\r
+\r
+## Retrieval Parameters\r
+\r
+These control what gets pulled from memory on each generation:\r
+\r
+| Parameter | Description |\r
+|-----------|-------------|\r
+| **Top-K Results** | How many chunks to retrieve (e.g., 4-8). More = broader recall, more tokens used. |\r
+| **Exclusion Window** | Don't retrieve chunks from the last N messages. These messages are already in the direct context \u2014 no need to duplicate them. |\r
+| **Similarity Threshold** | Minimum relevance score. Chunks below this threshold are excluded even if they're in the top-K. Set to 0 to disable filtering. |\r
+\r
+---\r
+\r
+## Query Strategy\r
+\r
+Controls how the search query is built:\r
+\r
+| Strategy | Description |\r
+|----------|-------------|\r
+| **Recent Messages** | Uses the last N messages as the query \u2014 casts a broad net |\r
+| **Last User Message** | Uses only your most recent message \u2014 very focused recall |\r
+| **Weighted Recent** | Gives more weight to the most recent messages in the query |\r
+\r
+**Query Context Size** determines how many messages feed into the query (for strategies that use multiple messages).\r
+\r
+**Query Max Tokens** caps the total token budget for retrieved memories in the assembled prompt.\r
+\r
+---\r
+\r
+## Memory Macros\r
+\r
+Retrieved memories are available in your preset through macros:\r
+\r
+| Macro | Returns |\r
+|-------|---------|\r
+| \`{{memories}}\` | Formatted memory chunks with header template |\r
+| \`{{memoriesRaw}}\` | Raw chunks without formatting |\r
+| \`{{memoriesActive}}\` | \`"yes"\` or \`"no"\` \u2014 for conditional blocks |\r
+| \`{{memoriesCount}}\` | Number of chunks retrieved |\r
+\r
+Include \`{{memories}}\` in a preset block to inject retrieved context into the prompt.\r
+\r
+---\r
+\r
+## Formatting Templates\r
+\r
+Customize how memories appear in the prompt:\r
+\r
+- **Header Template** \u2014 Wraps the entire memory section (e.g., \`"Relevant past events:\\n{{memories}}"\`)\r
+- **Chunk Template** \u2014 Formats each individual chunk\r
+- **Chunk Separator** \u2014 Divider between chunks\r
+\r
+---\r
+\r
+## Tips\r
+\r
+!!! tip "Start with Balanced"\r
+    The Balanced preset works well for most conversations. Switch to Aggressive for epic-length stories, or Conservative if you're running tight on tokens.\r
+\r
+!!! tip "Set a reasonable exclusion window"\r
+    The exclusion window prevents the system from "remembering" things that are already visible in the current context. A window of 20 means the last 20 messages won't appear as memories (they're already there as chat history).\r
+\r
+!!! tip "Pair with Loom Summary"\r
+    Memory and [Loom Summary](loom-summary.md) complement each other. Memory retrieves specific relevant moments; the summary provides a structured overview of the whole story. Use both for the best long-term coherence.\r
+`,
+    "chatting/messages-and-swipes.md": `# Messages & Swipes\r
+\r
+Understanding how messages work \u2014 and how to get the most out of swipes \u2014 is key to having great conversations.\r
+\r
+---\r
+\r
+## Sending Messages\r
+\r
+Type your message in the input area and press **Enter** to send (or click the send button). The AI starts generating a response immediately, with tokens appearing in real time.\r
+\r
+!!! tip "Shift+Enter"\r
+    Press **Shift+Enter** to add a new line without sending.\r
+\r
+---\r
+\r
+## Editing Messages\r
+\r
+Click on any message to edit its text. Both your messages and the character's messages can be edited. Edits are saved immediately.\r
+\r
+Editing a character's message also updates the current swipe \u2014 so the content stays consistent.\r
+\r
+---\r
+\r
+## Deleting Messages\r
+\r
+Hover over a message and click the **delete** button to remove it. Deleted messages are gone permanently.\r
+\r
+---\r
+\r
+## Regenerating\r
+\r
+Don't like the AI's last response? Click **Regenerate** to get a new one. The previous response isn't lost \u2014 it becomes a swipe you can navigate back to.\r
+\r
+---\r
+\r
+## Swipes\r
+\r
+Swipes are alternate versions of the same message. Every time you regenerate a response, the new version is added as a swipe. You can navigate between swipes using the **left/right arrows** on the message.\r
+\r
+Think of swipes as a deck of cards \u2014 each one is a different take on the same conversational moment. You can:\r
+\r
+- **Swipe left/right** to browse alternatives\r
+- **Regenerate** to add a new swipe to the deck\r
+- **Edit** any individual swipe\r
+- The currently displayed swipe is what the AI sees as "the message" in subsequent turns\r
+\r
+### Why Swipes Matter\r
+\r
+Swipes are one of the most powerful features in AI chat. Instead of accepting the first response, you can:\r
+\r
+- Generate 3-5 swipes and pick the best one\r
+- Find the response that best matches the tone you want\r
+- Explore different directions the story could go\r
+- Keep the good parts of one swipe and edit in elements from another\r
+\r
+---\r
+\r
+## Continue\r
+\r
+If a response feels cut short, click **Continue** to ask the AI to keep writing from where it left off. The continuation is appended to the current message rather than creating a new one.\r
+\r
+---\r
+\r
+## Stopping Generation\r
+\r
+If the AI is generating something you don't want, click **Stop** to halt generation immediately. The partial response is saved \u2014 you can edit it, delete it, or regenerate.\r
+\r
+---\r
+\r
+## Dry Run\r
+\r
+Before sending a real request, you can preview exactly what the AI will see:\r
+\r
+1. Click the **Dry Run** button in the input area\r
+2. Lumiverse assembles the full prompt (presets, character data, world info, macros) without calling the AI\r
+3. A modal shows you the complete message list, token breakdown, and parameter settings\r
+\r
+This is invaluable for debugging prompts, checking world book activation, and understanding why the AI is behaving a certain way.\r
+`,
+    "chatting/ooc.md": `# Out-of-Character (OOC) Comments\r
+\r
+OOC comments are special asides the AI can generate during roleplay \u2014 character-level thoughts, meta-commentary, or narrative observations that exist outside the story itself. Think of them as margin notes from the character (or council) to the reader.\r
+\r
+---\r
+\r
+## What Are OOC Comments?\r
+\r
+When enabled, the AI can produce tagged blocks like \`<lumia_ooc>I love where this scene is going</lumia_ooc>\` inside its responses. Lumiverse extracts these blocks and renders them in a separate visual style of your choosing, keeping them distinct from the narrative text.\r
+\r
+In council mode, individual council members can each contribute their own OOC comments, attributed by name.\r
+\r
+---\r
+\r
+## Enabling OOC\r
+\r
+1. Open the **OOC Panel** (or find it in the Prompt Panel settings)\r
+2. Toggle **Enable OOC comments** on\r
+3. Select a **display style**\r
+4. Optionally set an **OOC interval**\r
+\r
+---\r
+\r
+## Display Styles\r
+\r
+Lumiverse offers five visual styles for OOC comments:\r
+\r
+| Style | Description |\r
+|-------|-------------|\r
+| **Social Card** | A styled card with the character's avatar, name, and a "weaving through the Loom" tagline. Centered layout, polished feel. |\r
+| **Margin Note** | A subtle side annotation with the character's initial/avatar. Alternates left and right positioning. Good for quiet, unobtrusive commentary. |\r
+| **Whisper Bubble** | A speech bubble headed with "\\[Name\\] whispers..." \u2014 intimate and soft-spoken. |\r
+| **Raw Text** | Plain inline text with minimal styling. For those who want OOC to blend in without decoration. |\r
+| **IRC Chat Room** | A collapsible retro IRC-style panel labeled \`#LumiaCouncil\`. Shows timestamps, \`<usernames>\`, alternating row backgrounds, and @mention highlighting. Optionally converts handles to **l33tspeak**. |\r
+\r
+---\r
+\r
+## OOC Interval\r
+\r
+The interval controls how often OOC comments appear:\r
+\r
+| Setting | Behavior |\r
+|---------|----------|\r
+| **Empty (default)** | Automatic \u2014 the AI decides when OOC comments are appropriate based on the narrative |\r
+| **A number (1-50)** | Forced frequency \u2014 an OOC block appears every N messages |\r
+\r
+Lower numbers mean more frequent commentary. An interval of \`3\` means OOC roughly every third message.\r
+\r
+---\r
+\r
+## OOC Macros\r
+\r
+Your preset controls *how* the AI produces OOC via these macros:\r
+\r
+| Macro | Purpose |\r
+|-------|---------|\r
+| \`{{lumiaOOC}}\` | Main OOC prompt \u2014 adapts for normal, council, and IRC modes |\r
+| \`{{lumiaOOCErotic}}\` | Mirror & Synapse erotic OOC variant |\r
+| \`{{lumiaOOCEroticBleed}}\` | Narrative Rupture \u2014 mid-scene OOC bleed |\r
+| \`{{lumiaOOCTrigger}}\` | Countdown or activation message based on interval |\r
+\r
+These are typically included in Loom preset blocks. The trigger macro handles the interval logic \u2014 it tells the AI whether it's time for an OOC comment or how many messages remain until the next one.\r
+\r
+---\r
+\r
+## Tips\r
+\r
+!!! tip "IRC style for council"\r
+    IRC mode works especially well with council \u2014 each council member's OOC appears as a separate line in the chat room, creating a lively behind-the-scenes discussion.\r
+\r
+!!! tip "Start with automatic"\r
+    Leave the interval empty at first. The AI will insert OOC when it feels natural. If you want more (or less), set a specific number.\r
+`,
+    "chatting/quick-replies.md": `# Quick Replies\r
+\r
+Quick replies are pre-written message templates you can insert into the chat with a single click. Useful for common responses, recurring actions, or frequently used OOC instructions.\r
+\r
+---\r
+\r
+## Setting Up Quick Replies\r
+\r
+1. Open **Settings > Quick Replies**\r
+2. Click **New Set** to create a collection\r
+3. Give the set a name (e.g., "Combat Actions," "Common Responses," "OOC Commands")\r
+4. Add replies \u2014 each with a **label** (what you see in the menu) and a **message** (what gets inserted)\r
+5. Toggle the set **on** to make it available in the chat input\r
+\r
+---\r
+\r
+## Using Quick Replies in Chat\r
+\r
+1. Click the **Quick Reply** icon in the input area action bar\r
+2. Browse your enabled sets\r
+3. Click any reply label\r
+4. The message is inserted into the input field \u2014 edit it if needed, then send\r
+\r
+Quick replies don't send automatically. They fill the input area so you can review or modify before sending.\r
+\r
+---\r
+\r
+## Organizing\r
+\r
+- **Sets** group related replies together\r
+- **Color tags** help visually distinguish sets\r
+- **Enable/disable** entire sets to keep the menu clean\r
+- Click **Manage in settings** from the popover to jump to the configuration page\r
+\r
+---\r
+\r
+## Example Sets\r
+\r
+**"Reactions"**\r
+| Label | Message |\r
+|-------|---------|\r
+| Agree | "That makes sense. Let's go with that." |\r
+| Disagree | "I'm not so sure about this. What if..." |\r
+| Laugh | *laughs* "You can't be serious." |\r
+\r
+**"Director Notes" (for Sovereign Hand)**\r
+| Label | Message |\r
+|-------|---------|\r
+| Slow Down | Slow the pacing. Focus on sensory details. |\r
+| Time Skip | Skip ahead to the next morning. Brief transition. |\r
+| Raise Stakes | Introduce a complication. Something goes wrong. |\r
+`,
+    "chatting/regen-feedback.md": `# Regeneration Feedback\r
+\r
+When you regenerate a response, Lumiverse can prompt you for feedback \u2014 a brief note telling the AI *why* you're regenerating. This guides the next attempt in a specific direction instead of just rolling the dice again.\r
+\r
+---\r
+\r
+## Enabling Regen Feedback\r
+\r
+1. Open **Settings > Chat**\r
+2. Toggle **Regen Feedback** on\r
+3. Choose an **injection position**:\r
+    - **User Message** \u2014 Feedback is appended to the last user message as \`[OOC: your feedback]\`\r
+    - **System Prompt** \u2014 Feedback is appended to the system prompt as \`[OOC: your feedback]\`\r
+\r
+---\r
+\r
+## How It Works\r
+\r
+1. Click the **Regenerate** button on a message\r
+2. A modal appears asking for feedback\r
+3. Type your note (e.g., "Too short \u2014 write more detail" or "Stay in character, no modern slang")\r
+4. Click **Submit** \u2014 the regeneration runs with your feedback injected\r
+5. Or click **Skip** \u2014 the regeneration runs without feedback (same as normal regen)\r
+\r
+---\r
+\r
+## When to Use It\r
+\r
+Regen feedback is most useful when you keep getting the *same kind* of bad response:\r
+\r
+- "Less narration, more dialogue"\r
+- "Don't break character"\r
+- "The previous response was too short \u2014 aim for 3-4 paragraphs"\r
+- "Focus on the emotional tension, not the action"\r
+\r
+Without feedback, the AI may repeat the same mistakes. With feedback, you're giving it a specific correction to work with.\r
+`,
+    "chatting/speech-to-text.md": `# Speech-to-Text\r
+\r
+Speech-to-Text (STT) lets you dictate a chat message from the input bar instead of typing it. Lumiverse supports the browser's built-in Web Speech API and OpenAI-compatible transcription connections such as Whisper.\r
+\r
+---\r
+\r
+## Setting Up STT\r
+\r
+Open **Settings > Voice > Speech-to-Text** and choose a provider.\r
+\r
+| Provider | Best For | Notes |\r
+|----------|----------|-------|\r
+| **Web Speech API** | Fast browser-native dictation | Availability depends on your browser. Chrome and Edge usually work best. |\r
+| **STT Connection** | Whisper and OpenAI-compatible transcription models | Requires an STT connection with an API key and transcription model. |\r
+\r
+For an STT connection:\r
+\r
+1. Open the **Connections** drawer\r
+2. Go to **STT Connections**\r
+3. Click **New STT Connection**\r
+4. Enter a name, API key, and transcription model such as \`gpt-4o-transcribe\`, \`whisper-1\`, or your provider's equivalent\r
+5. Return to **Settings > Voice** and select that connection\r
+\r
+!!! tip "OpenAI-compatible endpoints"\r
+    STT connections use OpenAI-compatible \`/audio/transcriptions\` APIs. Leave **API URL** empty for OpenAI, or enter your proxy/self-hosted endpoint if it implements that route.\r
+\r
+---\r
+\r
+## Dictating a Message\r
+\r
+1. Open a chat\r
+2. Click the **microphone** button in the input bar\r
+3. Speak your message\r
+4. Click the microphone again to finish, or use auto-submit after silence if enabled\r
+\r
+When transcription finishes, Lumiverse places the dictated text into the chat flow.\r
+\r
+By default, a completed STT transcript is queued as a user message. If you want Lumiverse to send it immediately and start generation, end your dictation with \`send message\`.\r
+\r
+!!! example\r
+    Saying \`I gently open the door send message\` sends \`I gently open the door\` immediately.\r
+\r
+---\r
+\r
+## Auto-Submit After Silence\r
+\r
+For STT connections, enable **Auto-submit after silence** if you want Lumiverse to stop recording automatically after you finish speaking.\r
+\r
+This is useful for Whisper-style providers because they do not stream interim words back to the browser. Lumiverse listens for confirmed speech, then waits for a sustained pause before sending the audio to transcription.\r
+\r
+Use this when:\r
+\r
+- You want hands-free dictation\r
+- Your messages were being cut off by stopping the mic too early\r
+- You prefer Lumiverse to decide when the utterance is complete\r
+\r
+Leave it off when:\r
+\r
+- You want full manual control over when recording ends\r
+- You often pause for long stretches while thinking mid-sentence\r
+- Your microphone or room noise makes silence detection unreliable\r
+\r
+!!! note "Silence detection happens before transcription"\r
+    Whisper receives one completed audio recording. The silence detector decides when that recording is complete; Whisper then transcribes the whole clip.\r
+\r
+---\r
+\r
+## Command Words\r
+\r
+Lumiverse recognizes a small set of spoken commands while normalizing STT transcripts.\r
+\r
+### Message Action\r
+\r
+| Say | Result |\r
+|-----|--------|\r
+| \`send message\` at the end | Sends the dictated message immediately instead of only queueing it |\r
+\r
+\`send message\` only works as a command at the end of the transcript. If you say it in the middle, it remains part of the message text.\r
+\r
+### Formatting and Punctuation\r
+\r
+| Say | Inserts |\r
+|-----|---------|\r
+| \`quote start\` | \`"\` |\r
+| \`quote end\` | \`"\` |\r
+| \`open quote\` | \`"\` |\r
+| \`close quote\` | \`"\` |\r
+| \`single quote\` | \`'\` |\r
+| \`apostrophe\` | \`'\` |\r
+| \`thought start\` | \`*\` or \`**\` |\r
+| \`begin thought\` | \`*\` or \`**\` |\r
+| \`thought end\` | \`*\` or \`**\` |\r
+| \`end thought\` | \`*\` or \`**\` |\r
+| \`asterisk\` | \`*\` |\r
+| \`em dash\` | \`\u2014\` |\r
+\r
+Thought markers nest. The first \`thought start\` inserts \`*\`; a second nested thought inserts \`**\`. Matching \`thought end\` commands unwind that nesting.\r
+\r
+!!! example\r
+    Saying \`thought start I should be careful thought end\` becomes \`*I should be careful*\`.\r
+\r
+---\r
+\r
+## Tips for Better Transcription\r
+\r
+- Speak a little past your final word before stopping the mic manually.\r
+- Use **Auto-submit after silence** for Whisper/STT connections if you frequently clip the end of messages.\r
+- Keep the microphone close enough that speech is clearly louder than room noise.\r
+- If auto-submit triggers too early, turn it off and stop the recording manually.\r
+- Use \`send message\` only when you are sure the dictated message should start generation immediately.\r
+\r
+---\r
+\r
+## Troubleshooting\r
+\r
+| Problem | What to Try |\r
+|---------|-------------|\r
+| The microphone button is disabled | Check browser microphone permissions and make sure your selected STT provider is available. |\r
+| Web Speech is unavailable | Switch to an STT connection, or use a browser with Web Speech support. |\r
+| Whisper transcription fails | Verify the STT connection API key, API URL, and model name. |\r
+| Recording stops too soon | Enable **Auto-submit after silence**, or wait a moment after finishing your sentence before stopping manually. |\r
+| Auto-submit never stops | Check for background noise, move closer to the mic, or stop manually. |\r
+`,
+    "chatting/starting-a-chat.md": `# Starting a Chat\r
+\r
+Every conversation in Lumiverse begins with selecting a character and creating a chat.\r
+\r
+---\r
+\r
+## Creating a New Chat\r
+\r
+There are several ways to start a chat:\r
+\r
+### From the Character Browser\r
+\r
+1. Open the **Character Browser** panel\r
+2. Click on a character card\r
+3. A new chat is created automatically with the character's first message\r
+\r
+### From the Landing Page\r
+\r
+1. Click on a character's avatar on the landing page\r
+2. Choose **New Chat** (or select an existing chat to continue)\r
+\r
+### From an Existing Chat\r
+\r
+You can switch characters or start fresh at any time from the chat view.\r
+\r
+---\r
+\r
+## Greeting Selection\r
+\r
+If a character has **alternate greetings**, you'll be prompted to choose one when starting a new chat. Each greeting sets a different opening scenario.\r
+\r
+Characters can have as many alternate greetings as the creator wants \u2014 each one is a different "hook" for the conversation.\r
+\r
+---\r
+\r
+## Chat Names\r
+\r
+Chats are automatically named based on the character, but you can rename them for easier identification. Useful when you have multiple chats with the same character for different scenarios.\r
+\r
+---\r
+\r
+## Resuming Chats\r
+\r
+Your chats are saved automatically. To resume:\r
+\r
+- **Landing Page** \u2014 Shows your most recent chats with previews\r
+- **Manage Chats** modal \u2014 Search and filter through all your chats\r
+- **Character Browser** \u2014 Click a character, then choose from their existing chats\r
+\r
+---\r
+\r
+## What Gets Saved\r
+\r
+Every chat stores:\r
+\r
+- All messages (yours and the character's)\r
+- All swipe variants for each message\r
+- Author's Note content and settings\r
+- Alternate field selections\r
+- Active avatar selection\r
+- Active expression state\r
+- Macro variables (local to the chat)\r
+- World Info activation state (sticky/cooldown counters)\r
+- Loom summary data\r
+`,
+    "connections/index.md": `# Connections\r
+\r
+A **connection** links Lumiverse to an AI provider. It specifies which provider, model, and API key to use for generation. You need at least one connection to chat.\r
+\r
+---\r
+\r
+## Key Concepts\r
+\r
+- **Provider** \u2014 The AI service (OpenAI, Anthropic, Google, etc.)\r
+- **Model** \u2014 The specific model to use (e.g., GPT-4o, Claude Sonnet, Gemini Pro)\r
+- **API Key** \u2014 Your authentication credential (stored encrypted)\r
+- **API URL** \u2014 The endpoint URL (auto-filled for standard providers, customizable for self-hosted models)\r
+- **Default Connection** \u2014 The connection used when no specific one is selected\r
+\r
+---\r
+\r
+## Quick Links\r
+\r
+- [Setting Up a Connection](setting-up.md) \u2014 Step-by-step guide\r
+- [Supported Providers](providers.md) \u2014 Full list of 19 supported providers\r
+`,
+    "connections/providers.md": `# Supported Providers\r
+\r
+Lumiverse supports 19 AI providers out of the box. Each provider has its own model catalog, API format, and capabilities.\r
+\r
+---\r
+\r
+## Provider List\r
+\r
+| Provider | API Key Required | Notes |\r
+|----------|:---:|-------|\r
+| **OpenAI** | Yes | GPT-5.x, o-series, and more |\r
+| **Anthropic** | Yes | Claude Opus, Sonnet, Haiku |\r
+| **Google** | Yes | Gemini Pro, Gemini Flash, and more |\r
+| **OpenRouter** | Yes | Aggregator \u2014 access many models through one API key |\r
+| **DeepSeek** | Yes | DeepSeek models with reasoning |\r
+| **xAI** | Yes | Grok models |\r
+| **Mistral** | Yes | Mistral and Mixtral models |\r
+| **Groq** | Yes | Fast inference for open models |\r
+| **Perplexity** | Yes | Search-augmented generation |\r
+| **AI21** | Yes | Jamba models |\r
+| **Moonshot** | Yes | Kimi models |\r
+| **Fireworks** | Yes | Fast inference for open models |\r
+| **ElectronHub** | Yes | Model aggregator |\r
+| **SiliconFlow** | Yes | Chinese and international models |\r
+| **NanoGPT** | Yes | Pay-per-token aggregator |\r
+| **Chutes** | Yes | Model hosting platform |\r
+| **Z.AI** | Yes | Z.AI models |\r
+| **Pollinations** | No | Free, no API key required |\r
+| **Custom** | Varies | Any OpenAI-compatible API endpoint |\r
+\r
+---\r
+\r
+## Custom Base URLs & Reverse Proxies\r
+\r
+Every provider in Lumiverse lets you override the default **API URL** on each connection. This means any provider type can be pointed at a reverse proxy, load balancer, or alternative endpoint \u2014 not just the Custom provider.\r
+\r
+For example, you could create an **OpenAI** connection but set its API URL to your proxy at \`https://my-proxy.example.com/v1\`. Lumiverse uses OpenAI's API format for the request but sends it to your custom URL.\r
+\r
+This is useful for:\r
+\r
+- **Reverse proxies** \u2014 Route requests through a proxy for logging, rate limiting, or cost tracking\r
+- **Regional endpoints** \u2014 Use a provider's regional API endpoint instead of the default\r
+- **Self-hosted mirrors** \u2014 Point to your own deployment of an API-compatible service\r
+\r
+---\r
+\r
+## Using the Custom Provider\r
+\r
+The **Custom** provider is for services that aren't covered by the built-in providers but implement the OpenAI-compatible API format. This includes:\r
+\r
+- **Local models** \u2014 LM Studio, Ollama, text-generation-webui, KoboldCpp\r
+- **Other services** \u2014 Any endpoint with an OpenAI-compatible chat completions API\r
+\r
+To use a custom provider:\r
+\r
+1. Create a connection with provider set to **Custom**\r
+2. Enter the **API URL** (e.g., \`http://localhost:5000/v1\` for a local model)\r
+3. Enter the **Model** name as the server expects it\r
+4. Add an **API Key** if the server requires one\r
+\r
+---\r
+\r
+## OpenRouter\r
+\r
+**OpenRouter** is a popular choice because it gives you access to hundreds of models from many providers through a single API key:\r
+\r
+1. Get an API key from [openrouter.ai](https://openrouter.ai)\r
+2. Create a connection with provider set to **OpenRouter**\r
+3. Set your API key\r
+4. Use the **Models** button to browse available models\r
+\r
+---\r
+\r
+## Provider Capabilities\r
+\r
+Not all providers support all features:\r
+\r
+| Feature | Support |\r
+|---------|---------|\r
+| **Text generation** | All providers |\r
+| **Streaming** | All providers |\r
+| **Vision (image input)** | OpenAI, Anthropic, Google, and models that support it |\r
+| **Audio input** | Select OpenAI models |\r
+| **Function calling** | OpenAI, Anthropic, Google, and compatible providers |\r
+| **Structured output** | Provider-dependent (see below) |\r
+\r
+### Structured Output\r
+\r
+Different providers handle structured output differently:\r
+\r
+- **Google Gemini** \u2014 Pass \`responseMimeType\` and \`responseSchema\` in parameters\r
+- **OpenAI-compatible** \u2014 Pass \`response_format\` in parameters\r
+- **Anthropic** \u2014 Use tool definitions for structured output\r
+`,
+    "connections/setting-up.md": `# Setting Up a Connection\r
+\r
+This guide walks you through creating your first connection to an AI provider.\r
+\r
+---\r
+\r
+## Creating a Connection\r
+\r
+1. Open the **Connection Manager** panel (plug icon)\r
+2. Click **New Connection**\r
+3. Fill in the fields:\r
+\r
+### Required Fields\r
+\r
+| Field | Description |\r
+|-------|-------------|\r
+| **Name** | A label for your reference (e.g., "Claude Sonnet 4.6," "GPT-5 Main") |\r
+| **Provider** | Select your AI provider from the dropdown |\r
+\r
+### Optional Fields\r
+\r
+| Field | Description |\r
+|-------|-------------|\r
+| **Model** | The model to use \u2014 you can type it or select from the model list |\r
+| **API URL** | Override the default endpoint (useful for proxies or self-hosted models) |\r
+| **API Key** | Your provider's API key |\r
+| **Preset** | A default preset to use with this connection |\r
+| **Default** | Whether this is your primary connection |\r
+\r
+4. Click **Save**\r
+\r
+---\r
+\r
+## Setting Your API Key\r
+\r
+API keys are stored encrypted and never displayed after saving. To set or update a key:\r
+\r
+1. Open the connection in the Connection Manager\r
+2. Click **Set API Key** (or **Update API Key** if one already exists)\r
+3. Paste your key\r
+4. Save\r
+\r
+The \`has_api_key\` indicator shows whether a key is stored without revealing the value.\r
+\r
+!!! note "Per-connection keys"\r
+    Each connection has its own API key. There's no shared "provider key" \u2014 this lets you use different keys for different connections to the same provider (e.g., separate keys for personal and work use).\r
+\r
+---\r
+\r
+## Testing Your Connection\r
+\r
+After setting up a connection, verify it works:\r
+\r
+1. Click the **Test** button on the connection\r
+2. Lumiverse sends a simple request to your provider\r
+3. You'll see either a success message or an error describing what went wrong\r
+\r
+Common issues:\r
+\r
+- **Invalid API key** \u2014 Double-check the key\r
+- **Wrong API URL** \u2014 Make sure the endpoint matches your provider\r
+- **Model not found** \u2014 Verify the model name is correct for your provider\r
+\r
+---\r
+\r
+## Listing Available Models\r
+\r
+Click the **Models** button on a connection to fetch the list of models available with your API key. This queries your provider directly, so the list is always up to date.\r
+\r
+---\r
+\r
+## Multiple Connections\r
+\r
+You can create as many connections as you want. Common setups:\r
+\r
+- **Different providers** \u2014 One OpenAI connection, one Anthropic connection\r
+- **Different models** \u2014 A fast model for casual chat, a powerful model for important scenes\r
+- **Different keys** \u2014 Separate billing or quota management\r
+- **Self-hosted** \u2014 A connection to your local LLM alongside cloud connections\r
+\r
+Switch between connections by setting a different one as **default**, or select a specific connection when starting a generation.\r
+\r
+---\r
+\r
+## Sidecar Connection\r
+\r
+Some features (expression detection, council tools, image gen scene analysis) use a separate **sidecar connection** \u2014 a lightweight model for background tasks. Configure the sidecar in **Settings > Advanced** or in the **Sidecar Settings** section.\r
+\r
+The sidecar keeps background processing costs low by using a smaller, cheaper model for auxiliary tasks while your main connection handles the primary generation.\r
+\r
+---\r
+\r
+## Deleting a Connection\r
+\r
+Deleting a connection also removes its stored API key from the encrypted secrets. This cannot be undone.\r
+`,
+    "council/council-tools.md": `# Council Tools\r
+\r
+Council tools are specialized analysis functions that members can run during deliberation. Each tool sends a focused prompt to the sidecar LLM and returns structured results that feed into the main generation.\r
+\r
+---\r
+\r
+## Built-In Tools\r
+\r
+Lumiverse ships with **16 built-in tools** across 5 categories.\r
+\r
+### Story Direction (6 tools)\r
+\r
+| Tool | Display Name | What It Does |\r
+|------|-------------|-------------|\r
+| \`suggest_direction\` | **Suggest Direction** | Suggests where the story should go next based on current context |\r
+| \`analyze_character\` | **Analyze Character** | Analyzes a character's current state and suggests development opportunities |\r
+| \`propose_twist\` | **Propose Twist** | Proposes an unexpected plot development or revelation |\r
+| \`voice_concern\` | **Voice Concern** | Voices concerns about the current story trajectory or pacing |\r
+| \`highlight_opportunity\` | **Highlight Opportunity** | Points out a narrative opportunity that should be explored |\r
+| \`worldbuilding_note\` | **Worldbuilding Note** | Suggests worldbuilding details or lore that could enrich the setting |\r
+\r
+### Character Accuracy (2 tools)\r
+\r
+| Tool | Display Name | What It Does |\r
+|------|-------------|-------------|\r
+| \`full_canon\` | **Full Canon Analysis** | Fandom accuracy \u2014 analyzes how the character should act, talk, think, and portray themselves in 100% faithful adherence to their source material and fandom canon |\r
+| \`au_canon\` | **AU Canon Analysis** | Fandom accuracy with flexibility \u2014 analyzes character behavior with room for alternate universe scenarios while preserving the core identity fans know |\r
+\r
+### Writing Quality (3 tools)\r
+\r
+| Tool | Display Name | What It Does |\r
+|------|-------------|-------------|\r
+| \`prose_guardian\` | **Prose Guardian** | Analyzes prose for pattern failures and quality issues \u2014 diagnoses violations ("Walls") and prescribes corrections ("Doors") |\r
+| \`pov_enforcer\` | **POV Enforcer** | Enforces point-of-view consistency and narrative perspective continuity based on active POV rules |\r
+| \`flame_kindler\` | **Flame Kindler** | Analyzes relationships between characters and guides their logical progression based on established history and character details |\r
+\r
+### Context (2 tools)\r
+\r
+| Tool | Display Name | What It Does |\r
+|------|-------------|-------------|\r
+| \`historical_accuracy\` | **Historical Accuracy** | Checks the roleplay's direction against real historical facts, events, and canon to ensure accuracy |\r
+| \`style_adherence\` | **Narrative Style Adherence** | Analyzes the story for adherence to the selected narrative style and enforces stylistic consistency |\r
+\r
+### Content (3 tools)\r
+\r
+| Tool | Display Name | What It Does |\r
+|------|-------------|-------------|\r
+| \`depravity_analyst\` | **Depravity Analyst** | Analyzes psychosexual dynamics, kink elements, and NSFW direction to guide scenes toward more authentic erotic storytelling |\r
+| \`generate_scene\` | **Scene Generator** | Analyzes the current story context and generates a structured visual scene description for [image generation](../image-generation/index.md) |\r
+| \`detect_expression\` | **Expression Detector** | Analyzes scene sentiment and selects the character's facial expression from configured [expression](../characters/expressions.md) labels |\r
+\r
+!!! note "Gated tools"\r
+    **Scene Generator** and **Expression Detector** only appear when the relevant feature is configured. Expression Detector requires the character to have expressions set up. Scene Generator requires an image generation connection.\r
+\r
+---\r
+\r
+## DLC & Extension Tools\r
+\r
+Packs can include custom **Loom Tools** that extend the built-in tool set. These work identically to built-in tools but are defined by pack creators.\r
+\r
+Each Loom Tool has:\r
+- **Tool Name** \u2014 Technical identifier\r
+- **Display Name** \u2014 What you see in the UI\r
+- **Description** \u2014 What the tool does\r
+- **Prompt** \u2014 The instruction sent to the sidecar\r
+- **Structured Fields / Input Schema** \u2014 The response shape you want back from the tool. In the editor, add fields for the named pieces of information you want the council member to return, then mention those fields in the prompt so the model knows to fill them.\r
+- **Result Variable** \u2014 Where the result is stored (accessible via \`{{loomCouncilResult::variable_name}}\`)\r
+- **Store in Deliberation** \u2014 Whether results appear in the deliberation block\r
+\r
+---\r
+\r
+## Assigning Tools to Members\r
+\r
+1. Open the Council panel\r
+2. Select a member\r
+3. Check the tools you want them to use\r
+\r
+A member can have multiple tools. During deliberation, all assigned tools are run.\r
+\r
+!!! tip "Specialize your members"\r
+    Instead of giving every tool to one member, spread them across specialists. A "Plot Advisor" gets story direction tools. A "Style Coach" gets writing quality tools. A "Canon Expert" gets character accuracy tools. This keeps the deliberation organized and each member's output focused.\r
+\r
+---\r
+\r
+## Tool Results\r
+\r
+Tool results are available in the prompt through macros:\r
+\r
+| Macro | Returns |\r
+|-------|---------|\r
+| \`{{lumiaCouncilDeliberation}}\` | Full deliberation block with all tool results |\r
+| \`{{loomCouncilResult::variable_name}}\` | A specific named tool result |\r
+| \`{{lumiaCouncilToolsActive}}\` | \`"yes"\` or \`"no"\` \u2014 whether tools ran this generation |\r
+| \`{{lumiaCouncilToolsList}}\` | List of tool names with member attribution |\r
+`,
+    "council/index.md": `# Council & Lumia\r
+\r
+The **Council** is Lumiverse's multi-persona deliberation system. Before the AI generates a response, a panel of AI personas can analyze the scene, suggest directions, and provide guidance \u2014 all feeding into the final output.\r
+\r
+**Lumia** refers to the AI personas that make up the council. Each Lumia has a defined personality, behavior, and set of tools it can use.\r
+\r
+---\r
+\r
+## How It Works\r
+\r
+When council mode is enabled:\r
+\r
+1. You send a message\r
+2. Before the main AI generates, each council member **deliberates**\r
+3. Members can run **tools** (analyze characters, suggest plot twists, check pacing, etc.)\r
+4. Their insights are compiled into a **deliberation block**\r
+5. The deliberation block is injected into the main prompt\r
+6. The main AI generates its response with the council's guidance\r
+\r
+Think of it as giving the AI a team of advisors who consult before every reply.\r
+\r
+---\r
+\r
+## Council vs. Group Chat\r
+\r
+| Feature | Council | Group Chat |\r
+|---------|---------|------------|\r
+| **Who speaks** | Only the main character responds | Multiple characters take turns |\r
+| **Deliberation** | Members advise behind the scenes | Characters speak publicly |\r
+| **Tools** | Members can use specialized analysis tools | No tool access |\r
+| **Visibility** | Users can see deliberation but characters don't | All messages are visible |\r
+\r
+---\r
+\r
+## Chimera Mode\r
+\r
+An alternative to traditional council \u2014 instead of separate members advising, Chimera mode **fuses** the selected Lumia definitions into a single blended persona. The AI responds as a synthesis of all selected styles rather than receiving separate advice.\r
+\r
+---\r
+\r
+## Quick Links\r
+\r
+| Guide | What You'll Learn |\r
+|-------|-------------------|\r
+| [Setting Up Council](setting-up-council.md) | Configure members and their roles |\r
+| [Council Tools](council-tools.md) | What tools are available and how they work |\r
+`,
+    "council/setting-up-council.md": `# Setting Up Council\r
+\r
+This guide walks you through configuring the council for AI-assisted deliberation.\r
+\r
+---\r
+\r
+## Enabling Council Mode\r
+\r
+1. Open the **Council** panel (or find it in Settings)\r
+2. Toggle **Council Mode** on\r
+3. Add members (you need at least one)\r
+\r
+---\r
+\r
+## Adding Members\r
+\r
+Each council member is based on a **Lumia item** from an installed pack.\r
+\r
+1. Click **Add Member**\r
+2. Select a Lumia from your installed packs\r
+3. Configure the member:\r
+\r
+| Setting | Description |\r
+|---------|-------------|\r
+| **Role** | A label for this member's function (e.g., "Story Architect," "Dialogue Coach") |\r
+| **Tools** | Which council tools this member can use |\r
+| **Chance** | Probability (0-100) this member participates in each deliberation |\r
+\r
+### Chance\r
+\r
+Setting chance below 100% adds variety \u2014 not every member speaks on every turn. A member with 70% chance participates roughly 7 out of 10 generations.\r
+\r
+- **100%** \u2014 Always participates\r
+- **50-80%** \u2014 Regular participant with natural variation\r
+- **20-40%** \u2014 Occasional contributor\r
+- **0%** \u2014 Effectively disabled without removing\r
+\r
+---\r
+\r
+## Sidecar Connection\r
+\r
+Council tools need an AI model to run their analysis. This is the **sidecar connection** \u2014 a separate model (usually smaller and cheaper) used for background tasks.\r
+\r
+Configure the sidecar in:\r
+- **Sidecar Settings** in the Settings panel\r
+- Or legacy: **Council Settings > Tools Settings > Sidecar**\r
+\r
+!!! tip "Use a fast, cheap model"\r
+    The sidecar handles quick analysis tasks, not full creative writing. A smaller model (like Haiku, Flash, or GPT-4o-mini) works well and keeps costs low.\r
+\r
+---\r
+\r
+## Council Without Tools\r
+\r
+Council mode works even without assigning any tools. In this case, members engage in **pure self-debate** \u2014 they deliberate and discuss among themselves, providing general narrative guidance without structured tool outputs.\r
+\r
+---\r
+\r
+## Multiple Members\r
+\r
+You can add multiple council members, each with different Lumia personas and tool assignments:\r
+\r
+- **Story Architect** \u2014 Uses direction and pacing tools\r
+- **Dialogue Coach** \u2014 Uses dialogue refinement tools\r
+- **Sensitivity Reader** \u2014 Uses content safety tools\r
+- **World Builder** \u2014 Uses scene and description tools\r
+\r
+Each member brings their own perspective based on their Lumia's personality and assigned tools.\r
+\r
+---\r
+\r
+## Viewing Deliberation\r
+\r
+After a generation completes, you can view the council's deliberation in the message metadata. This shows what each member analyzed, what tools they ran, and what guidance they provided.\r
+\r
+The \`{{lumiaCouncilDeliberation}}\` macro contains the full deliberation results, which are injected into the prompt for the main generation.\r
+`,
+    "customization/display-modes.md": `# Display Modes\r
+\r
+Lumiverse offers different visual modes for how messages appear in the chat. Choose the one that fits your aesthetic preference and reading style.\r
+\r
+---\r
+\r
+## Available Modes\r
+\r
+### Minimal Mode\r
+\r
+A clean, text-focused layout with minimal visual chrome. Messages are distinguished by subtle accent bars on the left (character) and right (user). Compact spacing makes it ideal for long conversations where you want to focus on the text.\r
+\r
+### Bubble Mode\r
+\r
+A messaging-app style layout where each message appears in a rounded bubble. Character messages appear on the left with avatars; user messages appear on the right (configurable). Feels more conversational and visually distinct.\r
+\r
+**Bubble mode options:**\r
+\r
+| Setting | Description |\r
+|---------|-------------|\r
+| **User Message Alignment** | Left or Right (default: Right) |\r
+\r
+---\r
+\r
+## Chat Width\r
+\r
+Both modes support width constraints:\r
+\r
+| Mode | Description |\r
+|------|-------------|\r
+| **Full** | Messages use the full available width |\r
+| **Comfortable** | Narrower content area for easier reading |\r
+| **Compact** | Even narrower \u2014 good for wide monitors |\r
+| **Custom** | Set a specific width in pixels |\r
+\r
+---\r
+\r
+## Configuring\r
+\r
+Open **Settings > Chat** to choose your display mode and width preferences.\r
+`,
+    "customization/macros.md": `# Macros\r
+\r
+Macros are template variables written as \`{{macro_name}}\` that get replaced with dynamic content during prompt assembly. They can be used in preset blocks, prompt text fields, chat messages, and included world book content.\r
+\r
+**For the complete macro reference, see [Presets > Macros Reference](../presets/macros-reference.md).**\r
+\r
+**For how macros are evaluated and execution order, see [Presets > Execution Order](../presets/execution-order.md).**\r
+\r
+---\r
+\r
+## Quick Examples\r
+\r
+\`\`\`\r
+You are {{char}}, a character described as: {{description}}\r
+You are speaking with {{user}}.\r
+Current time: {{time}} on {{weekday}}.\r
+\`\`\`\r
+\r
+During prompt assembly, each macro is replaced with its current value:\r
+\r
+\`\`\`\r
+You are Aria, a character described as: A curious adventurer...\r
+You are speaking with Alex.\r
+Current time: 14:30 on Wednesday.\r
+\`\`\`\r
+\r
+---\r
+\r
+## Where Macros Work\r
+\r
+- **Preset blocks** \u2014 The primary use case. Macros make your presets dynamic.\r
+- **World book entries** \u2014 Active entry content and outlets are macro-evaluated when they are injected into the prompt\r
+- **Guided generation** content\r
+- **Author's Note** content\r
+- **Chat messages** \u2014 Each message is macro-evaluated during assembly\r
+\r
+---\r
+\r
+## Common Categories\r
+\r
+| Category | Examples | Full List |\r
+|----------|----------|-----------|\r
+| **Names** | \`{{user}}\`, \`{{char}}\`, \`{{group}}\` | [Identity macros](../presets/macros-reference.md#identity-names) |\r
+| **Character data** | \`{{description}}\`, \`{{personality}}\`, \`{{scenario}}\` | [Character macros](../presets/macros-reference.md#character-data) |\r
+| **Chat state** | \`{{lastMessage}}\`, \`{{messageCount}}\`, \`{{messageAt::0}}\` | [Chat macros](../presets/macros-reference.md#chat-conversation) |\r
+| **String** | \`{{upper}}\`, \`{{replace}}\`, \`{{len}}\`, \`{{split}}\` | [String macros](../presets/macros-reference.md#string-manipulation) |\r
+| **Math** | \`{{calc::2+3}}\`, \`{{clamp}}\`, \`{{min}}\`, \`{{max}}\` | [Math macros](../presets/macros-reference.md#math) |\r
+| **Logic** | \`{{switch}}\`, \`{{default}}\`, \`{{and}}\`, \`{{not}}\` | [Logic macros](../presets/macros-reference.md#logic-comparisons) |\r
+| **Random** | \`{{random::1::100}}\`, \`{{pick::a::b::c}}\`, \`{{roll::2d6}}\` | [Entropy macros](../presets/macros-reference.md#random-entropy) |\r
+| **Variables** | \`{{.var}}\` (local), \`{{@var}}\` (chat-persisted), \`{{$var}}\` (global) | [Variable macros](../presets/macros-reference.md#variables) |\r
+| **Prompt Variables** | \`{{var::tone}}\`, \`{{varDefault::tone}}\` | [Prompt variable macros](../presets/macros-reference.md#prompt-variables-preset-inputs) |\r
+| **Conditionals** | \`{{if .var == 5}}...{{else}}...{{/if}}\` | [Core macros](../presets/macros-reference.md#core-macros) |\r
+| **Memory & Retrieval** | \`{{memories}}\`, \`{{databank}}\`, \`{{entities}}\` | [Memory macros](../presets/macros-reference.md#memory) |\r
+| **Formatting** | \`{{bullets}}\`, \`{{numbered}}\` | [Formatting macros](../presets/macros-reference.md#formatting) |\r
+| **Council & Lumia** | \`{{lumiaCouncilDeliberation}}\`, \`{{loomStyle}}\` | [Council macros](../presets/macros-reference.md#lumia-council) |\r
+\r
+Lumiverse has **180+ built-in macros** across 20+ categories. See the [full reference](../presets/macros-reference.md) for the complete list.\r
+`,
+    "customization/regex-scripts.md": `# Regex Scripts\r
+\r
+Regex scripts are text transformation rules that automatically find and replace patterns in your messages. They can clean up formatting, enforce style rules, or transform content at various stages of the pipeline.\r
+\r
+---\r
+\r
+## What Can Regex Scripts Do?\r
+\r
+- Remove unwanted formatting (asterisks, brackets, etc.)\r
+- Convert text styles (e.g., *italic markers* to actual HTML italics)\r
+- Enforce naming conventions\r
+- Strip or transform specific patterns\r
+- Add HTML formatting to AI output\r
+- Clean up reasoning tags or other artifacts\r
+\r
+---\r
+\r
+## Creating a Script\r
+\r
+1. Open the **Regex Scripts** panel\r
+2. Click **New Script**\r
+3. Fill in:\r
+\r
+| Field | Description |\r
+|-------|-------------|\r
+| **Name** | A label for your reference |\r
+| **Find Regex** | The pattern to search for (regular expression) |\r
+| **Replace String** | What to replace matches with |\r
+| **Flags** | Regex flags: \`g\` (global), \`i\` (case-insensitive), \`m\` (multiline), \`s\` (dotAll) |\r
+\r
+### Example: Remove Asterisks\r
+\r
+**Find:** \`\\*([^*]+)\\*\`\r
+**Replace:** \`<em>$1</em>\`\r
+**Flags:** \`g\`\r
+\r
+This converts \`*italic text*\` into \`<em>italic text</em>\`.\r
+\r
+---\r
+\r
+## Placement\r
+\r
+**Placement** controls which parts of the text the script runs on:\r
+\r
+| Placement | What It Affects |\r
+|-----------|----------------|\r
+| **User Input** | Your messages before they're sent |\r
+| **AI Output** | The AI's response |\r
+| **World Info** | World book entry content |\r
+| **Reasoning** | Reasoning/thinking blocks |\r
+\r
+You can select multiple placements for the same script.\r
+\r
+---\r
+\r
+## Target\r
+\r
+**Target** controls *when* in the pipeline the script runs:\r
+\r
+| Target | When It Runs |\r
+|--------|-------------|\r
+| **Prompt** | Applied to the assembled prompt before sending to the AI |\r
+| **Response** | Applied to the AI's output before saving to the database |\r
+| **Display** | Applied at render time in the UI (doesn't change stored data) |\r
+\r
+- Use **prompt** target to modify what the AI sees\r
+- Use **response** target to clean up AI output before it's saved\r
+- Use **display** target for visual-only transformations (the underlying text stays unchanged)\r
+\r
+---\r
+\r
+## Scope\r
+\r
+| Scope | Applies To |\r
+|-------|-----------|\r
+| **Global** | All chats |\r
+| **Character** | Only chats with a specific character |\r
+| **Chat** | Only a specific chat |\r
+\r
+**Resolution order:** Global scripts run first, then character-scoped, then chat-scoped. Within each tier, scripts run in sort order.\r
+\r
+---\r
+\r
+## Advanced Options\r
+\r
+| Option | Description |\r
+|--------|-------------|\r
+| **Min/Max Depth** | Only apply to messages within a depth range |\r
+| **Trim Strings** | Additional strings to strip from matches |\r
+| **Run on Edit** | Re-run when you edit a message |\r
+| **Substitute Macros** | Replace macros in the replacement string (\`none\`, \`raw\`, \`escaped\`) |\r
+| **Folder** | Organizational grouping |\r
+\r
+---\r
+\r
+## Testing Scripts\r
+\r
+Before saving, use the **Test** feature:\r
+\r
+1. Click **Test** on your script\r
+2. Enter sample text\r
+3. See the result, including matched portions and the transformed output\r
+\r
+This lets you verify your regex works correctly before it affects real conversations.\r
+\r
+---\r
+\r
+## Import & Export\r
+\r
+Scripts can be imported and exported as JSON. Lumiverse also supports importing SillyTavern-format regex scripts for easy migration.\r
+\r
+---\r
+\r
+## Tips\r
+\r
+!!! tip "Start with display target"\r
+    If you're not sure about a regex, use the **display** target first. It only affects how text looks in the UI \u2014 it can't break your stored data. Once you're confident, switch to response or prompt target.\r
+\r
+!!! tip "Use the \`g\` flag"\r
+    Most scripts should use the \`g\` (global) flag to replace all occurrences, not just the first one.\r
+\r
+!!! tip "Test with edge cases"\r
+    Regex can have unexpected matches. Test with text that looks similar but shouldn't match to make sure your pattern is precise enough.\r
+`,
+    "customization/themes.md": `# Themes\r
+\r
+Lumiverse's theme system lets you customize the entire visual appearance \u2014 colors, fonts, glass effects, and more.\r
+\r
+---\r
+\r
+## Theme Panel\r
+\r
+Open the **Theme Panel** to access all visual settings:\r
+\r
+### Mode\r
+\r
+Choose your base theme:\r
+\r
+| Mode | Description |\r
+|------|-------------|\r
+| **Dark** | Dark background with light text (default) |\r
+| **Light** | Light background with dark text |\r
+| **Auto** | Follows your system preference |\r
+\r
+### Accent Color\r
+\r
+The primary accent color used for buttons, links, highlights, and focus states. Pick any color using the color picker or enter a specific HSL value.\r
+\r
+### Base Colors\r
+\r
+Customize the background and text colors for each mode independently. The dark and light modes each have their own base color set.\r
+\r
+### Radius Scale\r
+\r
+Controls the roundness of UI elements (buttons, cards, inputs):\r
+\r
+- **Low** \u2014 Sharp corners, minimal rounding\r
+- **Medium** \u2014 Balanced rounding (default)\r
+- **High** \u2014 Very rounded, pill-shaped elements\r
+\r
+### Font Scale\r
+\r
+Adjusts the global text size. Useful for accessibility or personal preference.\r
+\r
+### Glass Effect\r
+\r
+Enables a frosted-glass look with backdrop blur on panels, modals, and headers. When disabled, elements use solid backgrounds instead.\r
+\r
+!!! note "Performance"\r
+    Glass effects use CSS \`backdrop-filter: blur()\`, which can be GPU-intensive. If you notice performance issues (especially on older devices), disable glass effects.\r
+\r
+---\r
+\r
+## Preset Themes\r
+\r
+The Theme Panel includes a grid of pre-built themes you can apply with one click. These set a coordinated combination of mode, accent color, base colors, and other settings.\r
+\r
+---\r
+\r
+## Character-Aware Theming\r
+\r
+When enabled, the theme automatically adapts its accent color to match the current character's avatar. Colors are extracted from the avatar image and applied as a subtle tint to the UI.\r
+\r
+This creates a unique visual feel for each character \u2014 one character might tint the UI warm amber, another cool blue.\r
+\r
+---\r
+\r
+## Extension Themes\r
+\r
+Extensions can apply CSS variable overrides on top of your theme. Active extension themes are shown in the Theme Panel with attribution (which extension is applying them).\r
+\r
+Extension theme overrides are scoped per-extension and automatically cleared when the extension is disabled.\r
+\r
+---\r
+\r
+## Importing & Exporting Themes\r
+\r
+You can save and share theme configurations:\r
+\r
+- **Export** \u2014 Save your current theme settings as a shareable file\r
+- **Import** \u2014 Load a theme configuration from a file\r
+\r
+---\r
+\r
+## CSS Variables\r
+\r
+The theme system works through CSS custom properties (variables). All colors, spacing, and visual properties are defined as variables that cascade through the entire UI. This means:\r
+\r
+- Theme changes are instant (no page reload)\r
+- Extensions can override specific variables without breaking others\r
+- All UI components automatically adapt to theme changes\r
+`,
+    "customization/wallpapers.md": `# Wallpapers\r
+\r
+Set background images or videos behind your chat to enhance the atmosphere.\r
+\r
+---\r
+\r
+## Setting a Wallpaper\r
+\r
+### Global Wallpaper\r
+\r
+A wallpaper that appears in all chats:\r
+\r
+1. Open the **Wallpaper Panel**\r
+2. Click **Upload** under the global section\r
+3. Select an image or video file\r
+4. The wallpaper appears behind all your chats\r
+\r
+### Per-Chat Wallpaper\r
+\r
+A wallpaper specific to one conversation:\r
+\r
+1. Open the **Wallpaper Panel** while in a chat\r
+2. Click **Upload** under the per-chat section\r
+3. The wallpaper only appears in this specific chat\r
+\r
+Per-chat wallpapers override the global wallpaper.\r
+\r
+---\r
+\r
+## Supported Formats\r
+\r
+| Type | Formats | Size Limit |\r
+|------|---------|------------|\r
+| **Images** | PNG, JPG, WebP, GIF | Standard upload limits |\r
+| **Videos** | MP4, WebM | 100 MB |\r
+\r
+Videos loop automatically and play silently in the background.\r
+\r
+---\r
+\r
+## Removing a Wallpaper\r
+\r
+Click **Remove** in the Wallpaper Panel to clear the current wallpaper (global or per-chat).\r
+\r
+---\r
+\r
+## Combining with Image Generation\r
+\r
+If you have image generation enabled, AI-generated scene images can serve as dynamic wallpapers that update as the story progresses. The **background opacity** setting in the Image Generation panel controls how prominently the generated image appears.\r
+\r
+---\r
+\r
+## Tips\r
+\r
+!!! tip "Use subtle images"\r
+    Dark, low-contrast images work best as wallpapers \u2014 they set the mood without making text hard to read. The chat overlay provides some contrast, but busy images can still be distracting.\r
+\r
+!!! tip "Match the theme"\r
+    Pair your wallpaper with a matching theme. A cozy firelit image pairs well with warm accent colors; a starfield pairs with cool blues.\r
+`,
+    "dream-weaver/index.md": `# Dream Weaver\r
+\r
+Dream Weaver helps you make high-quality character and scenario cards from an idea. It is useful when building a card by hand would take too long, when you need help turning a loose concept into polished fields, or when existing cards do not match what you want.\r
+\r
+Start with as much or as little direction as you have. Dream Weaver lets you build the card piece by piece, review each generated card, keep what works, and save the result when it is ready.\r
+\r
+---\r
+\r
+## When to Use Dream Weaver\r
+\r
+Use Dream Weaver when you want to:\r
+\r
+1. Turn an idea into a character or scenario card\r
+2. Create a card that matches a specific character, role, setup, or scenario you cannot find elsewhere\r
+3. Get help writing the parts of a card that are hard to phrase manually\r
+4. Explore variations before choosing the version you want to keep\r
+5. Add supporting details, such as lore, NPCs, greetings, or portrait prompts, after the main idea is clear\r
+\r
+Dream Weaver works best when you know what you want, but need help turning it into a finished card.\r
+\r
+---\r
+\r
+## When Not to Use It\r
+\r
+Dream Weaver is not required for normal editing. Use the regular **Character Browser** when you already know the exact edits you want.\r
+\r
+| Situation | Better Tool |\r
+|-----------|-------------|\r
+| You only need to fix a typo | Character editor |\r
+| You already know the exact field text | Character editor |\r
+| You want to manually tag or organize a card | Character editor |\r
+| You are importing a finished character card | Character import |\r
+| You do not want generated suggestions | Character editor |\r
+\r
+You can edit Dream Weaver output later in the regular character editor. If you reopen the same Dream Weaver session, **Update Character** or **Update Scenario** updates the linked card instead of creating a duplicate.\r
+\r
+---\r
+\r
+## How It Works\r
+\r
+Dream Weaver has four core parts:\r
+\r
+| Piece | What It Does |\r
+|-------|--------------|\r
+| **Source** | The idea, premise, reference, or direction Dream Weaver uses |\r
+| **Command** | A slash command like \`/name\`, \`/appearance\`, or \`/scenario\` |\r
+| **Card** | A generated suggestion you can use, discard, retry, or adjust |\r
+| **Workspace** | The current result built from the cards you have accepted |\r
+\r
+Source is required before generation commands can run. The source field in the panel is optional because you can open a blank Studio, but commands like \`/name\`, \`/personality\`, and \`/scenario\` still need direction first. Add it with \`/dream\`.\r
+\r
+When you accept a card, Dream Weaver adds it to the workspace. Discarded cards are ignored. For single-field tools, accepting a newer card replaces the older accepted card for that field.\r
+\r
+---\r
+\r
+## Character vs. Scenario\r
+\r
+Dream Weaver does not decide the card type from your source text. Choose **Character** or **Scenario** with the switcher.\r
+\r
+Use **Character** when you want one primary character.\r
+\r
+Use **Scenario** when you want a narrator, world, location, setup, or situation card.\r
+\r
+| Command | Character Mode | Scenario Mode |\r
+|---------|----------------|---------------|\r
+| \`/name\` | Character name | Scenario title |\r
+| \`/appearance\` | Physical appearance | Setting and sensory presentation |\r
+| \`/personality\` | Character behavior | Narrator, world behavior, or interaction rules |\r
+| \`/scenario\` | Starting situation around the character | Premise, tension, and current scene |\r
+| \`/voice\` | Character speech style | Narrator or world voice |\r
+| \`/first_message\` | Character opening message | Opening narration or scene prompt |\r
+\r
+The switcher controls this behavior. \`/dream\` only adds direction for Dream Weaver to use.\r
+\r
+---\r
+\r
+## Saved Weaves\r
+\r
+The **Previous Weaves** section keeps Dream Weaver sessions in one place. Use the filters to show all sessions, drafts, or finalized sessions. Use search to find older sessions.\r
+\r
+Finalized sessions stay in the same list as drafts, but they are marked differently. Open a finalized session when you want to keep working and update the linked card.\r
+\r
+---\r
+\r
+## Quick Links\r
+\r
+| Guide | What You'll Learn |\r
+|-------|-------------------|\r
+| [Studio Workflow](studio-workflow.md) | Add source, run commands, accept cards, and build the result |\r
+| [Sources & Roadmap](sources-and-roadmap.md) | Current source support and planned character/world book imports |\r
+| [Visuals & Finalizing](visuals-and-finalizing.md) | Generate visual assets, finalize, and update generated cards |\r
+`,
+    "dream-weaver/sources-and-roadmap.md": `# Sources & Roadmap\r
+\r
+Dream Weaver needs direction before it can generate useful cards. In the Studio, that direction is called **source**. Source can be a character idea, scenario premise, scene, pasted reference, world detail, or anything else you want Dream Weaver to build from.\r
+\r
+---\r
+\r
+## Available Now\r
+\r
+Dream Weaver currently supports text source added through the panel or with \`/dream\`.\r
+\r
+| Source | How to Add It | Notes |\r
+|--------|---------------|-------|\r
+| Initial source | Add text in **Source Material** before opening the Studio | Added when the Studio opens |\r
+| Blank Studio source | Open a blank Studio, then use \`/dream your source text\` | Useful when you want to add source inside the Studio |\r
+| Additional source | Use \`/dream your extra material\` at any time | Adds another accepted source card without running generation |\r
+\r
+Use \`/dream\` for extra direction, missing constraints, pasted references, or new premise details.\r
+\r
+Example:\r
+\r
+\`\`\`text\r
+/dream Alice is my bully.\r
+\`\`\`\r
+\r
+!!! warning "Source before tools"\r
+    Dream Weaver blocks generation tools until source exists. \`/help\` and \`/dream\` are available first. After source is added, the rest of the commands can run.\r
+\r
+---\r
+\r
+## Planned Source Workflows\r
+\r
+More source types are planned, but not available yet.\r
+\r
+| Future Workflow | Intended Use |\r
+|-----------------|--------------|\r
+| Import a character as source | Use an existing non-Dream Weaver character as reference material |\r
+| Import a world book as source | Generate a character from lore, factions, locations, or NPC entries |\r
+| Attach or import a world book into a finalized card | Add existing lore to the final card workflow |\r
+| Generate a scenario from a world book | Turn a setting or lore collection into a narrator/scenario card |\r
+\r
+When these import flows are added, imported material should appear in the Studio as source, just like text added with \`/dream\`. After that, the command, card, accept, retry, and finalize workflow can stay the same.\r
+\r
+---\r
+\r
+## What Counts as Useful Source\r
+\r
+Good source does not need to be polished. It just needs enough detail for Dream Weaver to understand the card you want.\r
+\r
+Useful source can include:\r
+\r
+1. Character idea or scenario premise\r
+2. Tone and emotional texture\r
+3. Relationship to \`{{user}}\`\r
+4. Setting rules or world constraints\r
+5. Character contradictions\r
+6. Things to avoid\r
+7. Existing card or world book details you want preserved\r
+\r
+Weak source is usually too broad:\r
+\r
+\`\`\`text\r
+/dream make a mysterious girl\r
+\`\`\`\r
+\r
+Stronger source gives Dream Weaver something specific to preserve:\r
+\r
+\`\`\`text\r
+/dream A transfer student who always knows the answer before the teacher asks. She is not psychic. She is reliving the same school week and is starting to resent everyone for not remembering.\r
+\`\`\`\r
+`,
+    "dream-weaver/studio-workflow.md": '# Studio Workflow\r\n\r\nThe Dream Weaver Studio is where you turn an idea into a card. Add direction, run commands, and decide which generated cards become part of the result.\r\n\r\n---\r\n\r\n## Starting a Weave\r\n\r\n1. Open the **Dream Weaver** panel\r\n2. Choose **Character** or **Scenario**\r\n3. Optionally add direction in **Source Material**\r\n4. Optionally choose persona, connection, model, refinement, or advanced generation settings\r\n5. Open the Studio\r\n\r\nIf you enter source before opening the Studio, Dream Weaver adds it automatically. If you open a blank Studio, add direction with `/dream` before running generation commands.\r\n\r\n!!! warning "Source is required for generation"\r\n    The source field is optional before opening the Studio, but generation commands still need source. Use `/dream your source text` before running `/name`, `/appearance`, `/personality`, `/scenario`, `/voice`, `/first_message`, `/greeting`, `/add_lorebook`, or `/add_npc`.\r\n\r\n!!! tip "Good source"\r\n    Include the premise, mood, relationship to `{{user}}`, genre, constraints, and anything you do not want.\r\n\r\n!!! note "Character or scenario"\r\n    Dream Weaver does not detect this from your source text. Use **Character** for one primary character. Use **Scenario** for a narrator, world, location, or setup card.\r\n\r\n---\r\n\r\n## Commands\r\n\r\nType a slash command in the Studio composer. Add instructions after the command when you want to steer the result.\r\n\r\n| Command | Use It For | Needs Source |\r\n|---------|------------|--------------|\r\n| `/help` | Show available commands | No |\r\n| `/dream` | Add direction for Dream Weaver to use | No |\r\n| `/name` | Generate or replace the name/title | Yes |\r\n| `/appearance` | Generate appearance, setting, or visual presentation | Yes |\r\n| `/personality` | Generate behavior, rules, habits, or contradictions | Yes |\r\n| `/scenario` | Generate the starting situation | Yes |\r\n| `/voice` | Generate voice guidance | Yes |\r\n| `/first_message` | Generate the main opening message | Yes |\r\n| `/greeting` | Generate an alternate greeting | Yes |\r\n| `/add_lorebook` | Add one lorebook entry | Yes |\r\n| `/add_npc` | Add one supporting NPC | Yes |\r\n\r\nExamples:\r\n\r\n```text\r\n/dream A quiet rural inn is built over a sealed shrine. The owner knows more than she admits.\r\n```\r\n\r\n```text\r\n/personality make her warmth feel practiced, not natural\r\n```\r\n\r\n```text\r\n/scenario keep {{user}} as a suspicious guest arriving during a storm\r\n```\r\n\r\n---\r\n\r\n## Cards\r\n\r\nMost generation commands create a card. Review the card before you use it.\r\n\r\n| Action | Result |\r\n|--------|--------|\r\n| **Use result** | Adds the card to the workspace |\r\n| **Discard** | Leaves the card out |\r\n| **Run again** | Runs the same command again |\r\n| **Adjust** | Reruns with extra instruction |\r\n| **Cancel run** | Stops a running card |\r\n\r\nThe card header shows status, token usage, and runtime. Open **Run details** when you need the raw tool output.\r\n\r\nFor fields like name, appearance, personality, scenario, voice, and first message, using a newer card replaces the older accepted card for that field. Lorebook entries and NPCs are added instead of replacing each other.\r\n\r\n---\r\n\r\n## Reading the Workspace\r\n\r\nThe workspace is the current result. It is built from the cards you have accepted. If something feels wrong, discard the card that caused the problem or run the command again with clearer instructions.\r\n\r\nCommon adjustments:\r\n\r\n| Goal | Example |\r\n|------|---------|\r\n| More grounded | `less dramatic, more everyday` |\r\n| More specific | `add concrete habits and visual details` |\r\n| Less polished | `make the wording rougher and more natural` |\r\n| Stronger constraint | `avoid royal, noble, or chosen-one language` |\r\n| More scenario-focused | `treat this as a place and situation, not a single person` |\r\n\r\n---\r\n\r\n## Character Workflow\r\n\r\nFor a character, a common workflow is:\r\n\r\n1. Add source with the panel field or `/dream`\r\n2. Generate `/name`, `/appearance`, and `/personality`\r\n3. Generate `/scenario` once the character has a clear shape\r\n4. Generate `/voice` and `/first_message`\r\n5. Add `/add_lorebook` or `/add_npc` only if the card needs supporting world detail\r\n6. Use the **Visuals** tab if you want generated visual assets\r\n7. Finalize when the required fields are filled\r\n\r\nYou can do these in a different order. The main rule is that source must exist before generation commands run.\r\n\r\n---\r\n\r\n## Scenario Workflow\r\n\r\nFor a scenario:\r\n\r\n1. Set the switcher to **Scenario**\r\n2. Use `/dream` to describe the premise, setting, tone, and role of `{{user}}`\r\n3. Use `/name` for the scenario title\r\n4. Use `/appearance` for the setting and sensory presentation\r\n5. Use `/personality` for narrator or world behavior\r\n6. Use `/scenario` and `/first_message` to establish the opening situation\r\n\r\nScenario mode saves through the same card system as normal characters. The difference is how Dream Weaver writes the fields.\r\n\r\n---\r\n\r\n## Previous Weaves\r\n\r\nThe panel keeps saved sessions under **Previous Weaves**.\r\n\r\nUse:\r\n\r\n1. **All** to see every session\r\n2. **Drafts** to find unfinished sessions\r\n3. **Finalized** to find sessions already linked to a generated card\r\n4. **Search** to filter by source, type, or tone\r\n\r\nFinalized sessions can be reopened. If you accept new cards and update, Dream Weaver updates the linked card instead of creating a new one.\r\n',
+    "dream-weaver/visuals-and-finalizing.md": `# Visuals & Finalizing\r
+\r
+The **Visuals** tab generates image assets for the current Dream Weaver session. Portraits are the only supported asset type in the current version. Expressions and gallery images are planned for later.\r
+\r
+When you finalize a session, Dream Weaver saves the result as a character or scenario card. The first time you finalize a session, it also creates the launch chat.\r
+\r
+---\r
+\r
+## Visuals Tab\r
+\r
+Dream Weaver uses the cards you have accepted to prepare image prompts. The visual workflow depends on your image generation setup. In the current version, the generated asset is a portrait.\r
+\r
+| Area | What It Does |\r
+|------|--------------|\r
+| **Portrait stage** | Shows the accepted portrait, candidate image, or generation progress |\r
+| **Source settings** | Chooses the image provider, preset, workflow, size, seed, and provider options |\r
+| **Prompt fields** | Stores the positive and negative prompt for the selected visual asset |\r
+| **Suggest Tags** | Uses the Dream Weaver text connection to turn accepted card details into image tags |\r
+| **Generate Portrait** | Starts an image job from the current visual asset settings |\r
+\r
+For provider setup, see [Image Generation](../image-generation/index.md).\r
+\r
+---\r
+\r
+## ComfyUI Workflows\r
+\r
+For ComfyUI connections, Dream Weaver needs an imported workflow before it can generate.\r
+\r
+1. Select a ComfyUI image connection\r
+2. Import a workflow JSON\r
+3. Review detected prompt, negative prompt, seed, width, and height mappings\r
+4. Map any missing required fields\r
+5. Generate once the Visuals tab is ready\r
+\r
+Dream Weaver stores the workflow on the image connection metadata, not on a single Dream Weaver session.\r
+\r
+---\r
+\r
+## Asset Guidance\r
+\r
+Visual generation works best after you have accepted name/title, appearance, and personality cards. Since portraits are the current supported asset type, improve the accepted \`/appearance\` card first when the image prompt feels vague.\r
+\r
+Good portrait guidance includes:\r
+\r
+1. Body type, age impression, hair, eyes, clothing, and distinguishing marks\r
+2. Style constraints, such as illustration, anime, cinematic, or realistic\r
+3. Composition and framing, such as bust portrait, full body, close-up, or environmental portrait\r
+4. Things to avoid in the negative prompt\r
+\r
+Use **Suggest Tags** when you want Dream Weaver to turn accepted card details into image tags. Review the suggestion before applying it.\r
+\r
+---\r
+\r
+## Accepting a Portrait\r
+\r
+When an image job completes, the result appears as a candidate image.\r
+\r
+| Action | Result |\r
+|--------|--------|\r
+| **Accept Portrait** | Saves the candidate as the accepted portrait |\r
+| **Replace Portrait** | Replaces the previously accepted portrait |\r
+| **Regenerate** | Runs the image job again |\r
+| **Dismiss** | Removes the candidate without changing the accepted portrait |\r
+\r
+Accepted visual assets are saved with the Dream Weaver session. Reopening the session keeps the selected portrait.\r
+\r
+---\r
+\r
+## Finalizing\r
+\r
+Use **Finalize Character** or **Finalize Scenario** when the result is ready.\r
+\r
+Dream Weaver requires these fields before finalizing:\r
+\r
+| Required Field | Character Mode | Scenario Mode |\r
+|----------------|----------------|---------------|\r
+| Name/title | Character name | Scenario title |\r
+| Personality | Character behavior | Narrator or world behavior |\r
+| First message | Character opening message | Opening narration or scene prompt |\r
+\r
+If any required field is missing, Dream Weaver warns you before it calls finalize.\r
+\r
+Finalizing creates or updates:\r
+\r
+| Output | What Happens |\r
+|--------|--------------|\r
+| **Generated card** | Name/title, description, personality, scenario, first message, and Dream Weaver metadata are saved |\r
+| **Launch chat** | Created the first time you finalize the session |\r
+| **World books** | Accepted lore and NPC cards become attached world book entries |\r
+| **Portrait** | The accepted portrait is applied as the card image when available |\r
+\r
+---\r
+\r
+## Updating a Finalized Session\r
+\r
+After a session has been finalized, the footer action changes to **Update Character** or **Update Scenario**. Updating keeps the same linked card.\r
+\r
+Updating:\r
+\r
+1. Reuses the same generated card\r
+2. Keeps the existing launch chat\r
+3. Replaces Dream Weaver-generated world books from that session\r
+4. Preserves manually attached world books\r
+5. Applies the current accepted portrait when one is selected\r
+\r
+Use this when you accept revised cards after testing the result, or when you generate a better portrait from the same Dream Weaver session.\r
+\r
+---\r
+\r
+## After Finalizing\r
+\r
+Open the generated card in the **Character Browser** to review saved fields. This is the best place to make small manual edits, add tags, change avatars, or export the card.\r
+\r
+If the launch chat does not feel right, return to Dream Weaver, accept revised cards, and update the same session.\r
+`,
+    "extensions/index.md": `# Extensions\r
+\r
+Lumiverse supports extensions through **Spindle**, an isolated extension system. Extensions can add new features, modify behavior, and integrate with external services.\r
+\r
+---\r
+\r
+## What Extensions Can Do\r
+\r
+- Add custom panels and UI widgets\r
+- Define new macros for use in presets\r
+- Intercept and modify prompts before they reach the AI\r
+- Listen to events (messages, generation, etc.)\r
+- Store data persistently\r
+- Access the generation pipeline\r
+- Create custom council tools\r
+- Apply theme overrides\r
+- Send notifications\r
+\r
+---\r
+\r
+## Installing Extensions\r
+\r
+!!! warning "Trust model"\r
+    Extensions run code on your server. Only install extensions from sources you trust. Installing an extension is equivalent to running arbitrary code on your machine.\r
+\r
+1. Open the **Spindle Panel**\r
+2. Click **Install Extension**\r
+3. Provide the extension source (URL or local path)\r
+4. Review the requested **permissions**\r
+5. Click **Install**\r
+\r
+Extensions are **disabled by default** after installation. You must explicitly enable them.\r
+\r
+---\r
+\r
+## Managing Extensions\r
+\r
+From the Spindle Panel:\r
+\r
+- **Enable/Disable** \u2014 Toggle extensions on and off\r
+- **Configure** \u2014 Adjust extension-specific settings\r
+- **Permissions** \u2014 Review and manage what the extension can access\r
+- **Uninstall** \u2014 Remove the extension and its data\r
+\r
+---\r
+\r
+## Permissions\r
+\r
+Extensions request specific permissions for what they can access:\r
+\r
+| Permission | What It Grants |\r
+|------------|---------------|\r
+| **Storage** | Read/write persistent file storage |\r
+| **Generation** | Access to the LLM generation pipeline |\r
+| **Characters** | Read/write character data |\r
+| **Chats** | Read/write chat data |\r
+| **World Books** | Read/write world book data |\r
+| **Regex Scripts** | Read/write regex scripts (find/replace rules) |\r
+| **Personas** | Read/write persona data |\r
+| **CORS Proxy** | Make HTTP requests through the server |\r
+| **Interceptor** | Modify prompts before generation |\r
+| **Context Handler** | Provide additional context to generations |\r
+| **Chat Mutation** | Add/edit/delete messages in chats |\r
+| **Push Notification** | Send push notifications |\r
+| **Image Gen** | Access the image generation pipeline |\r
+| **App Manipulation** | Apply theme overrides and UI changes |\r
+\r
+Privileged permissions (CORS proxy, generation, interceptor, etc.) require admin approval.\r
+\r
+---\r
+\r
+## Extension UI\r
+\r
+Extensions can add UI elements in several places:\r
+\r
+- **Drawer panels** \u2014 Full panels in the sidebar\r
+- **Dock widgets** \u2014 Small widgets docked to the screen edges\r
+- **Float widgets** \u2014 Floating elements anywhere on screen\r
+- **Input actions** \u2014 Buttons in the chat input area\r
+- **App mounts** \u2014 Full-page or embedded views\r
+\r
+---\r
+\r
+## For Developers\r
+\r
+If you want to build your own extensions, see the [Developer Docs](https://docs.lumiverse.chat){:target="_blank"} for the complete Spindle API reference, including backend APIs, frontend APIs, and example extensions.\r
+`,
+    "getting-started/first-steps.md": `# First Steps\r
+\r
+This guide walks you through everything you need to go from a fresh install to your first conversation.\r
+\r
+---\r
+\r
+## Step 1: Create a Connection\r
+\r
+A **connection** tells Lumiverse which AI provider and model to use. You need at least one.\r
+\r
+1. Open the **Connection Manager** panel (plug icon in the sidebar)\r
+2. Click **New Connection**\r
+3. Fill in:\r
+    - **Name** \u2014 A label for your reference (e.g., "My Claude Sonnet")\r
+    - **Provider** \u2014 Pick your AI provider from the dropdown\r
+    - **Model** \u2014 Select or type the model name\r
+    - **API Key** \u2014 Paste your API key (stored encrypted, never visible again)\r
+4. Click **Save**\r
+5. Set it as the **default** connection if it's your primary one\r
+\r
+!!! tip "Multiple connections"\r
+    You can create as many connections as you want \u2014 different providers, different models, different API keys. Switch between them at any time.\r
+\r
+---\r
+\r
+## Step 2: Import a Character\r
+\r
+Characters are the AI personas you chat with. The fastest way to get started is importing one.\r
+\r
+1. Open the **Character Browser** panel (people icon in the sidebar)\r
+2. Click the **Import** button\r
+3. Choose one of:\r
+    - **File upload** \u2014 Drag in a \`.png\` (character card), \`.json\`, or \`.charx\` file\r
+    - **Import from URL** \u2014 Paste a link from Chub.ai, JanitorAI, or a direct file URL\r
+4. The character appears in your browser, ready to chat\r
+\r
+You can also [create a character from scratch](../characters/creating-characters.md) if you prefer.\r
+\r
+---\r
+\r
+## Step 3: Start a Chat\r
+\r
+1. Click on a character in the Character Browser\r
+2. Click **New Chat** (or just click the character card \u2014 it opens a chat automatically)\r
+3. The character's greeting message appears\r
+4. Type your message in the input area at the bottom and press **Enter** (or click the send button)\r
+\r
+That's it \u2014 you're chatting!\r
+\r
+---\r
+\r
+## Step 4: Create a Persona (Optional)\r
+\r
+A **persona** represents *you* in the conversation. Without one, the AI only knows your username. A persona adds a description the AI can reference.\r
+\r
+1. Open the **Persona** panel (user icon in the sidebar)\r
+2. Click **New Persona**\r
+3. Fill in a name and description for your character\r
+4. Optionally upload an avatar\r
+5. Set it as your **default** persona\r
+\r
+Your persona's name replaces \`{{user}}\` in prompts, and the description is available via \`{{persona}}\`.\r
+\r
+---\r
+\r
+## What to Explore Next\r
+\r
+Now that you're chatting, here are features worth exploring:\r
+\r
+- **[Swipes](../chatting/messages-and-swipes.md)** \u2014 Don't like a response? Swipe to generate a new one\r
+- **[Presets](../presets/index.md)** \u2014 Customize how prompts are assembled and what the AI "sees"\r
+- **[World Books](../world-books/index.md)** \u2014 Add lore that activates when keywords come up in chat\r
+- **[Themes](../customization/themes.md)** \u2014 Change the look and feel of the interface\r
+- **[Group Chats](../chatting/group-chats.md)** \u2014 Chat with multiple characters at once\r
+`,
+    "getting-started/installation.md": `# Installation\r
+\r
+Lumiverse runs on your own machine. It needs **Bun** (a fast JavaScript runtime) and takes about two minutes to set up.\r
+\r
+---\r
+\r
+## Requirements\r
+\r
+- **Bun** v1.1 or later \u2014 [Install Bun](https://bun.sh) (the start scripts auto-install Bun if it's missing)\r
+- A modern web browser (Chrome, Firefox, Edge, Safari)\r
+- An API key from at least one AI provider (OpenAI, Anthropic, Google, etc.)\r
+\r
+!!! note "Operating Systems"\r
+    Lumiverse works on **macOS**, **Linux**, **Windows**, and **Termux** (Android).\r
+\r
+---\r
+\r
+## Install & Run\r
+\r
+### 1. Clone the repository\r
+\r
+\`\`\`bash\r
+git clone https://github.com/prolix-oc/Lumiverse.git\r
+cd Lumiverse\r
+\`\`\`\r
+\r
+### 2. Start the server\r
+\r
+=== "macOS / Linux"\r
+\r
+    \`\`\`bash\r
+    chmod +x start.sh\r
+    ./start.sh\r
+    \`\`\`\r
+\r
+=== "Windows"\r
+\r
+    !!! warning "Windows shell requirements"\r
+        You **must** use **Terminal** (Windows 11) or **PowerShell** (Windows 10). Command Prompt (\`cmd.exe\`) is not supported.\r
+\r
+        If this is your first time running PowerShell scripts, unblock script execution first:\r
+\r
+        \`\`\`powershell\r
+        Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser\r
+        \`\`\`\r
+\r
+    \`\`\`powershell\r
+    .\\start.ps1\r
+    \`\`\`\r
+\r
+    Alternatively, double-click \`lumiverse.bat\` \u2014 it launches \`start.ps1\` automatically.\r
+\r
+=== "Termux (Android)"\r
+\r
+    \`\`\`bash\r
+    chmod +x start.sh\r
+    ./start.sh\r
+    \`\`\`\r
+\r
+    The script auto-detects Termux and installs required packages (\`glibc-repo\`, \`glibc-runner\`, \`proot\`). It uses a three-tier execution strategy to find the best way to run Bun on your device.\r
+\r
+=== "Docker"\r
+\r
+    See [Docker Installation](#docker) below.\r
+\r
+The start script handles everything: auto-installs Bun if needed, runs \`bun install\`, triggers the setup wizard on first launch, and starts the server.\r
+\r
+### 3. Open in your browser\r
+\r
+Navigate to \`http://localhost:7860\`. On first launch, the setup wizard guides you through account creation.\r
+\r
+---\r
+\r
+## First-Run Setup Wizard\r
+\r
+The setup wizard runs automatically on first launch. It walks through four steps:\r
+\r
+1. **Admin Account** \u2014 Set a username (default: \`admin\`) and password (minimum 8 characters)\r
+2. **Server Port** \u2014 Choose a port (default: \`7860\`)\r
+3. **Extension Storage** \u2014 Set the maximum storage for extensions (default: 500 MB)\r
+4. **Identity Generation** \u2014 Creates \`data/lumiverse.identity\` (your encryption key) and \`data/owner.credentials\`\r
+\r
+You can also run the wizard manually:\r
+\r
+\`\`\`bash\r
+./start.sh --setup\r
+\`\`\`\r
+\r
+!!! warning "Back up your \`data/\` folder"\r
+    The \`data/\` directory contains your database, encryption key, credentials, and uploaded images. If you lose the encryption key, you cannot recover your stored API keys. Copy this folder somewhere safe.\r
+\r
+---\r
+\r
+## Start Script Options\r
+\r
+The start scripts accept flags to control behavior:\r
+\r
+=== "macOS / Linux (\`start.sh\`)"\r
+\r
+    | Flag | Description |\r
+    |------|-------------|\r
+    | *(no flags)* | Start normally (frontend + backend) |\r
+    | \`-b\`, \`--build\` | Rebuild frontend before starting |\r
+    | \`--build-only\` | Rebuild frontend only, don't start |\r
+    | \`--backend-only\` | Start backend only, skip frontend |\r
+    | \`--dev\` | Watch mode (auto-reload on changes) |\r
+    | \`--setup\` | Run the setup wizard |\r
+    | \`--reset-password\` | Reset the owner account password |\r
+    | \`-m\`, \`--migrate-st\` | Run the [SillyTavern migration](#migrating-from-sillytavern) tool |\r
+    | \`--no-runner\` | Start without the visual terminal runner |\r
+\r
+=== "Windows (\`start.ps1\`)"\r
+\r
+    | Flag | Description |\r
+    |------|-------------|\r
+    | *(no flags)* | Start normally |\r
+    | \`-Build\` or \`-b\` | Rebuild frontend before starting |\r
+    | \`-Mode build-only\` | Rebuild frontend only |\r
+    | \`-Mode backend-only\` | Start backend only |\r
+    | \`-Mode dev\` | Watch mode |\r
+    | \`-Mode setup\` | Run the setup wizard |\r
+    | \`-Mode reset-password\` | Reset the owner account password |\r
+    | \`-MigrateST\` or \`-m\` | Run the SillyTavern migration tool |\r
+    | \`-NoRunner\` | Start without the visual runner |\r
+\r
+---\r
+\r
+## Docker\r
+\r
+Lumiverse provides pre-built Docker images for the simplest possible deployment.\r
+\r
+### Quick Start (Pre-Built Image)\r
+\r
+\`\`\`bash\r
+docker-compose up -d\r
+\`\`\`\r
+\r
+Edit \`docker-compose.yml\` to set your owner password and any other configuration. Any supported application \`.env\` value can also be passed here through Docker \`environment:\` entries:\r
+\r
+\`\`\`yaml\r
+services:\r
+  lumiverse:\r
+    image: ghcr.io/prolix-oc/lumiverse:latest\r
+    container_name: lumiverse\r
+    ports:\r
+      - "7860:7860"\r
+    environment:\r
+      - OWNER_PASSWORD=changeme123    # Required \u2014 minimum 8 characters\r
+      - OWNER_USERNAME=admin          # Optional\r
+      - PORT=7860\r
+      - TRUST_ANY_ORIGIN=true\r
+\r
+      # Optional app-level env values\r
+      # - DATA_DIR=/app/data\r
+      # - AUTH_SECRET=\r
+      # - ENCRYPTION_KEY=\r
+      # - SPINDLE_EPHEMERAL_GLOBAL_MAX_BYTES=524288000\r
+      # - SPINDLE_EPHEMERAL_EXTENSION_DEFAULT_MAX_BYTES=52428800\r
+      # - SPINDLE_EPHEMERAL_EXTENSION_MAX_OVERRIDES=example.extension:104857600\r
+      # - SPINDLE_EPHEMERAL_RESERVATION_TTL_MS=600000\r
+\r
+      # Optional one-time SillyTavern migration\r
+      # - LUMIVERSE_ST_MIGRATE=true\r
+      # - SILLYTAVERN_PATH=/app/data/SillyTavern\r
+      # - SILLYTAVERN_TARGET_USER=default-user\r
+      # - SILLYTAVERN_MIGRATION_TARGET=5\r
+      # - LUMIVERSE_FORCE_NEW_MIGRATION=false\r
+    volumes:\r
+      - lumiverse-data:/app/data\r
+      # - /path/to/SillyTavern:/app/data/SillyTavern:ro\r
+    restart: unless-stopped\r
+\r
+volumes:\r
+  lumiverse-data:\r
+\`\`\`\r
+\r
+### Build from Source\r
+\r
+If you want to build the image locally:\r
+\r
+\`\`\`bash\r
+docker-compose -f docker-compose.build.yml up -d\r
+\`\`\`\r
+\r
+### Docker Environment Variables\r
+\r
+| Variable | Default | Description |\r
+|----------|---------|-------------|\r
+| \`OWNER_PASSWORD\` | *(required)* | Owner account password (min 8 chars) |\r
+| \`OWNER_USERNAME\` | \`admin\` | Owner account username |\r
+| \`PORT\` | \`7860\` | Server port |\r
+| \`DATA_DIR\` | \`./data\` | Data directory inside the container |\r
+| \`TRUST_ANY_ORIGIN\` | \`true\` | Accept requests from any origin |\r
+| \`TRUSTED_ORIGINS\` | \u2014 | Comma-separated allowed origins (for production) |\r
+| \`AUTH_SECRET\` | auto-derived | Explicit auth signing secret; usually leave unset |\r
+| \`ENCRYPTION_KEY\` | auto-generated | Legacy/manual encryption key override; usually leave unset |\r
+| \`SPINDLE_EPHEMERAL_GLOBAL_MAX_BYTES\` | \`524288000\` | Total extension storage limit in bytes |\r
+| \`SPINDLE_EPHEMERAL_EXTENSION_DEFAULT_MAX_BYTES\` | \`52428800\` | Default per-extension storage limit in bytes |\r
+| \`SPINDLE_EPHEMERAL_EXTENSION_MAX_OVERRIDES\` | \u2014 | Per-extension storage overrides as \`extension.id:maxBytes,...\` |\r
+| \`SPINDLE_EPHEMERAL_RESERVATION_TTL_MS\` | \`600000\` | Extension storage reservation TTL in milliseconds |\r
+| \`LUMIVERSE_ST_MIGRATE\` | \`false\` | Run a one-time SillyTavern import during startup |\r
+| \`SILLYTAVERN_PATH\` | \`./data/SillyTavern\` | Path to the bind-mounted SillyTavern root |\r
+| \`SILLYTAVERN_TARGET_USER\` | \`default-user\` | SillyTavern user folder to import from |\r
+| \`SILLYTAVERN_MIGRATION_TARGET\` | \`5\` | Import scope: \`1=chars\`, \`2=world books\`, \`3=personas\`, \`4=chars+chats\`, \`5=everything\` |\r
+| \`LUMIVERSE_FORCE_NEW_MIGRATION\` | \`false\` | Re-run Docker migration even after a previous success |\r
+\r
+### Docker SillyTavern Migration\r
+\r
+If you are moving from an existing SillyTavern install, Lumiverse can perform a one-time import automatically when the container starts.\r
+\r
+\`\`\`yaml\r
+services:\r
+  lumiverse:\r
+    environment:\r
+      - OWNER_PASSWORD=changeme123\r
+      - LUMIVERSE_ST_MIGRATE=true\r
+      - SILLYTAVERN_PATH=/app/data/SillyTavern\r
+      - SILLYTAVERN_TARGET_USER=default-user\r
+      - SILLYTAVERN_MIGRATION_TARGET=5\r
+    volumes:\r
+      - lumiverse-data:/app/data\r
+      - /path/to/SillyTavern:/app/data/SillyTavern:ro\r
+\`\`\`\r
+\r
+* Use a read-only bind mount for the SillyTavern folder. Lumiverse only reads from it and does not modify the source data.\r
+* The importer supports both newer SillyTavern layouts (\`data/<user>/\`) and older installs that still use \`public/\`.\r
+* \`SILLYTAVERN_MIGRATION_TARGET\` controls what gets imported:\r
+    * \`1\` = characters only\r
+    * \`2\` = world books only\r
+    * \`3\` = personas only\r
+    * \`4\` = characters and chat history (including group chats)\r
+    * \`5\` = everything\r
+* Migration state is saved after a successful run, so later container restarts skip it automatically.\r
+* Set \`LUMIVERSE_FORCE_NEW_MIGRATION=true\` only when you intentionally want to run the import again.\r
+\r
+### Data Persistence\r
+\r
+The Docker setup uses a named volume (\`lumiverse-data\`) mounted at \`/app/data\`. This persists your database, encryption key, credentials, uploaded images, and extensions across container restarts.\r
+\r
+!!! tip "Backup"\r
+    Back up the Docker volume regularly. Use \`docker cp\` or mount a host directory instead of a named volume if you prefer direct file access.\r
+\r
+---\r
+\r
+## Configuration\r
+\r
+Lumiverse uses a \`.env\` file for runtime configuration (created by the setup wizard). Common options:\r
+\r
+| Variable | Default | Description |\r
+|----------|---------|-------------|\r
+| \`PORT\` | \`7860\` | Server port |\r
+| \`DATA_DIR\` | \`./data\` | Override the data directory location |\r
+| \`TRUSTED_ORIGINS\` | \u2014 | CORS origins (comma-separated) |\r
+| \`TRUST_ANY_ORIGIN\` | \`false\` | Accept requests from any origin |\r
+| \`FRONTEND_DIR\` | \u2014 | Custom path to frontend dist folder |\r
+| \`SPINDLE_EPHEMERAL_GLOBAL_MAX_BYTES\` | \`524288000\` | Extension storage limit (500 MB) |\r
+| \`SPINDLE_EPHEMERAL_EXTENSION_DEFAULT_MAX_BYTES\` | \`52428800\` | Default per-extension storage limit |\r
+| \`SPINDLE_EPHEMERAL_EXTENSION_MAX_OVERRIDES\` | \u2014 | Per-extension storage overrides as \`extension.id:maxBytes,...\` |\r
+| \`SPINDLE_EPHEMERAL_RESERVATION_TTL_MS\` | \`600000\` | Extension storage reservation TTL in milliseconds |\r
+| \`AUTH_SECRET\` | auto-derived | Explicit auth signing secret |\r
+| \`ENCRYPTION_KEY\` | auto-generated | Legacy/manual encryption key override |\r
+\r
+API keys and account passwords are stored encrypted in the \`data/\` directory rather than in \`.env\`. Leave \`AUTH_SECRET\` and \`ENCRYPTION_KEY\` unset unless you are intentionally carrying forward an existing install.\r
+\r
+---\r
+\r
+## Updating\r
+\r
+=== "Visual Runner"\r
+\r
+    If you're using the visual terminal runner (the default), press **U** twice to trigger an update. The runner pulls the latest code, reinstalls dependencies, and restarts automatically.\r
+\r
+=== "macOS / Linux"\r
+\r
+    \`\`\`bash\r
+    git pull\r
+    ./start.sh\r
+    \`\`\`\r
+\r
+=== "Windows"\r
+\r
+    \`\`\`powershell\r
+    git pull\r
+    .\\start.ps1\r
+    \`\`\`\r
+\r
+=== "Docker"\r
+\r
+    \`\`\`bash\r
+    docker-compose pull\r
+    docker-compose up -d\r
+    \`\`\`\r
+\r
+Database migrations run automatically on startup \u2014 your data is preserved across updates.\r
+\r
+---\r
+\r
+## Migrating from SillyTavern\r
+\r
+If you're coming from SillyTavern, Lumiverse includes a migration tool that imports your characters, chat history, world books, and personas. You can migrate from a local directory, or connect to a remote machine over **SFTP** or **SMB** if your SillyTavern installation lives on another device.\r
+\r
+### Running the Migration\r
+\r
+There are two ways to run the migration:\r
+\r
+#### Web UI (recommended)\r
+\r
+Open Lumiverse, go to **Settings > Migration**, and follow the wizard. This is the easiest approach and supports all three connection methods (Local, SFTP, SMB).\r
+\r
+#### CLI\r
+\r
+=== "macOS / Linux"\r
+\r
+    \`\`\`bash\r
+    ./start.sh --migrate-st\r
+    \`\`\`\r
+\r
+=== "Windows"\r
+\r
+    \`\`\`powershell\r
+    .\\start.ps1 -MigrateST\r
+    \`\`\`\r
+\r
+=== "Direct"\r
+\r
+    \`\`\`bash\r
+    bun run migrate:st\r
+    \`\`\`\r
+\r
+!!! note\r
+    The CLI migration only supports local directories. For SFTP or SMB sources, use the web UI.\r
+\r
+### Connection Methods\r
+\r
+The web migration wizard lets you choose how to access your SillyTavern data:\r
+\r
+#### Local\r
+\r
+Browse directories on the machine running Lumiverse. This is the default and requires no extra setup.\r
+\r
+#### SFTP (SSH File Transfer)\r
+\r
+Connect to a remote machine over SSH. Useful when SillyTavern is on a VPS, home server, or any machine you can SSH into.\r
+\r
+- **Authentication**: Password or private key (upload a \`.pem\`/\`.key\` file or paste it directly)\r
+- **Requirements**: An SSH server running on the remote machine (standard on Linux/macOS)\r
+\r
+#### SMB (Samba / Windows Shares)\r
+\r
+Connect to a network share. Useful when SillyTavern data is on a NAS (Synology, TrueNAS, QNAP, etc.), a Windows PC, or any Samba share.\r
+\r
+- **Authentication**: Username/password, with optional domain\r
+- **Requirements**: The \`smbclient\` package must be installed on the machine running Lumiverse\r
+\r
+!!! info "SMB availability"\r
+    The SMB option only appears in the UI if \`smbclient\` is detected on your system. If you don't see it, install the appropriate package for your OS (see below).\r
+\r
+##### Installing smbclient\r
+\r
+=== "Debian / Ubuntu"\r
+\r
+    \`\`\`bash\r
+    sudo apt install smbclient\r
+    \`\`\`\r
+\r
+=== "Fedora / RHEL"\r
+\r
+    \`\`\`bash\r
+    sudo dnf install samba-client\r
+    \`\`\`\r
+\r
+=== "Arch Linux"\r
+\r
+    \`\`\`bash\r
+    sudo pacman -S smbclient\r
+    \`\`\`\r
+\r
+=== "Alpine"\r
+\r
+    \`\`\`bash\r
+    sudo apk add samba-client\r
+    \`\`\`\r
+\r
+=== "macOS (Homebrew)"\r
+\r
+    \`\`\`bash\r
+    brew install samba\r
+    \`\`\`\r
+\r
+=== "Termux (Android)"\r
+\r
+    \`\`\`bash\r
+    pkg install samba\r
+    \`\`\`\r
+\r
+!!! tip "Windows users"\r
+    You don't need SMB support on Windows \u2014 network shares like \`\\\\server\\share\` are native filesystem paths. Just use the **Local** connection mode and type the UNC path directly.\r
+\r
+### Migration Walkthrough\r
+\r
+The web UI wizard walks you through these steps:\r
+\r
+1. **Choose connection** \u2014 Select Local, SFTP, or SMB and enter credentials if needed. For remote connections, click **Test Connection** to verify before proceeding.\r
+2. **Browse & validate** \u2014 Navigate to your SillyTavern root directory (the folder containing the \`data/\` subfolder) and click **Validate**.\r
+3. **Select ST user** \u2014 If your SillyTavern has multiple user profiles, choose which one to migrate.\r
+4. **Select scope** \u2014 Choose what to import:\r
+    - Characters only\r
+    - World Books only\r
+    - Personas only\r
+    - Characters + Chat History (including group chats)\r
+    - Everything (recommended)\r
+    - Custom selection\r
+5. **Select target** \u2014 Choose which Lumiverse account receives the data.\r
+6. **Confirm & import** \u2014 Review the summary and start the migration. Progress and logs stream in real time.\r
+7. **Results** \u2014 See counts of imported, skipped, and failed items.\r
+\r
+### What Gets Imported\r
+\r
+| Content | Source | Notes |\r
+|---------|--------|-------|\r
+| **Characters** | PNG files with embedded card data | Avatars are extracted and uploaded automatically |\r
+| **Chat History** | Per-character JSONL chat files | Message content, swipes, timestamps, and metadata preserved |\r
+| **Group Chats** | ST group chat data | Multi-character conversation history |\r
+| **World Books** | JSON world info files | All entries with keywords, positions, and settings |\r
+| **Personas** | ST \`settings.json\` | Names, descriptions, and avatar images |\r
+\r
+!!! tip "Run Lumiverse first"\r
+    The migration tool connects to a running Lumiverse instance via API. Make sure Lumiverse is running before starting the migration.\r
+\r
+!!! tip "Checkpoint resume (CLI)"\r
+    If the CLI import is interrupted (network issue, crash), run it again. The tool detects the checkpoint file and offers to resume where it left off instead of starting over.\r
+\r
+!!! tip "Duplicate detection"\r
+    Previously imported characters are automatically skipped, so it's safe to run the migration more than once.\r
+\r
+---\r
+\r
+## Next Steps\r
+\r
+Once Lumiverse is running, head to [First Steps](first-steps.md) to connect your first AI provider and start chatting.\r
+`,
+    "getting-started/interface-overview.md": `# Interface Overview\r
+\r
+Lumiverse's interface is built around a central chat view with collapsible panels on each side. Here's a tour of what's where.\r
+\r
+---\r
+\r
+## Main Layout\r
+\r
+The app has four key areas:\r
+\r
+\`\`\`\r
++-----+----------------------------+------+\r
+|     |                            |      |\r
+| Left|       Chat Area            | Right|\r
+|Panel|                            | Panel|\r
+|     |                            |      |\r
+|     +----------------------------+      |\r
+|     |       Input Area           |      |\r
++-----+----------------------------+------+\r
+\`\`\`\r
+\r
+- **Chat Area** \u2014 Where messages appear. Shows the conversation with your character, including their avatar and expression images.\r
+- **Input Area** \u2014 Where you type messages. Includes action buttons for extras like attachments, quick replies, and persona switching.\r
+- **Left Panel** \u2014 Usually houses the Character Browser and Persona panel.\r
+- **Right Panel** \u2014 Usually houses Presets, World Books, Connections, and other configuration panels.\r
+\r
+Panels can be collapsed, resized, and rearranged. On mobile, they slide in as drawers.\r
+\r
+---\r
+\r
+## Sidebar Panels\r
+\r
+Click the icons along the edges to open panels:\r
+\r
+| Panel | Purpose |\r
+|-------|---------|\r
+| **Character Browser** | Browse, search, import, and manage characters |\r
+| **Persona Manager** | Create and switch between your personas |\r
+| **Connection Manager** | Manage API connections to AI providers |\r
+| **Preset / Loom Builder** | Configure prompt assembly and sampler settings |\r
+| **World Book** | Manage lorebooks and world info entries |\r
+| **Theme Panel** | Customize colors, fonts, and visual style |\r
+| **Image Generation** | Configure and trigger AI image generation |\r
+| **Content Workshop** | Manage packs (Lumias, Looms, Tools) |\r
+| **Regex Scripts** | Set up text transformation rules |\r
+| **Wallpaper Panel** | Set background images or videos |\r
+| **Spindle Panel** | Manage installed extensions |\r
+\r
+---\r
+\r
+## Chat Controls\r
+\r
+Inside an active chat, you'll find these controls:\r
+\r
+- **Regenerate** \u2014 Re-roll the last AI response\r
+- **Continue** \u2014 Ask the AI to continue writing from where it left off\r
+- **Swipe arrows** \u2014 Navigate between alternative responses\r
+- **Edit** \u2014 Click on any message to edit its content\r
+- **Branch** \u2014 Fork the conversation at any message\r
+- **Author's Note** \u2014 Inject a system-level instruction at a specific depth in the conversation\r
+\r
+---\r
+\r
+## Input Area Actions\r
+\r
+The input area has several action buttons beyond just sending messages:\r
+\r
+- **Attachments** \u2014 Upload images or audio to include with your message\r
+- **Persona switcher** \u2014 Quickly change which persona you're using\r
+- **Quick Replies** \u2014 Insert pre-written response templates\r
+- **Guided Generation** \u2014 Enable structured output guidance\r
+- **Add-ons** \u2014 Toggle persona add-on blocks\r
+- **Dry Run** \u2014 Test what the AI will "see" without sending a real request\r
+\r
+---\r
+\r
+## Command Palette\r
+\r
+Press **Cmd+K** (Mac) or **Ctrl+K** (Windows/Linux) to open the Command Palette. This gives you quick access to:\r
+\r
+- Navigation between pages\r
+- Panel toggles\r
+- Chat-specific actions\r
+- Settings\r
+- Extension features\r
+\r
+Type to search, then press Enter to execute.\r
+\r
+---\r
+\r
+## Landing Page\r
+\r
+When you first open Lumiverse (or navigate to the home page), you'll see the **Landing Page** showing your recent chats grouped by character. Click any chat to resume it, or click a character to start a new conversation.\r
+\r
+---\r
+\r
+## Settings\r
+\r
+Click the gear icon (or use the Command Palette) to open **Settings**. Settings are organized into tabs:\r
+\r
+| Tab | What's Inside |\r
+|-----|---------------|\r
+| **General** | Landing page behavior |\r
+| **Display** | Modal sizing, pagination, toast positions |\r
+| **Chat** | Message-per-page, enter-to-send, draft saving |\r
+| **Appearance** | Theme presets, accent colors, glass effects |\r
+| **Notifications** | Push notification preferences |\r
+| **Embeddings** | Vector embedding configuration |\r
+| **LumiHub** | Hub integration settings |\r
+| **Advanced** | Power-user options |\r
+| **Danger Zone** | Data deletion and reset options |\r
+| **Diagnostics** | System health information |\r
+\r
+!!! tip "Mobile"\r
+    On smaller screens, panels become slide-in drawers. Swipe from the edge or tap the panel icons to open them. The interface supports PWA mode \u2014 add Lumiverse to your home screen for an app-like experience.\r
+`,
+    "image-generation/index.md": `# Image Generation\r
+\r
+Lumiverse can generate images based on your conversation, creating visual scene illustrations that update as the story progresses.\r
+\r
+---\r
+\r
+## How It Works\r
+\r
+1. A sidecar LLM analyzes the current scene in your chat\r
+2. It extracts scene data: environment, time of day, weather, mood, and focal details\r
+3. If the scene has changed significantly (or you force it), an image is generated\r
+4. The image appears as the chat background or in the image panel\r
+\r
+The system is designed to be hands-off \u2014 it watches the conversation and generates new backgrounds when the setting changes.\r
+\r
+---\r
+\r
+## Scene Data\r
+\r
+The scene analysis extracts:\r
+\r
+| Field | Description |\r
+|-------|-------------|\r
+| **Environment** | The setting/location (e.g., "dimly lit tavern," "moonlit garden") |\r
+| **Time of Day** | When the scene takes place |\r
+| **Weather** | Atmospheric conditions |\r
+| **Mood** | Emotional tone of the scene |\r
+| **Focal Detail** | A specific element to focus on |\r
+| **Palette Override** | Optional color scheme suggestion |\r
+\r
+A new image is generated when the scene data changes beyond the **scene change threshold** \u2014 a configurable sensitivity for how much needs to change before triggering regeneration.\r
+\r
+---\r
+\r
+## Supported Providers\r
+\r
+| Provider | Style |\r
+|----------|-------|\r
+| **Google Gemini** | General-purpose image generation |\r
+| **NanoGPT** | Access to multiple image models via API |\r
+| **NovelAI** | Anime/illustration style with Danbooru tag support |\r
+\r
+---\r
+\r
+## Quick Links\r
+\r
+- [Setup & Providers](setup.md) \u2014 Configure image generation connections\r
+`,
+    "image-generation/setup.md": `# Image Generation Setup\r
+\r
+Image generation uses its own connection profiles, separate from your LLM connections.\r
+\r
+---\r
+\r
+## Creating an Image Gen Connection\r
+\r
+1. Open the **Image Generation** panel\r
+2. Click **New Connection** (or go to the image gen connections section)\r
+3. Fill in:\r
+    - **Name** \u2014 A label (e.g., "NovelAI Images," "Gemini Vision")\r
+    - **Provider** \u2014 Select your image provider\r
+    - **Model** \u2014 Choose a model (use the Models button to browse available ones)\r
+    - **API Key** \u2014 Your provider's API key (stored encrypted)\r
+4. Optionally set **default parameters** (resolution, quality, etc.)\r
+5. Save\r
+\r
+---\r
+\r
+## Provider-Specific Setup\r
+\r
+### Google Gemini\r
+\r
+1. Use your Google AI API key\r
+2. Models are fetched from Google's API, filtered to image-capable ones\r
+3. Generates images using Google's native image generation\r
+\r
+### NanoGPT\r
+\r
+1. Use your NanoGPT API key\r
+2. Model list is fetched live from their API (with fallback to 16 static models)\r
+3. Supports a wide range of image generation models\r
+\r
+### NovelAI\r
+\r
+1. Use your NovelAI API key\r
+2. Offers 6 built-in model options (no API endpoint for model listing)\r
+3. Automatically uses Danbooru-style tags instead of prose prompts\r
+4. Supports **director reference images** \u2014 character and persona avatars can be used as style references\r
+\r
+---\r
+\r
+## Image Generation Settings\r
+\r
+Configure overall behavior in the Image Generation panel:\r
+\r
+| Setting | Description |\r
+|---------|-------------|\r
+| **Active Connection** | Which image gen connection to use |\r
+| **Scene Change Threshold** | How much the scene must change before generating a new image |\r
+| **Force Generation** | Generate even if the scene hasn't changed |\r
+| **Background Opacity** | How transparent the generated image appears behind the chat |\r
+| **Fade Transition** | Animation duration when switching images (in milliseconds) |\r
+\r
+---\r
+\r
+## Manual vs. Automatic Generation\r
+\r
+- **Manual** \u2014 Click the generate button in the Image Generation panel to create an image on demand\r
+- **Automatic** \u2014 When configured, images generate whenever the scene changes beyond the threshold\r
+\r
+Use **Force Generation** to trigger a new image even when the system thinks the scene hasn't changed enough.\r
+\r
+---\r
+\r
+## Generated Images\r
+\r
+Generated images are:\r
+\r
+- Saved to the images table with full thumbnail support\r
+- Available in the image gallery\r
+- Accessible via a public URL for push notifications and embeds\r
+- Displayed as chat backgrounds at the configured opacity\r
+\r
+---\r
+\r
+## Migration from Legacy Settings\r
+\r
+If you previously configured image generation through the older settings-based system (with API keys stored in settings), Lumiverse automatically migrates your provider configs to the new encrypted connection profile system on first use. No manual migration needed.\r
+\r
+---\r
+\r
+## Tips\r
+\r
+!!! tip "Use a low scene change threshold for dynamic scenes"\r
+    If your story moves between locations frequently, a lower threshold generates images more often. For slower-paced conversations, a higher threshold avoids unnecessary regeneration.\r
+\r
+!!! tip "NovelAI director references"\r
+    NovelAI supports using character and persona avatars as reference images for style consistency. The system automatically resolves these before generation.\r
+\r
+!!! tip "Check the scene data"\r
+    The Image Generation panel shows the extracted scene data. If the AI is misreading the scene, you can adjust your writing to be more explicit about the setting.\r
+`,
+    "index.md": `# Lumiverse User Guides\r
+\r
+Welcome to the official guides for **Lumiverse** \u2014 a powerful, self-hosted AI chat application for creative roleplay, storytelling, and conversation.\r
+\r
+Whether you're importing your first character or fine-tuning a multi-member council with custom lorebooks, these guides will walk you through every feature in plain language.\r
+\r
+---\r
+\r
+## Where to Start\r
+\r
+New to Lumiverse? Start here:\r
+\r
+1. **[Installation](getting-started/installation.md)** \u2014 Get Lumiverse running on your machine\r
+2. **[First Steps](getting-started/first-steps.md)** \u2014 Connect an API, import a character, send your first message\r
+3. **[Interface Overview](getting-started/interface-overview.md)** \u2014 Learn the layout and where to find things\r
+\r
+---\r
+\r
+## Guides by Topic\r
+\r
+### Core Features\r
+\r
+| Guide | What You'll Learn |\r
+|-------|-------------------|\r
+| [Characters](characters/index.md) | Import, create, and customize AI characters |\r
+| [Dream Weaver](dream-weaver/index.md) | Make character and scenario cards from your ideas |\r
+| [Chatting](chatting/index.md) | Send messages, use swipes, branch conversations |\r
+| [Personas](personas/index.md) | Create your own identity for roleplay |\r
+| [Connections](connections/index.md) | Connect to AI providers (OpenAI, Claude, etc.) |\r
+\r
+### Advanced Features\r
+\r
+| Guide | What You'll Learn |\r
+|-------|-------------------|\r
+| [Presets](presets/index.md) | Control how prompts are assembled and sent to the AI |\r
+| [World Books](world-books/index.md) | Build lorebooks that inject context based on keywords |\r
+| [Council & Lumia](council/index.md) | Set up multi-persona AI deliberation |\r
+| [Packs](packs/index.md) | Install and manage content packs (Lumias, Looms, Tools) |\r
+| [Image Generation](image-generation/index.md) | Generate scene illustrations from your chats |\r
+| [Sovereign Hand](presets/sovereign-hand.md) | Direct the scene as an author instead of playing a character |\r
+| [Loom Summary](chatting/loom-summary.md) | Automatic story summarization for long conversations |\r
+| [Long-Term Memory](chatting/memory.md) | Vector-based recall of relevant past moments |\r
+\r
+### Customization\r
+\r
+| Guide | What You'll Learn |\r
+|-------|-------------------|\r
+| [Themes](customization/themes.md) | Change colors, fonts, and visual styles |\r
+| [Wallpapers](customization/wallpapers.md) | Set background images or videos |\r
+| [Regex Scripts](customization/regex-scripts.md) | Transform text with find-and-replace rules |\r
+| [Macros](customization/macros.md) | Use template variables in your prompts |\r
+| [Display Modes](customization/display-modes.md) | Switch between minimal and bubble chat layouts |\r
+\r
+### Settings & Administration\r
+\r
+| Guide | What You'll Learn |\r
+|-------|-------------------|\r
+| [Embeddings](settings/embeddings.md) | Set up vector search for semantic lorebook and memory features |\r
+| [Push Notifications](settings/push-notifications.md) | Get notified when the AI responds |\r
+| [LumiHub](settings/lumihub.md) | Browse and install characters from the hub |\r
+| [Users & Auth](settings/users.md) | Manage users, roles, and passwords |\r
+\r
+### Reference\r
+\r
+| Page | Description |\r
+|------|-------------|\r
+| [Extensions](extensions/index.md) | Install and use Spindle extensions |\r
+| [Keyboard Shortcuts](reference/keyboard-shortcuts.md) | Quick reference for hotkeys |\r
+| [Troubleshooting](reference/troubleshooting.md) | Solutions to common issues |\r
+| [Glossary](reference/glossary.md) | Key terms and definitions |\r
+`,
+    "packs/index.md": `# Packs\r
+\r
+Packs are curated content bundles that extend Lumiverse's capabilities. They contain **Lumia items** (AI personas for the council), **Loom items** (narrative content and utilities), and **Loom tools** (council tool definitions).\r
+\r
+---\r
+\r
+## What's in a Pack?\r
+\r
+### Lumia Items\r
+\r
+AI personas used as council members. Each Lumia has:\r
+\r
+- **Name** and **avatar** \u2014 Identity and visual\r
+- **Definition** \u2014 Core character description\r
+- **Personality** \u2014 Trait summary\r
+- **Behavior** \u2014 How this Lumia interacts and advises\r
+\r
+### Loom Items\r
+\r
+Content blocks organized into three categories:\r
+\r
+| Category | Purpose |\r
+|----------|---------|\r
+| **Narrative Style** | Writing style templates (e.g., "Victorian prose," "Noir thriller") |\r
+| **Loom Utility** | Utility prompts (e.g., "Summarize the scene," "Track character arcs") |\r
+| **Retrofit** | Enhancement prompts that modify or augment existing content |\r
+\r
+Selected Loom items are available via macros: \`{{loomStyle}}\`, \`{{loomUtils}}\`, \`{{loomRetrofits}}\`.\r
+\r
+### Loom Tools\r
+\r
+Custom council tools defined by the pack creator. These extend the built-in tool set with specialized analysis capabilities.\r
+\r
+---\r
+\r
+## Quick Links\r
+\r
+- [Managing Packs](managing-packs.md) \u2014 Install, create, import, and export packs\r
+`,
+    "packs/managing-packs.md": `# Managing Packs\r
+\r
+Packs are managed through the **Content Workshop** panel.\r
+\r
+---\r
+\r
+## Viewing Installed Packs\r
+\r
+Open the **Content Workshop** panel to see all installed packs. Each pack shows:\r
+\r
+- Pack name and author\r
+- Version number\r
+- Whether it's a custom (user-created) pack or downloaded\r
+- Number of Lumia items, Loom items, and Tools included\r
+\r
+---\r
+\r
+## Creating a Custom Pack\r
+\r
+1. Open the **Content Workshop** panel\r
+2. Click **New Pack**\r
+3. Fill in the pack details:\r
+    - **Name** \u2014 Pack name\r
+    - **Author** \u2014 Your name\r
+    - **Version** \u2014 Version number\r
+4. Add items:\r
+    - **Add Lumia** \u2014 Create a new AI persona\r
+    - **Add Loom** \u2014 Create a narrative content block\r
+    - **Add Tool** \u2014 Define a custom council tool\r
+5. Save\r
+\r
+### Creating a Lumia\r
+\r
+| Field | Description |\r
+|-------|-------------|\r
+| **Name** | The persona's name |\r
+| **Avatar** | A profile image URL |\r
+| **Definition** | Core description of this persona |\r
+| **Personality** | Personality traits |\r
+| **Behavior** | How this persona interacts and gives advice |\r
+| **Gender Identity** | Unspecified, feminine, or masculine (affects pronoun macros) |\r
+\r
+### Creating a Loom Item\r
+\r
+| Field | Description |\r
+|-------|-------------|\r
+| **Name** | Item name |\r
+| **Content** | The text content (supports macros) |\r
+| **Category** | Narrative style, loom utility, or retrofit |\r
+\r
+### Creating a Loom Tool\r
+\r
+| Field | Description |\r
+|-------|-------------|\r
+| **Tool Name** | Technical identifier (used in code) |\r
+| **Display Name** | What users see |\r
+| **Description** | What the tool does |\r
+| **Prompt** | The instruction sent to the sidecar LLM |\r
+| **Result Variable** | Variable name to store the result |\r
+| **Store in Deliberation** | Whether to include in the deliberation block |\r
+\r
+---\r
+\r
+## Importing & Exporting\r
+\r
+### Export\r
+\r
+1. Select a pack in the Content Workshop\r
+2. Click **Export**\r
+3. The pack is saved as a JSON file with all items included\r
+\r
+### Import\r
+\r
+1. Click **Import Pack** in the Content Workshop\r
+2. Select a pack JSON file\r
+3. The pack and all its items are created\r
+\r
+---\r
+\r
+## Using Pack Content\r
+\r
+### Selecting Lumia Items\r
+\r
+Lumia items from packs are available as:\r
+\r
+- **Council members** \u2014 Add them in the Council panel\r
+- **Selected definitions** \u2014 Choose via settings for the \`{{lumiaDef}}\` macro\r
+- **Random Lumia** \u2014 The \`{{randomLumia}}\` macro picks from all available items\r
+\r
+### Selecting Loom Items\r
+\r
+Loom items are selected via settings and used through macros:\r
+\r
+- **Selected Styles** \u2192 \`{{loomStyle}}\`\r
+- **Selected Utils** \u2192 \`{{loomUtils}}\`\r
+- **Selected Retrofits** \u2192 \`{{loomRetrofits}}\`\r
+\r
+### Using Loom Tools\r
+\r
+Loom tools automatically appear in the council tools list and can be assigned to council members just like built-in tools.\r
+\r
+---\r
+\r
+## Pack Ordering\r
+\r
+Items within a pack have a **sort order** that determines their display sequence. You can reorder items by dragging them in the editor.\r
+`,
+    "personas/bindings-and-addons.md": `# Bindings & Add-Ons\r
+\r
+Beyond basic persona setup, Lumiverse offers two power features: **character bindings** that auto-activate personas, and **add-ons** that let you toggle extra persona content on and off.\r
+\r
+---\r
+\r
+## Character-Persona Bindings\r
+\r
+You can bind a persona to a specific character so that persona automatically activates whenever you open a chat with that character.\r
+\r
+### Setting Up a Binding\r
+\r
+1. Open the **Persona** panel\r
+2. Select the persona you want to bind\r
+3. Click **Bind to Character**\r
+4. Choose the character from the list\r
+\r
+Now, whenever you open a chat with that character, your persona switches automatically.\r
+\r
+### How Bindings Work\r
+\r
+- Bindings are stored as a setting (\`characterPersonaBindings\`) \u2014 a mapping of character IDs to persona IDs\r
+- When you open a chat, Lumiverse checks if the character has a binding and switches your active persona\r
+- If you manually switch personas in a chat, that overrides the binding for that session\r
+- Deleting a persona automatically cleans up its bindings\r
+\r
+### Use Cases\r
+\r
+- Bind your "Fantasy Knight" persona to fantasy characters\r
+- Bind your "Modern Self" persona to slice-of-life characters\r
+- Bind a specific persona to a character that expects a particular partner\r
+\r
+---\r
+\r
+## Persona Add-Ons\r
+\r
+Add-ons are optional, toggleable content blocks attached to a persona. They let you dynamically extend your persona description without editing it.\r
+\r
+### What Are Add-Ons?\r
+\r
+Each add-on is a labeled block of text with an on/off toggle:\r
+\r
+- **Label** \u2014 A short name (e.g., "Combat Skills," "Secret Backstory," "Romantic Interest")\r
+- **Content** \u2014 The text that gets appended to your persona description when enabled\r
+- **Enabled** \u2014 Whether it's currently active\r
+\r
+When an add-on is enabled, its content is appended to the \`{{persona}}\` macro output during prompt assembly.\r
+\r
+### Creating Add-Ons\r
+\r
+1. Open the persona editor\r
+2. Click the **Add-Ons** button\r
+3. Click **Add New** in the add-ons modal\r
+4. Fill in the label and content\r
+5. Toggle it on or off\r
+\r
+### Quick Toggling\r
+\r
+During a chat, you can quickly toggle add-ons without opening the full editor:\r
+\r
+1. Click the **Puzzle icon** in the input area action bar\r
+2. A dropdown shows all your add-ons with toggles\r
+3. Flip any switch \u2014 it takes effect on the next generation\r
+\r
+The puzzle icon only appears when your active persona has at least one add-on.\r
+\r
+### Example Add-Ons\r
+\r
+| Label | Content |\r
+|-------|---------|\r
+| "Has a Pet" | "Alex is always accompanied by a small calico cat named Patches who sits on their shoulder." |\r
+| "Injured" | "Alex's right arm is in a sling from a recent climbing accident. They're in mild pain and slightly clumsy." |\r
+| "Knows the Secret" | "Alex has discovered the truth about the organization's experiments but hasn't told anyone yet." |\r
+\r
+This lets you evolve your persona over the course of a story without constantly editing the base description.\r
+`,
+    "personas/creating-personas.md": `# Creating Personas\r
+\r
+Setting up a persona takes just a minute and makes a noticeable difference in how the AI addresses and interacts with you.\r
+\r
+---\r
+\r
+## Creating a New Persona\r
+\r
+1. Open the **Persona** panel (user icon in the sidebar)\r
+2. Click **New Persona**\r
+3. Fill in:\r
+    - **Name** (required) \u2014 How the AI addresses you\r
+    - **Title** \u2014 A short description shown in the persona card\r
+    - **Description** \u2014 Your character's appearance, personality, and background\r
+4. Optionally:\r
+    - Upload an **avatar**\r
+    - Assign a **folder** for organization\r
+    - Attach a **World Book** with personal lore\r
+5. Click **Save**\r
+\r
+---\r
+\r
+## Setting a Default\r
+\r
+Mark one persona as your **default** by toggling the default flag. The default persona is automatically active whenever you start a new chat (unless overridden by a character binding).\r
+\r
+Only one persona can be default at a time \u2014 setting a new default automatically clears the previous one.\r
+\r
+---\r
+\r
+## Switching Personas\r
+\r
+You can switch personas at any time:\r
+\r
+- **Persona panel** \u2014 Click on a different persona to activate it\r
+- **Input area** \u2014 Use the persona switcher dropdown in the chat input actions\r
+- **Per-chat** \u2014 Each chat remembers which persona is active\r
+\r
+Switching personas mid-chat takes effect on the next generation. Previous messages keep the persona that was active when they were generated.\r
+\r
+---\r
+\r
+## Writing a Good Description\r
+\r
+Your persona description fills in the \`{{persona}}\` macro in presets. Here's what works well:\r
+\r
+\`\`\`\r
+Name: Alex Chen\r
+Age: 28\r
+Appearance: Tall with dark hair, usually wearing a leather jacket and jeans.\r
+Casual and a bit sarcastic. Works as a freelance photographer.\r
+Has a dry sense of humor and tends to deflect with jokes when uncomfortable.\r
+\`\`\`\r
+\r
+!!! tip "Match the character's detail level"\r
+    If you're chatting with a highly detailed character, a detailed persona helps the AI create balanced, two-sided interactions. For casual chats, a brief description is fine.\r
+\r
+---\r
+\r
+## Organizing with Folders\r
+\r
+Assign personas to folders to group them visually:\r
+\r
+- "Fantasy OCs"\r
+- "Modern Settings"\r
+- "Quick/Generic"\r
+\r
+Personas without a folder appear in a general group. Folders are free-text labels \u2014 just type the folder name and personas with the same label are grouped together.\r
+\r
+---\r
+\r
+## Duplicating Personas\r
+\r
+Click **Duplicate** on any persona to create a copy. The duplicate is never set as default and gets "(Copy)" appended to its name. Useful for creating variations of the same character for different scenarios.\r
+`,
+    "personas/index.md": `# Personas\r
+\r
+A **persona** represents *you* in the conversation. While you can chat without one (the AI just knows your username), a persona gives the AI a richer picture of who you are \u2014 your appearance, backstory, personality, and more.\r
+\r
+---\r
+\r
+## Why Use Personas?\r
+\r
+- **Roleplay as a specific character** \u2014 Give yourself a name, description, and avatar for the RP\r
+- **Consistent identity** \u2014 The AI references your persona description instead of guessing who you are\r
+- **Multiple identities** \u2014 Switch between different personas for different characters or scenarios\r
+- **Attached lore** \u2014 Link a world book to your persona so your personal lore is always available\r
+\r
+---\r
+\r
+## Persona Fields\r
+\r
+| Field | Purpose |\r
+|-------|---------|\r
+| **Name** | Your display name in chat (replaces \`{{user}}\` in prompts) |\r
+| **Title** | A short tagline shown under your name in the persona switcher |\r
+| **Description** | Your character description \u2014 sent to the AI via \`{{persona}}\` |\r
+| **Avatar** | Your profile image |\r
+| **Folder** | Organizational grouping in the persona panel |\r
+| **Default** | Whether this persona activates automatically |\r
+| **Attached World Book** | A lorebook that activates whenever this persona is active |\r
+\r
+---\r
+\r
+## Quick Links\r
+\r
+- [Creating Personas](creating-personas.md) \u2014 Set up your first persona\r
+- [Bindings & Add-Ons](bindings-and-addons.md) \u2014 Auto-activate personas and extend them with toggleable blocks\r
+`,
+    "presets/context-filters.md": `# Context Filters\r
+\r
+Context filters strip formatting, tags, and structural content from **older messages** before they're sent to the AI. This keeps the prompt clean and saves context space without affecting how recent messages appear.\r
+\r
+---\r
+\r
+## How Filters Work\r
+\r
+Each filter has a **keep depth** \u2014 messages within that many from the end of the chat are left untouched. Messages *older* than the keep depth are filtered.\r
+\r
+\`\`\`\r
+Messages 1-7: Filters applied (older messages)\r
+Messages 8-10: Untouched (within keep depth of 3)\r
+\`\`\`\r
+\r
+This means the AI always sees recent messages in full fidelity, while older messages are progressively cleaned to save tokens.\r
+\r
+Configure filters in the **Prompt Panel** under **Context Filters**.\r
+\r
+---\r
+\r
+## Filter Types\r
+\r
+### Strip HTML Tags\r
+\r
+Removes formatting tags like \`<div>\`, \`<span>\`, \`<b>\`, \`<i>\`, \`<em>\`, \`<strong>\`, etc. from older messages. The inner text is preserved \u2014 only the markup is removed.\r
+\r
+| Setting | Description |\r
+|---------|-------------|\r
+| **Enabled** | Turn the filter on/off |\r
+| **Keep Depth** | Last N messages keep their HTML tags (default: 3) |\r
+| **Also Strip Fonts** | Additionally remove \`<font>\` tags |\r
+| **Font Keep Depth** | Separate keep depth for font tag removal (default: 3) |\r
+\r
+**Example:**\r
+Before: \`<span style="color:red"><b>Watch out!</b></span>\`\r
+After: \`Watch out!\`\r
+\r
+### Filter Details Blocks\r
+\r
+Removes \`<details>...</details>\` elements (collapsible content) from older messages.\r
+\r
+| Setting | Description |\r
+|---------|-------------|\r
+| **Enabled** | Turn the filter on/off |\r
+| **Keep Depth** | Last N messages keep their details blocks (default: 3) |\r
+| **Keep Only** | Inverted mode (see below) |\r
+\r
+### Filter Loom Tags\r
+\r
+Removes Loom system tags (\`<loom_sum>\`, \`<lumia_ooc>\`, \`<loom_state>\`, and 15 other loom-related tags) from older messages.\r
+\r
+| Setting | Description |\r
+|---------|-------------|\r
+| **Enabled** | Turn the filter on/off |\r
+| **Keep Depth** | Last N messages keep their Loom tags (default: 5) |\r
+| **Keep Only** | Inverted mode (see below) |\r
+\r
+---\r
+\r
+## Keep Only Mode\r
+\r
+The Details and Loom filters support an inverted **Keep Only** mode. When enabled, older messages are stripped of everything *except* the matching content.\r
+\r
+| Normal Mode | Keep Only Mode |\r
+|-------------|----------------|\r
+| Removes \`<details>\` blocks, keeps everything else | Keeps *only* \`<details>\` content, removes everything else |\r
+| Removes Loom tags, keeps everything else | Keeps *only* Loom tag content, removes everything else |\r
+\r
+**Why is this useful?** It turns structured blocks into a compression mechanism. If your messages contain \`<details>\` blocks with chapter summaries, Keep Only mode discards the prose from old messages but preserves the summaries \u2014 dramatically reducing token usage while retaining key information.\r
+\r
+---\r
+\r
+## Processing Order\r
+\r
+Filters are applied in this order:\r
+\r
+1. **Keep Only extraction** (if enabled) \u2014 extract only matching content from old messages\r
+2. **Details/Loom stripping** (if not in Keep Only mode) \u2014 remove matching content\r
+3. **HTML tag cleanup** \u2014 strip formatting tags last\r
+\r
+---\r
+\r
+## Tips\r
+\r
+!!! tip "HTML stripping is the safest starting point"\r
+    Removing formatting tags from old messages is almost always beneficial \u2014 the AI doesn't need \`<span>\` and \`<b>\` tags from 50 messages ago. Enable this first.\r
+\r
+!!! tip "Use Loom tag filtering for long chats"\r
+    Loom tags in old messages can consume significant tokens. A keep depth of 5 means only the 5 most recent messages retain their Loom tags \u2014 the rest is cleaned up.\r
+\r
+!!! tip "Keep Only mode for structured narratives"\r
+    If you use \`<details>\` blocks for scene summaries or state tracking, Keep Only mode is extremely powerful \u2014 it automatically compresses old messages to just their structured data.\r
+`,
+    "presets/execution-order.md": `# Execution Order\r
+\r
+This guide explains exactly **when** and **how** macros are evaluated during prompt assembly. If you're coming from SillyTavern, pay close attention \u2014 Lumiverse does not cache macro results or rely on post-processing to fix ordering issues. What you write is what runs, in the order you write it.\r
+\r
+---\r
+\r
+## The Big Picture\r
+\r
+When you hit send, Lumiverse builds the prompt in a defined sequence. Here's the full pipeline from start to finish:\r
+\r
+\`\`\`\r
+1.  Load character, persona, chat, connection, preset\r
+2.  Resolve alternate field selections (per-chat overrides)\r
+3.  Build the macro environment (all data snapshots taken NOW)\r
+4.  Activate World Info (keyword scan + vector search)\r
+5.  Walk preset blocks in order:\r
+       \u2192 Evaluate each block's macros\r
+       \u2192 Insert structural content (description, scenario, etc.)\r
+       \u2192 Insert chat history (each message macro-evaluated independently)\r
+       \u2192 Insert World Info entries at their configured positions\r
+6.  Inject Author's Note at configured depth (macro-evaluated)\r
+7.  Inject utility prompts (continue nudge, impersonation, etc.)\r
+8.  Apply assistant prefill and prompt bias\r
+9.  Apply context filters (HTML stripping, details removal, etc.)\r
+10. Merge sampler parameters (preset \u2192 connection \u2192 request overrides)\r
+11. Send to AI provider\r
+\`\`\`\r
+\r
+The critical thing to understand: **macro evaluation happens at step 5**, during the block walk. The macro environment is built once at step 3 and reused for every block. World Info is activated at step 4 \u2014 *before* any macros run.\r
+\r
+---\r
+\r
+## How Macro Evaluation Works\r
+\r
+### Depth-First With a Small Safety Retry Loop\r
+\r
+Lumiverse evaluates macros primarily in a single AST walk, resolving nested macros depth-first and expanding returned macro text inline. A small outer retry loop (up to 2 passes per block) remains as a safety net for edge cases where earlier output depends on state mutated later in the same template:\r
+\r
+\`\`\`\r
+Pass 1: parse the block into an AST\r
+        resolve nested macros depth-first\r
+        expand any macro output that still contains {{...}} inline\r
+\r
+Pass 2: only runs if the overall block changed in a way that might expose\r
+        newly-resolvable macros due to state mutations elsewhere in the block\r
+\`\`\`\r
+\r
+Each pass:\r
+\r
+1. **Parse** the text into an AST (abstract syntax tree)\r
+2. **Evaluate** every macro left-to-right, depth-first\r
+3. **Expand nested/returned macro text inline** where possible\r
+4. **Retry once** only if the block still changed in a way that could matter\r
+\r
+This means most nested macro chains collapse in one pass, while still preserving deterministic left-to-right state flow.\r
+\r
+!!! warning "Coming from SillyTavern"\r
+    Lumiverse does not reorder macros to make later side effects visible earlier in the same block. If you put \`{{getvar::key}}\` before \`{{setvar::key::value}}\`, the read still happens first and gets the previous value (or empty). Branching macros like \`{{if}}\` and \`{{switch}}\` now resolve only the selected branch, so side effects in unchosen branches do not run.\r
+\r
+### Left-to-Right, Depth-First\r
+\r
+Within a single pass, macros are resolved in reading order \u2014 left to right, top to bottom. Nested macros (macros inside macro arguments) are resolved before the outer macro runs.\r
+\r
+\`\`\`\r
+{{setvar::greeting::Hello}} {{getvar::greeting}}\r
+           \u2191 runs first                \u2191 runs second, gets "Hello"\r
+\`\`\`\r
+\r
+\`\`\`\r
+{{pick::{{getvar::option_a}}::{{getvar::option_b}}::{{getvar::option_c}}}}\r
+        \u2191 resolved first     \u2191 then this          \u2191 then this\r
+                    \u2191 then pick runs with the three resolved values\r
+\`\`\`\r
+\r
+### No Result Caching\r
+\r
+Every \`{{user}}\` call re-runs the handler. Every \`{{random::1::100}}\` gives a new number. Every \`{{getvar::key}}\` reads the current value. Nothing is cached between uses within the same block or across blocks.\r
+\r
+If you call \`{{random::1::100}}\` twice in the same block, you'll get two different numbers. If you need the same random number in multiple places, store it in a variable:\r
+\r
+\`\`\`\r
+{{setvar::today_roll::{{random::1::100}}}}\r
+You rolled a {{getvar::today_roll}}. That's right, {{getvar::today_roll}}.\r
+\`\`\`\r
+\r
+---\r
+\r
+## Block Processing Order\r
+\r
+Blocks are processed in the order they appear in your preset's \`prompt_order\`. For each enabled block, the assembly service does one of these:\r
+\r
+### Content Blocks (Custom Text)\r
+\r
+Your block's \`content\` field is run through the macro evaluator. The resolved text becomes a message in the prompt with the block's configured \`role\`.\r
+\r
+\`\`\`\r
+Block: "You are {{char}}. {{description}}"\r
+  \u2192 Evaluate macros\r
+  \u2192 Result: "You are Aria. A curious adventurer..."\r
+  \u2192 Add as system message\r
+\`\`\`\r
+\r
+### Structural Markers\r
+\r
+Blocks with markers like \`char_description\`, \`char_personality\`, \`scenario\`, etc. don't have their own content \u2014 they pull from the character card via the corresponding macro (\`{{description}}\`, \`{{personality}}\`, \`{{scenario}}\`). The macro is evaluated the same way as any content block.\r
+\r
+### Chat History Marker\r
+\r
+The \`chat_history\` block inserts all chat messages. **Each message is independently macro-evaluated** \u2014 macros in one message don't affect the evaluation of the next message (except through variable side effects).\r
+\r
+### World Info Markers\r
+\r
+The \`world_info_before\` and \`world_info_after\` markers inject activated World Info entries. Activated entry content is macro-evaluated before injection, just like other prompt content.\r
+\r
+### Disabled Blocks\r
+\r
+Skipped entirely. No evaluation, no output. This is also how [Preset Profiles](preset-profiles.md) work \u2014 they toggle blocks on/off per context.\r
+\r
+### Injection Triggers\r
+\r
+If a block has \`injectionTrigger\` set (e.g., only \`["continue", "regenerate"]\`), it's skipped for generation types not in that list. An empty trigger list means the block is always included.\r
+\r
+---\r
+\r
+## When Things Happen (Detailed Timeline)\r
+\r
+Here's the precise sequence with annotations for what data is available at each step:\r
+\r
+### Step 1-2: Data Loading\r
+\r
+Character, persona, preset, connection, and chat are loaded from the database. Alternate field selections are resolved \u2014 if you've selected an alternate description for this chat, the character's description is swapped before anything else happens.\r
+\r
+### Step 3: Macro Environment Built\r
+\r
+A snapshot of all data is taken and stored in the macro environment. This is the data macros will read from:\r
+\r
+- \`{{char}}\`, \`{{user}}\`, \`{{group}}\` \u2014 Names are frozen here\r
+- \`{{description}}\`, \`{{personality}}\`, \`{{scenario}}\` \u2014 Character fields (with alternates applied)\r
+- \`{{persona}}\` \u2014 Persona description with enabled add-ons appended\r
+- \`{{lastMessage}}\`, \`{{messageCount}}\` \u2014 Chat state at this moment\r
+- \`{{model}}\`, \`{{maxContext}}\` \u2014 Connection/model info\r
+- Prompt Variables \u2014 End-user configured inputs are seeded into the local variable scope\r
+- Variables \u2014 Local and global variable maps are loaded\r
+\r
+!!! info "Snapshot semantics"\r
+    The environment is built **once**. If a macro modifies a variable with \`{{setvar}}\`, subsequent macros in the same or later blocks will see the new value (variables are live references). But character/persona/chat data is a snapshot \u2014 it won't change mid-assembly.\r
+\r
+### Step 4: World Info Activation\r
+\r
+All world book entries (character-attached, persona-attached, global) are collected and run through the activation pipeline:\r
+\r
+1. Keyword scan against recent messages\r
+2. Selective logic (AND/NOT/OR)\r
+3. Probability rolls\r
+4. Delay/sticky/cooldown state\r
+5. Group competition\r
+6. Priority sorting\r
+7. Budget enforcement (entry cap, token budget)\r
+\r
+**This happens before any blocks are processed.** The activated entries are bucketed by position (before, after, depth, etc.) and held ready for injection.\r
+\r
+World info content is macro-evaluated before injection. That means \`{{char}}\`, \`{{if}}\`, variables, and outlet references can resolve inside activated entries.\r
+\r
+### Step 5: Block Walk\r
+\r
+Blocks are processed in order. For each block:\r
+\r
+1. Check if enabled \u2192 skip if not\r
+2. Check injection trigger \u2192 skip if generation type doesn't match\r
+3. Evaluate the block's content through the macro evaluator\r
+4. Add the result to the prompt as a message with the block's role\r
+\r
+World info entries are injected when their marker block (\`world_info_before\` or \`world_info_after\`) is reached. If no explicit marker blocks exist, entries are auto-injected at default positions after the block loop.\r
+\r
+Chat messages are inserted when the \`chat_history\` marker block is reached.\r
+\r
+### Step 6: Author's Note\r
+\r
+After all blocks are processed, the Author's Note (if set) is:\r
+\r
+1. Macro-evaluated\r
+2. Inserted at \`result.length - depth\` position in the message list\r
+\r
+### Step 7-8: Utility Prompts\r
+\r
+These are injected last:\r
+\r
+- **Continue nudge** \u2014 Instructions for continuation generation\r
+- **Impersonation prompt** \u2014 Instructions when AI writes as the user\r
+- **Assistant prefill** \u2014 Text to start the AI's response with\r
+- **Prompt bias** \u2014 Prefix for influencing generation\r
+- **Regen feedback** \u2014 User feedback on why they're regenerating\r
+\r
+All of these are macro-evaluated.\r
+\r
+### Step 9: Context Filters\r
+\r
+Applied to chat history messages after everything else:\r
+\r
+- **HTML tag stripping** \u2014 Removes formatting tags from older messages\r
+- **Details block removal** \u2014 Strips \`<details>\` from older messages\r
+- **Loom tag removal** \u2014 Strips loom-related tags from older messages\r
+\r
+Each filter has a \`keepDepth\` \u2014 messages within that many from the end are untouched.\r
+\r
+---\r
+\r
+## Variable Side Effects Across Blocks\r
+\r
+Since blocks are evaluated sequentially with a shared environment, variable macros have predictable cross-block behavior:\r
+\r
+\`\`\`\r
+Block 1 (system): {{setvar::scene_count::0}}\r
+\r
+Block 2 (system): Scene count is {{getvar::scene_count}}\r
+                   \u2192 "Scene count is 0"\r
+\r
+Block 3 (system): {{incvar::scene_count}}\r
+                   Scene count is now {{getvar::scene_count}}\r
+                   \u2192 "Scene count is now 1"\r
+\`\`\`\r
+\r
+Variables modified in one block are visible to all subsequent blocks. This is **deterministic** \u2014 there's no caching or lazy evaluation that might reorder things.\r
+\r
+---\r
+\r
+## Conditional Evaluation\r
+\r
+The \`{{if}}\` macro evaluates its condition, then returns only the matching branch:\r
+\r
+\`\`\`\r
+{{if::{{isGroupChat}}}}\r
+Group members: {{group}}\r
+{{else}}\r
+Private chat with {{char}}\r
+{{/if}}\r
+\`\`\`\r
+\r
+### Condition Rules\r
+\r
+A condition is **truthy** unless it's one of: \`""\` (empty), \`"0"\`, \`"false"\`, \`"null"\`, \`"undefined"\`.\r
+\r
+Comparison operators work inside conditions:\r
+\r
+| Operator | Example | Notes |\r
+|----------|---------|-------|\r
+| \`==\` | \`{{if::{{messageCount}} == 10}}\` | Numeric if both sides are numbers, string otherwise |\r
+| \`!=\` | \`{{if::{{user}} != Guest}}\` | |\r
+| \`>\` | \`{{if::{{messageCount}} > 5}}\` | Numeric comparison |\r
+| \`>=\` | \`{{if::{{getvar::hp}} >= 0}}\` | |\r
+| \`<\` | \`{{if::{{random::1::100}} < 30}}\` | |\r
+| \`<=\` | \`{{if::{{getvar::trust}} <= 50}}\` | |\r
+\r
+### Branch Evaluation\r
+\r
+**Only the selected branch is resolved.** The \`{{if}}\` macro delays evaluation of its body, checks the condition, and then resolves only the matching branch. This means side-effect macros (like \`{{setvar}}\`) in the discarded branch **do not run**.\r
+\r
+\`\`\`\r
+{{if::{{isGroupChat}}}}\r
+{{.greeting = Welcome everyone!}}\r
+{{else}}\r
+{{.greeting = Hello {{char}}!}}\r
+{{/if}}\r
+\r
+{{.greeting}} // Safely outputs the correct greeting without side-effect collisions\r
+\`\`\`\r
+\r
+---\r
+\r
+## Nesting Limits\r
+\r
+| Limit | Value | What Happens |\r
+|-------|-------|-------------|\r
+| **Max evaluation passes** | 5 | Evaluation stops; remaining \`{{\` are left as literal text |\r
+| **Max nesting depth** | 20 | Error diagnostic; deeply nested macro returns empty string |\r
+| **AST cache** | 32 entries | Oldest cached parse tree is evicted (LRU) \u2014 performance only, no behavioral impact |\r
+\r
+If you hit the 5-pass limit, your macros are likely producing infinite recursion (macro A outputs macro B which outputs macro A). Simplify the chain.\r
+\r
+---\r
+\r
+## Differences from SillyTavern\r
+\r
+If you're porting presets from SillyTavern, here are the behaviors that will trip you up:\r
+\r
+| Behavior | SillyTavern | Lumiverse |\r
+|----------|-------------|-----------|\r
+| **Evaluation passes** | Single pass + post-processing cleanup | Depth-first AST evaluation with inline expansion and a small retry loop |\r
+| **Result caching** | Macro results can be cached within a pass | No caching \u2014 every call re-evaluates |\r
+| **Execution order** | Post-processing can reorder/fix issues | Strict left-to-right, top-to-bottom |\r
+| **World info macros** | Entries are macro-evaluated | Entries are macro-evaluated before injection |\r
+| **\`{{random}}\`** | May return same value if cached | Always returns a fresh value per call |\r
+| **Side effects** | May be smoothed by caching | Immediate and visible to subsequent macros |\r
+| **Error handling** | Varies | Unknown macros pass through as literal \`{{name}}\` text |\r
+| **Legacy syntax** | Varies | \`<USER>\`, \`<BOT>\`, \`<CHAR>\` auto-converted |\r
+\r
+### Practical Migration Tips\r
+\r
+1. **Don't rely on ordering tricks.** If Block A sets a variable and Block B reads it, Block A must come first in the preset order. No exceptions.\r
+\r
+2. **Store random values.** If you use \`{{random}}\` and need the same value in multiple places, \`{{setvar}}\` it first.\r
+\r
+3. **World info is dynamic.** Activated world book entries are macro-evaluated in Lumiverse, so \`{{char}}\`, variables, and conditional logic can resolve inside entry content.\r
+\r
+4. **Test with Dry Run.** Lumiverse's Dry Run shows you the fully assembled prompt with every macro resolved. Use it obsessively when porting presets.\r
+\r
+5. **Only the selected conditional branch runs.** Side-effect macros inside the unchosen branch of \`{{if}}\` or \`{{switch}}\` do not execute.\r
+\r
+6. **Nested expansion still works.** You can build macro names dynamically (\`{{getvar::note_{{user}}}}\`), and Lumiverse will usually collapse the chain inline during the same evaluation, with one retry pass available for edge cases.\r
+`,
+    "presets/index.md": `# Presets\r
+\r
+Presets are the heart of Lumiverse's prompt engineering system. They control **what the AI sees** and **how it generates** \u2014 from the system prompt structure to sampling parameters like temperature.\r
+\r
+---\r
+\r
+## What Is a Preset?\r
+\r
+A preset is a saved configuration that defines:\r
+\r
+1. **Prompt Blocks** \u2014 Ordered sections of text (system prompt, character info, instructions, etc.) that are assembled into the full prompt\r
+2. **Sampler Settings** \u2014 Generation parameters like temperature, top-p, and max tokens\r
+3. **Completion Settings** \u2014 Behavioral options like assistant prefill, name handling, and message squashing\r
+\r
+Think of a preset as a recipe for how to talk to the AI. Different recipes produce different results \u2014 a preset tuned for creative fiction generates very differently from one tuned for analytical conversation.\r
+\r
+---\r
+\r
+## Quick Links\r
+\r
+| Guide | What You'll Learn |\r
+|-------|-------------------|\r
+| [Understanding Presets](understanding-presets.md) | The big picture of how presets work |\r
+| [Prompt Blocks](prompt-blocks.md) | Adding, ordering, and configuring blocks |\r
+| [Sampler Settings](sampler-settings.md) | Temperature, top-p, penalties, and more |\r
+| [Prompt Variables](prompt-variables.md) | Create custom user-facing settings in your presets |\r
+| [Preset Profiles](preset-profiles.md) | Per-character and per-chat block state snapshots |\r
+| [Macros Reference](macros-reference.md) | Complete list of the built-in macros |\r
+| [Execution Order](execution-order.md) | When and how macros are evaluated \u2014 critical for ST migrants |\r
+| [Context Filters](context-filters.md) | Strip HTML, details, and loom tags from older messages |\r
+| [Sovereign Hand](sovereign-hand.md) | Co-pilot mode \u2014 direct the scene instead of playing a character |\r
+\r
+---\r
+\r
+## Getting Started with Presets\r
+\r
+If you're new to presets, you don't have to build one from scratch. Lumiverse can work with a default configuration, and many connections come with a linked preset. But understanding presets unlocks the full power of the platform \u2014 it's the difference between accepting whatever the AI gives you and shaping exactly how it responds.\r
+`,
+    "presets/macros-reference.md": `# Macros Reference\r
+\r
+Macros are template variables written as \`{{macro_name}}\` that get replaced with dynamic content when your preset is assembled into a prompt. This is the complete reference of the built-in macros available in Lumiverse.\r
+\r
+---\r
+\r
+## How to Use Macros\r
+\r
+Place macros anywhere in preset blocks, chat-facing prompt fields, and other prompt content that goes through macro evaluation:\r
+\r
+\`\`\`\r
+You are {{char}}, a character described as: {{description}}\r
+You are speaking with {{user}}.\r
+{{persona}}\r
+\`\`\`\r
+\r
+During prompt assembly, each macro is replaced with its current value.\r
+\r
+### Arguments\r
+\r
+Some macros accept arguments, separated by \`::\` (double colon) **or spaces**:\r
+\r
+\`\`\`\r
+{{random::1::100}}          \u2014 random number between 1 and 100\r
+{{pick::cat::dog::bird}}    \u2014 randomly selects one item\r
+{{roll::2d6}}               \u2014 rolls two six-sided dice\r
+\`\`\`\r
+\r
+**Space-delimited arguments** are also supported \u2014 each word becomes a separate argument:\r
+\r
+\`\`\`\r
+{{upper hello}}             \u2014 same as {{upper::hello}}\r
+{{setvar key value}}        \u2014 same as {{setvar::key::value}}\r
+{{abs -5}}                  \u2014 same as {{abs::-5}}\r
+\`\`\`\r
+\r
+!!! tip "When to use \`::\` vs spaces"\r
+    Use **spaces** for quick single-word arguments: \`{{upper hello}}\`, \`{{floor 3.7}}\`.\r
+    Use **\`::\`** when an argument contains spaces: \`{{replace::hello world::goodbye world::text}}\`.\r
+    You can mix both: \`{{setvar key::long value with spaces}}\`.\r
+\r
+### Variable Shorthand\r
+\r
+Access variables directly with \`.\` (local), \`$\` (global), or \`@\` (chat-persisted) prefixes:\r
+\r
+\`\`\`\r
+{{.myVar}}                  \u2014 same as {{getvar::myVar}}\r
+{{$theme}}                  \u2014 same as {{getgvar::theme}}\r
+{{@hp}}                     \u2014 same as {{getchatvar::hp}}\r
+{{.score = 100}}            \u2014 same as {{setvar::score::100}}\r
+{{@hp = 100}}               \u2014 same as {{setchatvar::hp::100}}\r
+{{.hp -= 25}}               \u2014 subtract 25 from hp\r
+{{.counter++}}              \u2014 increment by 1\r
+{{@turn++}}                 \u2014 increment a persisted counter\r
+{{.counter--}}              \u2014 decrement by 1\r
+\`\`\`\r
+\r
+Variable shorthands work inside conditions too:\r
+\r
+\`\`\`\r
+{{if .myVar}}has a value{{/if}}\r
+{{if .score == 100}}perfect!{{/if}}\r
+{{if !.gameOver}}still playing{{/if}}\r
+{{if $theme == dark}}dark mode{{/if}}\r
+{{if @hp > 0}}still alive{{/if}}\r
+\`\`\`\r
+\r
+### Scoped Macros\r
+\r
+A few macros wrap content between opening and closing tags:\r
+\r
+\`\`\`\r
+{{if::{{isGroupChat}}}}\r
+This is a group conversation with {{group}}.\r
+{{else}}\r
+This is a private conversation.\r
+{{/if}}\r
+\`\`\`\r
+\r
+### Prefixes & Scoped Tags\r
+\r
+Lumiverse parses SillyTavern-style macro prefixes. The currently user-relevant ones are:\r
+\r
+| Prefix | Syntax | Effect |\r
+|--------|--------|--------|\r
+| \`!\` | \`{{!macro}}\` | Parsed for immediate/compatibility-prefixed macros |\r
+| \`?\` | \`{{?macro}}\` | Parsed for delayed/compatibility-prefixed macros |\r
+| \`~\` | \`{{~macro}}\` | Parsed for reevaluate-style compatibility |\r
+| \`>\` | \`{{>macro}}\` | Parsed for filter-style compatibility |\r
+| \`#\` | \`{{#trim}}...{{/trim}}\` | Preserve whitespace for macros that support it (\`trim\` is the main built-in example) |\r
+\r
+Closing scoped macros use \`/\`, like \`{{/if}}\`, \`{{/trim}}\`, or \`{{/numbered}}\`.\r
+\r
+---\r
+\r
+## Core Macros\r
+\r
+Utility macros for text manipulation and flow control.\r
+\r
+| Macro | Aliases | Description |\r
+|-------|---------|-------------|\r
+| \`{{space}}\` | \u2014 | Inserts a literal space character |\r
+| \`{{newline}}\` | \`{{nl}}\`, \`{{n}}\` | Inserts a literal newline |\r
+| \`{{noop}}\` | \u2014 | No operation \u2014 resolves to nothing |\r
+| \`{{trim}}...{{/trim}}\` | \u2014 | Trims whitespace from the enclosed content |\r
+| \`{{comment::...}}\` | \`{{note::...}}\` | Comment \u2014 content is discarded, produces no output |\r
+| \`{{// comment text}}\` | \u2014 | Inline comment shorthand |\r
+| \`{{input}}\` | \u2014 | The raw text of the last user message |\r
+| \`{{reverse::text}}\` | \u2014 | Reverses the given text |\r
+| \`{{outlet::name}}\` | \u2014 | Resolves the content exported by an active world-info entry outlet |\r
+| \`{{banned}}\` | \u2014 | Placeholder for banned token lists |\r
+\r
+### Conditional Logic\r
+\r
+\`\`\`\r
+{{if::condition}}\r
+  Content when true\r
+{{else}}\r
+  Content when false\r
+{{/if}}\r
+\`\`\`\r
+\r
+The condition can be any value \u2014 it's truthy unless it's empty, \`"0"\`, \`"false"\`, \`"null"\`, or \`"undefined"\`.\r
+\r
+Only the selected branch is resolved. Side-effect macros in the unselected branch do not run.\r
+\r
+**Negation** \u2014 prefix with \`!\` to invert:\r
+\r
+\`\`\`\r
+{{if::!0}}yes{{/if}}                \u2014 "yes" (0 is falsy, negated \u2192 truthy)\r
+{{if::!{{hasvar::key}}}}missing{{/if}}\r
+\`\`\`\r
+\r
+**Comparisons** \u2014 use \`==\`, \`!=\`, \`>\`, \`<\`, \`>=\`, \`<=\` inside the condition:\r
+\r
+\`\`\`\r
+{{if::{{messageCount}} > 10}}long chat{{/if}}\r
+{{if::{{.score}} == 100}}perfect!{{/if}}\r
+\`\`\`\r
+\r
+**Variable shorthand** \u2014 \`.var\`, \`$var\`, and \`@var\` resolve automatically in conditions:\r
+\r
+\`\`\`\r
+{{if .myVar}}has a value{{/if}}\r
+{{if .x > .y}}x is bigger{{/if}}\r
+{{if !.gameOver}}still playing{{/if}}\r
+{{if @hp > 0}}still alive{{/if}}\r
+\`\`\`\r
+\r
+---\r
+\r
+## Identity & Names\r
+\r
+Macros for character and user identity.\r
+\r
+| Macro | Aliases | Returns |\r
+|-------|---------|---------|\r
+| \`{{user}}\` | \u2014 | Your persona name (or username if no persona) |\r
+| \`{{char}}\` | \`{{charName}}\` | The current character's name |\r
+| \`{{group}}\` | \u2014 | Comma-separated list of all group member names |\r
+| \`{{groupNotMuted}}\` | \`{{group_not_muted}}\` | Names of non-muted group members |\r
+| \`{{notChar}}\` | \`{{not_char}}\` | The non-character party (usually the user) |\r
+| \`{{charGroupFocused}}\` | \`{{charFocused}}\`, \`{{char_group_focused}}\` | The targeted character in a group chat |\r
+| \`{{isGroupChat}}\` | \`{{is_group_chat}}\` | \`"yes"\` or \`"no"\` \u2014 usable as a condition |\r
+| \`{{groupOthers}}\` | \`{{group_others}}\` | Group members excluding the focused character |\r
+| \`{{groupMemberCount}}\` | \`{{group_member_count}}\` | Number of characters in the group |\r
+| \`{{groupLastSpeaker}}\` | \`{{group_last_speaker}}\` | Last character who spoke |\r
+\r
+---\r
+\r
+## Character Data\r
+\r
+Macros that pull from the character card fields. These respect [alternate field](../characters/alternate-fields.md) selections.\r
+\r
+| Macro | Aliases | Returns |\r
+|-------|---------|---------|\r
+| \`{{description}}\` | \`{{charDescription}}\` | Character's description |\r
+| \`{{personality}}\` | \`{{charPersonality}}\` | Character's personality |\r
+| \`{{scenario}}\` | \`{{charScenario}}\` | Character's scenario |\r
+| \`{{persona}}\` | \`{{userPersona}}\` | Your persona's description (includes enabled add-ons) |\r
+| \`{{sub}}\` | \`{{subjectivePronoun}}\`, \`{{personaSubjectivePronoun}}\` | Your persona's subjective pronoun |\r
+| \`{{obj}}\` | \`{{objectivePronoun}}\`, \`{{personaObjectivePronoun}}\` | Your persona's objective pronoun |\r
+| \`{{poss}}\` | \`{{possessivePronoun}}\`, \`{{personaPossessivePronoun}}\` | Your persona's possessive pronoun |\r
+| \`{{mesExamples}}\` | \`{{mes_examples}}\`, \`{{exampleMessages}}\` | Character's example dialogue |\r
+| \`{{mesExamplesRaw}}\` | \u2014 | Raw example dialogue (unprocessed) |\r
+| \`{{system}}\` | \`{{charPrompt}}\`, \`{{charSystem}}\` | Character's system prompt |\r
+| \`{{charPostHistoryInstructions}}\` | \`{{charInstruction}}\`, \`{{jailbreak}}\`, \`{{charJailbreak}}\` | Post-history instructions |\r
+| \`{{charDepthPrompt}}\` | \`{{depth_prompt}}\` | Character's depth prompt (from extensions) |\r
+| \`{{charCreatorNotes}}\` | \`{{creatorNotes}}\` | Creator's notes (informational) |\r
+| \`{{charVersion}}\` | \u2014 | Character card version |\r
+| \`{{charCreator}}\` | \u2014 | Character creator's name |\r
+| \`{{firstMessage}}\` | \`{{firstMes}}\`, \`{{first_message}}\` | Character's first/greeting message |\r
+| \`{{original}}\` | \u2014 | Character description (original card text) |\r
+\r
+---\r
+\r
+## Chat & Conversation\r
+\r
+Macros for the current chat state.\r
+\r
+| Macro | Aliases | Returns |\r
+|-------|---------|---------|\r
+| \`{{lastMessage}}\` | \`{{last_message}}\` | Content of the most recent message |\r
+| \`{{lastMessageId}}\` | \`{{last_message_id}}\` | Index of the last message |\r
+| \`{{lastUserMessage}}\` | \`{{last_user_message}}\` | Content of the last message from you |\r
+| \`{{lastCharMessage}}\` | \`{{last_char_message}}\`, \`{{lastBotMessage}}\` | Content of the last character message |\r
+| \`{{lastMessageName}}\` | \u2014 | Name of whoever sent the last message |\r
+| \`{{messageCount}}\` | \`{{message_count}}\`, \`{{messagecount}}\` | Total message count in the chat |\r
+| \`{{chatId}}\` | \`{{chat_id}}\` | The current chat's unique ID |\r
+| \`{{firstIncludedMessageId}}\` | \u2014 | Index of the first message included in the prompt |\r
+| \`{{firstDisplayedMessageId}}\` | \u2014 | Index of the first displayed message |\r
+| \`{{lastSwipeId}}\` | \u2014 | Index of the last swipe on the final message |\r
+| \`{{currentSwipeId}}\` | \u2014 | Index of the active swipe |\r
+\r
+---\r
+\r
+## Time & Date\r
+\r
+Macros for current time information.\r
+\r
+| Macro | Aliases | Returns | Args |\r
+|-------|---------|---------|------|\r
+| \`{{time}}\` | \u2014 | Current time (\`HH:MM\`) | Optional: UTC offset (e.g., \`{{time::UTC+2}}\`) |\r
+| \`{{date}}\` | \u2014 | Current date (\`Month Day, Year\`) | \u2014 |\r
+| \`{{weekday}}\` | \u2014 | Day of the week | \u2014 |\r
+| \`{{isotime}}\` | \u2014 | ISO 8601 date and time | \u2014 |\r
+| \`{{isodate}}\` | \u2014 | ISO date (\`YYYY-MM-DD\`) | \u2014 |\r
+| \`{{datetimeformat::...}}\` | \u2014 | Custom formatted date/time | Intl.DateTimeFormat options as \`key=value\` |\r
+| \`{{idleDuration}}\` | \`{{idle_duration}}\` | Human-readable time since last message | \u2014 |\r
+| \`{{timeDiff::date1::date2}}\` | \`{{time_diff}}\` | Human-readable difference between two dates | Two ISO date strings (second defaults to now) |\r
+\r
+**Examples:**\r
+\r
+\`\`\`\r
+It is currently {{time}} on {{weekday}}, {{date}}.\r
+The user has been idle for {{idleDuration}}.\r
+\`\`\`\r
+\r
+---\r
+\r
+## Random & Entropy\r
+\r
+Macros for randomness and dice rolling.\r
+\r
+| Macro | Returns | Args |\r
+|-------|---------|------|\r
+| \`{{random::min::max}}\` | Random integer between min and max | Two numbers separated by \`::\`, or a list of items |\r
+| \`{{pick::item1::item2::...}}\` | One randomly chosen item | List of options separated by \`::\` |\r
+| \`{{roll::NdS}}\` | Dice roll total | Dice notation (e.g., \`2d6\`, \`1d20\`, \`3d8\`) |\r
+\r
+**Examples:**\r
+\r
+\`\`\`\r
+{{char}} rolls a {{roll::1d20}} on their perception check.\r
+The weather today is {{pick::sunny::cloudy::rainy::stormy}}.\r
+A random number: {{random::1::100}}\r
+\`\`\`\r
+\r
+---\r
+\r
+## String Manipulation\r
+\r
+Transform, measure, and extract from text.\r
+\r
+| Macro | Aliases | Returns | Args |\r
+|-------|---------|---------|------|\r
+| \`{{len::text}}\` | \`{{length}}\` | Character count | Text (or scoped: \`{{len}}text{{/len}}\`) |\r
+| \`{{upper::text}}\` | \`{{uppercase}}\`, \`{{toUpper}}\` | Uppercased text | Text (or scoped) |\r
+| \`{{lower::text}}\` | \`{{lowercase}}\`, \`{{toLower}}\` | Lowercased text | Text (or scoped) |\r
+| \`{{capitalize::text}}\` | \`{{titlecase}}\` | First letter capitalized | Text (or scoped) |\r
+| \`{{replace::find::with::text}}\` | \u2014 | Text with replacements | Find, replacement, source (or scoped body) |\r
+| \`{{substr::text::start::end}}\` | \`{{substring}}\` | Substring | Source, start index, optional end index |\r
+| \`{{split::text::delimiter::index}}\` | \u2014 | Nth item from split | Source, delimiter, 0-based index (negative from end) |\r
+| \`{{join::sep::a::b::...}}\` | \u2014 | Joined string | Separator, then items |\r
+| \`{{repeat::N::text}}\` | \u2014 | Repeated text | Count (max 1000), text (or scoped) |\r
+| \`{{wrap::prefix::suffix::text}}\` | \u2014 | Wrapped text (empty if text is empty) | Prefix, suffix, text (or scoped) |\r
+| \`{{regex::pattern::replacement::text}}\` | \u2014 | Regex-replaced text | Pattern, replacement, text (or scoped), optional flags |\r
+| \`{{tokenCount::text}}\` | \`{{token_count}}\`, \`{{tokens}}\` | Approximate token count | Text (or scoped) |\r
+| \`{{truncate::text::maxTokens}}\` | \u2014 | Truncated text (word-boundary, adds \`...\`) | Text, max tokens |\r
+\r
+**Examples:**\r
+\r
+\`\`\`\r
+{{upper::{{char}}}}                     \u2014 "BOB"\r
+{{len::{{description}}}}                \u2014 "234" (character count)\r
+{{replace::they::she::{{persona}}}}     \u2014 pronoun swap\r
+{{split::{{charTags}}::,::0}}           \u2014 first tag\r
+{{join::, ::{{char}}::{{user}}}}        \u2014 "Bob, Alice"\r
+{{repeat::3}}---{{newline}}{{/repeat}}  \u2014 three separator lines\r
+{{wrap::(**::**)::{{.note}}}}           \u2014 "(**important**)" or "" if empty\r
+{{regex::\\b(he|him)\\b::she/her::{{description}}}}\r
+\`\`\`\r
+\r
+---\r
+\r
+## Math\r
+\r
+Arithmetic without intermediate variable gymnastics.\r
+\r
+| Macro | Aliases | Returns | Args |\r
+|-------|---------|---------|------|\r
+| \`{{calc::expression}}\` | \`{{math}}\`, \`{{evaluate}}\` | Result of \`+ - * / % ()\` | Expression string |\r
+| \`{{min::a::b::...}}\` | \u2014 | Smallest number | Two or more numbers |\r
+| \`{{max::a::b::...}}\` | \u2014 | Largest number | Two or more numbers |\r
+| \`{{clamp::value::min::max}}\` | \u2014 | Value clamped to range | Value, floor, ceiling |\r
+| \`{{abs::value}}\` | \u2014 | Absolute value | Number |\r
+| \`{{floor::value}}\` | \u2014 | Rounded down | Number |\r
+| \`{{ceil::value}}\` | \u2014 | Rounded up | Number |\r
+| \`{{round::value::decimals}}\` | \u2014 | Rounded to N decimal places | Number, optional decimal count (default 0) |\r
+| \`{{mod::a::b}}\` | \u2014 | Remainder of a / b | Dividend, divisor |\r
+\r
+**Examples:**\r
+\r
+\`\`\`\r
+{{calc::{{messageCount}} * 2 + 1}}      \u2014 arithmetic with macros\r
+{{calc::({{.hp}} / {{.maxHp}}) * 100}}   \u2014 health percentage\r
+{{clamp::{{.score}}::0::100}}            \u2014 keep score in bounds\r
+{{max::{{.str}}::{{.dex}}}}              \u2014 highest stat\r
+{{round::3.14159::2}}                    \u2014 "3.14"\r
+\`\`\`\r
+\r
+!!! note "Safe evaluator"\r
+    \`{{calc}}\` uses a sandboxed arithmetic parser \u2014 no \`eval()\`. Supports \`+\`, \`-\`, \`*\`, \`/\`, \`%\`, parentheses, unary minus, and decimal numbers. Division by zero returns \`0\`.\r
+\r
+---\r
+\r
+## Logic & Comparisons\r
+\r
+Composable boolean logic and multi-branch conditionals.\r
+\r
+### Branching\r
+\r
+| Macro | Aliases | Returns | Args |\r
+|-------|---------|---------|------|\r
+| \`{{switch::value::c1::r1::c2::r2::default}}\` | \u2014 | Matching result, or default | Value, then case/result pairs, optional default |\r
+| \`{{default::value::fallback}}\` | \`{{fallback}}\`, \`{{coalesce}}\` | First truthy value | Primary value, fallback |\r
+\r
+### Boolean Operators\r
+\r
+| Macro | Returns | Args |\r
+|-------|---------|------|\r
+| \`{{and::a::b::...}}\` | \`"true"\` if all args truthy, else \`""\` | Two or more values |\r
+| \`{{or::a::b::...}}\` | \`"true"\` if any arg truthy, else \`""\` | Two or more values |\r
+| \`{{not::value}}\` | \`"true"\` if value is falsy, else \`""\` | One value |\r
+\r
+### Comparison Operators\r
+\r
+| Macro | Returns |\r
+|-------|---------|\r
+| \`{{eq::a::b}}\` | \`"true"\` if equal (numeric-aware) |\r
+| \`{{ne::a::b}}\` | \`"true"\` if not equal |\r
+| \`{{gt::a::b}}\` | \`"true"\` if a > b |\r
+| \`{{lt::a::b}}\` | \`"true"\` if a < b |\r
+| \`{{gte::a::b}}\` | \`"true"\` if a >= b |\r
+| \`{{lte::a::b}}\` | \`"true"\` if a <= b |\r
+\r
+**Examples:**\r
+\r
+\`\`\`\r
+{{switch::{{.mood}}::happy::\uD83D\uDE0A::sad::\uD83D\uDE22::neutral}}\r
+\r
+{{default::{{.title}}::Stranger}}\r
+\r
+{{if::{{and::{{isGroupChat}}::{{lumiaCouncilModeActive}}}}}}\r
+  Group council is active.\r
+{{/if}}\r
+\r
+{{if::{{gt::{{messageCount}}::50}}}}\r
+  This is a long conversation.\r
+{{/if}}\r
+\`\`\`\r
+\r
+!!! tip "\`switch\` vs nested \`if\`"\r
+    Instead of chaining \`{{if}}...{{else}}{{if}}...\` for multiple cases, use \`{{switch}}\`. It's cleaner and easier to read.\r
+\r
+---\r
+\r
+## Formatting\r
+\r
+Quick list formatting.\r
+\r
+| Macro | Aliases | Returns | Args |\r
+|-------|---------|---------|------|\r
+| \`{{bullets::item1::item2::...}}\` | \u2014 | \`- item1\\n- item2\\n...\` | Items via args, or newline-split body if scoped |\r
+| \`{{numbered::item1::item2::...}}\` | \`{{ol}}\`, \`{{enumerate}}\` | \`1. item1\\n2. item2\\n...\` | Items via args, or newline-split body if scoped |\r
+\r
+**Examples:**\r
+\r
+\`\`\`\r
+{{bullets::{{char}}::{{user}}::{{group}}}}\r
+{{numbered}}\r
+Establish the scene\r
+Describe the character's action\r
+Include internal thoughts\r
+{{/numbered}}\r
+\`\`\`\r
+\r
+---\r
+\r
+## Chat Utilities\r
+\r
+Access individual messages, track state, and query character metadata.\r
+\r
+| Macro | Aliases | Returns | Args |\r
+|-------|---------|---------|------|\r
+| \`{{messageAt::index}}\` | \`{{message_at}}\`, \`{{msgAt}}\` | Message content at index | 0-based index (negative counts from end) |\r
+| \`{{messagesBy::name::count}}\` | \`{{messages_by}}\`, \`{{msgBy}}\` | Last N messages from a speaker | Speaker name, optional count (default 3) |\r
+| \`{{chatAge}}\` | \`{{chat_age}}\` | Human-readable time since chat creation | \u2014 |\r
+| \`{{counter::name}}\` | \u2014 | Incremented value (1, 2, 3...) | Counter name (stored as local variable) |\r
+| \`{{toggle::name}}\` | \u2014 | Flipped boolean (\`"true"\` \u2194 \`"false"\`) | Toggle name (stored as local variable) |\r
+| \`{{charTags}}\` | \`{{char_tags}}\`, \`{{characterTags}}\` | Comma-separated list of the character's tags | \u2014 |\r
+| \`{{charTag::tag}}\` | \`{{char_tag}}\`, \`{{hasTag}}\`, \`{{has_tag}}\` | \`"true"\` / \`"false"\` \u2014 whether character has this tag | Tag name (case-insensitive) |\r
+\r
+**Examples:**\r
+\r
+\`\`\`\r
+{{messageAt::0}}                  \u2014 the first message (greeting)\r
+{{messageAt::-1}}                 \u2014 the most recent message\r
+{{messagesBy::{{char}}::3}}       \u2014 last 3 things the character said\r
+\r
+{{counter::scene_count}}          \u2014 auto-incrementing scene counter\r
+{{toggle::narrator_mode}}         \u2014 flip between narrator on/off\r
+\r
+{{if::{{charTag::fantasy}}}}\r
+Include world-building details.\r
+{{/if}}\r
+\r
+This chat started {{chatAge}} ago.\r
+\`\`\`\r
+\r
+---\r
+\r
+## Regex Script References\r
+\r
+Call installed regex scripts by their **Script ID** \u2014 a stable, user-defined identifier you set on any regex script.\r
+\r
+Script IDs are auto-normalized: lowercase, spaces/hyphens become underscores, punctuation stripped. \`"My Cool-Script!"\` becomes \`my_cool_script\`.\r
+\r
+| Macro | Aliases | Returns | Args |\r
+|-------|---------|---------|------|\r
+| \`{{regexInstalled::scriptId}}\` | \`{{regex_installed}}\`, \`{{hasRegex}}\`, \`{{has_regex}}\` | \`"true"\` / \`"false"\` \u2014 whether the script exists and is enabled | Script ID only |\r
+| \`{{regexInstalled::scriptId::text}}\` | \u2014 | Text with the regex applied (unchanged if script missing) | Script ID + text (or scoped body) |\r
+\r
+**Examples:**\r
+\r
+\`\`\`\r
+{{!-- Check if a script is installed --}}\r
+{{if::{{regexInstalled::censor}}}}\r
+  Content filtering is active.\r
+{{/if}}\r
+\r
+{{!-- Apply a regex script inline --}}\r
+{{regexInstalled::fix_pronouns::{{description}}}}\r
+\r
+{{!-- Scoped form --}}\r
+{{regexInstalled::format_dialogue}}\r
+  "Hello," she said. "How are you?"\r
+{{/regexInstalled}}\r
+\`\`\`\r
+\r
+!!! tip "Setting a Script ID"\r
+    Open any regex script in the Regex Scripts panel and fill in the **Script ID** field. This is the identifier you use in \`{{regexInstalled}}\`. Keep it short and descriptive \u2014 e.g., \`censor\`, \`fix_pronouns\`, \`format_dialogue\`.\r
+\r
+---\r
+\r
+## Variables\r
+\r
+Read and write values in three scopes \u2014 **local** (transient per-evaluation), **chat** (persisted per-chat), or **global** (cross-chat).\r
+\r
+### Local Variables (Transient)\r
+\r
+Local variables live for the duration of a single evaluation pass. They are useful for intermediate calculations, loop counters, and temporary values within a preset block. They are **not** saved between generations.\r
+\r
+| Macro | Description | Args |\r
+|-------|-------------|------|\r
+| \`{{getvar::key}}\` | Get a variable's value | Variable name |\r
+| \`{{setvar::key::value}}\` | Set a variable (returns nothing) | Name and value |\r
+| \`{{addvar::key::value}}\` | Add a number to a variable | Name and number |\r
+| \`{{incvar::key}}\` | Increment by 1 (returns new value) | Variable name |\r
+| \`{{decvar::key}}\` | Decrement by 1 (returns new value) | Variable name |\r
+| \`{{hasvar::key}}\` | Check if variable exists (\`"true"\` / \`"false"\`) | Variable name |\r
+| \`{{deletevar::key}}\` | Delete a variable | Variable name |\r
+\r
+Aliases: \`{{varexists}}\` for \`{{hasvar}}\`, \`{{flushvar}}\` for \`{{deletevar}}\`\r
+\r
+**Shorthand:** \`.\` prefix \u2014 \`{{.myVar}}\`, \`{{.score = 100}}\`, \`{{.counter++}}\`\r
+\r
+### Chat-Persisted Variables\r
+\r
+Chat-persisted variables are **automatically saved** to the chat after each generation. They survive across messages, regenerations, and page reloads \u2014 making them ideal for tracking story state like health, quest progress, relationship points, or turn counters.\r
+\r
+| Macro | Description | Args |\r
+|-------|-------------|------|\r
+| \`{{getchatvar::key}}\` | Get a persisted variable's value | Variable name |\r
+| \`{{setchatvar::key::value}}\` | Set a persisted variable (returns nothing) | Name and value |\r
+| \`{{addchatvar::key::value}}\` | Add a number to a persisted variable (returns new value) | Name and number |\r
+| \`{{incchatvar::key}}\` | Increment by 1 (returns new value) | Variable name |\r
+| \`{{decchatvar::key}}\` | Decrement by 1 (returns new value) | Variable name |\r
+| \`{{haschatvar::key}}\` | Check if exists (\`"true"\` / \`"false"\`) | Variable name |\r
+| \`{{deletechatvar::key}}\` | Delete a persisted variable | Variable name |\r
+\r
+Alias: \`{{flushchatvar}}\` for \`{{deletechatvar}}\`\r
+\r
+**Shorthand:** \`@\` prefix \u2014 \`{{@hp}}\`, \`{{@hp = 100}}\`, \`{{@turn++}}\`, \`{{@hp -= 25}}\`\r
+\r
+!!! tip "When to use \`@\` vs \`.\`"\r
+    Use **\`@\` (chat-persisted)** for anything that should survive between messages \u2014 HP, quest stages, relationship scores, turn counters, discovered secrets.\r
+\r
+    Use **\`.\` (local)** for scratch values within a single evaluation \u2014 loop counters, intermediate calculations, temporary formatting state.\r
+\r
+**Example \u2014 RPG state tracking:**\r
+\r
+\`\`\`\r
+{{@turn++}}\r
+{{@hp -= {{roll::1d6}}}}\r
+\r
+{{if::{{gt::{{@hp}}::0}}}}\r
+Turn {{@turn}}: {{char}} takes damage. HP: {{@hp}}/{{@maxHp}}\r
+{{else}}\r
+Turn {{@turn}}: {{char}} has fallen!\r
+{{/if}}\r
+\`\`\`\r
+\r
+**Example \u2014 Relationship tracker:**\r
+\r
+\`\`\`\r
+{{setchatvar::affection::50}}\r
+\r
+{{if::{{gt::{{@affection}}::80}}}}\r
+{{char}} looks at you warmly.\r
+{{else}}\r
+{{char}} gives you a polite nod.\r
+{{/if}}\r
+\`\`\`\r
+\r
+\`setchatvar\` also supports scoped syntax \u2014 the enclosed content becomes the value:\r
+\r
+\`\`\`\r
+{{setchatvar::last_scene}}The group arrived at the ancient temple...{{/setchatvar}}\r
+\`\`\`\r
+\r
+### Global Variables (Cross-Chat)\r
+\r
+Global variables persist across all chats for the current user. Useful for preferences, themes, or cross-character state.\r
+\r
+| Macro | Description | Args |\r
+|-------|-------------|------|\r
+| \`{{getgvar::key}}\` | Get a global variable | Variable name |\r
+| \`{{setgvar::key::value}}\` | Set a global variable | Name and value |\r
+| \`{{addgvar::key::value}}\` | Add a number to a global variable | Name and number |\r
+| \`{{incgvar::key}}\` | Increment by 1 (returns new value) | Variable name |\r
+| \`{{decgvar::key}}\` | Decrement by 1 (returns new value) | Variable name |\r
+| \`{{hasgvar::key}}\` | Check if exists (\`"true"\` / \`"false"\`) | Variable name |\r
+| \`{{deletegvar::key}}\` | Delete a global variable | Variable name |\r
+\r
+Aliases: \`{{getglobalvar}}\`, \`{{setglobalvar}}\`, \`{{addglobalvar}}\`, \`{{incglobalvar}}\`, \`{{decglobalvar}}\`, \`{{hasglobalvar}}\`, \`{{gvarexists}}\`, \`{{flushgvar}}\`, \`{{flushglobalvar}}\`, \`{{deleteglobalvar}}\`\r
+\r
+**Shorthand:** \`$\` prefix \u2014 \`{{$theme}}\`, \`{{$theme = dark}}\`\r
+\r
+### Variable Scope Summary\r
+\r
+| Scope | Prefix | Persists? | Storage | Use Case |\r
+|-------|--------|-----------|---------|----------|\r
+| Local | \`.\` | No \u2014 one evaluation only | In-memory | Temp calculations, loop counters |\r
+| Chat | \`@\` | Yes \u2014 across generations | \`chat.metadata\` | HP, quests, turns, story state |\r
+| Global | \`$\` | Yes \u2014 across all chats | User settings | Preferences, cross-character state |\r
+\r
+**Example \u2014 Combined usage:**\r
+\r
+\`\`\`\r
+{{.roll = {{roll::1d20}}}}\r
+{{@hp -= {{.roll}}}}\r
+Rolled {{.roll}} damage. {{char}}'s HP: {{@hp}}/{{@maxHp}}\r
+\`\`\`\r
+\r
+Here \`.roll\` is a temporary local variable (used for the current evaluation only), while \`@hp\` and \`@maxHp\` are chat-persisted and carry over to the next generation.\r
+\r
+### Prompt Variables (Preset Inputs)\r
+\r
+Prompt variables are preset-defined inputs that are seeded into local scope before block evaluation. That means \`{{var::tone}}\`, \`{{getvar::tone}}\`, and \`{{.tone}}\` can all resolve to the same runtime value.\r
+\r
+| Macro | Aliases | Description | Args |\r
+|-------|---------|-------------|------|\r
+| \`{{var::name}}\` | \`{{promptVar}}\`, \`{{presetVar}}\` | Read the runtime prompt-variable value, then the user override, then the creator default | Variable name |\r
+| \`{{hasVar::name}}\` | \`{{hasPromptVar}}\`, \`{{hasPresetVar}}\` | Check whether a prompt variable is resolvable | Variable name |\r
+| \`{{varDefault::name}}\` | \`{{promptVarDefault}}\`, \`{{presetVarDefault}}\` | Read the creator-declared default only | Variable name |\r
+\r
+**Examples:**\r
+\r
+\`\`\`\r
+Tone: {{default::{{var::tone}}::neutral}}\r
+\r
+{{if::{{hasPromptVar::violence}}}}\r
+Violence level: {{var::violence}}\r
+{{/if}}\r
+\`\`\`\r
+\r
+---\r
+\r
+## Runtime & State\r
+\r
+Information about the current system state.\r
+\r
+| Macro | Aliases | Returns |\r
+|-------|---------|---------|\r
+| \`{{model}}\` | \u2014 | Current LLM model name |\r
+| \`{{isMobile}}\` | \`{{is_mobile}}\` | Whether the client is mobile |\r
+| \`{{maxPrompt}}\` | \`{{maxPromptTokens}}\`, \`{{max_prompt}}\` | Maximum prompt token count |\r
+| \`{{maxContext}}\` | \`{{maxContextTokens}}\`, \`{{max_context}}\` | Maximum context window tokens |\r
+| \`{{maxResponse}}\` | \`{{maxResponseTokens}}\`, \`{{max_response}}\` | Maximum response tokens |\r
+| \`{{lastGenerationType}}\` | \`{{last_generation_type}}\` | Last generation type (\`normal\`, \`continue\`, \`regenerate\`, etc.) |\r
+| \`{{hasExtension::name}}\` | \`{{has_extension}}\` | \`"true"\` / \`"false"\` \u2014 whether a named extension is active |\r
+| \`{{userColorMode}}\` | \`{{user_color_mode}}\`, \`{{colorMode}}\`, \`{{color_mode}}\` | User's color scheme (\`dark\`, \`light\`, or \`system\`) |\r
+\r
+---\r
+\r
+## Reasoning / Chain-of-Thought\r
+\r
+For models that support extended thinking (DeepSeek, Claude, o1).\r
+\r
+| Macro | Description | Args |\r
+|-------|-------------|------|\r
+| \`{{reasoningPrefix}}\` | Opening tag for reasoning blocks | Optional: \`{{reasoningPrefix::raw}}\` to strip surrounding newlines |\r
+| \`{{reasoningSuffix}}\` | Closing tag for reasoning blocks | Optional: \`{{reasoningSuffix::raw}}\` to strip surrounding newlines |\r
+\r
+**Example:**\r
+\r
+\`\`\`\r
+{{reasoningPrefix}}\r
+Think step by step about what {{char}} would do next.\r
+{{reasoningSuffix}}\r
+\`\`\`\r
+\r
+---\r
+\r
+## Memory\r
+\r
+Long-term memory and retrieval macros from Lumiverse's memory systems.\r
+\r
+### Long-Term Memory\r
+\r
+| Macro | Aliases | Returns | Args |\r
+|-------|---------|---------|------|\r
+| \`{{memories}}\` | \`{{longTermMemory}}\`, \`{{chatMemory}}\`, \`{{ltm}}\` | Formatted memory chunks with header | Optional: \`{{memories::count}}\` to override chunk count |\r
+| \`{{memoriesActive}}\` | \u2014 | \`"yes"\` / \`"no"\` \u2014 whether memories were retrieved (condition-compatible) | \u2014 |\r
+| \`{{memoriesCount}}\` | \u2014 | Number of memory chunks retrieved | \u2014 |\r
+| \`{{memoriesRaw}}\` | \u2014 | Raw memory chunks without header formatting | Optional: \`{{memoriesRaw::count}}\` to override chunk count |\r
+\r
+### Databank Retrieval\r
+\r
+| Macro | Aliases | Returns | Args |\r
+|-------|---------|---------|------|\r
+| \`{{databank}}\` | \`{{databankMemory}}\`, \`{{documents}}\`, \`{{knowledgeBank}}\` | Formatted databank chunks with source headers | Optional: \`{{databank::count}}\` to override chunk count |\r
+| \`{{databankActive}}\` | \u2014 | \`"yes"\` / \`"no"\` \u2014 whether databank retrieval returned chunks | \u2014 |\r
+| \`{{databankCount}}\` | \u2014 | Number of databank chunks retrieved | \u2014 |\r
+| \`{{databankRaw}}\` | \u2014 | Raw databank chunks without the outer header | Optional: \`{{databankRaw::count}}\` to override chunk count |\r
+\r
+### Memory Cortex\r
+\r
+| Macro | Returns | Args |\r
+|-------|---------|------|\r
+| \`{{entities}}\` | Formatted entity snapshots with facts and relationships | Optional: \`{{entities::count}}\` to limit the number of entities |\r
+| \`{{entityFacts::name}}\` | Facts for one named entity | Entity name |\r
+| \`{{relationships}}\` | Active relationship edges in the current scene | \u2014 |\r
+| \`{{arc}}\` | Current narrative arc summary | \u2014 |\r
+| \`{{memorySalience}}\` | Highest-salience retrieved memory | \u2014 |\r
+| \`{{cortexActive}}\` | \`"yes"\` / \`"no"\` \u2014 whether Memory Cortex returned results | \u2014 |\r
+| \`{{entityCount}}\` | Number of active entities in context | \u2014 |\r
+| \`{{characterColors}}\` | Character speech / thought / narration color instructions | \u2014 |\r
+\r
+---\r
+\r
+## Lumia & Council\r
+\r
+Macros for the council deliberation system and Lumia personas. These resolve to content only when the relevant systems are enabled.\r
+\r
+### Lumia Identity\r
+\r
+| Macro | Description | Args |\r
+|-------|-------------|------|\r
+| \`{{randomLumia}}\` | A random Lumia from all packs (cached per generation) | Optional: \`{{randomLumia::name}}\`, \`::phys\`, \`::pers\`, or \`::behav\` |\r
+| \`{{lumiaDef}}\` | Selected Lumia definition \u2014 adapts for Council (multi-member) and Chimera (fusion) modes | Optional: \`{{lumiaDef::len}}\` to get count |\r
+| \`{{lumiaBehavior}}\` | All selected behavioral traits | Optional: \`{{lumiaBehavior::len}}\` to get count |\r
+| \`{{lumiaPersonality}}\` | All selected personality traits | Optional: \`{{lumiaPersonality::len}}\` to get count |\r
+| \`{{lumiaQuirks}}\` | Behavioral quirks with mode-adaptive header | \u2014 |\r
+| \`{{lumiaSelf::N}}\` | Self-address pronouns: \`1\`=my/our, \`2\`=mine/ours, \`3\`=me/us, \`4\`=I/we | Required: \`1\`, \`2\`, \`3\`, or \`4\` |\r
+\r
+Alias: \`{{lumiaCouncilQuirks}}\` for \`{{lumiaQuirks}}\`\r
+\r
+### Council Status (Condition-Compatible)\r
+\r
+| Macro | Returns |\r
+|-------|---------|\r
+| \`{{lumiaCouncilModeActive}}\` | \`"yes"\` / \`"no"\` \u2014 whether council mode is on |\r
+| \`{{lumiaCouncilToolsActive}}\` | \`"yes"\` / \`"no"\` \u2014 whether council tools ran this generation |\r
+\r
+### Council Content\r
+\r
+| Macro | Description | Args |\r
+|-------|-------------|------|\r
+| \`{{lumiaCouncilInst}}\` | Council interaction dynamics prompt with member names | \u2014 |\r
+| \`{{lumiaCouncilDeliberation}}\` | Full tool results and deliberation instructions | \u2014 |\r
+| \`{{loomCouncilResult::var}}\` | A specific named tool result variable | Required: variable name |\r
+| \`{{lumiaCouncilToolsList}}\` | Tool names with member attribution | \u2014 |\r
+| \`{{lumiaStateSynthesis}}\` | Council Sound-Off / State Synthesis prompt | \u2014 |\r
+| \`{{lumiaMessageCount}}\` | Chat message count (alias for \`messageCount\`) | \u2014 |\r
+\r
+### OOC (Out-of-Character)\r
+\r
+| Macro | Description |\r
+|-------|-------------|\r
+| \`{{lumiaOOC}}\` | OOC commentary prompt \u2014 adapts for normal, council, and IRC modes |\r
+| \`{{lumiaOOCErotic}}\` | Mirror & Synapse erotic OOC prompt |\r
+| \`{{lumiaOOCEroticBleed}}\` | Narrative Rupture mid-narrative OOC prompt |\r
+| \`{{lumiaOOCTrigger}}\` | OOC trigger countdown or activation message |\r
+\r
+---\r
+\r
+## Loom\r
+\r
+Macros for the Loom narrative system.\r
+\r
+### Loom Content\r
+\r
+| Macro | Description | Args |\r
+|-------|-------------|------|\r
+| \`{{loomStyle}}\` | Selected Loom narrative style content | Optional: \`{{loomStyle::len}}\` to get count |\r
+| \`{{loomUtils}}\` | Selected Loom utility prompts | Optional: \`{{loomUtils::len}}\` to get count |\r
+| \`{{loomRetrofits}}\` | Selected Loom retrofit prompts | Optional: \`{{loomRetrofits::len}}\` to get count |\r
+| \`{{loomSummary}}\` | Stored chat summary from Loom summarization | \u2014 |\r
+| \`{{loomSummaryPrompt}}\` | Summarization directive prompt (5-section structure) | \u2014 |\r
+\r
+### Loom Conversation Aliases\r
+\r
+| Macro | Same As |\r
+|-------|---------|\r
+| \`{{loomLastUserMessage}}\` | \`{{lastUserMessage}}\` |\r
+| \`{{loomLastMessageName}}\` | \`{{lastMessageName}}\` |\r
+| \`{{loomLastCharMessage}}\` | \`{{lastCharMessage}}\` |\r
+\r
+### Sovereign Hand\r
+\r
+| Macro | Description |\r
+|-------|-------------|\r
+| \`{{loomSovHandActive}}\` | \`"yes"\` / \`"no"\` \u2014 condition-compatible |\r
+| \`{{loomSovHand}}\` | Full Sovereign Hand co-pilot prompt |\r
+| \`{{loomContinuePrompt}}\` | Continuation instructions when Sovereign Hand is active |\r
+\r
+---\r
+\r
+## Condition-Compatible Macros\r
+\r
+These macros return \`"yes"\` / \`"no"\` or \`"true"\` / \`"false"\` and are designed for use with \`{{if}}\`:\r
+\r
+| Macro | True When |\r
+|-------|-----------|\r
+| \`{{isGroupChat}}\` | Chat has multiple characters |\r
+| \`{{lumiaCouncilModeActive}}\` | Council mode is enabled |\r
+| \`{{lumiaCouncilToolsActive}}\` | Council tools ran this generation |\r
+| \`{{loomSovHandActive}}\` | Sovereign Hand mode is on |\r
+| \`{{memoriesActive}}\` | Memories were retrieved |\r
+| \`{{databankActive}}\` | Databank retrieval returned chunks |\r
+| \`{{cortexActive}}\` | Memory Cortex returned results |\r
+| \`{{hasvar::key}}\` | Local variable exists |\r
+| \`{{haschatvar::key}}\` | Chat-persisted variable exists |\r
+| \`{{hasgvar::key}}\` | Global variable exists |\r
+| \`{{hasPromptVar::name}}\` | A prompt variable is available |\r
+| \`{{charTag::tag}}\` | Character has the specified tag |\r
+| \`{{regexInstalled::id}}\` | Regex script with that ID is installed and enabled |\r
+| \`{{and::a::b}}\` | All arguments are truthy |\r
+| \`{{or::a::b}}\` | Any argument is truthy |\r
+| \`{{not::value}}\` | Value is falsy |\r
+| \`{{eq::a::b}}\` / \`{{gt}}\` / \`{{lt}}\` / etc. | Comparison is true |\r
+\r
+**Usage:**\r
+\r
+\`\`\`\r
+{{if::{{lumiaCouncilModeActive}}}}\r
+Council deliberation results:\r
+{{lumiaCouncilDeliberation}}\r
+{{/if}}\r
+\r
+{{if::{{and::{{charTag::fantasy}}::{{gt::{{messageCount}}::5}}}}}}\r
+The adventure is well underway.\r
+{{/if}}\r
+\`\`\`\r
+\r
+---\r
+\r
+## Tips for Preset Creators\r
+\r
+!!! tip "Use Dry Run religiously"\r
+    After adding macros to your blocks, always Dry Run to verify they resolve correctly. You'll see the fully assembled prompt with every macro expanded.\r
+\r
+!!! tip "Avoid redundancy"\r
+    If you use structural markers (like the \`char_description\` block), the \`{{description}}\` macro is already handled. Don't insert both \u2014 the same content appears twice.\r
+\r
+!!! tip "Conditional blocks save tokens"\r
+    Wrap council-specific content in \`{{if::{{lumiaCouncilModeActive}}}}\` so it only appears when council is active. Same for group chat content with \`{{if::{{isGroupChat}}}}\`. This keeps prompts lean.\r
+\r
+!!! tip "Variables for state tracking"\r
+    Use **\`@\` variables** to track story state that persists across messages \u2014 \`{{@hp = 100}}\`, \`{{@turn++}}\`, \`{{@quest_stage = 2}}\`. These are automatically saved after each generation. Use \`.\` variables for temporary calculations within a single evaluation. Global variables (\`{{$var}}\`) persist across all chats.\r
+\r
+!!! tip "\`{{default}}\` replaces common if/else patterns"\r
+    Instead of \`{{if::{{hasvar::title}}}}{{.title}}{{else}}Stranger{{/if}}\`, just write \`{{default::{{.title}}::Stranger}}\`. Cleaner and shorter.\r
+\r
+!!! tip "\`{{switch}}\` for multi-branch logic"\r
+    Instead of nested if/else chains, use \`{{switch::{{.mood}}::happy::cheerful tone::sad::somber tone::neutral tone}}\`.\r
+\r
+!!! tip "\`{{wrap}}\` for conditional formatting"\r
+    \`{{wrap}}\` only outputs if the content is non-empty \u2014 \`{{wrap::(**::**)::{{.note}}}}\` produces nothing when the note is unset, avoiding stray delimiters.\r
+\r
+!!! tip "\`{{calc}}\` for dynamic math"\r
+    \`{{calc::({{.hp}} / {{.maxHp}}) * 100}}\` gives you a health percentage without juggling \`setvar\`/\`addvar\` chains.\r
+\r
+!!! tip "Random adds variety"\r
+    Sprinkle \`{{pick}}\` into your presets for natural variation: \`"Write in a {{pick::vivid::poetic::visceral::atmospheric}} style."\` Each generation picks a different word.\r
+\r
+!!! tip "Coming from SillyTavern?"\r
+    Lumiverse supports SillyTavern-style syntax: \`{{.var}}\` shorthand, space-delimited arguments, \`{{if .var}}\` conditions, and \`!\` negation. Your existing presets should work with minimal changes. See the [Execution Order](execution-order.md) guide for any differences.\r
+\r
+!!! tip "Mind the evaluation order"\r
+    Macros resolve primarily in one depth-first AST walk, with nested macro output expanded inline and a small outer retry loop for edge cases. State still flows left-to-right: a later setter will not retroactively change an earlier read in the same block. See the [Execution Order](execution-order.md) guide for the complete breakdown.\r
+`,
+    "presets/preset-profiles.md": `# Preset Profiles\r
+\r
+Preset profiles let you save and restore a **preset selection plus its block enabled/disabled states**. You can bind these snapshots to specific characters or chats so Lumiverse switches to the right preset and block configuration automatically.\r
+\r
+---\r
+\r
+## The Problem Profiles Solve\r
+\r
+Imagine you have a preset with 15 blocks. For one character, you want blocks 1-10 enabled. For another, you want blocks 3, 7, and 11-15 enabled. Without profiles, you'd have to manually toggle blocks every time you switch characters.\r
+\r
+Profiles automate this. Each profile remembers which preset to use and the on/off state of every block inside it, then restores both when you switch context.\r
+\r
+---\r
+\r
+## Profile Types\r
+\r
+### Default Profile\r
+\r
+A baseline snapshot for one specific preset. Think of it as that preset's "general purpose" block configuration.\r
+\r
+### Character Profile\r
+\r
+A preset + block snapshot bound to a specific character. When you open a chat with that character, Lumiverse switches to that preset and restores its block states automatically.\r
+\r
+### Chat Profile\r
+\r
+A preset + block snapshot bound to a specific chat. This is the most specific level \u2014 it overrides both the default and character profiles.\r
+\r
+---\r
+\r
+## Resolution Order\r
+\r
+When assembling a prompt, Lumiverse resolves the active profile in this order:\r
+\r
+1. **Chat profile** \u2014 If the current chat has a profile, use it\r
+2. **Character profile** \u2014 Otherwise, if the character has a profile, use it\r
+3. **Default profile** \u2014 Otherwise, use the default profile\r
+4. **Raw preset states** \u2014 If no profiles exist at all, use the block states as they are in the preset\r
+\r
+Chat and character profiles are authoritative: they choose the preset first, then apply that profile's block states. Defaults are stored per preset, so the default profile only applies to the currently selected preset.\r
+\r
+---\r
+\r
+## Creating a Profile\r
+\r
+1. Configure your blocks the way you want them (enable/disable as needed)\r
+2. Click **Capture Profile** (or the equivalent in the Loom Builder)\r
+3. Choose what to save as:\r
+    - **Default** \u2014 The baseline snapshot for the current preset\r
+    - **Character** \u2014 Bound to the current character\r
+    - **Chat** \u2014 Bound to the current chat\r
+\r
+The snapshot records the current preset and the enabled/disabled state of every block.\r
+\r
+---\r
+\r
+## Use Cases\r
+\r
+- **Character-specific prompts** \u2014 A fantasy character uses narrative blocks; a modern character uses casual blocks\r
+- **Per-chat tuning** \u2014 One chat emphasizes action scenes (action blocks on); another emphasizes dialogue (dialogue blocks on)\r
+- **Quick switching** \u2014 Swap between "detailed" and "concise" block configurations without manual toggling\r
+`,
+    "presets/prompt-blocks.md": `# Prompt Blocks\r
+\r
+Prompt blocks are the building pieces of your preset. Each block is a section of text that gets assembled into the final prompt sent to the AI.\r
+\r
+---\r
+\r
+## Block Properties\r
+\r
+Every block has these settings:\r
+\r
+| Property | Description |\r
+|----------|-------------|\r
+| **Name** | Display label for the block |\r
+| **Content** | The text (can include macros) |\r
+| **Role** | Message role: \`system\`, \`user\`, \`assistant\`, \`user_append\`, or \`assistant_append\` |\r
+| **Enabled** | Whether this block is included |\r
+| **Position** | \`pre_history\`, \`post_history\`, or \`in_history\` |\r
+| **Depth** | For \`in_history\` position \u2014 how many messages from the end to insert |\r
+| **Marker** | Structural marker name (for built-in blocks like char_description) |\r
+| **Color** | UI color for visual organization |\r
+| **Locked** | Prevent accidental editing |\r
+| **Injection Trigger** | Which generation types activate this block |\r
+| **Group** | Group membership for block grouping |\r
+\r
+---\r
+\r
+## Block Types\r
+\r
+### Structural Markers\r
+\r
+These are "magic" blocks that expand to character/persona/chat data:\r
+\r
+| Marker | Expands To |\r
+|--------|------------|\r
+| \`char_description\` | Character's description field |\r
+| \`char_personality\` | Character's personality field |\r
+| \`scenario\` | Character's scenario field |\r
+| \`persona\` | Your persona's description |\r
+| \`mes_examples\` | Character's example messages |\r
+| \`system_prompt\` | Character's system prompt |\r
+| \`post_history_instructions\` | Character's post-history instructions |\r
+| \`chat_history\` | All chat messages |\r
+| \`world_info_before\` | World book entries (before position) |\r
+| \`world_info_after\` | World book entries (after position) |\r
+\r
+### Content Blocks\r
+\r
+Custom blocks you write yourself. These can contain any text and macros:\r
+\r
+\`\`\`\r
+Write vivid, sensory descriptions. Show, don't tell.\r
+Keep responses between 2-4 paragraphs.\r
+Always stay in character as {{char}}.\r
+\`\`\`\r
+\r
+### Category Markers\r
+\r
+Visual dividers in the block list \u2014 they don't produce output, just help organize your blocks in the editor.\r
+\r
+---\r
+\r
+## Block Ordering\r
+\r
+The order of blocks in the list determines their order in the assembled prompt. Drag blocks to rearrange them.\r
+\r
+A typical order looks like:\r
+\r
+1. System prompt\r
+2. Character description\r
+3. Personality\r
+4. Scenario\r
+5. Persona description\r
+6. World info (before)\r
+7. Example messages\r
+8. Chat history\r
+9. World info (after)\r
+10. Post-history instructions\r
+11. Author's note (injected at depth)\r
+\r
+But this is just a starting point \u2014 experiment to find what works best for your use case and model.\r
+\r
+---\r
+\r
+## Roles\r
+\r
+The **role** determines how the AI interprets the block:\r
+\r
+| Role | AI Interpretation |\r
+|------|-------------------|\r
+| \`system\` | Background instructions (highest authority) |\r
+| \`user\` | Appears as a user message |\r
+| \`assistant\` | Appears as the AI's own prior output |\r
+| \`user_append\` | Appended to the previous user message |\r
+| \`assistant_append\` | Appended to the previous assistant message |\r
+\r
+Most instruction blocks should use \`system\` role. Use \`user\` or \`assistant\` roles sparingly for specific effects (like fake dialogue examples).\r
+\r
+---\r
+\r
+## Injection Triggers\r
+\r
+By default, a block is included in every generation. You can limit it to specific generation types:\r
+\r
+| Trigger | When Active |\r
+|---------|-------------|\r
+| \`normal\` | Regular message sending |\r
+| \`continue\` | When continuing a response |\r
+| \`regenerate\` | When regenerating a response |\r
+| \`swipe\` | When generating a swipe |\r
+| \`impersonate\` | When the AI writes as the user |\r
+| \`quiet\` | Background/silent generations |\r
+\r
+Leave the trigger list empty to include the block in all generation types.\r
+\r
+---\r
+\r
+## Prompt Variables\r
+\r
+Blocks can define **Prompt Variables**\u2014typed inputs that allow users to customize the preset's behavior without editing the raw block text.\r
+\r
+For example, you might create a \`tone\` variable (text) or a \`verbosity\` variable (slider). When a user selects your preset, they are presented with a clean UI to fill out these variables, and the values are automatically injected into your macros.\r
+\r
+Read the [Prompt Variables guide](prompt-variables.md) for full instructions on how to define them as a creator, and how users interact with them via the Prompt Variables Modal.\r
+\r
+---\r
+\r
+## Block Groups\r
+\r
+Blocks can be assigned to **groups** for collective behavior. Groups support two modes:\r
+\r
+- **Radio** \u2014 Only one block in the group is active at a time (selecting one deselects the others)\r
+- **Checkbox** \u2014 Multiple blocks can be active simultaneously\r
+\r
+Groups are useful for creating alternative instruction sets (e.g., different writing styles) where you want to pick one at a time.\r
+\r
+---\r
+\r
+## Tips\r
+\r
+!!! tip "Start simple"\r
+    Begin with just a system prompt block and the structural markers. Add custom blocks as you learn what influences the AI's behavior.\r
+\r
+!!! tip "Use the dry run"\r
+    After configuring blocks, use **Dry Run** to see the assembled prompt. This shows you exactly what the AI receives, including resolved macros and injected world info.\r
+\r
+!!! tip "Disable, don't delete"\r
+    If a block isn't working well, disable it instead of deleting it. You can re-enable it later or reference it when building other blocks.\r
+`,
+    "presets/prompt-variables.md": `# Prompt Variables\r
+\r
+Prompt Variables allow preset creators to expose customizable inputs to end users without requiring them to edit raw prompt block text or touch any macros. \r
+\r
+Think of Prompt Variables as a "settings menu" for your preset. If you want users to be able to tweak the character's tone, the verbosity of responses, or specific formatting rules, you can define them as Prompt Variables.\r
+\r
+---\r
+\r
+## Defining Variables (For Creators)\r
+\r
+You can attach variables to any **Prompt Block**. When editing a block in the Preset Editor, scroll to the **Prompt Variables** section and click **Add Variable**.\r
+\r
+### Variable Fields\r
+\r
+Every variable has core metadata:\r
+\r
+- **Name** \u2014 The internal ID used in macros (e.g., \`tone\`). Must be alphanumeric/underscores.\r
+- **Label** \u2014 The user-friendly name displayed in the UI (e.g., \`Writing Tone\`).\r
+- **Description** *(Optional)* \u2014 Helper text to explain what the variable does.\r
+- **Default Value** \u2014 The fallback value used if the user doesn't provide one.\r
+\r
+### Variable Types\r
+\r
+You can choose from four input types, depending on what kind of data your prompt needs:\r
+\r
+| Type | Best For | Options |\r
+|------|----------|---------|\r
+| **Text** | Short strings like names, tone descriptors, or simple instructions. | \u2014 |\r
+| **Text Area** | Longer paragraphs, like custom formatting rules or lore snippets. | \`rows\` (controls the height of the input) |\r
+| **Number** | Precise numeric values (e.g., specific repetition counts). | \`min\`, \`max\`, \`step\` |\r
+| **Slider** | Visual range selection (e.g., a "creativity" scale from 1-10). | \`min\`, \`max\` (required), \`step\` |\r
+\r
+---\r
+\r
+## Using Variables in Blocks\r
+\r
+Once you've defined a variable, you need to use it in your block's content using macros.\r
+\r
+During prompt assembly, user-configured variables are injected directly into the **local variable scope**. This means you can read them just like any other local variable.\r
+\r
+If you created a variable named \`tone\`, all three of these syntaxes will resolve to the user's value:\r
+\r
+\`\`\`text\r
+// Standard macro evaluation\r
+Write in a {{var::tone}} tone.\r
+\r
+// Variable macro evaluation\r
+Write in a {{getvar::tone}} tone.\r
+\r
+// Shorthand evaluation\r
+Write in a {{.tone}} tone.\r
+\`\`\`\r
+\r
+### Fallback Precedence\r
+\r
+If the user hasn't configured a value, Lumiverse falls back safely:\r
+1. First, it looks for the user's saved override for that variable.\r
+2. If none exists, it uses the **Default Value** you declared on the block.\r
+3. If no default exists, it resolves to an empty string.\r
+\r
+Because prompt variables are placed in the local variable scope *before* your block is evaluated, you can even mutate them dynamically inside your prompt using \`{{setvar}}\` or \`{{.var = value}}\`.\r
+\r
+---\r
+\r
+## The Prompt Variables Modal (For Users)\r
+\r
+When a user selects a preset that contains Prompt Variables, they will see a **Sliders icon** <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><line x1="4" x2="20" y1="21" y2="14"/><line x1="4" x2="20" y1="10" y2="3"/><line x1="12" x2="12" y1="21" y2="12"/><line x1="8" x2="8" y1="12" y2="3"/><line x1="16" x2="16" y1="21" y2="16"/><line x1="20" x2="20" y1="16" y2="3"/><line x1="2" x2="6" y1="14" y2="14"/><line x1="6" x2="10" y1="10" y2="10"/><line x1="14" x2="18" y1="16" y2="16"/></svg> available in the UI. \r
+\r
+Clicking this opens the **Prompt Variables Modal**.\r
+\r
+### Intelligent Filtering\r
+\r
+The modal aggregates all variables from the preset, but **it only shows variables for blocks that are currently enabled**.\r
+\r
+If you disable a prompt block (for instance, turning off a specific "Action Sequences" module), any Prompt Variables attached to that block will disappear from the modal. This ensures users are never confused by settings that are inactive.\r
+\r
+### Resetting Values\r
+\r
+Users can freely adjust the sliders, text fields, and numeric inputs. If they want to return to the preset creator's original vision, they can click the **Reset to Default** button to instantly restore the \`defaultValue\` of every variable.`,
+    "presets/sampler-settings.md": `# Sampler Settings\r
+\r
+Sampler settings control *how* the AI generates text \u2014 the randomness, creativity, length, and repetition tendencies of its output.\r
+\r
+---\r
+\r
+## Core Parameters\r
+\r
+### Temperature\r
+\r
+Controls randomness. Lower values make the AI more predictable and focused; higher values make it more creative and varied.\r
+\r
+| Value | Behavior |\r
+|-------|----------|\r
+| **0.1 - 0.3** | Very focused, deterministic \u2014 good for factual or precise output |\r
+| **0.5 - 0.7** | Balanced \u2014 clear and coherent with some variety |\r
+| **0.8 - 1.0** | Creative \u2014 more varied word choices and unexpected turns |\r
+| **1.2 - 1.5** | Very creative \u2014 can get chaotic |\r
+| **> 1.5** | Highly random \u2014 output may become incoherent |\r
+\r
+### Max Tokens\r
+\r
+The maximum number of tokens the AI will generate in one response. Set this based on your preferred response length:\r
+\r
+- **150-300** \u2014 Short, snappy responses\r
+- **400-800** \u2014 Medium-length responses (common for RP)\r
+- **1000-2000** \u2014 Long, detailed responses\r
+- **4000+** \u2014 Very long form (novel-style passages)\r
+\r
+!!! warning "Reasoning models and max tokens"\r
+    Models with **native reasoning** (chain-of-thought) \u2014 such as DeepSeek R1, Claude with extended thinking, or OpenAI o-series \u2014 use tokens for their internal reasoning process *in addition to* the visible response. If your max tokens is too low, the model may exhaust its budget on reasoning and produce a truncated or empty reply. Give reasoning models a generous max tokens allowance (2000+ minimum, higher for complex prompts).\r
+\r
+!!! note "Token counting"\r
+    Lumiverse calculates token counts using the tokenizer that matches your provider and model. If no exact tokenizer is available, it falls back to an estimation. The token count shown in the UI and dry run reflects this.\r
+\r
+### Top-P (Nucleus Sampling)\r
+\r
+Limits the AI to choosing from the most probable tokens that make up a cumulative probability of P. Lower values = more focused.\r
+\r
+- **0.9 - 1.0** \u2014 Almost no restriction (default)\r
+- **0.7 - 0.8** \u2014 Moderate restriction\r
+- **0.3 - 0.5** \u2014 Strong restriction \u2014 very predictable output\r
+\r
+### Top-K\r
+\r
+Limits the AI to choosing from the top K most probable tokens. Works alongside Top-P.\r
+\r
+- **0** \u2014 Disabled (default for many providers)\r
+- **10-40** \u2014 Moderate restriction\r
+- **1** \u2014 Always picks the most likely token (completely deterministic)\r
+\r
+### Min-P\r
+\r
+Removes tokens whose probability is below a minimum threshold relative to the top token. Often used as an alternative to Top-P.\r
+\r
+- **0** \u2014 Disabled\r
+- **0.05 - 0.1** \u2014 Light filtering (recommended starting point)\r
+\r
+---\r
+\r
+## Repetition Control\r
+\r
+!!! warning "Limited provider support"\r
+    Most major providers (Anthropic, Google, DeepSeek, and many others) **do not support** frequency, presence, or repetition penalties. These parameters are silently ignored if the provider doesn't implement them. They primarily work with OpenAI and OpenAI-compatible APIs. Only use these if you know your provider supports them.\r
+\r
+### Frequency Penalty\r
+\r
+Penalizes tokens based on how often they've appeared in the text so far. Higher values reduce word repetition.\r
+\r
+- **0** \u2014 No penalty (default)\r
+- **0.1 - 0.5** \u2014 Mild reduction in repetition\r
+- **0.5 - 1.0** \u2014 Strong reduction\r
+\r
+### Presence Penalty\r
+\r
+Penalizes tokens that have appeared *at all*, regardless of frequency. Encourages the AI to explore new topics.\r
+\r
+- **0** \u2014 No penalty (default)\r
+- **0.1 - 0.5** \u2014 Encourages variety\r
+- **0.5 - 1.0** \u2014 Strongly discourages revisiting topics\r
+\r
+### Repetition Penalty\r
+\r
+A multiplier penalty on repeated tokens. Some providers use this instead of frequency/presence penalties.\r
+\r
+- **1.0** \u2014 No penalty\r
+- **1.05 - 1.15** \u2014 Mild to moderate penalty\r
+\r
+!!! warning "Don't stack penalties"\r
+    Using both frequency penalty and repetition penalty at the same time can make the AI avoid common words entirely, leading to awkward prose. Pick one approach \u2014 and only if your provider supports it.\r
+\r
+---\r
+\r
+## Context Settings\r
+\r
+### Context Size\r
+\r
+The maximum number of tokens for the entire conversation context (prompt + history). This should match your model's context window:\r
+\r
+- **128,000** \u2014 Standard for most current models (GPT-5.x, DeepSeek, etc.)\r
+- **200,000** \u2014 Claude Opus 4.5, Claude Sonnet 4.5, and older Claude models\r
+- **1,000,000** \u2014 Claude Opus 4.6, Claude Sonnet 4.6, Gemini Pro, Gemini Flash, and other extended context models\r
+- **32,768 or less** \u2014 Some smaller or older models\r
+\r
+Most models you'll encounter in 2026 support at least 128K context. Check your provider's model page if unsure.\r
+\r
+### Seed\r
+\r
+A fixed seed for reproducible output. When set, the same prompt produces the same response. Useful for testing. Set to \`0\` or leave blank for random.\r
+\r
+---\r
+\r
+## Custom Stop Strings\r
+\r
+Strings that cause the AI to stop generating when encountered. Common uses:\r
+\r
+- Stop at \`\\n\\n\` to prevent runaway generation\r
+- Stop at character name prefixes to prevent the AI from writing as your character\r
+\r
+---\r
+\r
+## Sampler Overrides\r
+\r
+The preset can define **sampler overrides** \u2014 parameter values that override the connection's defaults. Each override can be individually enabled or disabled, giving you granular control over which parameters the preset controls and which come from the connection.\r
+\r
+---\r
+\r
+## Tips\r
+\r
+!!! tip "Start with temperature"\r
+    Temperature is the single most impactful setting. Start there and adjust other parameters only if you need finer control.\r
+\r
+!!! tip "Use the dry run"\r
+    The dry run shows you the final parameter values after all overrides are applied. Useful for verifying your settings are taking effect.\r
+`,
+    "presets/sovereign-hand.md": `# Sovereign Hand\r
+\r
+Sovereign Hand is a co-pilot mode that reframes how the AI interprets your messages. Instead of treating what you write as your character's dialogue, the AI treats it as **directorial instructions** \u2014 stage directions from the author telling the story what should happen next.\r
+\r
+---\r
+\r
+## What It Does\r
+\r
+In normal mode, when you type "I walk to the door," the AI reads that as your character performing an action and responds accordingly.\r
+\r
+With Sovereign Hand enabled, when you type "The character notices the tension in the room and decides to confront it," the AI interprets this as a narrative directive. It elaborates on your instruction, writing the scene as if the impulse came naturally from the story world \u2014 not parroting your words back, but expanding on them with the character's voice, internal thoughts, and actions.\r
+\r
+**You become the director. The AI becomes the performer.**\r
+\r
+---\r
+\r
+## Setting Up\r
+\r
+Open the **Prompt Panel** and find the **Sovereign Hand** section:\r
+\r
+| Setting | Description |\r
+|---------|-------------|\r
+| **Enable Sovereign Hand** | Master toggle |\r
+| **Exclude Last Message** | Removes your message from the chat context sent to the AI |\r
+| **Include Message in Master Prompt** | Places your message inside the Sovereign Hand system instruction instead |\r
+\r
+---\r
+\r
+## How the Settings Interact\r
+\r
+### Both toggles on (recommended)\r
+\r
+Your message is removed from the chat history and placed *only* in the Sovereign Hand system section. The AI sees your directive as an authorial instruction, not as dialogue. This produces the cleanest results \u2014 the AI doesn't accidentally quote or reference your message as if it were spoken in-world.\r
+\r
+### Include on, Exclude off\r
+\r
+Your message appears in **both** the chat history and the Sovereign Hand section. The AI is told not to duplicate it. Useful if you want the message to serve double duty as both an in-character action and a directive.\r
+\r
+### Both toggles off\r
+\r
+Sovereign Hand is technically enabled but doesn't modify message routing. The \`{{loomSovHand}}\` macro still produces the co-pilot prompt, but your message flows through normally. Useful if your preset handles the routing differently.\r
+\r
+---\r
+\r
+## Continuation Mode\r
+\r
+When the **character** spoke last (not you), Sovereign Hand enters **Continuation Mode** automatically. Instead of processing a user directive, the AI is instructed to continue the narrative naturally from where the character left off.\r
+\r
+The \`{{loomContinuePrompt}}\` macro produces continuation instructions in this scenario, guiding the AI to extend the story without repeating the character's last message.\r
+\r
+---\r
+\r
+## Core Principles\r
+\r
+The Sovereign Hand prompt instructs the AI to follow these rules:\r
+\r
+1. **Interpret, don't transcribe.** The user's words are stage directions, not dialogue.\r
+2. **The user is the author.** Their message describes what should happen.\r
+3. **Maintain narrative continuity.** Everything should feel like a natural story extension.\r
+4. **The character acts on the directive** as if the impulse came from the story world.\r
+\r
+---\r
+\r
+## Writing Good Directives\r
+\r
+With Sovereign Hand active, your messages should read like stage directions or narrative instructions:\r
+\r
+**Instead of:**\r
+> "I'm scared. I don't want to go in there."\r
+\r
+**Write:**\r
+> "The character hesitates at the threshold, fear gnawing at them. They notice the scratches on the doorframe."\r
+\r
+**Or even shorter:**\r
+> "Reluctance. Fear. Focus on the doorframe scratches."\r
+\r
+The AI expands your shorthand into fully realized prose, using the character's established voice and personality.\r
+\r
+You can also give meta-level instructions:\r
+\r
+> "Slow the pacing down. Describe the environment in detail before any dialogue."\r
+\r
+> "Have two characters disagree about the plan. Build tension but don't resolve it yet."\r
+\r
+---\r
+\r
+## Related Macros\r
+\r
+| Macro | Purpose |\r
+|-------|---------|\r
+| \`{{loomSovHand}}\` | The full Sovereign Hand co-pilot prompt \u2014 include this in your preset |\r
+| \`{{loomSovHandActive}}\` | \`"yes"\` / \`"no"\` \u2014 for conditional blocks |\r
+| \`{{loomContinuePrompt}}\` | Continuation instructions (active when character spoke last) |\r
+| \`{{loomLastUserMessage}}\` | Your last message text |\r
+| \`{{loomLastCharMessage}}\` | The character's last message text |\r
+\r
+Include \`{{loomSovHand}}\` in a preset block for the feature to work. Wrap it in a conditional if you want the block to disappear when Sovereign Hand is off:\r
+\r
+\`\`\`\r
+{{if::{{loomSovHandActive}}}}\r
+{{loomSovHand}}\r
+{{/if}}\r
+\`\`\`\r
+\r
+---\r
+\r
+## Tips\r
+\r
+!!! tip "Think like a director"\r
+    The more you write like a screenplay director ("Focus on the silence between them. Let the tension build.") rather than an actor ("I look at her nervously."), the better Sovereign Hand performs.\r
+\r
+!!! tip "Use with Loom Summary"\r
+    Sovereign Hand pairs well with [Loom Summary](../chatting/loom-summary.md). The summary gives the AI story context, and your directives tell it where to take the story next.\r
+\r
+!!! tip "Try brief directives"\r
+    You don't need to write paragraphs. "Flashback to childhood. Bittersweet." is enough for the AI to construct a full scene. The character card and conversation history provide the rest.\r
+`,
+    "presets/understanding-presets.md": `# Understanding Presets\r
+\r
+This guide explains how presets work conceptually, so you can create and customize them with confidence.\r
+\r
+---\r
+\r
+## The Prompt Assembly Pipeline\r
+\r
+When you send a message, Lumiverse doesn't just forward your chat history to the AI. It assembles a structured **prompt** from multiple sources:\r
+\r
+\`\`\`\r
+\u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\r
+\u2502  Preset Blocks (in order)   \u2502\r
+\u2502  \u251C\u2500\u2500 System Prompt          \u2502\r
+\u2502  \u251C\u2500\u2500 Character Description  \u2502\r
+\u2502  \u251C\u2500\u2500 Personality            \u2502\r
+\u2502  \u251C\u2500\u2500 Scenario               \u2502\r
+\u2502  \u251C\u2500\u2500 Persona                \u2502\r
+\u2502  \u251C\u2500\u2500 World Info (before)    \u2502\r
+\u2502  \u251C\u2500\u2500 Chat History           \u2502\r
+\u2502  \u251C\u2500\u2500 World Info (after)     \u2502\r
+\u2502  \u251C\u2500\u2500 Author's Note          \u2502\r
+\u2502  \u2514\u2500\u2500 Custom Blocks...       \u2502\r
+\u251C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524\r
+\u2502  Sampler Parameters         \u2502\r
+\u2502  (temperature, top_p, etc.) \u2502\r
+\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\r
+\`\`\`\r
+\r
+Each block in the preset can be enabled/disabled, reordered, and customized. This gives you granular control over every part of the prompt.\r
+\r
+---\r
+\r
+## Preset Components\r
+\r
+### Prompt Order (Blocks)\r
+\r
+The \`prompt_order\` is a list of blocks that defines what goes into the prompt and in what order. Each block has:\r
+\r
+- **Name** \u2014 What this block is called\r
+- **Content** \u2014 The text or macro that gets inserted\r
+- **Role** \u2014 Whether it's a \`system\`, \`user\`, or \`assistant\` message\r
+- **Enabled** \u2014 Whether this block is active\r
+- **Position** \u2014 Where it appears relative to the chat history\r
+\r
+### Prompts (Named Text Blocks)\r
+\r
+The \`prompts\` map stores named text content used by the preset \u2014 things like the main system prompt, continuation nudges, and impersonation instructions.\r
+\r
+### Parameters\r
+\r
+Sampler settings that control *how* the AI generates (creativity, randomness, length).\r
+\r
+### Metadata\r
+\r
+Additional configuration like completion settings, sampler overrides, and behavioral flags.\r
+\r
+---\r
+\r
+## How Blocks Become a Prompt\r
+\r
+During assembly, Lumiverse walks through the block list in order:\r
+\r
+1. **Marker blocks** (like \`char_description\`, \`scenario\`, \`persona\`) are replaced with the corresponding character/persona data\r
+2. **Content blocks** have their text run through the macro resolver (replacing \`{{char}}\`, \`{{user}}\`, etc.)\r
+3. **World Info blocks** are filled with activated lorebook entries\r
+4. **Chat history** inserts all the conversation messages\r
+5. **Special blocks** (Author's Note, continuation nudges) are injected at configured depths\r
+\r
+The result is a complete, ordered list of messages sent to the AI.\r
+\r
+---\r
+\r
+## Macros in Presets\r
+\r
+Blocks can contain **macros** \u2014 template variables that get replaced with dynamic content. For example:\r
+\r
+\`\`\`\r
+You are {{char}}, a {{personality}} character in the following scenario:\r
+{{scenario}}\r
+\r
+The user's name is {{user}}.\r
+{{persona}}\r
+\`\`\`\r
+\r
+This becomes:\r
+\r
+\`\`\`\r
+You are Aria, a curious and adventurous character in the following scenario:\r
+A bustling market square in a medieval fantasy city...\r
+\r
+The user's name is Alex.\r
+Alex is a 28-year-old freelance photographer...\r
+\`\`\`\r
+\r
+See the [Macros guide](../customization/macros.md) for a complete reference.\r
+\r
+---\r
+\r
+## Fallback Behavior\r
+\r
+If no preset is linked to your connection, or the preset has no blocks, Lumiverse falls back to a simple mode: it maps your chat messages directly to \`{role, content}\` pairs and sends them as-is. This works, but you lose all the advanced features (world info, macros, author's note, etc.).\r
+\r
+---\r
+\r
+## Linking Presets to Connections\r
+\r
+Each connection can optionally link to a preset. When you generate using that connection, its linked preset is used for assembly. You can also switch presets independently of connections.\r
+`,
+    "reference/glossary.md": `# Glossary\r
+\r
+Key terms used throughout Lumiverse and these guides.\r
+\r
+---\r
+\r
+## A\r
+\r
+**Alternate Fields**\r
+: Variant versions of a character's description, personality, or scenario that can be selected per-chat.\r
+\r
+**Alternate Greetings**\r
+: Multiple first-message options for a character. Chosen when starting a new chat.\r
+\r
+**API Key**\r
+: A secret credential from an AI provider that authenticates your requests. Stored encrypted in Lumiverse.\r
+\r
+**Assembly**\r
+: The process of building the complete prompt from preset blocks, character data, world info, macros, and chat history.\r
+\r
+**Author's Note**\r
+: A hidden instruction injected at a specific depth in the conversation to influence the AI's behavior.\r
+\r
+## B\r
+\r
+**Block (Prompt Block)**\r
+: A section of text in a preset that contributes to the assembled prompt. Blocks have roles, positions, and can be enabled/disabled.\r
+\r
+**Branch**\r
+: A fork of a conversation at a specific message, creating a new chat with shared history up to that point.\r
+\r
+## C\r
+\r
+**Character Card**\r
+: A standardized format (CCSv1/v2/v3) for packaging character data, optionally embedded in a PNG image.\r
+\r
+**CHARX**\r
+: A ZIP archive format for character cards that can include the card JSON, avatar, expressions, and Lumiverse modules.\r
+\r
+**Connection**\r
+: A saved configuration linking Lumiverse to an AI provider (includes provider, model, API key, and URL).\r
+\r
+**Constant Entry**\r
+: A world book entry that is always included in the prompt regardless of keyword matching.\r
+\r
+**Context Window**\r
+: The maximum number of tokens a model can process at once (prompt + response combined).\r
+\r
+**Council**\r
+: A multi-persona deliberation system where AI personas analyze the scene and provide guidance before the main generation.\r
+\r
+## D\r
+\r
+**Depth**\r
+: How many messages from the end of the chat to insert content. Lower depth = closer to the end = more influence.\r
+\r
+**Dry Run**\r
+: A test that assembles the full prompt without actually calling the AI. Shows exactly what the model would see.\r
+\r
+## E\r
+\r
+**Expression**\r
+: An emotion-mapped image that changes dynamically based on the conversation mood.\r
+\r
+## G\r
+\r
+**Generation**\r
+: The process of sending a prompt to the AI and receiving a response. Types: normal, regenerate, continue, swipe, impersonate, quiet.\r
+\r
+**Group Chat**\r
+: A conversation with multiple AI characters who take turns responding and interact with each other.\r
+\r
+## L\r
+\r
+**Loom**\r
+: Content blocks from packs, categorized as narrative styles, utilities, or retrofits.\r
+\r
+**Lorebook**\r
+: Another name for World Book \u2014 a collection of keyword-triggered contextual entries.\r
+\r
+**Lumia**\r
+: An AI persona from a pack, used as a council member or for narrative style selection.\r
+\r
+## M\r
+\r
+**Macro**\r
+: A template variable (e.g., \`{{char}}\`) that gets replaced with dynamic content during prompt assembly.\r
+\r
+## P\r
+\r
+**Pack**\r
+: A content bundle containing Lumia items, Loom items, and/or Loom tools.\r
+\r
+**Persona**\r
+: Your identity in conversations \u2014 includes name, description, and avatar.\r
+\r
+**Preset**\r
+: A saved configuration defining prompt block order, sampler settings, and completion behavior.\r
+\r
+**Preset Profile**\r
+: A snapshot of block enabled/disabled states, bindable to default, character, or chat contexts.\r
+\r
+**Provider**\r
+: An AI service (OpenAI, Anthropic, Google, etc.) that Lumiverse connects to for generation.\r
+\r
+## R\r
+\r
+**Recursion (World Info)**\r
+: When activated world book entries contain keywords that trigger additional entries.\r
+\r
+**Regex Script**\r
+: A text transformation rule using regular expressions, applied at various stages of the pipeline.\r
+\r
+## S\r
+\r
+**Sampler Settings**\r
+: Parameters that control how the AI generates text (temperature, top-p, penalties, etc.).\r
+\r
+**Scan Depth**\r
+: How many recent messages are checked for world book keywords.\r
+\r
+**Selective Logic**\r
+: Secondary keyword conditions (AND, OR, NOT) that refine when a world book entry activates.\r
+\r
+**Sidecar**\r
+: A separate, usually lighter AI model used for background tasks like council tools and expression detection.\r
+\r
+**Spindle**\r
+: Lumiverse's extension system for installing and running third-party add-ons.\r
+\r
+**Sticky Entry**\r
+: A world book entry that stays active for a set number of turns after its keywords stop appearing.\r
+\r
+**Swipe**\r
+: An alternate version of a message. Generated by regenerating a response, creating a deck of alternatives.\r
+\r
+## T\r
+\r
+**Token**\r
+: The basic unit of text for AI models. Roughly 3/4 of a word. Used to measure context size and response length.\r
+\r
+## W\r
+\r
+**World Book**\r
+: A collection of entries that inject contextual information into the prompt when their keywords appear in the conversation. Also called a lorebook.\r
+\r
+**World Info**\r
+: Another name for World Book content and the system that activates it.\r
+`,
+    "reference/keyboard-shortcuts.md": `# Keyboard Shortcuts\r
+\r
+Quick reference for keyboard shortcuts in Lumiverse.\r
+\r
+---\r
+\r
+## Global\r
+\r
+| Shortcut | Action |\r
+|----------|--------|\r
+| **Cmd/Ctrl + K** | Open Command Palette |\r
+| **Escape** | Close current modal or panel |\r
+\r
+---\r
+\r
+## Chat\r
+\r
+| Shortcut | Action |\r
+|----------|--------|\r
+| **Enter** | Send message |\r
+| **Shift + Enter** | New line (without sending) |\r
+\r
+---\r
+\r
+## Command Palette\r
+\r
+| Shortcut | Action |\r
+|----------|--------|\r
+| **Type to search** | Filter commands |\r
+| **Arrow keys** | Navigate results |\r
+| **Enter** | Execute selected command |\r
+| **Escape** | Close palette |\r
+\r
+---\r
+\r
+## Navigation\r
+\r
+The Command Palette (Cmd/Ctrl + K) provides keyboard-driven access to:\r
+\r
+- Switch between panels\r
+- Navigate to settings\r
+- Open character browser\r
+- Toggle features\r
+- Run chat-specific actions\r
+- Access extension tabs\r
+\r
+---\r
+\r
+## Tips\r
+\r
+!!! tip "Command Palette is your friend"\r
+    Almost everything in Lumiverse can be reached through the Command Palette. Learn to use it and you'll navigate the app much faster than clicking through menus.\r
+`,
+    "reference/troubleshooting.md": `# Troubleshooting\r
+\r
+Solutions to common issues you might encounter.\r
+\r
+---\r
+\r
+## Connection Issues\r
+\r
+### "Invalid API key"\r
+\r
+- Double-check your API key \u2014 copy it fresh from your provider's dashboard\r
+- Make sure you're using the right key for the right provider\r
+- API keys are per-connection \u2014 check that the correct connection is selected\r
+\r
+### "Connection test failed"\r
+\r
+- Verify the API URL is correct for your provider\r
+- Check if your provider has an outage\r
+- If using a custom endpoint, make sure the server is running and reachable\r
+- Try the Models button \u2014 if it returns models, the connection works\r
+\r
+### "Model not found"\r
+\r
+- The model name must match exactly what the provider expects\r
+- Use the Models button to see available models and copy the correct name\r
+- Some models require specific API tiers or access approval\r
+\r
+---\r
+\r
+## Generation Issues\r
+\r
+### AI responses are empty or cut off\r
+\r
+- Check your **max tokens** setting \u2014 it might be too low\r
+- Some models have minimum token requirements\r
+- If using continue, the model may think the response is already complete\r
+\r
+### AI is ignoring my instructions\r
+\r
+- Use **Dry Run** to see what the AI actually receives\r
+- Check that your preset blocks are enabled\r
+- Verify macros are resolving correctly\r
+- The instruction might be too far back in the context \u2014 try moving it closer (lower depth)\r
+\r
+### AI is repeating itself\r
+\r
+- Increase **frequency penalty** or **presence penalty** in sampler settings\r
+- Lower the **temperature** slightly\r
+- Check for duplicate content in your world book entries\r
+\r
+### Responses are too short / too long\r
+\r
+- Adjust **max tokens** in sampler settings\r
+- Add explicit length instructions in your preset blocks (e.g., "Write 2-4 paragraphs")\r
+- Use the **continue** feature if a response ends too soon\r
+\r
+---\r
+\r
+## World Book Issues\r
+\r
+### Entries aren't activating\r
+\r
+- Check that the world book is attached (to the character, persona, or global list)\r
+- Verify keywords match what's being said in the chat (check case sensitivity)\r
+- Use **Dry Run** to see the world info stats \u2014 it shows which entries activated and why\r
+- Check **scan depth** \u2014 the keyword might be mentioned too far back\r
+- Make sure the entry isn't disabled or on cooldown\r
+\r
+### Too many entries activating\r
+\r
+- Use **selective logic** with secondary keywords to narrow activation\r
+- Increase **scan depth** to limit how far back keywords are checked\r
+- Set entry **priorities** and use budget limits\r
+- Use **groups** so only one entry from a set activates\r
+\r
+---\r
+\r
+## Performance Issues\r
+\r
+### App feels slow\r
+\r
+- Disable **glass effects** in the Theme panel (backdrop-filter can be GPU-intensive)\r
+- Reduce the number of messages loaded per page\r
+- Close unused panels\r
+- Clear old chats if you have thousands\r
+\r
+### Large world books are slow\r
+\r
+- Consider vectorizing entries instead of relying on keyword scanning\r
+- Use budget limits to cap the number of active entries\r
+- Increase min priority to filter out low-importance entries\r
+\r
+---\r
+\r
+## Data Issues\r
+\r
+### Lost my API keys after reinstalling\r
+\r
+- API keys are encrypted using the \`data/lumiverse.identity\` file\r
+- If you lost this file, stored keys cannot be recovered \u2014 you'll need to re-enter them\r
+- Always back up the entire \`data/\` directory\r
+\r
+### Can't log in\r
+\r
+Reset your password from the command line:\r
+\r
+\`\`\`bash\r
+bun run reset-password\r
+\`\`\`\r
+\r
+---\r
+\r
+## Getting Help\r
+\r
+If you're stuck:\r
+\r
+1. Check the **Diagnostics** tab in Settings for system health info\r
+2. Use **Dry Run** to inspect what the AI sees\r
+3. Check the World Book Diagnostics for activation issues\r
+4. Review the browser console (F12) for frontend errors\r
+5. Check the server logs in the terminal where Lumiverse is running\r
+`,
+    "settings/embeddings.md": `# Embeddings & Vector Search\r
+\r
+Embeddings power two features in Lumiverse: **semantic world book activation** (finding lorebook entries by meaning, not just keywords) and **long-term chat memory** (recalling relevant past moments). Both require an embedding provider to be configured.\r
+\r
+---\r
+\r
+## What Are Embeddings?\r
+\r
+An embedding is a numerical representation of text \u2014 a list of numbers that captures the *meaning* of a passage. Similar texts produce similar embeddings. This lets Lumiverse find relevant content based on what it *means*, not just whether exact keywords match.\r
+\r
+**Without embeddings:** World book entries activate only on keyword matches. Chat history outside the context window is lost.\r
+\r
+**With embeddings:** World book entries can activate on *semantically similar* concepts. Past conversation moments can be recalled based on relevance.\r
+\r
+---\r
+\r
+## Setting Up\r
+\r
+Open **Settings > Embeddings** and follow the setup checklist:\r
+\r
+### 1. Enable Embeddings\r
+\r
+Toggle the master switch on.\r
+\r
+### 2. Select a Provider\r
+\r
+| Provider | Notes |\r
+|----------|-------|\r
+| **OpenAI** | Official OpenAI API (\`text-embedding-3-small\` recommended) |\r
+| **OpenAI Compatible** | Any service implementing the OpenAI embeddings API (local models, self-hosted) |\r
+| **OpenRouter** | Aggregation service |\r
+| **ElectronHub** | Model aggregator |\r
+| **Nano-GPT** | Pay-per-token aggregator |\r
+\r
+### 3. Configure the Connection\r
+\r
+| Field | Description |\r
+|-------|-------------|\r
+| **API URL** | Base URL for the provider. Auto-appends \`/v1/embeddings\` if no path is specified. |\r
+| **Embedding Model** | Model name (e.g., \`text-embedding-3-small\`) |\r
+| **API Key** | Your provider's authentication key |\r
+| **Dimensions** | Vector size \u2014 auto-detected when you run a test |\r
+| **Send Dimensions** | Whether to include the dimension value in API requests (some providers require it, others reject it) |\r
+\r
+### 4. Test the API\r
+\r
+Click **Test API** to verify your setup. A successful test auto-detects the model's native dimensions and applies them.\r
+\r
+---\r
+\r
+## What Gets Vectorized\r
+\r
+Enable vectorization for the content types you want:\r
+\r
+| Content | Setting | What It Does |\r
+|---------|---------|-------------|\r
+| **World Book Entries** | \`vectorize_world_books\` | Enables semantic search for lorebook entries \u2014 activates entries by meaning, not just keywords |\r
+| **Chat Messages** | \`vectorize_chat_messages\` | Enables [long-term memory](../chatting/memory.md) \u2014 recalls relevant past messages during generation |\r
+| **Chat Documents** | \`vectorize_chat_documents\` | Indexes documents attached to chats |\r
+\r
+---\r
+\r
+## Retrieval Settings\r
+\r
+### Vector Recall Size (Top-K)\r
+\r
+How many vector matches to retrieve per query. Higher values cast a wider net but use more tokens.\r
+\r
+- **4** \u2014 Focused retrieval (default)\r
+- **8-12** \u2014 Broad retrieval for complex stories\r
+\r
+### Similarity Threshold\r
+\r
+Maximum cosine distance for matches. Lower values = stricter matching.\r
+\r
+- **0** \u2014 No filtering (accept all matches)\r
+- **0.3-0.5** \u2014 Moderate filtering\r
+- **0.8+** \u2014 Very strict (only highly similar content)\r
+\r
+Cosine distance can exceed 1.0 in LanceDB's implementation, so this isn't capped at 1.\r
+\r
+### Rerank Cutoff\r
+\r
+For world book vectors: minimum score required after boost/penalty adjustments. Helps filter out low-quality matches after post-processing.\r
+\r
+---\r
+\r
+## Hybrid Weight\r
+\r
+Controls the balance between traditional keyword matching and semantic vector search:\r
+\r
+| Mode | Behavior |\r
+|------|----------|\r
+| **Keyword First** | Prioritize exact word matches; use vectors as a tiebreaker |\r
+| **Balanced** | Weight both methods equally (recommended) |\r
+| **Vector First** | Prioritize semantic similarity; keywords are secondary |\r
+\r
+---\r
+\r
+## Batch Processing\r
+\r
+| Setting | Description |\r
+|---------|-------------|\r
+| **Batch Size** | Entries per API request during reindexing (1-200, default 50) |\r
+| **Preferred Context Size** | Recent messages used to build the search query (default 6) |\r
+\r
+---\r
+\r
+## Tips\r
+\r
+!!! tip "Start with OpenAI's small model"\r
+    \`text-embedding-3-small\` is cheap, fast, and effective. It's the best starting point for most users.\r
+\r
+!!! tip "Enable world book vectorization first"\r
+    Semantic world book search is the highest-impact use of embeddings. Long-term memory is valuable too, but world book vectorization gives immediate improvement with less configuration.\r
+\r
+!!! tip "Test after setup"\r
+    Always click Test API after configuration. This verifies your credentials work and auto-detects the correct dimensions \u2014 getting dimensions wrong produces garbage results.\r
+`,
+    "settings/lumihub.md": `# LumiHub\r
+\r
+LumiHub is a hub service that lets you browse and install characters and world books directly into your Lumiverse instance from the web.\r
+\r
+---\r
+\r
+## Linking Your Instance\r
+\r
+1. Open **Settings > LumiHub**\r
+2. Optionally customize your **instance name** (how your instance identifies itself)\r
+3. Click **Link with LumiHub**\r
+4. A browser window opens for authorization\r
+5. Once authorized, your instance connects and stays linked\r
+\r
+Your instance maintains a persistent connection to LumiHub with automatic reconnection if the connection drops.\r
+\r
+---\r
+\r
+## What You Can Do\r
+\r
+Once linked:\r
+\r
+- **Install characters** \u2014 Browse characters on LumiHub and push them directly to your Lumiverse instance, complete with avatars and full card data\r
+- **Install world books** \u2014 Push world books with all their entries\r
+- **Chub.ai imports** \u2014 Install characters and world books from Chub.ai through LumiHub\r
+\r
+Embedded character books (lorebooks inside character cards) can be automatically extracted as standalone world books during installation.\r
+\r
+---\r
+\r
+## Connection Status\r
+\r
+The LumiHub settings panel shows:\r
+\r
+- Connection status (connected or disconnected)\r
+- Your instance name\r
+- LumiHub URL\r
+- Last connection time\r
+\r
+---\r
+\r
+## Unlinking\r
+\r
+Click **Unlink from LumiHub** to disconnect. This stops the connection and removes the linking token. You can re-link at any time.\r
+`,
+    "settings/push-notifications.md": `# Push Notifications\r
+\r
+Lumiverse can send push notifications to your devices when certain events happen \u2014 like when a character finishes responding. This is useful when you're multitasking or using the PWA on mobile.\r
+\r
+---\r
+\r
+!!! warning "HTTPS or localhost required"\r
+    Push notifications rely on Service Workers, which most browsers only allow in **secure contexts**. This means they will only work when accessing Lumiverse via:\r
+\r
+    - **\`localhost\`** \u2014 Always treated as secure, even without SSL\r
+    - **HTTPS** \u2014 A reverse proxy with a valid SSL certificate (e.g., \`https://lumiverse.example.com\`)\r
+\r
+    If you're accessing Lumiverse over plain HTTP on a remote IP (e.g., \`http://192.168.1.50:7860\`), push notifications will not be available. The browser silently disables Service Worker registration in insecure remote contexts.\r
+\r
+## Setting Up\r
+\r
+1. Open **Settings > Notifications**\r
+2. Toggle **Enable push notifications**\r
+3. Click **Enable** for this device (your browser will ask for notification permission)\r
+4. Grant permission when prompted\r
+\r
+Each device must be subscribed individually. You can manage all your registered devices from this settings tab.\r
+\r
+---\r
+\r
+## Notification Events\r
+\r
+| Event | Notification |\r
+|-------|-------------|\r
+| **Generation completed** | Character name as title, first 120 characters of the response as body |\r
+| **Generation failed** | "Generation Failed" as title, error message as body |\r
+\r
+Each event type can be enabled or disabled independently.\r
+\r
+---\r
+\r
+## Visibility Gating\r
+\r
+Notifications are **suppressed when you're actively viewing the app**. They only fire when you're in another tab, have the window minimized, or are on a different app. This prevents redundant notifications for events you're already watching.\r
+\r
+---\r
+\r
+## Device Management\r
+\r
+From the Notifications settings tab:\r
+\r
+- View all registered devices\r
+- Remove individual device subscriptions\r
+- Send a **test notification** to verify everything works\r
+\r
+Devices that stop accepting notifications (uninstalled browser, cleared data) are automatically cleaned up.\r
+\r
+---\r
+\r
+## Tips\r
+\r
+!!! tip "Great for mobile PWA"\r
+    Add Lumiverse to your home screen and enable notifications. You'll get alerts when the AI responds, even when the app is in the background.\r
+\r
+!!! tip "Use with long generations"\r
+    If you're using a slow model or generating very long responses, notifications let you switch to other tasks and come back when the response is ready.\r
+`,
+    "settings/users.md": `# Users & Authentication\r
+\r
+Lumiverse supports multiple users with role-based access control. The first account created during setup is the **owner** \u2014 the top-level admin.\r
+\r
+---\r
+\r
+## Roles\r
+\r
+| Role | Capabilities |\r
+|------|-------------|\r
+| **Owner** | Full control \u2014 created during first-run setup |\r
+| **Admin** | Can create users, reset passwords, ban/unban, delete users |\r
+| **User** | Standard access \u2014 can use all chat features, manage their own data |\r
+\r
+---\r
+\r
+## Creating Users (Admin/Owner Only)\r
+\r
+1. Open **Settings > Users**\r
+2. Click **Add User**\r
+3. Enter a username and password\r
+4. Select a role: **User** or **Admin**\r
+5. Click **Create**\r
+\r
+The new user can log in immediately with those credentials.\r
+\r
+---\r
+\r
+## Managing Users\r
+\r
+Admins and owners can:\r
+\r
+- **Reset password** \u2014 Set a new password for any user\r
+- **Ban/unban** \u2014 Prevent a user from logging in (or restore access)\r
+- **Delete** \u2014 Remove a user and their data permanently\r
+\r
+---\r
+\r
+## Changing Your Password\r
+\r
+Every user can change their own password:\r
+\r
+1. Open **Settings > Users**\r
+2. Click **Change Password**\r
+3. Enter your current password and the new password\r
+4. Confirm\r
+\r
+---\r
+\r
+## Data Isolation\r
+\r
+Each user's data is scoped to their account:\r
+\r
+- Characters, chats, personas, presets, connections, and world books are per-user\r
+- Uploaded files are stored in user-specific directories\r
+- API keys are encrypted per-user\r
+- Extensions can be scoped per-user or system-wide (operator-scoped)\r
+\r
+---\r
+\r
+## Password Reset (CLI)\r
+\r
+If you're locked out, reset the owner password from the command line:\r
+\r
+\`\`\`bash\r
+bun run reset-password\r
+\`\`\`\r
+`,
+    "world-books/advanced-features.md": `# Advanced Features\r
+\r
+World Books have several advanced features for complex lore management. You don't need these for basic use, but they're powerful when your world grows.\r
+\r
+---\r
+\r
+## Sticky Entries\r
+\r
+When **sticky** is set to a number (e.g., 5), the entry stays active for that many turns *after* its keywords stop appearing. This prevents lore from disappearing the instant the conversation moves on.\r
+\r
+**Example:** An entry about a character's magic aura has sticky set to 3. When "aura" is mentioned, the entry activates and stays active for 3 more turns even if "aura" isn't mentioned again.\r
+\r
+---\r
+\r
+## Cooldown\r
+\r
+After an entry deactivates (either naturally or after its sticky period), **cooldown** prevents it from reactivating for a set number of turns.\r
+\r
+**Example:** A random encounter entry has cooldown set to 10. After it triggers once, it can't trigger again for 10 turns. This prevents the same encounter from repeating too frequently.\r
+\r
+---\r
+\r
+## Delay\r
+\r
+**Delay** requires a keyword to appear for a set number of consecutive turns before the entry activates. This filters out passing mentions.\r
+\r
+**Example:** An entry about growing suspicion has delay set to 3. The keyword "suspicious" must appear in 3 consecutive messages before the entry activates, ensuring it only triggers during a sustained theme rather than a one-off mention.\r
+\r
+---\r
+\r
+## Groups\r
+\r
+Entries can be assigned to a **group**. Within a group, only one entry activates at a time (or entries compete based on weight).\r
+\r
+### Group Override\r
+\r
+If an entry has **group override** enabled, it "wins" the group competition whenever it activates \u2014 other entries in the same group are suppressed.\r
+\r
+### Group Weight\r
+\r
+When multiple entries in a group activate and none has override, the winner is chosen randomly based on **weight**. Higher weight = higher chance of being selected.\r
+\r
+**Example:** A "Weather" group with three entries:\r
+- "Sunny day" (weight: 50)\r
+- "Rainy day" (weight: 30)\r
+- "Thunderstorm" (weight: 20)\r
+\r
+When weather-related keywords appear, one of these is randomly selected based on their weights.\r
+\r
+---\r
+\r
+## Recursion\r
+\r
+Activated entries can trigger *other* entries through their content. If Entry A's content contains a keyword from Entry B, Entry B can also activate. This is called **recursion**.\r
+\r
+### Recursion Controls\r
+\r
+| Setting | Description |\r
+|---------|-------------|\r
+| **Prevent Recursion** | This entry's content won't trigger other entries |\r
+| **Exclude Recursion** | This entry won't contribute to the recursion source text |\r
+| **Delay Until Recursion** | This entry only activates during recursion passes (not the initial scan) |\r
+\r
+### Max Recursion Passes\r
+\r
+The global **Max Recursion Passes** setting (default: 3) limits how deep recursion goes. This prevents infinite loops where Entry A triggers Entry B which triggers Entry A.\r
+\r
+**Example:** An entry for "The Guild" mentions "Aria Blackwood" in its content. If there's an entry for "Aria Blackwood," it activates through recursion \u2014 because the Guild entry's content contained Aria's keyword.\r
+\r
+---\r
+\r
+## Budget Management\r
+\r
+When your world book grows large, you need to manage how much context space it consumes.\r
+\r
+### Max Activated Entries\r
+\r
+Caps the total number of entries that can be active at once. Constant entries count toward the cap but are never evicted \u2014 they take priority.\r
+\r
+### Max Token Budget\r
+\r
+Sets a rough limit on total token consumption by world info content (estimated as characters divided by 4). When the budget would be exceeded, entries are included in priority order until the budget runs out.\r
+\r
+### Min Priority\r
+\r
+Entries below this priority threshold are excluded entirely (constant entries are exempt).\r
+\r
+### Budget Enforcement Order\r
+\r
+1. All entries are collected (constants + activated conditional entries)\r
+2. Sorted by priority (highest first)\r
+3. Entry cap applied (lowest-priority conditional entries removed first)\r
+4. Token budget applied (remaining entries included in priority order until budget is full)\r
+5. Constants are never removed\r
+\r
+---\r
+\r
+## Vectorized Entries\r
+\r
+Entries can be **vectorized** \u2014 converted to embedding vectors for semantic search rather than keyword matching. When enabled:\r
+\r
+- The entry activates based on semantic similarity to the conversation, not exact keyword matches\r
+- This catches related concepts even when the exact keywords aren't used\r
+- Requires an embedding provider to be configured in Settings\r
+\r
+Vectorization status is shown per-entry: \`not_enabled\`, \`pending\`, \`indexed\`, or \`error\`.\r
+\r
+---\r
+\r
+## World Info State\r
+\r
+Per-entry state (sticky counters, cooldown timers, delay counts) is tracked in the chat metadata. This means:\r
+\r
+- State is preserved across sessions\r
+- Each chat has independent state\r
+- State resets if you clear chat metadata\r
+\r
+You can view activation diagnostics in the **World Book Diagnostics** modal to see which entries are active, cooling down, or delayed.\r
+`,
+    "world-books/creating-entries.md": `# Creating Entries\r
+\r
+Each entry in a World Book is a piece of information that can be injected into the prompt when its conditions are met.\r
+\r
+---\r
+\r
+## Creating a World Book\r
+\r
+1. Open the **World Book** panel\r
+2. Click **New World Book**\r
+3. Give it a name (e.g., "Thornfield Setting," "Magic System," "NPC Roster")\r
+4. Optionally add a description\r
+\r
+---\r
+\r
+## Adding an Entry\r
+\r
+1. Open your world book\r
+2. Click **New Entry**\r
+3. Fill in the key fields:\r
+\r
+### Essential Fields\r
+\r
+| Field | Description |\r
+|-------|-------------|\r
+| **Keywords** | Words or phrases that trigger this entry (comma-separated) |\r
+| **Content** | The information to inject into the prompt |\r
+| **Comment** | A note for yourself (not sent to the AI) |\r
+\r
+### Example Entry\r
+\r
+**Keywords:** \`Thornfield, castle, the keep\`\r
+\r
+**Content:**\r
+\`\`\`\r
+Thornfield Castle is a crumbling medieval fortress perched on a cliff\r
+overlooking the Ashenmere. Its east tower collapsed decades ago and is\r
+now overgrown with ivy. The great hall still stands but the roof leaks.\r
+Lord Maren rules from here with his small household guard of twelve.\r
+The castle's dungeons are rumored to connect to natural caves beneath\r
+the cliff.\r
+\`\`\`\r
+\r
+**Comment:** \`Main setting - introduced in Chapter 1\`\r
+\r
+---\r
+\r
+## Writing Good Entry Content\r
+\r
+### Be Concise\r
+\r
+Each activated entry takes up context space. Write densely \u2014 include the important facts without unnecessary prose.\r
+\r
+**Too long:**\r
+> Thornfield Castle is a truly magnificent structure, though one that has clearly seen better days. If you were to approach from the western road, you would first notice the imposing silhouette against the sky...\r
+\r
+**Better:**\r
+> Thornfield Castle: crumbling medieval fortress on a cliff above the Ashenmere. East tower collapsed (now ivy-covered). Great hall intact but leaky roof. Ruled by Lord Maren with 12 household guards. Dungeons connect to cliff caves.\r
+\r
+### Use Structured Formats\r
+\r
+The AI processes structured information well:\r
+\r
+\`\`\`\r
+[Aria Blackwood]\r
+Race: Half-elf\r
+Role: Court mage of Thornfield\r
+Personality: Brilliant but absent-minded, speaks in riddles\r
+Secret: Knows the castle dungeons lead to an ancient shrine\r
+Relationship to {{char}}: Rival and reluctant ally\r
+\`\`\`\r
+\r
+### Reference Other Characters\r
+\r
+Use macros to keep entries dynamic:\r
+\r
+\`\`\`\r
+{{char}} knows that the Silver Compass always points toward\r
+the nearest ley line. {{user}} has not been told about this artifact yet.\r
+\`\`\`\r
+\r
+---\r
+\r
+## Entry States\r
+\r
+Each entry can be in one of these states:\r
+\r
+| State | Behavior |\r
+|-------|----------|\r
+| **Active (conditional)** | Activates when keywords match |\r
+| **Constant** | Always included, regardless of keywords |\r
+| **Disabled** | Never included |\r
+\r
+Use **constant** for critical world rules that should always be present. Use **disabled** to temporarily remove an entry without deleting it.\r
+\r
+---\r
+\r
+## Tips\r
+\r
+!!! tip "One concept per entry"\r
+    Keep entries focused on a single topic (one character, one location, one rule). This makes them activate precisely and keeps token usage efficient.\r
+\r
+!!! tip "Use the comment field"\r
+    Comments help you remember what entries are for when you come back to edit them months later. They're free \u2014 they don't count toward the prompt.\r
+\r
+!!! tip "Test with dry run"\r
+    Use Dry Run to see which entries are activating and where they appear in the prompt. This is the best way to verify your world book is working as intended.\r
+`,
+    "world-books/importing-exporting.md": `# Import & Export\r
+\r
+World Books can be shared between Lumiverse installations and imported from other platforms.\r
+\r
+---\r
+\r
+## Exporting\r
+\r
+1. Open the World Book panel\r
+2. Select the world book you want to export\r
+3. Click **Export**\r
+4. Choose a format:\r
+\r
+| Format | Description |\r
+|--------|-------------|\r
+| **Lumiverse** | Full-fidelity format preserving all Lumiverse-specific settings |\r
+| **Character Book** | Standard format compatible with character card specs |\r
+| **SillyTavern** | Compatible with SillyTavern's world info format |\r
+\r
+---\r
+\r
+## Importing\r
+\r
+### From File\r
+\r
+1. Open the World Book panel\r
+2. Click **Import**\r
+3. Select a world book JSON file\r
+4. The world book and all its entries are created\r
+\r
+### From Character Cards\r
+\r
+When you import a character card that contains an embedded \`character_book\`, the lorebook is automatically extracted and created as a World Book linked to that character.\r
+\r
+### From SillyTavern\r
+\r
+The migration tool (\`bun run migrate:st\`) can import your SillyTavern world books in bulk, preserving entry settings and keywords.\r
+\r
+---\r
+\r
+## Attaching World Books\r
+\r
+After importing, attach your world book to where it should be active:\r
+\r
+### To a Character\r
+\r
+1. Open the character editor\r
+2. In the extensions or settings, link the world book\r
+3. The world book activates in all chats with that character\r
+\r
+### To a Persona\r
+\r
+1. Open the persona editor\r
+2. Set the **Attached World Book** field\r
+3. The world book activates whenever that persona is active\r
+\r
+### As a Global World Book\r
+\r
+1. Go to **Settings**\r
+2. Add the world book to the **Global World Books** list\r
+3. The world book activates in every chat, always\r
+\r
+---\r
+\r
+## Sharing Tips\r
+\r
+!!! tip "Export as Lumiverse format for full fidelity"\r
+    The Lumiverse export format preserves all advanced settings (sticky, cooldown, delay, groups, vectorization). Other formats may lose some of these features.\r
+\r
+!!! tip "Embed in character exports"\r
+    When you export a character as PNG or CHARX, attached world books are embedded automatically. This is the easiest way to share a character with their lore.\r
+\r
+!!! tip "Clean up before sharing"\r
+    Remove personal or campaign-specific entries before exporting a world book for public use. Keep entries generic enough to be useful in different contexts.\r
+`,
+    "world-books/index.md": `# World Books\r
+\r
+World Books (also called lorebooks) are collections of contextual information that activate during conversations based on keywords. They're how you give the AI detailed knowledge about your world, characters, locations, and lore \u2014 without cramming everything into the character description.\r
+\r
+---\r
+\r
+## How World Books Work\r
+\r
+Instead of including all your world's lore in every prompt (which would eat your context window), World Books inject information **only when it's relevant**. When a keyword appears in the recent chat messages, the matching entry's content is added to the prompt.\r
+\r
+For example, if you have an entry about "Thornfield Castle" with the keyword "Thornfield," the AI only learns about the castle when someone mentions it in conversation. The rest of the time, that information doesn't take up context space.\r
+\r
+---\r
+\r
+## Types of World Books\r
+\r
+| Type | How It Activates |\r
+|------|-----------------|\r
+| **Character World Book** | Attached to a character \u2014 active in all chats with that character |\r
+| **Persona World Book** | Attached to your persona \u2014 active whenever that persona is used |\r
+| **Global World Book** | Always active in every chat, regardless of character or persona |\r
+\r
+You can have multiple world books active at the same time. Entries from all active books are deduplicated automatically.\r
+\r
+---\r
+\r
+## Quick Links\r
+\r
+| Guide | What You'll Learn |\r
+|-------|-------------------|\r
+| [Creating Entries](creating-entries.md) | Add lore entries to your world book |\r
+| [Keywords & Activation](keywords-and-activation.md) | How entries match and activate |\r
+| [Positions & Depth](positions-and-depth.md) | Where activated entries appear in the prompt |\r
+| [Advanced Features](advanced-features.md) | Sticky, cooldown, groups, recursion, and budgets |\r
+| [Import & Export](importing-exporting.md) | Share world books between users and platforms |\r
+\r
+---\r
+\r
+## When to Use World Books\r
+\r
+World Books shine when you have:\r
+\r
+- **Rich worlds** with many locations, characters, and factions\r
+- **Evolving lore** that changes as the story progresses\r
+- **Shared settings** used across multiple characters\r
+- **Complex backstories** that are relevant only in specific contexts\r
+- **Gameplay systems** with rules that should only appear when invoked\r
+\r
+!!! tip "Start simple"\r
+    You don't need a world book to start chatting. Add one when you find the AI doesn't know something important about your world, or when your character description is getting too long.\r
+`,
+    "world-books/keywords-and-activation.md": `# Keywords & Activation\r
+\r
+Understanding how entries activate is the key to making world books work well. This guide covers keyword matching, selective logic, and scan behavior.\r
+\r
+---\r
+\r
+## Primary Keywords\r
+\r
+Every entry has a list of **primary keywords** \u2014 words or phrases that trigger the entry. If any primary keyword appears in the recent chat messages, the entry activates.\r
+\r
+Keywords are comma-separated:\r
+\`\`\`\r
+Thornfield, castle, the keep, Lord Maren's home\r
+\`\`\`\r
+\r
+Any one of these appearing in the chat will trigger the entry.\r
+\r
+### Matching Options\r
+\r
+| Option | Default | Description |\r
+|--------|---------|-------------|\r
+| **Case Sensitive** | Off | Whether "thornfield" and "Thornfield" are treated differently |\r
+| **Match Whole Words** | Off | Whether "castle" matches inside "sandcastle" |\r
+| **Use Regex** | Off | Treat keywords as regular expressions |\r
+\r
+!!! tip "Use whole-word matching for common words"\r
+    If your keyword is "fire," whole-word matching prevents it from triggering on "firehouse," "firewall," or "campfire" \u2014 unless those are relevant too.\r
+\r
+---\r
+\r
+## Secondary Keywords & Selective Logic\r
+\r
+Entries can have **secondary keywords** for more precise activation. When **selective** mode is enabled, both primary AND secondary conditions must be met.\r
+\r
+### Selective Logic Modes\r
+\r
+| Mode | Behavior |\r
+|------|----------|\r
+| **AND** | Primary keyword found AND at least one secondary keyword found |\r
+| **OR** | Primary keyword found AND/OR at least one secondary keyword found |\r
+| **NOT** | Primary keyword found AND no secondary keywords found |\r
+| **NOT All** | Primary keyword found AND not ALL secondary keywords found |\r
+\r
+### Example: AND Logic\r
+\r
+**Primary keywords:** \`Aria\`\r
+**Secondary keywords:** \`magic, spell, enchantment\`\r
+**Logic:** AND\r
+\r
+This entry only activates when "Aria" appears AND at least one of "magic," "spell," or "enchantment" also appears. So it triggers for "Aria cast a spell" but not for "Aria walked to the market."\r
+\r
+### Example: NOT Logic\r
+\r
+**Primary keywords:** \`Aria\`\r
+**Secondary keywords:** \`childhood, young, growing up\`\r
+**Logic:** NOT\r
+\r
+This entry activates when "Aria" is mentioned but NOT when childhood-related words appear. Useful for separating "adult Aria" lore from "young Aria" lore.\r
+\r
+---\r
+\r
+## Scan Depth\r
+\r
+**Scan depth** controls how many recent messages are checked for keywords.\r
+\r
+| Setting | Behavior |\r
+|---------|----------|\r
+| **null (default)** | Scans all messages in the chat |\r
+| **1** | Only checks the most recent message |\r
+| **5** | Checks the last 5 messages |\r
+| **20** | Checks the last 20 messages |\r
+\r
+Shorter scan depths make entries activate only when keywords are in the very recent conversation. Longer depths catch keywords mentioned earlier.\r
+\r
+!!! tip "Use shorter scan depths for transient information"\r
+    If an entry describes a temporary state (like weather), set scan depth to 3-5 so it fades when the topic changes.\r
+\r
+---\r
+\r
+## Probability\r
+\r
+Set a probability (0-100%) for the entry to activate even when keywords match. At 100%, it always activates. At 50%, it has a coin-flip chance.\r
+\r
+Useful for:\r
+- Random encounters\r
+- Flavor text that shouldn't appear every time\r
+- Entries that should feel organic rather than deterministic\r
+\r
+Enable probability checking with the **Use Probability** toggle.\r
+\r
+---\r
+\r
+## Global Scan Settings\r
+\r
+These settings (in **Settings > World Info**) apply to all entries:\r
+\r
+| Setting | Default | Description |\r
+|---------|---------|-------------|\r
+| **Global Scan Depth** | Unlimited | Default scan depth for entries without a custom scan depth |\r
+| **Max Recursion Passes** | 3 | How many times keywords in activated entries can trigger other entries |\r
+| **Max Activated Entries** | Unlimited | Cap on total activated entries |\r
+| **Max Token Budget** | Unlimited | Rough token limit for all world info content |\r
+| **Min Priority** | 0 | Entries below this priority are excluded |\r
+\r
+---\r
+\r
+## How Activation Works (Step by Step)\r
+\r
+1. Collect recent messages (up to scan depth)\r
+2. For each enabled, non-constant entry:\r
+    a. Check if any primary keyword appears in the messages\r
+    b. If selective, check secondary keywords with the chosen logic\r
+    c. If probability is enabled, roll the dice\r
+    d. Check delay counter (if configured)\r
+    e. Check cooldown timer (if cooling down)\r
+3. Constant entries are always included\r
+4. Apply group logic (if entries are in groups)\r
+5. Sort by priority\r
+6. Enforce budget limits (entry cap and token budget)\r
+7. Group entries by position (before/after chat history)\r
+`,
+    "world-books/positions-and-depth.md": `# Positions & Depth\r
+\r
+When a World Book entry activates, it needs to go *somewhere* in the prompt. The **position** setting controls where.\r
+\r
+---\r
+\r
+## Available Positions\r
+\r
+| Position | Code | Where It Goes |\r
+|----------|:----:|---------------|\r
+| **Before Main Prompt** | 0 | Before the character description and main content |\r
+| **After Main Prompt** | 1 | After the main content, before chat history |\r
+| **Before Author's Note** | 2 | Just before the Author's Note injection point |\r
+| **After Author's Note** | 3 | Just after the Author's Note injection point |\r
+| **At Depth** | 4 | Inserted at a specific depth in the chat history |\r
+| **Before Example Messages** | 5 | Before the character's example dialogues |\r
+| **After Example Messages** | 6 | After the character's example dialogues |\r
+\r
+---\r
+\r
+## Understanding Depth\r
+\r
+For entries with the **At Depth** position, the **depth** setting controls how many messages from the end of the chat the entry is inserted.\r
+\r
+\`\`\`\r
+Message 1: "Hello!"                    \u2190 depth 6\r
+Message 2: "Hi there!"                \u2190 depth 5\r
+Message 3: "How are you?"             \u2190 depth 4\r
+[Entry inserted here if depth = 3]    \u2190 depth 3\r
+Message 4: "I'm good."               \u2190 depth 2\r
+Message 5: "What shall we do?"        \u2190 depth 1\r
+Message 6: (AI generates next)        \u2190 depth 0\r
+\`\`\`\r
+\r
+- **Depth 0** \u2014 Right at the end, maximum influence on the next response\r
+- **Depth 4** \u2014 In the middle of recent conversation, moderate influence\r
+- **Depth 10+** \u2014 Far back, subtle influence\r
+\r
+### When to Use Depth\r
+\r
+- **Depth 0-2** \u2014 Critical information that must influence the next response (active quests, immediate danger)\r
+- **Depth 3-5** \u2014 Important context that should be "nearby" (character relationships, current scene)\r
+- **Depth 6+** \u2014 Background information the AI should be aware of but not fixate on (world rules, distant lore)\r
+\r
+---\r
+\r
+## Role\r
+\r
+Each entry can specify a message **role**:\r
+\r
+| Role | Effect |\r
+|------|--------|\r
+| **System** | Treated as system-level context (default, recommended) |\r
+| **User** | Appears as a user message |\r
+| **Assistant** | Appears as an assistant message |\r
+\r
+Most entries should use the **System** role. Use user/assistant roles only for specific effects, like injecting fake dialogue patterns.\r
+\r
+---\r
+\r
+## Order Value\r
+\r
+When multiple entries share the same position and depth, the **order value** determines their relative order. Lower values come first.\r
+\r
+This is useful when you want certain entries to consistently appear before others at the same insertion point.\r
+\r
+---\r
+\r
+## Priority\r
+\r
+**Priority** is different from position \u2014 it controls which entries *survive* when budgets are enforced.\r
+\r
+- Higher priority entries are kept when the entry cap or token budget is reached\r
+- Lower priority entries are dropped first\r
+- Constant entries are never dropped regardless of priority\r
+\r
+Think of priority as "how important is this entry compared to others?" and position as "where does it go in the prompt?"\r
+\r
+---\r
+\r
+## Practical Examples\r
+\r
+### Location Description (Before Main)\r
+**Position:** Before Main Prompt\r
+> Good for establishing the world setting that frames everything else.\r
+\r
+### Active Quest Reminder (At Depth 2)\r
+**Position:** At Depth, Depth: 2\r
+> Keeps the current quest fresh in the AI's mind without being the very last thing it sees.\r
+\r
+### World Rules (After Main)\r
+**Position:** After Main Prompt\r
+> General rules about the world that should be established early but after the character's own description.\r
+\r
+### Danger Warning (At Depth 0)\r
+**Position:** At Depth, Depth: 0\r
+> "The poison is taking effect. {{char}} has 10 minutes before losing consciousness." \u2014 Maximum urgency, right before generation.\r
+`
+  };
+});
+
 // src/state/system-files.ts
 var exports_system_files = {};
 __export(exports_system_files, {
@@ -20056,12 +27185,25 @@ async function ensureDir(spindle2, userId, relPath) {
     await spindle2.userStorage.mkdir(absPath(relPath), userId);
   } catch {}
 }
+async function seedLumiverseDocsIfNeeded(spindle2, userId) {
+  if (Object.keys(LUMIVERSE_DOCS).length === 0)
+    return;
+  const existing = await readFromStorage(spindle2, userId, LUMIVERSE_DOCS_MARKER);
+  if (existing !== null && existing.trim() === LUMIVERSE_DOCS_VERSION)
+    return;
+  for (const rel of Object.keys(LUMIVERSE_DOCS)) {
+    const full = `${LUMIVERSE_DOCS_ROOT}/${rel}`;
+    await writeIfMissing(spindle2, userId, full, LUMIVERSE_DOCS[rel]);
+  }
+  await spindle2.userStorage.write(absPath(LUMIVERSE_DOCS_MARKER), LUMIVERSE_DOCS_VERSION, userId);
+}
 async function ensureSystemFiles(spindle2, userId) {
   for (const d of SYSTEM_DIR_PATHS)
     await ensureDir(spindle2, userId, d);
   await writeIfMissing(spindle2, userId, "custom_tools/tools.md", TOOLS_MD_TEMPLATE);
   await writeIfMissing(spindle2, userId, "custom_tools/example/tool.json", EXAMPLE_TOOL_JSON);
   await writeIfMissing(spindle2, userId, "agent/agent.md", AGENT_MD_TEMPLATE);
+  await seedLumiverseDocsIfNeeded(spindle2, userId);
 }
 var SYSTEM_FILE_PATHS, SYSTEM_DIR_PATHS, TOOLS_MD_TEMPLATE = `# Custom tools
 
@@ -20080,9 +27222,10 @@ recurring workflows.
 Keep entries short and information-dense. One bullet per fact is ideal.
 
 ## Notes
-`, AGENT_NOTES_PATH = "agent/agent.md";
+`, LUMIVERSE_DOCS_ROOT = "docs/lumiverse", LUMIVERSE_DOCS_MARKER, AGENT_NOTES_PATH = "agent/agent.md";
 var init_system_files = __esm(() => {
   init_workspace();
+  init_lumiverse_docs();
   SYSTEM_FILE_PATHS = [
     "custom_tools/tools.md",
     "custom_tools/example/tool.json",
@@ -20106,6 +27249,7 @@ var init_system_files = __esm(() => {
     ],
     return: "{{$body}}"
   }, null, 2);
+  LUMIVERSE_DOCS_MARKER = `${LUMIVERSE_DOCS_ROOT}/.version`;
 });
 
 // src/state/workspace.ts
@@ -26455,6 +33599,8 @@ These tools answer "what's actually configured / running":
 # Workspace files
 
 Per-user filesystem under \`workspace/\`, shared with the user via the Files tab. Tools: \`fs_list\`, \`fs_stat\`, \`fs_read\` (line-numbered, paginated, spills), \`fs_write\` (auto-mkdir), \`fs_edit\` (unique-find), \`fs_delete\`, \`fs_move\`, \`fs_mkdir\`, \`fs_zip\`, \`fs_unzip\`. The user sees everything \u2014 treat it as shared scratch, not a private cache.
+
+The host's user-facing documentation is seeded at \`workspace/docs/lumiverse/\` (organized by topic: \`characters/\`, \`chatting/\`, \`connections/\`, \`world-books/\`, \`personas/\`, \`presets/\`, \`extensions/\`, \`settings/\`, \`reference/\`, etc.). When the user asks "how do I do X in Lumiverse" or "what does feature Y do", \`fs_list docs/lumiverse\` to orient, then \`fs_read\` the relevant file. The user can edit or delete these; treat anything still present as authoritative.
 
 # Piping tool calls (custom_tool_run)
 

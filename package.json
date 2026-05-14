@@ -7,10 +7,11 @@
   "description": "Agentic LLM workbench for character cards",
   "scripts": {
     "embed:icon": "bun run local/scripts/embed-icon.ts",
+    "embed:docs": "bun run local/scripts/embed-docs.ts",
     "typecheck": "bun --bun tsc --noEmit",
     "build:backend": "bun build src/backend.ts --outfile dist/backend.js --target bun",
     "build:frontend": "bun build src/frontend.ts --outfile dist/frontend.js --target browser",
-    "build": "bun run embed:icon && bun run typecheck && bun run build:backend && bun run build:frontend",
+    "build": "bun run embed:icon && bun run embed:docs && bun run typecheck && bun run build:backend && bun run build:frontend",
     "deploy": "powershell.exe -File local/scripts/deploy.ps1"
   },
   "devDependencies": {
