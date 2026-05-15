@@ -18,7 +18,8 @@ import { listDeferredToolNames, makeDeferredToolSchemaMap, makeInitialToolSchema
 import { systemMessageWithCache } from "./agent/cache-control";
 import { buildGeneralSystemPrompt } from "./tasks/general";
 import { revertEditWithCheck, revertEdit, writeFieldValue } from "./state/edit-log";
-import { appendEntries, entriesView, findEntry, loadLedger, persistLedgerNow, purgeAllRevertedInMemory, squashMessage } from "./state/ledger";
+import { appendEntries, entriesView, findEntry, loadLedger, ledgerPath, persistLedgerNow, purgeAllRevertedInMemory, squashMessage } from "./state/ledger";
+import { characterScope } from "./types";
 import { applySinglePatch, sha256 as patchSha256 } from "./state/patch-stack";
 import { type AgentSettings, DEFAULT_PERSONA, loadSettings, saveSettings, resolveWorkspaceCap, resolveToolOutputCapTokens, WORKSPACE_FILE_CAP_BYTES, DEFAULT_WORKSPACE_MAX_FILES, DEFAULT_TOOL_OUTPUT_CAP_TOKENS } from "./state/settings";
 import { loadUiPrefs, saveUiPrefs } from "./state/ui-prefs";
@@ -446,12 +447,12 @@ async function handleListCharactersStorage(userId: string): Promise<void> {
     // Parallelise per-character ledger + stat. Serial scan was O(N) round-trips
     // and dominated the workshop refresh latency on accounts with many cards.
     const perChar = await Promise.all(charactersRes.data.map(async (c) => {
-      const ledger = await loadLedger(spindle, c.id, userId).catch(() => null);
+      const ledger = await loadLedger(spindle, characterScope(c.id), userId).catch(() => null);
       const view = ledger ? entriesView(ledger) : [];
       if (view.length === 0) return null;
       let ledgerBytes = 0;
       try {
-        const s = await spindle.userStorage.stat(`ledgers/${c.id}.json`, userId);
+        const s = await spindle.userStorage.stat(ledgerPath(characterScope(c.id)), userId);
         if (s.exists) ledgerBytes = s.sizeBytes;
       } catch { /* missing on disk, cache only */ }
       return {
@@ -481,8 +482,8 @@ async function handleSquashCharacter(characterId: string, userId: string): Promi
     const { dropCache } = await import("./state/ledger");
     let ledgerCleared = false;
     try {
-      await spindle.userStorage.delete(`ledgers/${characterId}.json`, userId);
-      dropCache(characterId, userId);
+      await spindle.userStorage.delete(ledgerPath(characterScope(characterId)), userId);
+      dropCache(characterScope(characterId), userId);
       ledgerCleared = true;
     } catch { /* nothing to clear */ }
     send({ type: "character_squashed", characterId, ledgerCleared }, userId);
@@ -494,7 +495,7 @@ async function handleSquashCharacter(characterId: string, userId: string): Promi
 
 async function handleRevertCharacterAll(characterId: string, userId: string): Promise<void> {
   try {
-    const ledger = await loadLedger(spindle, characterId, userId);
+    const ledger = await loadLedger(spindle, characterScope(characterId), userId);
     const liveIds: string[] = [];
     for (const f of ledger.files) for (const p of f.patches) {
       if (!p.reverted) liveIds.push(p.id);
@@ -516,7 +517,7 @@ async function handleLoadCharacterWorkshop(characterId: string, userId: string):
   // frontend uses this from the Characters tab to switch the workshop view to
   // a different character's edits.
   try {
-    const ledger = await loadLedger(spindle, characterId, userId);
+    const ledger = await loadLedger(spindle, characterScope(characterId), userId);
     send({ type: "character_edits_pushed", characterId, entries: entriesView(ledger) }, userId);
   } catch (err) {
     log("warn", `load_character_workshop ${characterId} failed: ${(err as Error).message}`);
@@ -1218,12 +1219,12 @@ function renderSessionMarkdown(s: PersistedSession): { content: string; filename
 }
 
 async function handleListCharacterEdits(characterId: string, userId: string): Promise<void> {
-  const ledger = await loadLedger(spindle, characterId, userId);
+  const ledger = await loadLedger(spindle, characterScope(characterId), userId);
   send({ type: "character_edits_pushed", characterId, entries: entriesView(ledger) }, userId);
 }
 
 async function handleRevertEdit(characterId: string, editId: string, force: boolean, userId: string): Promise<void> {
-  const ledger = await loadLedger(spindle, characterId, userId);
+  const ledger = await loadLedger(spindle, characterScope(characterId), userId);
   const entry = findEntry(ledger, editId);
   if (!entry) {
     send({ type: "edit_reverted", characterId, editId, outcome: { kind: "failed", editId, error: "edit not found in character ledger" } }, userId);
@@ -1253,7 +1254,7 @@ async function handleRevertEdit(characterId: string, editId: string, force: bool
 // this collapses N×(spindle_get + spindle_update + ledger_write) to
 // roughly (unique_files) parallel spindle updates + 1 ledger write.
 async function handleRevertEditsBulk(characterId: string, editIds: readonly string[], userId: string, opts: { suppressRefresh?: boolean } = {}): Promise<void> {
-  const ledger = await loadLedger(spindle, characterId, userId);
+  const ledger = await loadLedger(spindle, characterScope(characterId), userId);
   const targetSet = new Set(editIds);
 
   const outcomes: Array<{ editId: string; outcome: RevertOutcomeWire }> = [];
@@ -1322,7 +1323,7 @@ async function handleRevertEditsBulk(characterId: string, editIds: readonly stri
   if (structHits.length > 0) {
     const structResults = await Promise.allSettled(structHits.map(async (s) => {
       const entry: EditLogEntry = {
-        id: s.id, ts: s.ts, sessionId: s.sessionId ?? "", characterId,
+        id: s.id, ts: s.ts, sessionId: s.sessionId ?? "", scope: characterScope(characterId),
         toolCallId: s.toolCallId ?? "", toolName: s.op, turn: 0, reverted: false,
         record: s.op === "create"
           ? { op: "create", surface: s.surface, surfaceId: s.surfaceId, surfaceLabel: s.surfaceLabel, snapshot: s.snapshot as never }
@@ -1399,7 +1400,7 @@ async function handleRevertAllCharacters(characterIds: readonly string[], userId
   // fanout, then we fire ONE refresh at the end.
   for (const characterId of characterIds) {
     try {
-      const ledger = await loadLedger(spindle, characterId, userId);
+      const ledger = await loadLedger(spindle, characterScope(characterId), userId);
       const liveIds: string[] = [];
       for (const f of ledger.files) for (const p of f.patches) {
         if (!p.reverted) liveIds.push(p.id);
@@ -1502,7 +1503,7 @@ async function revertEditsBatch(characterId: string, entries: readonly EditLogEn
   await handleRevertEditsBulk(characterId, ids, userId);
   // handleRevertEditsBulk purges successful ids from the ledger; survivors
   // are the failures. loadLedger is cache-backed so this is cheap.
-  const after = await loadLedger(spindle, characterId, userId);
+  const after = await loadLedger(spindle, characterScope(characterId), userId);
   const survivors = new Set<string>();
   for (const f of after.files) for (const p of f.patches) survivors.add(p.id);
   for (const s of after.structural) survivors.add(s.id);
@@ -1742,7 +1743,7 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
           // char-agnostic tool starts pushing edits.
           if (s.characterId === null) break;
           s.edits.push(ev.entry);
-          void appendEntries(spindle, s.characterId, [ev.entry], userId).catch((e) => log("warn", `ledger append failed: ${(e as Error).message}`));
+          void appendEntries(spindle, ev.entry.scope, [ev.entry], userId).catch((e) => log("warn", `ledger append failed: ${(e as Error).message}`));
           break;
         case "revert_logged": {
           if (s.characterId === null) break;
@@ -1766,7 +1767,7 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
           const charId = s.characterId;
           // Squash mutated the ledger; push the fresh view so the workshop
           // Edits tab reflects the consolidated entries.
-          void loadLedger(spindle, charId, userId)
+          void loadLedger(spindle, characterScope(charId), userId)
             .then((l) => send({ type: "character_edits_pushed", characterId: charId, entries: entriesView(l) }, userId))
             .catch((e) => log("warn", `edits resync failed: ${(e as Error).message}`));
           break;
@@ -1838,9 +1839,9 @@ async function autosquashAndNotify(
   userId: string,
 ): Promise<boolean> {
   try {
-    const summary = await squashMessage(spindle, characterId, assistantMessageId, userId, { sealed: false });
+    const summary = await squashMessage(spindle, characterScope(characterId), assistantMessageId, userId, { sealed: false });
     if (summary.groupsMerged === 0) return false;
-    const ledger = await loadLedger(spindle, characterId, userId);
+    const ledger = await loadLedger(spindle, characterScope(characterId), userId);
     const view = entriesView(ledger);
     let mutated = false;
     if (summary.absorbedIds.length > 0) {

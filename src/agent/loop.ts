@@ -15,6 +15,7 @@ import { runLlmStream } from "./llm";
 import { withRollingCacheBreakpoint } from "./cache-control";
 import { LoopDetector } from "./loop-detector";
 import { newEditEntry } from "../state/edit-log";
+import { characterScope } from "../types";
 import { writeTmp } from "../state/tmp-store";
 import { isReadOnlyTool, maxResultSizeCharsFor, RecentReadsCache, type ToolCtx, type ToolFn } from "./tools";
 
@@ -313,6 +314,13 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
       effectiveTools = [...input.tools, ...extras];
     }
 
+    // Streamed-reasoning counters. `reasoning` (the variable) is only set from
+    // the terminal `done` chunk, so a stream that ends mid-reasoning leaves it
+    // undefined even though the model produced a lot of thinking. These track
+    // what actually came down the wire so the failure dump is accurate.
+    let streamedReasoningChars = 0;
+    let streamedTokenChars = 0;
+    let sawDoneEvent = false;
     try {
       for await (const ev of runLlmStream(input.spindle, {
         messages: withRollingCacheBreakpoint(conv, input.cacheMode ?? "full"),
@@ -323,10 +331,13 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
         signal,
       })) {
         if (ev.type === "token") {
+          streamedTokenChars += ev.token.length;
           yield { type: "llm_token", token: ev.token };
         } else if (ev.type === "reasoning") {
+          streamedReasoningChars += ev.token.length;
           yield { type: "llm_reasoning", token: ev.token };
         } else {
+          sawDoneEvent = true;
           content = ev.response.content;
           toolCalls = ev.response.tool_calls;
           finishReason = ev.response.finish_reason;
@@ -336,8 +347,22 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
       }
     } catch (err) {
       if (signal.aborted) return;
+      input.spindle.log.error(
+        `loop.turn ${turnNum} LLM stream threw: ${(err as Error).message} ` +
+        `(streamed reasoning_chars=${streamedReasoningChars} token_chars=${streamedTokenChars} saw_done=${sawDoneEvent})`,
+      );
       throw new Error(`LLM call failed: ${(err as Error).message}`);
     }
+
+    input.spindle.log.info(
+      `loop.turn ${turnNum} response: finish_reason=${finishReason || "<empty>"} ` +
+      `content_chars=${content.length} tool_calls=${toolCalls.length}` +
+      `[${toolCalls.map((t) => t.name).join(",") || "<none>"}] ` +
+      `reasoning_terminal_chars=${reasoning?.length ?? 0} reasoning_streamed_chars=${streamedReasoningChars} ` +
+      `token_streamed_chars=${streamedTokenChars} saw_done=${sawDoneEvent} ` +
+      `usage=${usage ? `p${usage.prompt}/c${usage.completion}/t${usage.total}${usage.estimated ? "(est)" : ""}` : "<none>"} ` +
+      `conv_msgs=${conv.length}`,
+    );
 
     if (usage === undefined) {
       try {
@@ -346,12 +371,73 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
     }
 
     if (turnNum === startingTurn + 1 && content.trim().length === 0 && toolCalls.length === 0) {
+      const lastUser = [...conv].reverse().find((m) => m.role === "user");
+      const lastUserPreview = typeof lastUser?.content === "string"
+        ? lastUser.content.slice(0, 200)
+        : JSON.stringify(lastUser?.content ?? null).slice(0, 200);
+
+      // Request-shape census. The NanoGPT-vs-OpenRouter split for DeepSeek-v4
+      // points at the gateway choking on tool-history continuations, so the
+      // load-bearing signal is how much tool_use / tool_result history the
+      // failing request carried vs a request that succeeded earlier.
+      let toolUseParts = 0;
+      let toolResultParts = 0;
+      let largestToolResultChars = 0;
+      let totalContentChars = 0;
+      for (const m of conv) {
+        if (typeof m.content === "string") { totalContentChars += m.content.length; continue; }
+        for (const p of m.content) {
+          if (p.type === "tool_use") toolUseParts++;
+          else if (p.type === "tool_result") {
+            toolResultParts++;
+            const c = typeof p.content === "string" ? p.content : JSON.stringify(p.content);
+            largestToolResultChars = Math.max(largestToolResultChars, c.length);
+            totalContentChars += c.length;
+          } else if (p.type === "text") {
+            totalContentChars += p.text.length;
+          }
+        }
+      }
+      const priorToolCalled = toolUseParts > 0;
+
+      input.spindle.log.error(
+        `loop.turn ${turnNum} EMPTY-TURN FAILURE: ` +
+        `saw_done=${sawDoneEvent} finish_reason=${finishReason || "<empty>"} ` +
+        `content_chars=${content.length} tool_calls=${toolCalls.length} ` +
+        `reasoning_terminal_chars=${reasoning?.length ?? 0} reasoning_streamed_chars=${streamedReasoningChars} ` +
+        `token_streamed_chars=${streamedTokenChars} ` +
+        `usage=${usage ? `p${usage.prompt}/c${usage.completion}/t${usage.total}${usage.estimated ? "(est)" : ""}` : "<none>"} ` +
+        `conv_msgs=${conv.length} req_tool_use=${toolUseParts} req_tool_result=${toolResultParts} ` +
+        `largest_tool_result_chars=${largestToolResultChars} total_content_chars=${totalContentChars} ` +
+        `tools_offered=${effectiveTools.length} connection=${input.connectionId ?? "<default>"} ` +
+        `last_user="${lastUserPreview.replace(/\n/g, " ")}"`,
+      );
+      const toolsOffered = effectiveTools.length;
+      let diag: string;
+      let advice: string;
+      if (!sawDoneEvent && streamedReasoningChars > 0) {
+        diag = `the provider streamed ${streamedReasoningChars} chars of reasoning then closed the connection without a completion chunk. The model thought but never emitted an answer or tool call.`;
+        advice = "Re-send. A stream that drops mid-reasoning is often transient.";
+      } else if (!sawDoneEvent) {
+        diag = "the provider closed the stream without emitting anything (no reasoning, no content, no completion chunk).";
+        advice = "Check the Lumiverse server log for a `[lumiverse.*.sse]` line. An error frame means the gateway returned an upstream error.";
+      } else if (priorToolCalled) {
+        diag = `the provider returned a complete but empty response (finish_reason=${finishReason || "unknown"}) on a continuation whose history already contains ${toolUseParts} tool call(s) and ${toolResultParts} tool result(s) (largest ${largestToolResultChars} chars).`;
+        advice = "The model DID emit tool calls earlier in this conversation, so it is tool-call capable. An empty completion specifically on a tool-history continuation is a gateway defect, not a model or LumiAgent issue. NanoGPT exhibits this serving DeepSeek-v4 (both thinking and non-thinking) while the same model works through OpenRouter. Run this model via a different gateway (OpenRouter is confirmed working) for tool-driven sessions.";
+      } else {
+        diag = `the provider returned a complete response (finish_reason=${finishReason || "unknown"}) with no content, no tool calls, and no reasoning, while ${toolsOffered} tools were offered and no tool call has succeeded yet in this conversation.`;
+        advice = "Re-send once. If it stays empty, this connection likely is not emitting native tool calls at all, try a function-calling-capable connection (Claude, GPT-4-class, Gemini, DeepSeek-v4 via OpenRouter).";
+      }
       throw new Error(
-        "The model returned no content and no tool calls. Likely causes:\n" +
-        "  • The selected connection's provider doesn't support native tool calling (Anthropic / OpenAI-compatible / Google / Bedrock all do; some self-hosted shims don't).\n" +
-        "  • The provider returned an error that wasn't surfaced (check Lumiverse server logs for the upstream HTTP body).\n" +
-        "  • The model finished with finish_reason=" + (finishReason || "unknown") + " before emitting anything.\n" +
-        "Try a different connection or check the upstream provider's status.",
+        "The model produced no answer and no tool call: " + diag + "\n\n" +
+        "Diagnostics (also in the Lumiverse server logs):\n" +
+        `  • terminal chunk received: ${sawDoneEvent ? "yes" : "no"}\n` +
+        `  • finish_reason: ${finishReason || "(stream ended before one was sent)"}\n` +
+        `  • reasoning streamed: ${streamedReasoningChars} chars\n` +
+        `  • content: ${content.length} chars, tool calls: ${toolCalls.length}\n` +
+        `  • prior tool calls in this conversation: ${toolUseParts} (tool results: ${toolResultParts})\n` +
+        `  • tools offered this turn: ${toolsOffered}\n\n` +
+        advice,
       );
     }
 
@@ -506,7 +592,7 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
       // since char-required tools (the only edit producers) are filtered out of
       // the schema in that mode and can't reach this branch.
       const editsForCall: EditLogEntry[] = oc.buffer.edits.map((rec) =>
-        newEditEntry(input.sessionId, input.characterId ?? "", oc.tc.call_id, oc.tc.name, turnNum, rec, input.assistantMessageId),
+        newEditEntry(input.sessionId, rec.scope ?? characterScope(input.characterId ?? ""), oc.tc.call_id, oc.tc.name, turnNum, rec, input.assistantMessageId),
       );
       newEdits.push(...editsForCall);
       results.push({ call_id: oc.tc.call_id, name: oc.tc.name, content: oc.resultText, ...(oc.isError ? { is_error: true } : {}) });

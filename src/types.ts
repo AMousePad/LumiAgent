@@ -36,12 +36,38 @@ export interface ToolResult {
   readonly is_error?: boolean | undefined;
 }
 
+// Ledger filing scope. Phase 0 only ever produces "character"; the other
+// kinds are filing drawers for non-character surfaces added in later phases.
+// variables/images are singleton pseudo-scopes (id is a fixed constant).
+export type ScopeKind = "character" | "persona" | "chat" | "databank" | "variables" | "images";
+
+export interface ScopeRef {
+  readonly kind: ScopeKind;
+  readonly id: string;
+}
+
+export function characterScope(id: string): ScopeRef {
+  return { kind: "character", id };
+}
+
+export function scopeKeyString(s: ScopeRef): string {
+  return `${s.kind}:${s.id}`;
+}
+
+export function parseScopeKey(s: string): ScopeRef {
+  const i = s.indexOf(":");
+  if (i < 0) throw new Error(`bad scope key ${s}`);
+  return { kind: s.slice(0, i) as ScopeKind, id: s.slice(i + 1) };
+}
+
 export type EditSurface =
   | "character_field"
   | "alternate_greeting"
   | "world_book_entry"
   | "regex_script"
   | "extension"
+  | "persona_field"
+  | "chat_message"
   | "external";
 
 export interface EditEdit {
@@ -52,6 +78,10 @@ export interface EditEdit {
   readonly field: string;
   readonly before: string;
   readonly after: string;
+  // Filing scope. Absent = the session's character (back-compat default).
+  // Non-character surfaces set this so the edit pipeline files into the
+  // right per-object ledger.
+  readonly scope?: ScopeRef;
 }
 
 export interface EditCreate {
@@ -60,6 +90,7 @@ export interface EditCreate {
   readonly surfaceId: string;
   readonly surfaceLabel: string;
   readonly snapshot: WorldBookEntryDTO | RegexScriptDTO | { greeting: string };
+  readonly scope?: ScopeRef;
 }
 
 export interface EditDelete {
@@ -68,6 +99,7 @@ export interface EditDelete {
   readonly surfaceId: string;
   readonly surfaceLabel: string;
   readonly snapshot: WorldBookEntryDTO | RegexScriptDTO | { greeting: string; index: number };
+  readonly scope?: ScopeRef;
 }
 
 export interface EditExternal {
@@ -82,6 +114,7 @@ export interface EditExternal {
   readonly before: string;
   readonly after: string;
   readonly surfaceId: string;
+  readonly scope?: ScopeRef;
 }
 
 export type EditRecord = EditEdit | EditCreate | EditDelete | EditExternal;
@@ -90,7 +123,7 @@ export interface EditLogEntry {
   readonly id: string;
   readonly ts: number;
   readonly sessionId: string;
-  readonly characterId: string;
+  readonly scope: ScopeRef;
   readonly assistantMessageId?: string | undefined;
   readonly toolCallId: string;
   readonly toolName: string;

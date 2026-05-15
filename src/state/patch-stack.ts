@@ -1,5 +1,5 @@
 import { createPatch, applyPatch } from "diff";
-import type { EditSurface } from "../types";
+import type { EditSurface, ScopeRef } from "../types";
 
 // Per-field patch-stack storage for the edit ledger. One FileState per touched
 // field; each agent edit appends a Patch. External drift (an edit that
@@ -404,15 +404,16 @@ export interface StructuralPatch {
   revertedAt?: number;
 }
 
-export interface CharacterLedgerV2 {
-  readonly version: 2;
-  readonly characterId: string;
+// version 3 = scope-addressed. v2 (characterId-only) is migrated on load.
+export interface ScopedLedgerV2 {
+  readonly version: 3;
+  readonly scope: ScopeRef;
   files: FileState[];
   structural: StructuralPatch[];
 }
 
-export function emptyLedgerV2(characterId: string): CharacterLedgerV2 {
-  return { version: 2, characterId, files: [], structural: [] };
+export function emptyLedgerV2(scope: ScopeRef): ScopedLedgerV2 {
+  return { version: 3, scope, files: [], structural: [] };
 }
 
 export interface SquashGroupResult {

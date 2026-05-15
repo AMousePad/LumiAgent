@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import { loadLedger } from "../../state/ledger";
+import { characterScope } from "../../types";
 
 const inputSchema = z.object({
   scope: z.enum(["current_message", "current_session", "all_sessions"]).optional().describe("current_message: just this response. current_session: every edit you've made in this session. all_sessions: every agent-authored edit on this character across every session (useful when the user asks about prior conversations). Default current_message."),
@@ -31,7 +32,7 @@ Usage:
   execute: async (input, ctx) => {
     const scope = input.scope ?? "current_message";
     const includeReverted = input.include_reverted ?? false;
-    const ledger = await loadLedger(ctx.spindle, ctx.characterId, ctx.userId);
+    const ledger = await loadLedger(ctx.spindle, characterScope(ctx.characterId), ctx.userId);
     const out: Array<Record<string, unknown>> = [];
     for (const f of ledger.files) {
       for (const p of f.patches) {

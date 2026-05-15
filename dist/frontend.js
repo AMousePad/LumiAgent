@@ -5870,9 +5870,11 @@ var SURFACE_LABELS = {
   world_book_entry: "World book",
   regex_script: "Regex scripts",
   extension: "Extensions",
+  persona_field: "Personas",
+  chat_message: "Chat messages",
   external: "External (other extensions)"
 };
-var SURFACE_ORDER = ["character_field", "alternate_greeting", "world_book_entry", "regex_script", "extension", "external"];
+var SURFACE_ORDER = ["character_field", "alternate_greeting", "world_book_entry", "regex_script", "extension", "persona_field", "chat_message", "external"];
 var MOBILE_BREAKPOINT_PX = 720;
 var DESKTOP_WIDTH_CAP = 1700;
 var DESKTOP_WIDTH_MIN = 720;

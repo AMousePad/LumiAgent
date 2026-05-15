@@ -9,10 +9,12 @@ const SURFACE_LABELS: Record<EditSurface, string> = {
   world_book_entry: "World book",
   regex_script: "Regex scripts",
   extension: "Extensions",
+  persona_field: "Personas",
+  chat_message: "Chat messages",
   external: "External (other extensions)",
 };
 
-const SURFACE_ORDER: EditSurface[] = ["character_field", "alternate_greeting", "world_book_entry", "regex_script", "extension", "external"];
+const SURFACE_ORDER: EditSurface[] = ["character_field", "alternate_greeting", "world_book_entry", "regex_script", "extension", "persona_field", "chat_message", "external"];
 
 const MOBILE_BREAKPOINT_PX = 720;
 const DESKTOP_WIDTH_CAP = 1700;

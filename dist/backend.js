@@ -16,6 +16,12 @@ var __export = (target, all) => {
 var __esm = (fn, res) => () => (fn && (res = fn(fn = 0)), res);
 
 // src/types.ts
+function characterScope(id) {
+  return { kind: "character", id };
+}
+function scopeKeyString(s) {
+  return `${s.kind}:${s.id}`;
+}
 function fileKeyOf(e) {
   const r = e.record;
   if (r.op === "edit")
@@ -1320,8 +1326,8 @@ function sliceForPatch(file, patchId) {
   }
   return null;
 }
-function emptyLedgerV2(characterId) {
-  return { version: 2, characterId, files: [], structural: [] };
+function emptyLedgerV2(scope) {
+  return { version: 3, scope, files: [], structural: [] };
 }
 function squashRange(file, start, end, opts) {
   if (start < 0 || end >= file.patches.length || start > end)
@@ -1414,6 +1420,7 @@ __export(exports_ledger, {
   purgeAllRevertedInMemory: () => purgeAllRevertedInMemory,
   persistLedgerNow: () => persistLedgerNow,
   loadLedger: () => loadLedger,
+  ledgerPath: () => ledgerPath,
   laterEditsOnSameFile: () => laterEditsOnSameFile,
   groupByFile: () => groupByFile,
   findStructural: () => findStructural,
@@ -1424,24 +1431,45 @@ __export(exports_ledger, {
   dropCache: () => dropCache,
   appendEntries: () => appendEntries
 });
-function path(characterId) {
+function ledgerPath(scope) {
+  return `${LEDGER_DIR}/${scope.kind}/${scope.id}.json`;
+}
+function legacyPath(characterId) {
   return `${LEDGER_DIR}/${characterId}.json`;
 }
-function cacheKey(userId, characterId) {
-  return `${userId}:${characterId}`;
+function cacheKey(userId, scope) {
+  return `${userId}:${scopeKeyString(scope)}`;
 }
-function emptyLedger(characterId) {
-  return { ...emptyLedgerV2(characterId), externalEdits: [] };
+function emptyLedger(scope) {
+  return { ...emptyLedgerV2(scope), externalEdits: [] };
 }
-async function loadLedger(spindle2, characterId, userId) {
-  const k = cacheKey(userId, characterId);
+async function loadLedger(spindle2, scope, userId) {
+  const k = cacheKey(userId, scope);
   const cached = ledgerCache.get(k);
   if (cached)
     return cached;
-  const persisted = await spindle2.userStorage.getJson(path(characterId), { fallback: null, userId });
-  const ledger = !persisted || persisted.version !== 2 ? emptyLedger(characterId) : {
-    version: 2,
-    characterId: persisted.characterId,
+  const p = ledgerPath(scope);
+  let persisted = await spindle2.userStorage.getJson(p, { fallback: null, userId });
+  if ((!persisted || persisted.version !== 3) && scope.kind === "character") {
+    const legacy = await spindle2.userStorage.getJson(legacyPath(scope.id), { fallback: null, userId });
+    if (legacy && legacy.version === 2) {
+      const migrated = {
+        version: 3,
+        scope,
+        files: legacy.files,
+        structural: legacy.structural,
+        externalEdits: legacy.externalEdits ?? []
+      };
+      await spindle2.userStorage.write(p, JSON.stringify(migrated), userId);
+      try {
+        await spindle2.userStorage.delete(legacyPath(scope.id), userId);
+      } catch {}
+      persisted = migrated;
+    }
+  }
+  const ledger = !persisted || persisted.version !== 3 ? emptyLedger(scope) : {
+    version: 3,
+    scope,
     files: persisted.files,
     structural: persisted.structural,
     externalEdits: persisted.externalEdits ?? []
@@ -1451,13 +1479,13 @@ async function loadLedger(spindle2, characterId, userId) {
 }
 async function persistLedger(spindle2, ledger, userId) {
   const out = {
-    version: 2,
-    characterId: ledger.characterId,
+    version: 3,
+    scope: ledger.scope,
     files: ledger.files,
     structural: ledger.structural,
     externalEdits: ledger.externalEdits
   };
-  await spindle2.userStorage.write(path(ledger.characterId), JSON.stringify(out), userId);
+  await spindle2.userStorage.write(ledgerPath(ledger.scope), JSON.stringify(out), userId);
 }
 function findFile(ledger, key) {
   const ks = fileKeyString(key);
@@ -1490,10 +1518,10 @@ function structuralFromEntry(e, r) {
     ...e.revertedAt !== undefined ? { revertedAt: e.revertedAt } : {}
   };
 }
-async function appendEntries(spindle2, characterId, entries, userId) {
+async function appendEntries(spindle2, scope, entries, userId) {
   if (entries.length === 0)
     return;
-  const ledger = await loadLedger(spindle2, characterId, userId);
+  const ledger = await loadLedger(spindle2, scope, userId);
   for (const e of entries) {
     const r = e.record;
     if (r.op === "edit" && r.surface !== "external") {
@@ -1568,10 +1596,10 @@ function purgeIdsInMemory(ledger, ids) {
   }
   return removed;
 }
-async function purgeIds(spindle2, characterId, ids, userId) {
+async function purgeIds(spindle2, scope, ids, userId) {
   if (ids.length === 0)
     return [];
-  const ledger = await loadLedger(spindle2, characterId, userId);
+  const ledger = await loadLedger(spindle2, scope, userId);
   const removed = purgeIdsInMemory(ledger, ids);
   if (removed.length > 0)
     await persistLedger(spindle2, ledger, userId);
@@ -1605,7 +1633,7 @@ function purgeAllRevertedInMemory(ledger) {
   }
   return removed;
 }
-function synthesizeFromPatch(file, p, characterId) {
+function synthesizeFromPatch(file, p, scope) {
   const slice = sliceForPatch(file, p.id);
   if (!slice)
     return null;
@@ -1622,7 +1650,7 @@ function synthesizeFromPatch(file, p, characterId) {
     id: p.id,
     ts: p.ts,
     sessionId: p.sessionId ?? "",
-    characterId,
+    scope,
     ...p.assistantMessageId !== undefined ? { assistantMessageId: p.assistantMessageId } : {},
     toolCallId: p.toolCallId ?? "",
     toolName: p.toolName ?? p.description,
@@ -1632,7 +1660,7 @@ function synthesizeFromPatch(file, p, characterId) {
     ...p.revertedAt !== undefined ? { revertedAt: p.revertedAt } : {}
   };
 }
-function synthesizeFromStructural(s, characterId) {
+function synthesizeFromStructural(s, scope) {
   const record = s.op === "create" ? {
     op: "create",
     surface: s.surface,
@@ -1650,7 +1678,7 @@ function synthesizeFromStructural(s, characterId) {
     id: s.id,
     ts: s.ts,
     sessionId: s.sessionId ?? "",
-    characterId,
+    scope,
     toolCallId: s.toolCallId ?? "",
     toolName: s.op,
     turn: 0,
@@ -1663,13 +1691,13 @@ function entriesView(ledger) {
   const out = [];
   for (const f of ledger.files) {
     for (const p of f.patches) {
-      const e = synthesizeFromPatch(f, p, ledger.characterId);
+      const e = synthesizeFromPatch(f, p, ledger.scope);
       if (e)
         out.push(e);
     }
   }
   for (const s of ledger.structural) {
-    out.push(synthesizeFromStructural(s, ledger.characterId));
+    out.push(synthesizeFromStructural(s, ledger.scope));
   }
   for (const e of ledger.externalEdits) {
     out.push({ ...e });
@@ -1681,12 +1709,12 @@ function findEntry(ledger, editId) {
   for (const f of ledger.files) {
     for (const p of f.patches) {
       if (p.id === editId)
-        return synthesizeFromPatch(f, p, ledger.characterId);
+        return synthesizeFromPatch(f, p, ledger.scope);
     }
   }
   for (const s of ledger.structural) {
     if (s.id === editId)
-      return synthesizeFromStructural(s, ledger.characterId);
+      return synthesizeFromStructural(s, ledger.scope);
   }
   for (const e of ledger.externalEdits) {
     if (e.id === editId)
@@ -1746,8 +1774,8 @@ function groupByFile(ledger) {
   });
   return out;
 }
-async function squashMessage(spindle2, characterId, assistantMessageId, userId, opts = {}) {
-  const ledger = await loadLedger(spindle2, characterId, userId);
+async function squashMessage(spindle2, scope, assistantMessageId, userId, opts = {}) {
+  const ledger = await loadLedger(spindle2, scope, userId);
   const absorbedIds = [];
   const newPatchIds = [];
   const absorbedToMerged = new Map;
@@ -1783,12 +1811,12 @@ async function squashMessage(spindle2, characterId, assistantMessageId, userId, 
     await persistLedger(spindle2, ledger, userId);
   return { filesTouched, groupsMerged, absorbedIds, newPatchIds, absorbedToMerged };
 }
-function dropCache(characterId, userId) {
+function dropCache(scope, userId) {
   if (userId) {
-    ledgerCache.delete(cacheKey(userId, characterId));
+    ledgerCache.delete(cacheKey(userId, scope));
     return;
   }
-  const suffix = `:${characterId}`;
+  const suffix = `:${scopeKeyString(scope)}`;
   for (const k of ledgerCache.keys()) {
     if (k.endsWith(suffix))
       ledgerCache.delete(k);
@@ -1923,12 +1951,12 @@ function makeEditId() {
   const r = Math.random().toString(36).slice(2, 8);
   return `edit_${Date.now().toString(36)}_${editIdCounter}_${r}`;
 }
-function newEditEntry(sessionId, characterId, toolCallId, toolName, turn, record, assistantMessageId) {
+function newEditEntry(sessionId, scope, toolCallId, toolName, turn, record, assistantMessageId) {
   return {
     id: makeEditId(),
     ts: Date.now(),
     sessionId,
-    characterId,
+    scope,
     ...assistantMessageId !== undefined ? { assistantMessageId } : {},
     toolCallId,
     toolName,
@@ -2002,20 +2030,20 @@ function regexCreateFromDTO(r) {
     script_id: r.script_id
   };
 }
-function parsePath(path2) {
+function parsePath(path) {
   const segments = [];
   let i = 0;
-  while (i < path2.length) {
-    const ch = path2[i];
+  while (i < path.length) {
+    const ch = path[i];
     if (ch === ".") {
       i++;
       continue;
     }
     if (ch === "[") {
-      const end = path2.indexOf("]", i);
+      const end = path.indexOf("]", i);
       if (end < 0)
         throw new Error(`unclosed bracket in path at index ${i}`);
-      const inner = path2.slice(i + 1, end);
+      const inner = path.slice(i + 1, end);
       if (/^\d+$/.test(inner)) {
         segments.push({ kind: "index", value: parseInt(inner, 10) });
       } else if (inner.startsWith("'") && inner.endsWith("'") || inner.startsWith('"') && inner.endsWith('"')) {
@@ -2027,9 +2055,9 @@ function parsePath(path2) {
       continue;
     }
     let j = i;
-    while (j < path2.length && path2[j] !== "." && path2[j] !== "[")
+    while (j < path.length && path[j] !== "." && path[j] !== "[")
       j++;
-    const key = path2.slice(i, j);
+    const key = path.slice(i, j);
     if (key.length === 0)
       throw new Error(`empty key at index ${i}`);
     segments.push({ kind: "key", value: key });
@@ -2092,6 +2120,15 @@ async function revertEdit(spindle2, entry, characterId, userId) {
         }
         case "regex_script": {
           await spindle2.regex_scripts.update(r.surfaceId, { [r.field]: r.before }, userId);
+          return { success: true };
+        }
+        case "persona_field": {
+          await spindle2.personas.update(r.surfaceId, { [r.field]: r.before }, userId);
+          return { success: true };
+        }
+        case "chat_message": {
+          const [chatId, mid] = r.surfaceId.split(":");
+          await spindle2.chat.updateMessage(chatId, mid, { content: r.before });
           return { success: true };
         }
         case "extension": {
@@ -2207,6 +2244,19 @@ async function readLiveValue(spindle2, entry, characterId, userId) {
       const v = s[r.field];
       return typeof v === "string" ? v : null;
     }
+    case "persona_field": {
+      const p = await spindle2.personas.get(r.surfaceId, userId);
+      if (!p)
+        return null;
+      const v = p[r.field];
+      return typeof v === "string" ? v : null;
+    }
+    case "chat_message": {
+      const [chatId, mid] = r.surfaceId.split(":");
+      const msgs = await spindle2.chat.getMessages(chatId);
+      const m = msgs.find((x) => x.id === mid);
+      return m ? m.content : null;
+    }
     case "extension": {
       const c = await spindle2.characters.get(characterId, userId);
       if (!c)
@@ -2228,7 +2278,7 @@ async function revertFieldEditV2(spindle2, ledger, editId, characterId, userId, 
     id: editId,
     ts: patch.ts,
     sessionId: patch.sessionId ?? "",
-    characterId,
+    scope: characterScope(characterId),
     toolCallId: patch.toolCallId ?? "",
     toolName: patch.toolName ?? patch.description,
     turn: patch.turn ?? 0,
@@ -2320,6 +2370,15 @@ async function writeFieldValue(spindle2, surface, surfaceId, field, value, chara
       await spindle2.regex_scripts.update(surfaceId, { [field]: value }, userId);
       return;
     }
+    case "persona_field": {
+      await spindle2.personas.update(surfaceId, { [field]: value }, userId);
+      return;
+    }
+    case "chat_message": {
+      const [chatId, mid] = surfaceId.split(":");
+      await spindle2.chat.updateMessage(chatId, mid, { content: value });
+      return;
+    }
     case "extension": {
       const c = await spindle2.characters.get(characterId, userId);
       if (!c)
@@ -2343,7 +2402,7 @@ async function revertEditWithCheck(spindle2, ledger, editId, characterId, userId
       id: editId,
       ts: struct.ts,
       sessionId: struct.sessionId ?? "",
-      characterId,
+      scope: characterScope(characterId),
       toolCallId: struct.toolCallId ?? "",
       toolName: struct.op,
       turn: 0,
@@ -2790,10 +2849,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path2) {
-  if (!path2)
+function getElementAtPath(obj, path) {
+  if (!path)
     return obj;
-  return path2.reduce((acc, key) => acc?.[key], obj);
+  return path.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -3121,11 +3180,11 @@ function explicitlyAborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path2, issues) {
+function prefixIssues(path, issues) {
   return issues.map((iss) => {
     var _a2;
     (_a2 = iss).path ?? (_a2.path = []);
-    iss.path.unshift(path2);
+    iss.path.unshift(path);
     return iss;
   });
 }
@@ -3338,16 +3397,16 @@ function flattenError(error, mapper = (issue2) => issue2.message) {
 }
 function formatError(error, mapper = (issue2) => issue2.message) {
   const fieldErrors = { _errors: [] };
-  const processError = (error2, path2 = []) => {
+  const processError = (error2, path = []) => {
     for (const issue2 of error2.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path2, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path2, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path2, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path, ...issue2.path]);
       } else {
-        const fullpath = [...path2, ...issue2.path];
+        const fullpath = [...path, ...issue2.path];
         if (fullpath.length === 0) {
           fieldErrors._errors.push(mapper(issue2));
         } else {
@@ -3374,17 +3433,17 @@ function formatError(error, mapper = (issue2) => issue2.message) {
 }
 function treeifyError(error, mapper = (issue2) => issue2.message) {
   const result = { errors: [] };
-  const processError = (error2, path2 = []) => {
+  const processError = (error2, path = []) => {
     var _a2, _b;
     for (const issue2 of error2.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path2, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path2, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path2, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path, ...issue2.path]);
       } else {
-        const fullpath = [...path2, ...issue2.path];
+        const fullpath = [...path, ...issue2.path];
         if (fullpath.length === 0) {
           result.errors.push(mapper(issue2));
           continue;
@@ -3416,8 +3475,8 @@ function treeifyError(error, mapper = (issue2) => issue2.message) {
 }
 function toDotPath(_path) {
   const segs = [];
-  const path2 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
-  for (const seg of path2) {
+  const path = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
+  for (const seg of path) {
     if (typeof seg === "number")
       segs.push(`[${seg}]`);
     else if (typeof seg === "symbol")
@@ -16420,13 +16479,13 @@ function resolveRef(ref, ctx) {
   if (!ref.startsWith("#")) {
     throw new Error("External $ref is not supported, only local refs (#/...) are allowed");
   }
-  const path2 = ref.slice(1).split("/").filter(Boolean);
-  if (path2.length === 0) {
+  const path = ref.slice(1).split("/").filter(Boolean);
+  if (path.length === 0) {
     return ctx.rootSchema;
   }
   const defsKey = ctx.version === "draft-2020-12" ? "$defs" : "definitions";
-  if (path2[0] === defsKey) {
-    const key = path2[1];
+  if (path[0] === defsKey) {
+    const key = path[1];
     if (!key || !ctx.defs[key]) {
       throw new Error(`Reference not found: ${ref}`);
     }
@@ -17197,20 +17256,20 @@ var init__surfaces = __esm(() => {
 });
 
 // src/agent/tools/_paths.ts
-function parseExtensionPath(path2) {
+function parseExtensionPath(path) {
   const segments = [];
   let i = 0;
-  while (i < path2.length) {
-    const ch = path2[i];
+  while (i < path.length) {
+    const ch = path[i];
     if (ch === ".") {
       i++;
       continue;
     }
     if (ch === "[") {
-      const end = path2.indexOf("]", i);
+      const end = path.indexOf("]", i);
       if (end < 0)
         throw new Error(`unclosed bracket in path at index ${i}`);
-      const inner = path2.slice(i + 1, end);
+      const inner = path.slice(i + 1, end);
       if (/^\d+$/.test(inner)) {
         segments.push({ kind: "index", value: parseInt(inner, 10) });
       } else if (inner.startsWith("'") && inner.endsWith("'") && inner.length >= 2 || inner.startsWith('"') && inner.endsWith('"') && inner.length >= 2) {
@@ -17222,9 +17281,9 @@ function parseExtensionPath(path2) {
       continue;
     }
     let j = i;
-    while (j < path2.length && path2[j] !== "." && path2[j] !== "[")
+    while (j < path.length && path[j] !== "." && path[j] !== "[")
       j++;
-    const key = path2.slice(i, j);
+    const key = path.slice(i, j);
     if (key.length === 0)
       throw new Error(`empty key at index ${i}`);
     segments.push({ kind: "key", value: key });
@@ -17568,13 +17627,13 @@ __export(exports_search_excludes, {
 function makePathSkipFn(prefixes) {
   if (prefixes.length === 0)
     return () => false;
-  return (path2) => {
+  return (path) => {
     for (const p of prefixes) {
-      if (path2 === p)
+      if (path === p)
         return true;
-      if (path2.startsWith(`${p}.`))
+      if (path.startsWith(`${p}.`))
         return true;
-      if (path2.startsWith(`${p}[`))
+      if (path.startsWith(`${p}[`))
         return true;
     }
     return false;
@@ -18102,30 +18161,37 @@ var init_gate = __esm(() => {
 });
 
 // src/agent/tools/_path_v2.ts
-function splitTopLevel(path2) {
-  return path2.split("/").filter((s) => s.length > 0);
+function scopeForLeafKey(key, ctx) {
+  if (key.startsWith("persona/"))
+    return { kind: "persona", id: key.split("/")[1] };
+  if (key.startsWith("chat/"))
+    return { kind: "chat", id: key.split("/")[1] };
+  return characterScope(ctx.characterId);
 }
-async function resolveRead(ctx, path2) {
-  const parts = splitTopLevel(path2);
+function splitTopLevel(path) {
+  return path.split("/").filter((s) => s.length > 0);
+}
+async function resolveRead(ctx, path) {
+  const parts = splitTopLevel(path);
   if (parts.length < 2)
-    throw new PathError(path2, "expected at least <surface>/<...>");
+    throw new PathError(path, "expected at least <surface>/<...>");
   const head = parts[0];
   if (head === "char" || head === "character") {
     const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
     if (!c)
-      throw new PathError(path2, `character ${ctx.characterId} not found`);
+      throw new PathError(path, `character ${ctx.characterId} not found`);
     const sub = parts[1];
     if (sub === "alternate_greetings") {
       const idxStr = parts[2];
       if (idxStr === undefined)
-        throw new PathError(path2, "alternate_greetings requires an index");
+        throw new PathError(path, "alternate_greetings requires an index");
       const idx = parseInt(idxStr, 10);
       const arr = c.alternate_greetings ?? [];
       if (!Number.isFinite(idx) || idx < 0) {
-        throw new PathError(path2, `index '${idxStr}' is not a non-negative integer`);
+        throw new PathError(path, `index '${idxStr}' is not a non-negative integer`);
       }
       if (idx >= arr.length) {
-        throw new OutOfRangeError(path2, `alternate_greetings index ${idx} is past the end (length ${arr.length}). \`list({path: "char/alternate_greetings"})\` shows valid indices.`);
+        throw new OutOfRangeError(path, `alternate_greetings index ${idx} is past the end (length ${arr.length}). \`list({path: "char/alternate_greetings"})\` shows valid indices.`);
       }
       const value = arr[idx] ?? "";
       return {
@@ -18140,13 +18206,13 @@ async function resolveRead(ctx, path2) {
     if (sub === "extensions") {
       const extPath = parts.slice(2).join(".");
       if (extPath.length === 0)
-        throw new PathError(path2, "extensions requires a sub-path");
+        throw new PathError(path, "extensions requires a sub-path");
       await assertExtensionReadAllowed(ctx, extPath);
       const segs = parseExtensionPath(extPath);
       const v2 = getAtPath2(c.extensions ?? {}, segs);
       if (typeof v2 !== "string") {
         const shape = Array.isArray(v2) ? "array" : typeof v2;
-        throw new PathError(path2, `extension path resolves to ${shape}, not string. Use \`list({path: "char/extensions/${extPath}"})\` to walk its structure, or \`set({path, value})\` to write the whole subtree.`);
+        throw new PathError(path, `extension path resolves to ${shape}, not string. Use \`list({path: "char/extensions/${extPath}"})\` to walk its structure, or \`set({path, value})\` to write the whole subtree.`);
       }
       return {
         key: `char/extensions/${extPath}`,
@@ -18158,12 +18224,12 @@ async function resolveRead(ctx, path2) {
       };
     }
     if (parts.length !== 2)
-      throw new PathError(path2, `expected char/<field>, got ${parts.length} segments`);
+      throw new PathError(path, `expected char/<field>, got ${parts.length} segments`);
     if (!isCharacterStringField(sub))
-      throw new PathError(path2, `unknown character field '${sub}'. Valid: ${CHARACTER_STRING_FIELDS.join(", ")}`);
+      throw new PathError(path, `unknown character field '${sub}'. Valid: ${CHARACTER_STRING_FIELDS.join(", ")}`);
     const v = c[sub];
     if (typeof v !== "string")
-      throw new PathError(path2, `field '${sub}' is not a string`);
+      throw new PathError(path, `field '${sub}' is not a string`);
     return {
       key: `char/${sub}`,
       surface: "character_field",
@@ -18175,18 +18241,18 @@ async function resolveRead(ctx, path2) {
   }
   if (head === "rx" || head === "regex_script") {
     if (parts.length !== 3)
-      throw new PathError(path2, "expected rx/<scriptId>/<field>");
+      throw new PathError(path, "expected rx/<scriptId>/<field>");
     const scriptId = parts[1];
     const field = parts[2];
     if (field !== "find_regex" && field !== "replace_string") {
-      throw new PathError(path2, `regex field must be find_regex or replace_string, got '${field}'`);
+      throw new PathError(path, `regex field must be find_regex or replace_string, got '${field}'`);
     }
     const s = await ctx.spindle.regex_scripts.get(scriptId, ctx.userId);
     if (!s)
-      throw new PathError(path2, `regex script ${scriptId} not found`);
+      throw new PathError(path, `regex script ${scriptId} not found`);
     const v = s[field];
     if (typeof v !== "string")
-      throw new PathError(path2, `regex_script.${field} is not a string`);
+      throw new PathError(path, `regex_script.${field} is not a string`);
     return {
       key: `rx/${scriptId}/${field}`,
       surface: "regex_script",
@@ -18198,18 +18264,18 @@ async function resolveRead(ctx, path2) {
   }
   if (head === "wb" || head === "world_book_entry") {
     if (parts.length !== 3)
-      throw new PathError(path2, "expected wb/<entryId>/<field>");
+      throw new PathError(path, "expected wb/<entryId>/<field>");
     const entryId = parts[1];
     const field = parts[2];
     if (field !== "content" && field !== "comment") {
-      throw new PathError(path2, `world_book_entry field must be content or comment, got '${field}'`);
+      throw new PathError(path, `world_book_entry field must be content or comment, got '${field}'`);
     }
     const e = await ctx.spindle.world_books.entries.get(entryId, ctx.userId);
     if (!e)
-      throw new PathError(path2, `world book entry ${entryId} not found`);
+      throw new PathError(path, `world book entry ${entryId} not found`);
     const v = e[field];
     if (typeof v !== "string")
-      throw new PathError(path2, `entry.${field} is not a string`);
+      throw new PathError(path, `entry.${field} is not a string`);
     return {
       key: `wb/${entryId}/${field}`,
       surface: "world_book_entry",
@@ -18219,7 +18285,74 @@ async function resolveRead(ctx, path2) {
       value: v
     };
   }
-  throw new PathError(path2, `unknown surface prefix '${head}'. Expected one of: char, rx, wb`);
+  if (head === "persona") {
+    const personaId = parts[1];
+    if (personaId === undefined)
+      throw new PathError(path, "expected persona/<personaId>/<field>");
+    const p = await ctx.spindle.personas.get(personaId, ctx.userId);
+    if (!p)
+      throw new PathError(path, `persona ${personaId} not found`);
+    if (parts[2] === "wb") {
+      if (parts.length !== 5)
+        throw new PathError(path, "expected persona/<personaId>/wb/<entryId>/<content|comment>");
+      const entryId = parts[3];
+      const field2 = parts[4];
+      if (field2 !== "content" && field2 !== "comment") {
+        throw new PathError(path, `persona world_book field must be content or comment, got '${field2}'`);
+      }
+      const e = await ctx.spindle.world_books.entries.get(entryId, ctx.userId);
+      if (!e)
+        throw new PathError(path, `world book entry ${entryId} not found`);
+      const wv = e[field2];
+      if (typeof wv !== "string")
+        throw new PathError(path, `entry.${field2} is not a string`);
+      return {
+        key: `persona/${personaId}/wb/${entryId}/${field2}`,
+        surface: "world_book_entry",
+        surfaceId: entryId,
+        surfaceLabel: `${p.name} \xB7 ${wbLabel(e)}`,
+        field: field2,
+        value: wv
+      };
+    }
+    if (parts.length !== 3)
+      throw new PathError(path, `expected persona/<personaId>/<field>, got ${parts.length} segments`);
+    const field = parts[2];
+    if (!PERSONA_STRING_FIELDS.includes(field)) {
+      throw new PathError(path, `unknown persona field '${field}'. Valid: ${PERSONA_STRING_FIELDS.join(", ")}`);
+    }
+    const pv = p[field];
+    if (typeof pv !== "string")
+      throw new PathError(path, `persona.${field} is not a string`);
+    return {
+      key: `persona/${personaId}/${field}`,
+      surface: "persona_field",
+      surfaceId: personaId,
+      surfaceLabel: p.name,
+      field,
+      value: pv
+    };
+  }
+  if (head === "chat") {
+    const chatId = parts[1];
+    if (chatId === undefined || parts[2] !== "msg" || parts.length !== 5 || parts[4] !== "content") {
+      throw new PathError(path, "expected chat/<chatId>/msg/<messageId>/content");
+    }
+    const messageId = parts[3];
+    const msgs = await ctx.spindle.chat.getMessages(chatId);
+    const m = msgs.find((x) => x.id === messageId);
+    if (!m)
+      throw new PathError(path, `message ${messageId} not found in chat ${chatId}`);
+    return {
+      key: `chat/${chatId}/msg/${messageId}/content`,
+      surface: "chat_message",
+      surfaceId: `${chatId}:${messageId}`,
+      surfaceLabel: `${m.role} message`,
+      field: "content",
+      value: m.content
+    };
+  }
+  throw new PathError(path, `unknown surface prefix '${head}'. Expected one of: char, rx, wb, persona, chat`);
 }
 async function resolveWrite(ctx, leaf, nextValue) {
   if (leaf.surface === "character_field") {
@@ -18298,7 +18431,37 @@ async function resolveWrite(ctx, leaf, nextValue) {
       surfaceLabel: leaf.surfaceLabel,
       field: leaf.field,
       before: leaf.value,
-      after: nextValue
+      after: nextValue,
+      scope: scopeForLeafKey(leaf.key, ctx)
+    });
+    return;
+  }
+  if (leaf.surface === "persona_field") {
+    await ctx.spindle.personas.update(leaf.surfaceId, { [leaf.field]: nextValue }, ctx.userId);
+    ctx.pushEdit({
+      op: "edit",
+      surface: "persona_field",
+      surfaceId: leaf.surfaceId,
+      surfaceLabel: leaf.surfaceLabel,
+      field: leaf.field,
+      before: leaf.value,
+      after: nextValue,
+      scope: scopeForLeafKey(leaf.key, ctx)
+    });
+    return;
+  }
+  if (leaf.surface === "chat_message") {
+    const [chatId, messageId] = leaf.surfaceId.split(":");
+    await ctx.spindle.chat.updateMessage(chatId, messageId, { content: nextValue });
+    ctx.pushEdit({
+      op: "edit",
+      surface: "chat_message",
+      surfaceId: leaf.surfaceId,
+      surfaceLabel: leaf.surfaceLabel,
+      field: leaf.field,
+      before: leaf.value,
+      after: nextValue,
+      scope: scopeForLeafKey(leaf.key, ctx)
     });
     return;
   }
@@ -18372,31 +18535,32 @@ async function* iterateAllLeaves(ctx) {
     }
   }
 }
-var PathError, OutOfRangeError, ExtensionRefusedError;
+var PERSONA_STRING_FIELDS, PathError, OutOfRangeError, ExtensionRefusedError;
 var init__path_v2 = __esm(() => {
   init__surfaces();
+  PERSONA_STRING_FIELDS = ["name", "title", "description"];
   PathError = class PathError extends Error {
     path;
-    constructor(path2, msg) {
-      super(`Path '${path2}': ${msg}`);
-      this.path = path2;
+    constructor(path, msg) {
+      super(`Path '${path}': ${msg}`);
+      this.path = path;
       this.name = "PathError";
     }
   };
   OutOfRangeError = class OutOfRangeError extends Error {
     path;
-    constructor(path2, msg) {
-      super(`Path '${path2}': ${msg}`);
-      this.path = path2;
+    constructor(path, msg) {
+      super(`Path '${path}': ${msg}`);
+      this.path = path;
       this.name = "OutOfRangeError";
     }
   };
   ExtensionRefusedError = class ExtensionRefusedError extends Error {
     path;
     mode;
-    constructor(path2, mode, msg) {
+    constructor(path, mode, msg) {
       super(msg);
-      this.path = path2;
+      this.path = path;
       this.mode = mode;
       this.name = "ExtensionRefusedError";
     }
@@ -18645,7 +18809,7 @@ Sorted by match_chars descending so the worst offenders surface first.`,
       const pat = LANG_PATTERNS[langKey];
       if (!pat)
         return { content: `Error: unknown source_lang '${langKey}'`, isError: true };
-      const isCodeLeaf = (path2) => path2.endsWith(".code") || path2.includes("lumirealm.payload.lua_scripts") || path2.includes("lumirealm.payload.triggers");
+      const isCodeLeaf = (path) => path.endsWith(".code") || path.includes("lumirealm.payload.lua_scripts") || path.includes("lumirealm.payload.triggers");
       const leaves = [];
       let scanned = 0;
       let totalMatchChars = 0;
@@ -19208,15 +19372,22 @@ function substituteValue(v, scope) {
 function substituteString(s, scope) {
   const whole = WHOLE_RE.exec(s);
   if (whole) {
-    const { found, value } = lookup(whole[1], scope);
-    if (!found)
-      throw new Error(`unknown ref '{{${whole[1]}}}'`);
+    const ref = whole[1];
+    const { found, value } = lookup(ref, scope);
+    if (!found) {
+      if (ref.startsWith("$"))
+        throw new Error(`unknown ref '{{${ref}}}'`);
+      return s;
+    }
     return value;
   }
-  return s.replace(TEMPLATE_RE, (_match, name) => {
+  return s.replace(TEMPLATE_RE, (match, name) => {
     const { found, value } = lookup(name, scope);
-    if (!found)
-      throw new Error(`unknown ref '{{${name}}}'`);
+    if (!found) {
+      if (name.startsWith("$"))
+        throw new Error(`unknown ref '{{${name}}}'`);
+      return match;
+    }
     if (typeof value === "string")
       return value;
     if (typeof value === "number" || typeof value === "boolean")
@@ -27313,12 +27484,12 @@ function isSystemPath(relPath) {
       return true;
   return false;
 }
-async function readFromStorage(spindle2, userId, path2) {
+async function readFromStorage(spindle2, userId, path) {
   try {
-    const stat = await spindle2.userStorage.stat(absPath(path2), userId);
+    const stat = await spindle2.userStorage.stat(absPath(path), userId);
     if (!stat.exists)
       return null;
-    const text = await spindle2.userStorage.read(absPath(path2), userId);
+    const text = await spindle2.userStorage.read(absPath(path), userId);
     return text;
   } catch {
     return null;
@@ -27758,10 +27929,10 @@ var init_fs_list = __esm(() => {
     },
     execute: async (input, ctx) => {
       const ws = await Promise.resolve().then(() => (init_workspace(), exports_workspace));
-      const path2 = input.path ?? "";
-      const entries = await ws.listDir(ctx.spindle, ctx.userId, path2);
-      const payload = JSON.stringify({ path: ws.normaliseRelPath(path2), count: entries.length, entries }, null, 2);
-      const out = await spillOrReturn(ctx, payload, `fs_list:${path2 || "/"}`);
+      const path = input.path ?? "";
+      const entries = await ws.listDir(ctx.spindle, ctx.userId, path);
+      const payload = JSON.stringify({ path: ws.normaliseRelPath(path), count: entries.length, entries }, null, 2);
+      const out = await spillOrReturn(ctx, payload, `fs_list:${path || "/"}`);
       return { content: out };
     }
   });
@@ -28770,23 +28941,23 @@ One tool, one path argument.`,
     },
     requiresCharacter: true,
     execute: async (input, ctx) => {
-      const path2 = input.path.trim();
-      if (path2 === "rx" || path2 === "regex_scripts") {
+      const path = input.path.trim();
+      if (path === "rx" || path === "regex_scripts") {
         const r = await inspectRegexContainer(ctx);
         return { content: JSON.stringify(r, null, 2) };
       }
-      if (path2 === "wb" || path2 === "world_books") {
+      if (path === "wb" || path === "world_books") {
         const r = await inspectWorldBooksContainer(ctx);
         return { content: JSON.stringify(r, null, 2) };
       }
-      const rxMatch = /^(?:rx|regex_script)\/([^/]+)$/.exec(path2);
+      const rxMatch = /^(?:rx|regex_script)\/([^/]+)$/.exec(path);
       if (rxMatch) {
         const r = await inspectRegexScript(ctx, rxMatch[1]);
         if (typeof r === "string")
           return { content: `Error: ${r}`, isError: true };
         return { content: JSON.stringify(r, null, 2) };
       }
-      const wbMatch = /^(?:wb|world_book_entry)\/([^/]+)$/.exec(path2);
+      const wbMatch = /^(?:wb|world_book_entry)\/([^/]+)$/.exec(path);
       if (wbMatch) {
         const r = await inspectWorldBook(ctx, wbMatch[1]);
         if (typeof r === "string")
@@ -28795,7 +28966,7 @@ One tool, one path argument.`,
       }
       let leaf;
       try {
-        leaf = await resolveRead(ctx, path2);
+        leaf = await resolveRead(ctx, path);
       } catch (err) {
         if (err instanceof ExtensionRefusedError)
           return { content: `Error: [REFUSED_BY_EXTENSION] ${err.message}`, isError: true };
@@ -29022,31 +29193,31 @@ Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole
     execute: async (input, ctx) => {
       const maxEntries = input.max_entries ?? 200;
       const maxDepth = input.max_depth ?? 4;
-      const path2 = input.path.trim();
+      const path = input.path.trim();
       try {
         let entries;
-        if (path2 === "" || path2 === "char" || path2 === "character") {
+        if (path === "" || path === "char" || path === "character") {
           entries = await listCharacterRoot(ctx, maxEntries);
-        } else if (path2 === "char/alternate_greetings" || path2 === "alternate_greetings") {
+        } else if (path === "char/alternate_greetings" || path === "alternate_greetings") {
           entries = await listGreetings(ctx, maxEntries);
-        } else if (path2 === "rx" || path2 === "regex_scripts") {
+        } else if (path === "rx" || path === "regex_scripts") {
           entries = await listRegex(ctx, maxEntries);
-        } else if (path2 === "wb" || path2 === "world_books") {
+        } else if (path === "wb" || path === "world_books") {
           entries = await listWorldBooks(ctx, maxEntries, input.include_unattached === true);
-        } else if (path2.startsWith("wb/") || path2.startsWith("world_books/")) {
-          const bookId = path2.split("/")[1] ?? "";
+        } else if (path.startsWith("wb/") || path.startsWith("world_books/")) {
+          const bookId = path.split("/")[1] ?? "";
           if (!bookId)
             return { content: "Error: wb/<bookId> requires a book id", isError: true };
           entries = await listWorldBookEntries(ctx, bookId, maxEntries);
-        } else if (path2 === "char/extensions" || path2 === "extensions") {
+        } else if (path === "char/extensions" || path === "extensions") {
           entries = await listExtensions(ctx, "", maxEntries, maxDepth);
-        } else if (path2.startsWith("char/extensions/") || path2.startsWith("extensions/")) {
-          const sub = path2.replace(/^(char\/)?extensions\//, "");
+        } else if (path.startsWith("char/extensions/") || path.startsWith("extensions/")) {
+          const sub = path.replace(/^(char\/)?extensions\//, "");
           entries = await listExtensions(ctx, sub, maxEntries, maxDepth);
         } else {
-          return { content: `Error: unknown list path '${path2}'. Try: '', 'char/alternate_greetings', 'rx', 'wb', 'wb/<id>', 'char/extensions[/dotted]'.`, isError: true };
+          return { content: `Error: unknown list path '${path}'. Try: '', 'char/alternate_greetings', 'rx', 'wb', 'wb/<id>', 'char/extensions[/dotted]'.`, isError: true };
         }
-        return { content: JSON.stringify({ path: path2, count: entries.length, entries }, null, 2) };
+        return { content: JSON.stringify({ path, count: entries.length, entries }, null, 2) };
       } catch (err) {
         if (err instanceof ExtensionRefusedError)
           return { content: `Error: [REFUSED_BY_EXTENSION] ${err.message}`, isError: true };
@@ -29272,11 +29443,11 @@ Returns:
     },
     requiresCharacter: true,
     execute: async (input, ctx) => {
-      const path2 = input.path.trim();
+      const path = input.path.trim();
       const value = input.value;
       let result;
-      if (path2.startsWith("char/extensions/") || path2.startsWith("character/extensions/")) {
-        const dotted = path2.replace(/^(char|character)\/extensions\//, "");
+      if (path.startsWith("char/extensions/") || path.startsWith("character/extensions/")) {
+        const dotted = path.replace(/^(char|character)\/extensions\//, "");
         if (dotted.length === 0)
           return { content: "Error: extensions path requires a sub-path", isError: true };
         try {
@@ -29286,29 +29457,29 @@ Returns:
             return { content: `Error: [REFUSED_BY_EXTENSION] ${err.message}`, isError: true };
           throw err;
         }
-      } else if (path2.startsWith("char/alternate_greetings/") || path2.startsWith("character/alternate_greetings/")) {
-        const rest = path2.replace(/^(char|character)\/alternate_greetings\//, "");
+      } else if (path.startsWith("char/alternate_greetings/") || path.startsWith("character/alternate_greetings/")) {
+        const rest = path.replace(/^(char|character)\/alternate_greetings\//, "");
         const idx = parseInt(rest, 10);
         if (!Number.isFinite(idx))
           return { content: `Error: alternate_greetings index '${rest}' is not a number`, isError: true };
         result = await setAlternateGreeting(ctx, idx, value);
-      } else if (path2.startsWith("char/") || path2.startsWith("character/")) {
-        const field = path2.replace(/^(char|character)\//, "");
+      } else if (path.startsWith("char/") || path.startsWith("character/")) {
+        const field = path.replace(/^(char|character)\//, "");
         if (field.includes("/"))
-          return { content: `Error: '${path2}' has unexpected segments; for extension paths use char/extensions/...`, isError: true };
+          return { content: `Error: '${path}' has unexpected segments; for extension paths use char/extensions/...`, isError: true };
         result = await setCharacterField(ctx, field, value);
-      } else if (path2.startsWith("rx/") || path2.startsWith("regex_script/")) {
-        const parts = path2.split("/").slice(1);
+      } else if (path.startsWith("rx/") || path.startsWith("regex_script/")) {
+        const parts = path.split("/").slice(1);
         if (parts.length !== 2)
           return { content: "Error: expected rx/<scriptId>/<field>", isError: true };
         result = await setRegexScriptField(ctx, parts[0], parts[1], value);
-      } else if (path2.startsWith("wb/") || path2.startsWith("world_book_entry/")) {
-        const parts = path2.split("/").slice(1);
+      } else if (path.startsWith("wb/") || path.startsWith("world_book_entry/")) {
+        const parts = path.split("/").slice(1);
         if (parts.length !== 2)
           return { content: "Error: expected wb/<entryId>/<field>", isError: true };
         result = await setWorldBookEntryField(ctx, parts[0], parts[1], value);
       } else {
-        return { content: `Error: unknown set path '${path2}'. See \`read\` tool for grammar.`, isError: true };
+        return { content: `Error: unknown set path '${path}'. See \`read\` tool for grammar.`, isError: true };
       }
       if (typeof result === "string")
         return { content: `Error: ${result}`, isError: true };
@@ -29323,7 +29494,7 @@ Returns:
       });
       return {
         content: JSON.stringify({
-          path: path2,
+          path,
           before_chars: result.before.length,
           after_chars: result.after.length,
           before_peek: result.before.slice(0, 120),
@@ -29643,7 +29814,7 @@ Usage:
     execute: async (input, ctx) => {
       const scope = input.scope ?? "current_message";
       const includeReverted = input.include_reverted ?? false;
-      const ledger = await loadLedger(ctx.spindle, ctx.characterId, ctx.userId);
+      const ledger = await loadLedger(ctx.spindle, characterScope(ctx.characterId), ctx.userId);
       const out = [];
       for (const f of ledger.files) {
         for (const p of f.patches) {
@@ -30062,7 +30233,7 @@ async function removeFromIndex(spindle2, sessionId, userId) {
     return;
   await writeIndex(spindle2, next, userId);
 }
-function path2(sessionId) {
+function path(sessionId) {
   return `${SESSION_DIR}/${sessionId}.json`;
 }
 function newSession(opts) {
@@ -30083,13 +30254,23 @@ function newSession(opts) {
 }
 async function saveSession(spindle2, s, userId) {
   s.lastActivityAt = Date.now();
-  await spindle2.userStorage.setJson(path2(s.sessionId), s, { userId });
+  await spindle2.userStorage.setJson(path(s.sessionId), s, { userId });
   try {
     await upsertIndex(spindle2, summarizeForIndex(s), userId);
   } catch {}
 }
 async function loadSession(spindle2, sessionId, userId) {
-  return spindle2.userStorage.getJson(path2(sessionId), { fallback: null, userId });
+  const s = await spindle2.userStorage.getJson(path(sessionId), { fallback: null, userId });
+  if (s)
+    normalizeLegacyEditScopes(s);
+  return s;
+}
+function normalizeLegacyEditScopes(s) {
+  for (const e of s.edits ?? []) {
+    const le = e;
+    if (!le.scope)
+      le.scope = characterScope(le.characterId ?? s.characterId ?? "");
+  }
 }
 async function spliceRevertedFromSession(spindle2, sessionId, removedIds, notes, userId) {
   if (!sessionId || removedIds.size === 0)
@@ -30106,7 +30287,7 @@ async function spliceRevertedFromSession(spindle2, sessionId, removedIds, notes,
 }
 async function deleteSessionFile(spindle2, sessionId, userId) {
   try {
-    await spindle2.userStorage.delete(path2(sessionId), userId);
+    await spindle2.userStorage.delete(path(sessionId), userId);
   } catch {}
   try {
     await removeFromIndex(spindle2, sessionId, userId);
@@ -30200,7 +30381,7 @@ Usage:
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const allowCrossSession = input.allow_cross_session === true;
-      const ledger = await loadLedger(ctx.spindle, ctx.characterId, ctx.userId);
+      const ledger = await loadLedger(ctx.spindle, characterScope(ctx.characterId), ctx.userId);
       const accepted = [];
       const rejected = [];
       for (const id of input.edit_ids) {
@@ -30319,7 +30500,7 @@ Usage:
     execute: async (input, ctx) => {
       if (!ctx.assistantMessageId)
         return { content: "Error: no active assistant message; squash_session_edits only valid inside an agent response.", isError: true };
-      const result = await squashMessage(ctx.spindle, ctx.characterId, ctx.assistantMessageId, ctx.userId, { sealed: true });
+      const result = await squashMessage(ctx.spindle, characterScope(ctx.characterId), ctx.assistantMessageId, ctx.userId, { sealed: true });
       if (result.filesTouched > 0 || result.absorbedIds.length > 0)
         ctx.pushLedgerResync();
       return {
@@ -32967,15 +33148,29 @@ async function* runLlmStream(spindle2, input) {
   if (input.signal !== undefined)
     req.signal = input.signal;
   const stream = spindle2.generate.quietStream(req);
+  let tokenChunks = 0;
+  let tokenChars = 0;
+  let reasoningChunks = 0;
+  let reasoningChars = 0;
+  let sawDone = false;
+  let lastChunkType = "<none>";
   for await (const raw of stream) {
     const chunk = raw;
+    lastChunkType = chunk.type;
     if (chunk.type === "token") {
+      tokenChunks++;
+      tokenChars += chunk.token.length;
       if (chunk.token.length > 0)
         yield { type: "token", token: chunk.token };
     } else if (chunk.type === "reasoning") {
+      reasoningChunks++;
+      reasoningChars += chunk.token.length;
       if (chunk.token.length > 0)
         yield { type: "reasoning", token: chunk.token };
     } else if (chunk.type === "done") {
+      sawDone = true;
+      const toolNames = (chunk.tool_calls ?? []).map((t) => t.name).join(",") || "<none>";
+      spindle2.log.info(`llm.stream done: finish_reason=${chunk.finish_reason} content_chars=${chunk.content.length} ` + `tool_calls=${chunk.tool_calls?.length ?? 0}[${toolNames}] ` + `reasoning_chars_terminal=${chunk.reasoning?.length ?? 0} ` + `reasoning_chars_streamed=${reasoningChars}(${reasoningChunks} chunks) ` + `token_chars_streamed=${tokenChars}(${tokenChunks} chunks) ` + `usage=${chunk.usage ? `p${chunk.usage.prompt_tokens}/c${chunk.usage.completion_tokens}/t${chunk.usage.total_tokens}` : "<none>"}`);
       const response = {
         content: chunk.content,
         finish_reason: chunk.finish_reason,
@@ -32992,6 +33187,9 @@ async function* runLlmStream(spindle2, input) {
       }
       yield { type: "done", response };
     }
+  }
+  if (!sawDone) {
+    spindle2.log.warn(`llm.stream ENDED WITHOUT done chunk: last_chunk_type=${lastChunkType} ` + `reasoning_chars_streamed=${reasoningChars}(${reasoningChunks} chunks) ` + `token_chars_streamed=${tokenChars}(${tokenChunks} chunks). ` + `The loop will see empty content + no tool_calls + finish_reason="" and fail the turn.`);
   }
 }
 
@@ -33441,6 +33639,9 @@ async function* runAgent(input) {
       }
       effectiveTools = [...input.tools, ...extras];
     }
+    let streamedReasoningChars = 0;
+    let streamedTokenChars = 0;
+    let sawDoneEvent = false;
     try {
       for await (const ev of runLlmStream(input.spindle, {
         messages: withRollingCacheBreakpoint(conv, input.cacheMode ?? "full"),
@@ -33451,10 +33652,13 @@ async function* runAgent(input) {
         signal
       })) {
         if (ev.type === "token") {
+          streamedTokenChars += ev.token.length;
           yield { type: "llm_token", token: ev.token };
         } else if (ev.type === "reasoning") {
+          streamedReasoningChars += ev.token.length;
           yield { type: "llm_reasoning", token: ev.token };
         } else {
+          sawDoneEvent = true;
           content = ev.response.content;
           toolCalls = ev.response.tool_calls;
           finishReason = ev.response.finish_reason;
@@ -33465,19 +33669,69 @@ async function* runAgent(input) {
     } catch (err) {
       if (signal.aborted)
         return;
+      input.spindle.log.error(`loop.turn ${turnNum} LLM stream threw: ${err.message} ` + `(streamed reasoning_chars=${streamedReasoningChars} token_chars=${streamedTokenChars} saw_done=${sawDoneEvent})`);
       throw new Error(`LLM call failed: ${err.message}`);
     }
+    input.spindle.log.info(`loop.turn ${turnNum} response: finish_reason=${finishReason || "<empty>"} ` + `content_chars=${content.length} tool_calls=${toolCalls.length}` + `[${toolCalls.map((t) => t.name).join(",") || "<none>"}] ` + `reasoning_terminal_chars=${reasoning?.length ?? 0} reasoning_streamed_chars=${streamedReasoningChars} ` + `token_streamed_chars=${streamedTokenChars} saw_done=${sawDoneEvent} ` + `usage=${usage ? `p${usage.prompt}/c${usage.completion}/t${usage.total}${usage.estimated ? "(est)" : ""}` : "<none>"} ` + `conv_msgs=${conv.length}`);
     if (usage === undefined) {
       try {
         usage = await estimateUsage(input.spindle, input.userId, withRollingCacheBreakpoint(conv, input.cacheMode ?? "full"), content, reasoning, input.tokenizerModelId);
       } catch {}
     }
     if (turnNum === startingTurn + 1 && content.trim().length === 0 && toolCalls.length === 0) {
-      throw new Error(`The model returned no content and no tool calls. Likely causes:
-` + `  \u2022 The selected connection's provider doesn't support native tool calling (Anthropic / OpenAI-compatible / Google / Bedrock all do; some self-hosted shims don't).
-` + `  \u2022 The provider returned an error that wasn't surfaced (check Lumiverse server logs for the upstream HTTP body).
-` + "  \u2022 The model finished with finish_reason=" + (finishReason || "unknown") + ` before emitting anything.
-` + "Try a different connection or check the upstream provider's status.");
+      const lastUser = [...conv].reverse().find((m) => m.role === "user");
+      const lastUserPreview = typeof lastUser?.content === "string" ? lastUser.content.slice(0, 200) : JSON.stringify(lastUser?.content ?? null).slice(0, 200);
+      let toolUseParts = 0;
+      let toolResultParts = 0;
+      let largestToolResultChars = 0;
+      let totalContentChars = 0;
+      for (const m of conv) {
+        if (typeof m.content === "string") {
+          totalContentChars += m.content.length;
+          continue;
+        }
+        for (const p of m.content) {
+          if (p.type === "tool_use")
+            toolUseParts++;
+          else if (p.type === "tool_result") {
+            toolResultParts++;
+            const c = typeof p.content === "string" ? p.content : JSON.stringify(p.content);
+            largestToolResultChars = Math.max(largestToolResultChars, c.length);
+            totalContentChars += c.length;
+          } else if (p.type === "text") {
+            totalContentChars += p.text.length;
+          }
+        }
+      }
+      const priorToolCalled = toolUseParts > 0;
+      input.spindle.log.error(`loop.turn ${turnNum} EMPTY-TURN FAILURE: ` + `saw_done=${sawDoneEvent} finish_reason=${finishReason || "<empty>"} ` + `content_chars=${content.length} tool_calls=${toolCalls.length} ` + `reasoning_terminal_chars=${reasoning?.length ?? 0} reasoning_streamed_chars=${streamedReasoningChars} ` + `token_streamed_chars=${streamedTokenChars} ` + `usage=${usage ? `p${usage.prompt}/c${usage.completion}/t${usage.total}${usage.estimated ? "(est)" : ""}` : "<none>"} ` + `conv_msgs=${conv.length} req_tool_use=${toolUseParts} req_tool_result=${toolResultParts} ` + `largest_tool_result_chars=${largestToolResultChars} total_content_chars=${totalContentChars} ` + `tools_offered=${effectiveTools.length} connection=${input.connectionId ?? "<default>"} ` + `last_user="${lastUserPreview.replace(/\n/g, " ")}"`);
+      const toolsOffered = effectiveTools.length;
+      let diag;
+      let advice;
+      if (!sawDoneEvent && streamedReasoningChars > 0) {
+        diag = `the provider streamed ${streamedReasoningChars} chars of reasoning then closed the connection without a completion chunk. The model thought but never emitted an answer or tool call.`;
+        advice = "Re-send. A stream that drops mid-reasoning is often transient.";
+      } else if (!sawDoneEvent) {
+        diag = "the provider closed the stream without emitting anything (no reasoning, no content, no completion chunk).";
+        advice = "Check the Lumiverse server log for a `[lumiverse.*.sse]` line. An error frame means the gateway returned an upstream error.";
+      } else if (priorToolCalled) {
+        diag = `the provider returned a complete but empty response (finish_reason=${finishReason || "unknown"}) on a continuation whose history already contains ${toolUseParts} tool call(s) and ${toolResultParts} tool result(s) (largest ${largestToolResultChars} chars).`;
+        advice = "The model DID emit tool calls earlier in this conversation, so it is tool-call capable. An empty completion specifically on a tool-history continuation is a gateway defect, not a model or LumiAgent issue. NanoGPT exhibits this serving DeepSeek-v4 (both thinking and non-thinking) while the same model works through OpenRouter. Run this model via a different gateway (OpenRouter is confirmed working) for tool-driven sessions.";
+      } else {
+        diag = `the provider returned a complete response (finish_reason=${finishReason || "unknown"}) with no content, no tool calls, and no reasoning, while ${toolsOffered} tools were offered and no tool call has succeeded yet in this conversation.`;
+        advice = "Re-send once. If it stays empty, this connection likely is not emitting native tool calls at all, try a function-calling-capable connection (Claude, GPT-4-class, Gemini, DeepSeek-v4 via OpenRouter).";
+      }
+      throw new Error("The model produced no answer and no tool call: " + diag + `
+
+` + `Diagnostics (also in the Lumiverse server logs):
+` + `  \u2022 terminal chunk received: ${sawDoneEvent ? "yes" : "no"}
+` + `  \u2022 finish_reason: ${finishReason || "(stream ended before one was sent)"}
+` + `  \u2022 reasoning streamed: ${streamedReasoningChars} chars
+` + `  \u2022 content: ${content.length} chars, tool calls: ${toolCalls.length}
+` + `  \u2022 prior tool calls in this conversation: ${toolUseParts} (tool results: ${toolResultParts})
+` + `  \u2022 tools offered this turn: ${toolsOffered}
+
+` + advice);
     }
     let cleanedFromMixed;
     if (toolCalls.length > 0 && hasTextToolCallSyntax(content)) {
@@ -33590,7 +33844,7 @@ async function* runAgent(input) {
         batches.push({ concurrent, calls: [tc] });
     }
     const drainOutcome = function* (oc) {
-      const editsForCall = oc.buffer.edits.map((rec) => newEditEntry(input.sessionId, input.characterId ?? "", oc.tc.call_id, oc.tc.name, turnNum, rec, input.assistantMessageId));
+      const editsForCall = oc.buffer.edits.map((rec) => newEditEntry(input.sessionId, rec.scope ?? characterScope(input.characterId ?? ""), oc.tc.call_id, oc.tc.name, turnNum, rec, input.assistantMessageId));
       newEdits.push(...editsForCall);
       results.push({ call_id: oc.tc.call_id, name: oc.tc.name, content: oc.resultText, ...oc.isError ? { is_error: true } : {} });
       for (const e of editsForCall)
@@ -34536,13 +34790,13 @@ async function handleListCharactersStorage(userId) {
     const workspaceUsage = await getWorkspaceUsage2(spindle, userId);
     const charactersRes = await spindle.characters.list({ limit: 1000, userId });
     const perChar = await Promise.all(charactersRes.data.map(async (c) => {
-      const ledger = await loadLedger(spindle, c.id, userId).catch(() => null);
+      const ledger = await loadLedger(spindle, characterScope(c.id), userId).catch(() => null);
       const view = ledger ? entriesView(ledger) : [];
       if (view.length === 0)
         return null;
       let ledgerBytes = 0;
       try {
-        const s = await spindle.userStorage.stat(`ledgers/${c.id}.json`, userId);
+        const s = await spindle.userStorage.stat(ledgerPath(characterScope(c.id)), userId);
         if (s.exists)
           ledgerBytes = s.sizeBytes;
       } catch {}
@@ -34571,8 +34825,8 @@ async function handleSquashCharacter(characterId, userId) {
     const { dropCache: dropCache2 } = await Promise.resolve().then(() => (init_ledger(), exports_ledger));
     let ledgerCleared = false;
     try {
-      await spindle.userStorage.delete(`ledgers/${characterId}.json`, userId);
-      dropCache2(characterId, userId);
+      await spindle.userStorage.delete(ledgerPath(characterScope(characterId)), userId);
+      dropCache2(characterScope(characterId), userId);
       ledgerCleared = true;
     } catch {}
     send({ type: "character_squashed", characterId, ledgerCleared }, userId);
@@ -34583,7 +34837,7 @@ async function handleSquashCharacter(characterId, userId) {
 }
 async function handleRevertCharacterAll(characterId, userId) {
   try {
-    const ledger = await loadLedger(spindle, characterId, userId);
+    const ledger = await loadLedger(spindle, characterScope(characterId), userId);
     const liveIds = [];
     for (const f of ledger.files)
       for (const p of f.patches) {
@@ -34607,7 +34861,7 @@ async function handleRevertCharacterAll(characterId, userId) {
 }
 async function handleLoadCharacterWorkshop(characterId, userId) {
   try {
-    const ledger = await loadLedger(spindle, characterId, userId);
+    const ledger = await loadLedger(spindle, characterScope(characterId), userId);
     send({ type: "character_edits_pushed", characterId, entries: entriesView(ledger) }, userId);
   } catch (err) {
     log("warn", `load_character_workshop ${characterId} failed: ${err.message}`);
@@ -34784,8 +35038,8 @@ async function compactSession(sessionId, userId, trigger) {
     activeSessions.delete(scopedKey(userId, sessionId));
   }
 }
-function guessMimeType(path3) {
-  const ext = path3.toLowerCase().split(".").pop() ?? "";
+function guessMimeType(path2) {
+  const ext = path2.toLowerCase().split(".").pop() ?? "";
   switch (ext) {
     case "txt":
     case "md":
@@ -34834,42 +35088,42 @@ function base64ToBytes(b64) {
   const buf = Buffer.from(b64, "base64");
   return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
 }
-async function handleWsList(path3, userId) {
+async function handleWsList(path2, userId) {
   try {
     const ws = await Promise.resolve().then(() => (init_workspace(), exports_workspace));
-    if (ws.normaliseRelPath(path3) === "") {
+    if (ws.normaliseRelPath(path2) === "") {
       const { ensureSystemFiles: ensureSystemFiles2 } = await Promise.resolve().then(() => (init_system_files(), exports_system_files));
       await ensureSystemFiles2(spindle, userId).catch((e) => log("warn", `ensureSystemFiles failed: ${e.message}`));
     }
-    const entries = await ws.listDir(spindle, userId, path3);
-    send({ type: "ws_listed", path: ws.normaliseRelPath(path3), entries }, userId);
+    const entries = await ws.listDir(spindle, userId, path2);
+    send({ type: "ws_listed", path: ws.normaliseRelPath(path2), entries }, userId);
   } catch (err) {
     send({ type: "ws_error", error: err.message }, userId);
   }
 }
-async function handleWsReadText(path3, userId) {
+async function handleWsReadText(path2, userId) {
   try {
     const ws = await Promise.resolve().then(() => (init_workspace(), exports_workspace));
-    const node = await ws.stat(spindle, userId, path3);
+    const node = await ws.stat(spindle, userId, path2);
     if (!node || node.isDirectory)
-      throw new Error(`'${path3}' is not a file`);
+      throw new Error(`'${path2}' is not a file`);
     if (node.sizeBytes > 2097152)
       throw new Error(`file is ${node.sizeBytes} bytes, too large to preview inline. Download instead.`);
-    const content = await ws.readText(spindle, userId, path3);
-    send({ type: "ws_text_pushed", path: ws.normaliseRelPath(path3), content, sizeBytes: node.sizeBytes }, userId);
+    const content = await ws.readText(spindle, userId, path2);
+    send({ type: "ws_text_pushed", path: ws.normaliseRelPath(path2), content, sizeBytes: node.sizeBytes }, userId);
   } catch (err) {
     send({ type: "ws_error", error: err.message }, userId);
   }
 }
-async function handleWsDuplicate(path3, userId) {
+async function handleWsDuplicate(path2, userId) {
   try {
     const ws = await Promise.resolve().then(() => (init_workspace(), exports_workspace));
-    const node = await ws.stat(spindle, userId, path3);
+    const node = await ws.stat(spindle, userId, path2);
     if (!node)
-      throw new Error(`'${path3}' not found`);
+      throw new Error(`'${path2}' not found`);
     if (node.isDirectory)
-      throw new Error(`'${path3}' is a directory; duplicating folders isn't supported yet`);
-    const norm = ws.normaliseRelPath(path3);
+      throw new Error(`'${path2}' is a directory; duplicating folders isn't supported yet`);
+    const norm = ws.normaliseRelPath(path2);
     const slashIx = norm.lastIndexOf("/");
     const dir = slashIx < 0 ? "" : norm.slice(0, slashIx);
     const name = slashIx < 0 ? norm : norm.slice(slashIx + 1);
@@ -34894,10 +35148,10 @@ async function handleWsDuplicate(path3, userId) {
       throw new Error("couldn't find a free name");
     const { workspaceCaps } = await resolveCapsForUser(userId);
     try {
-      const text = await ws.readText(spindle, userId, path3);
+      const text = await ws.readText(spindle, userId, path2);
       await ws.writeText(spindle, userId, dest, text, workspaceCaps);
     } catch {
-      const bytes = await ws.readBinary(spindle, userId, path3);
+      const bytes = await ws.readBinary(spindle, userId, path2);
       await ws.writeBinary(spindle, userId, dest, bytes, workspaceCaps);
     }
     send({ type: "ws_changed" }, userId);
@@ -34905,22 +35159,22 @@ async function handleWsDuplicate(path3, userId) {
     send({ type: "ws_error", error: err.message }, userId);
   }
 }
-async function handleWsWriteText(path3, content, userId) {
+async function handleWsWriteText(path2, content, userId) {
   try {
     const ws = await Promise.resolve().then(() => (init_workspace(), exports_workspace));
     const { workspaceCaps } = await resolveCapsForUser(userId);
-    await ws.writeText(spindle, userId, path3, content, workspaceCaps);
+    await ws.writeText(spindle, userId, path2, content, workspaceCaps);
     send({ type: "ws_changed" }, userId);
   } catch (err) {
     send({ type: "ws_error", error: err.message }, userId);
   }
 }
-async function handleWsUploadBinary(path3, dataBase64, userId) {
+async function handleWsUploadBinary(path2, dataBase64, userId) {
   try {
     const ws = await Promise.resolve().then(() => (init_workspace(), exports_workspace));
     const bytes = base64ToBytes(dataBase64);
     const { workspaceCaps } = await resolveCapsForUser(userId);
-    await ws.writeBinary(spindle, userId, path3, bytes, workspaceCaps);
+    await ws.writeBinary(spindle, userId, path2, bytes, workspaceCaps);
     send({ type: "ws_changed" }, userId);
   } catch (err) {
     send({ type: "ws_error", error: err.message }, userId);
@@ -34937,19 +35191,19 @@ function clearUploadBuffer(key) {
     uploadBufferTimers.delete(key);
   }
 }
-async function handleWsUploadPart(transferId, path3, dataBase64, index, total, userId) {
+async function handleWsUploadPart(transferId, path2, dataBase64, index, total, userId) {
   const key = `${userId}:${transferId}`;
   try {
     let buf = uploadBuffers.get(key);
     if (!buf) {
-      buf = { path: path3, total, parts: new Array(total).fill("") };
+      buf = { path: path2, total, parts: new Array(total).fill("") };
       uploadBuffers.set(key, buf);
       uploadBufferTimers.set(key, setTimeout(() => {
         log("warn", `upload transfer ${transferId} timed out`);
         clearUploadBuffer(key);
       }, UPLOAD_BUFFER_TTL_MS));
     }
-    if (buf.path !== path3 || buf.total !== total) {
+    if (buf.path !== path2 || buf.total !== total) {
       throw new Error(`upload part for ${transferId} mismatches path or total`);
     }
     if (index < 0 || index >= total)
@@ -34967,7 +35221,7 @@ async function handleWsUploadPart(transferId, path3, dataBase64, index, total, u
       }
       clearUploadBuffer(key);
       const { workspaceCaps } = await resolveCapsForUser(userId);
-      await ws.writeBinary(spindle, userId, path3, merged, workspaceCaps);
+      await ws.writeBinary(spindle, userId, path2, merged, workspaceCaps);
       send({ type: "ws_changed" }, userId);
     }
   } catch (err) {
@@ -34975,20 +35229,20 @@ async function handleWsUploadPart(transferId, path3, dataBase64, index, total, u
     send({ type: "ws_error", error: err.message }, userId);
   }
 }
-async function handleWsDelete(path3, recursive, userId) {
+async function handleWsDelete(path2, recursive, userId) {
   try {
     const ws = await Promise.resolve().then(() => (init_workspace(), exports_workspace));
-    const node = await ws.stat(spindle, userId, path3);
+    const node = await ws.stat(spindle, userId, path2);
     if (!node) {
       send({ type: "ws_changed" }, userId);
       return;
     }
     if (node.isDirectory && !recursive) {
-      const kids = await ws.listDir(spindle, userId, path3);
+      const kids = await ws.listDir(spindle, userId, path2);
       if (kids.length > 0)
-        throw new Error(`directory '${path3}' is not empty`);
+        throw new Error(`directory '${path2}' is not empty`);
     }
-    await ws.remove(spindle, userId, path3);
+    await ws.remove(spindle, userId, path2);
     send({ type: "ws_changed" }, userId);
   } catch (err) {
     send({ type: "ws_error", error: err.message }, userId);
@@ -35003,32 +35257,32 @@ async function handleWsMove(from, to, userId) {
     send({ type: "ws_error", error: err.message }, userId);
   }
 }
-async function handleWsMkdir(path3, userId) {
+async function handleWsMkdir(path2, userId) {
   try {
     const ws = await Promise.resolve().then(() => (init_workspace(), exports_workspace));
-    await ws.makeDir(spindle, userId, path3);
+    await ws.makeDir(spindle, userId, path2);
     send({ type: "ws_changed" }, userId);
   } catch (err) {
     send({ type: "ws_error", error: err.message }, userId);
   }
 }
-async function handleWsDownload(path3, userId) {
+async function handleWsDownload(path2, userId) {
   try {
     const ws = await Promise.resolve().then(() => (init_workspace(), exports_workspace));
-    const node = await ws.stat(spindle, userId, path3);
+    const node = await ws.stat(spindle, userId, path2);
     if (!node)
-      throw new Error(`'${path3}' not found`);
+      throw new Error(`'${path2}' not found`);
     if (node.isDirectory)
-      throw new Error(`'${path3}' is a directory; use ws_download_zip`);
-    const mime = guessMimeType(path3);
+      throw new Error(`'${path2}' is a directory; use ws_download_zip`);
+    const mime = guessMimeType(path2);
     let bytes;
     if (isTextMime(mime)) {
-      const text = await ws.readText(spindle, userId, path3);
+      const text = await ws.readText(spindle, userId, path2);
       bytes = new TextEncoder().encode(text);
     } else {
-      bytes = await ws.readBinary(spindle, userId, path3);
+      bytes = await ws.readBinary(spindle, userId, path2);
     }
-    send({ type: "ws_download_ready", path: ws.normaliseRelPath(path3), dataBase64: bytesToBase64(bytes), mimeType: mime }, userId);
+    send({ type: "ws_download_ready", path: ws.normaliseRelPath(path2), dataBase64: bytesToBase64(bytes), mimeType: mime }, userId);
   } catch (err) {
     send({ type: "ws_error", error: err.message }, userId);
   }
@@ -35311,11 +35565,11 @@ function renderSessionMarkdown(s) {
 `), filename };
 }
 async function handleListCharacterEdits(characterId, userId) {
-  const ledger = await loadLedger(spindle, characterId, userId);
+  const ledger = await loadLedger(spindle, characterScope(characterId), userId);
   send({ type: "character_edits_pushed", characterId, entries: entriesView(ledger) }, userId);
 }
 async function handleRevertEdit(characterId, editId, force, userId) {
-  const ledger = await loadLedger(spindle, characterId, userId);
+  const ledger = await loadLedger(spindle, characterScope(characterId), userId);
   const entry = findEntry(ledger, editId);
   if (!entry) {
     send({ type: "edit_reverted", characterId, editId, outcome: { kind: "failed", editId, error: "edit not found in character ledger" } }, userId);
@@ -35334,7 +35588,7 @@ async function handleRevertEdit(characterId, editId, force, userId) {
   }
 }
 async function handleRevertEditsBulk(characterId, editIds, userId, opts = {}) {
-  const ledger = await loadLedger(spindle, characterId, userId);
+  const ledger = await loadLedger(spindle, characterScope(characterId), userId);
   const targetSet = new Set(editIds);
   const outcomes = [];
   const removedIds = new Set;
@@ -35411,7 +35665,7 @@ async function handleRevertEditsBulk(characterId, editIds, userId, opts = {}) {
         id: s.id,
         ts: s.ts,
         sessionId: s.sessionId ?? "",
-        characterId,
+        scope: characterScope(characterId),
         toolCallId: s.toolCallId ?? "",
         toolName: s.op,
         turn: 0,
@@ -35475,7 +35729,7 @@ async function handleRevertEditsBulk(characterId, editIds, userId, opts = {}) {
 async function handleRevertAllCharacters(characterIds, userId) {
   for (const characterId of characterIds) {
     try {
-      const ledger = await loadLedger(spindle, characterId, userId);
+      const ledger = await loadLedger(spindle, characterScope(characterId), userId);
       const liveIds = [];
       for (const f of ledger.files)
         for (const p of f.patches) {
@@ -35574,7 +35828,7 @@ async function revertEditsBatch(characterId, entries, userId) {
     return { ok: 0, failed: 0 };
   const ids = entries.map((e) => e.id);
   await handleRevertEditsBulk(characterId, ids, userId);
-  const after = await loadLedger(spindle, characterId, userId);
+  const after = await loadLedger(spindle, characterScope(characterId), userId);
   const survivors = new Set;
   for (const f of after.files)
     for (const p of f.patches)
@@ -35851,7 +36105,7 @@ async function handleSendMessageInternal(s, userId, connectionIdOverride) {
           if (s.characterId === null)
             break;
           s.edits.push(ev.entry);
-          appendEntries(spindle, s.characterId, [ev.entry], userId).catch((e) => log("warn", `ledger append failed: ${e.message}`));
+          appendEntries(spindle, ev.entry.scope, [ev.entry], userId).catch((e) => log("warn", `ledger append failed: ${e.message}`));
           break;
         case "revert_logged": {
           if (s.characterId === null)
@@ -35876,7 +36130,7 @@ async function handleSendMessageInternal(s, userId, connectionIdOverride) {
           if (s.characterId === null)
             break;
           const charId = s.characterId;
-          loadLedger(spindle, charId, userId).then((l) => send({ type: "character_edits_pushed", characterId: charId, entries: entriesView(l) }, userId)).catch((e) => log("warn", `edits resync failed: ${e.message}`));
+          loadLedger(spindle, characterScope(charId), userId).then((l) => send({ type: "character_edits_pushed", characterId: charId, entries: entriesView(l) }, userId)).catch((e) => log("warn", `edits resync failed: ${e.message}`));
           break;
         }
         case "warning":
@@ -35932,10 +36186,10 @@ async function handleSendMessageInternal(s, userId, connectionIdOverride) {
 }
 async function autosquashAndNotify(s, characterId, assistantMessageId, userId) {
   try {
-    const summary = await squashMessage(spindle, characterId, assistantMessageId, userId, { sealed: false });
+    const summary = await squashMessage(spindle, characterScope(characterId), assistantMessageId, userId, { sealed: false });
     if (summary.groupsMerged === 0)
       return false;
-    const ledger = await loadLedger(spindle, characterId, userId);
+    const ledger = await loadLedger(spindle, characterScope(characterId), userId);
     const view = entriesView(ledger);
     let mutated = false;
     if (summary.absorbedIds.length > 0) {

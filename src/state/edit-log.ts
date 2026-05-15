@@ -8,9 +8,11 @@ import type {
   RegexScriptDTO,
   RegexScriptUpdateDTO,
   RegexScriptCreateDTO,
+  PersonaUpdateDTO,
 } from "lumiverse-spindle-types";
-import type { EditLogEntry, EditRecord, RevertOutcomeWire } from "../types";
-import type { CharacterLedger } from "./ledger";
+import type { EditLogEntry, EditRecord, RevertOutcomeWire, ScopeRef } from "../types";
+import { characterScope } from "../types";
+import type { ScopedLedger } from "./ledger";
 import { findPatch, findStructural, findExternal, persistLedgerNow, purgeIdsInMemory } from "./ledger";
 import { tryRevert, recordExternalDrift, sha256, currentValue, purgeRevertedPatches } from "./patch-stack";
 
@@ -42,7 +44,7 @@ export function makeEditId(): string {
 
 export function newEditEntry(
   sessionId: string,
-  characterId: string,
+  scope: ScopeRef,
   toolCallId: string,
   toolName: string,
   turn: number,
@@ -53,7 +55,7 @@ export function newEditEntry(
     id: makeEditId(),
     ts: Date.now(),
     sessionId,
-    characterId,
+    scope,
     ...(assistantMessageId !== undefined ? { assistantMessageId } : {}),
     toolCallId,
     toolName,
@@ -245,6 +247,15 @@ export async function revertEdit(
           await spindle.regex_scripts.update(r.surfaceId, { [r.field]: r.before } as RegexScriptUpdateDTO, userId);
           return { success: true };
         }
+        case "persona_field": {
+          await spindle.personas.update(r.surfaceId, { [r.field]: r.before } as PersonaUpdateDTO, userId);
+          return { success: true };
+        }
+        case "chat_message": {
+          const [chatId, mid] = r.surfaceId.split(":");
+          await spindle.chat.updateMessage(chatId!, mid!, { content: r.before });
+          return { success: true };
+        }
         case "extension": {
           const c = await spindle.characters.get(characterId, userId);
           if (!c) return { success: false, error: "character not found" };
@@ -352,6 +363,18 @@ export async function readLiveValue(
       const v = (s as unknown as Record<string, unknown>)[r.field];
       return typeof v === "string" ? v : null;
     }
+    case "persona_field": {
+      const p = await spindle.personas.get(r.surfaceId, userId);
+      if (!p) return null;
+      const v = (p as unknown as Record<string, unknown>)[r.field];
+      return typeof v === "string" ? v : null;
+    }
+    case "chat_message": {
+      const [chatId, mid] = r.surfaceId.split(":");
+      const msgs = await spindle.chat.getMessages(chatId!);
+      const m = msgs.find((x) => x.id === mid);
+      return m ? m.content : null;
+    }
     case "extension": {
       const c = await spindle.characters.get(characterId, userId);
       if (!c) return null;
@@ -369,7 +392,7 @@ export async function readLiveValue(
 // without the target) are reported back to the UI.
 async function revertFieldEditV2(
   spindle: SpindleAPI,
-  ledger: CharacterLedger,
+  ledger: ScopedLedger,
   editId: string,
   characterId: string,
   userId: string,
@@ -381,7 +404,7 @@ async function revertFieldEditV2(
   if (patch.reverted) return { kind: "noop_already_reverted", editId };
 
   const entryView: EditLogEntry = {
-    id: editId, ts: patch.ts, sessionId: patch.sessionId ?? "", characterId,
+    id: editId, ts: patch.ts, sessionId: patch.sessionId ?? "", scope: characterScope(characterId),
     toolCallId: patch.toolCallId ?? "", toolName: patch.toolName ?? patch.description,
     turn: patch.turn ?? 0, reverted: false,
     record: {
@@ -490,6 +513,15 @@ export async function writeFieldValue(
       await spindle.regex_scripts.update(surfaceId, { [field]: value } as RegexScriptUpdateDTO, userId);
       return;
     }
+    case "persona_field": {
+      await spindle.personas.update(surfaceId, { [field]: value } as PersonaUpdateDTO, userId);
+      return;
+    }
+    case "chat_message": {
+      const [chatId, mid] = surfaceId.split(":");
+      await spindle.chat.updateMessage(chatId!, mid!, { content: value });
+      return;
+    }
     case "extension": {
       const c = await spindle.characters.get(characterId, userId);
       if (!c) throw new Error("character not found");
@@ -505,7 +537,7 @@ export async function writeFieldValue(
 
 export async function revertEditWithCheck(
   spindle: SpindleAPI,
-  ledger: CharacterLedger,
+  ledger: ScopedLedger,
   editId: string,
   characterId: string,
   userId: string,
@@ -519,7 +551,7 @@ export async function revertEditWithCheck(
   const struct = findStructural(ledger, editId);
   if (struct) {
     const entry: EditLogEntry = {
-      id: editId, ts: struct.ts, sessionId: struct.sessionId ?? "", characterId,
+      id: editId, ts: struct.ts, sessionId: struct.sessionId ?? "", scope: characterScope(characterId),
       toolCallId: struct.toolCallId ?? "", toolName: struct.op, turn: 0, reverted: false,
       record: struct.op === "create"
         ? { op: "create", surface: struct.surface, surfaceId: struct.surfaceId, surfaceLabel: struct.surfaceLabel, snapshot: struct.snapshot as never }
