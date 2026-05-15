@@ -239,13 +239,22 @@ function substituteString(s: string, scope: Record<string, unknown>): unknown {
   // Whole-string single-reference => return the raw value (not stringified).
   const whole = WHOLE_RE.exec(s);
   if (whole) {
-    const { found, value } = lookup(whole[1]!, scope);
-    if (!found) throw new Error(`unknown ref '{{${whole[1]}}}'`);
+    const ref = whole[1]!;
+    const { found, value } = lookup(ref, scope);
+    if (!found) {
+      // `$` refs are pipeline bindings: not-found is a real bug. Bare refs
+      // collide with Risu macros (`{{risu_date}}`), pass them through literal.
+      if (ref.startsWith("$")) throw new Error(`unknown ref '{{${ref}}}'`);
+      return s;
+    }
     return value;
   }
-  return s.replace(TEMPLATE_RE, (_match, name: string) => {
+  return s.replace(TEMPLATE_RE, (match, name: string) => {
     const { found, value } = lookup(name, scope);
-    if (!found) throw new Error(`unknown ref '{{${name}}}'`);
+    if (!found) {
+      if (name.startsWith("$")) throw new Error(`unknown ref '{{${name}}}'`);
+      return match;
+    }
     if (typeof value === "string") return value;
     if (typeof value === "number" || typeof value === "boolean") return String(value);
     return JSON.stringify(value);
