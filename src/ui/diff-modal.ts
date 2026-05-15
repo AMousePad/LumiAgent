@@ -117,13 +117,17 @@ function describeRecord(entry: EditLogEntry): { primary: string; secondary: stri
 }
 
 export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, opts?: { initialEditId?: string | undefined }): DiffModalHandle {
+  const maxH = computeModalMaxHeight();
   const modal: SpindleModalHandle = ctx.ui.showModal({
     title: "Workshop",
     width: computeModalWidth(),
-    maxHeight: computeModalMaxHeight(),
+    maxHeight: maxH,
   });
   const root = modal.root;
   root.classList.add("la-diff-modal-root");
+  // showModal sizes to content (up to maxHeight); pin the body so the modal
+  // is always full-size even with no edits, instead of shrinking to a strip.
+  root.style.minHeight = `${maxH}px`;
   let open = true;
   const handleClose = (): void => {
     if (!open) return;

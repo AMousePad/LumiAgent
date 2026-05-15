@@ -6163,13 +6163,15 @@ function describeRecord(entry) {
   };
 }
 function openDiffModal(ctx, deps, opts) {
+  const maxH = computeModalMaxHeight();
   const modal = ctx.ui.showModal({
     title: "Workshop",
     width: computeModalWidth(),
-    maxHeight: computeModalMaxHeight()
+    maxHeight: maxH
   });
   const root = modal.root;
   root.classList.add("la-diff-modal-root");
+  root.style.minHeight = `${maxH}px`;
   let open = true;
   const handleClose = () => {
     if (!open)

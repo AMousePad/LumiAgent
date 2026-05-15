@@ -1700,6 +1700,8 @@ function entriesView(ledger) {
   const out = [];
   for (const f of ledger.files) {
     for (const p of f.patches) {
+      if (p.hashBefore === p.hashAfter)
+        continue;
       const e = synthesizeFromPatch(f, p, ledger.scope);
       if (e)
         out.push(e);

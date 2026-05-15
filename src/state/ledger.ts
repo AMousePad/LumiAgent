@@ -351,6 +351,9 @@ export function entriesView(ledger: ScopedLedger): EditLogEntry[] {
   const out: EditLogEntry[] = [];
   for (const f of ledger.files) {
     for (const p of f.patches) {
+      // Hide no-op patches (before === after). Prevention stops new ones;
+      // this also clears legacy empties persisted before that landed.
+      if (p.hashBefore === p.hashAfter) continue;
       const e = synthesizeFromPatch(f, p, ledger.scope);
       if (e) out.push(e);
     }
