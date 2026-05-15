@@ -1,5 +1,10 @@
 import type { SpindleFrontendContext } from "lumiverse-spindle-types";
-import type { FrontendToBackend, CharacterStorageEntry } from "../types";
+import type { FrontendToBackend, CharacterStorageEntry, ScopeRef } from "../types";
+import { characterScope } from "../types";
+
+function entryScope(e: CharacterStorageEntry): ScopeRef {
+  return e.scope ?? characterScope(e.characterId);
+}
 
 // Workshop Characters tab. Shows per-character edit counts and lets the user
 // clear the ledger with one click. Selecting a row asks the backend for that
@@ -8,7 +13,7 @@ import type { FrontendToBackend, CharacterStorageEntry } from "../types";
 export interface CharactersPanelDeps {
   readonly ctx: SpindleFrontendContext;
   sendBackend(msg: FrontendToBackend): void;
-  onFocusCharacter(characterId: string, characterName: string): void;
+  onFocusCharacter(scope: ScopeRef, label: string): void;
 }
 
 export interface CharactersPanelHandle {
@@ -79,7 +84,7 @@ export function mountCharactersPanel(deps: CharactersPanelDeps): CharactersPanel
     // Single batched message. Fanning out per-character in parallel triggered
     // O(N) concurrent ledger scans + workspace walks on Lumiverse and crashed
     // the host on accounts with many cards.
-    deps.sendBackend({ type: "revert_all_characters", characterIds: targets.map((t) => t.characterId) });
+    deps.sendBackend({ type: "revert_all_characters", characterIds: targets.map((t) => t.characterId), scopes: targets.map(entryScope) });
     revertAllBtn.disabled = false;
     revertAllBtn.textContent = "Revert all edits";
   });
@@ -102,7 +107,7 @@ export function mountCharactersPanel(deps: CharactersPanelDeps): CharactersPanel
     const viewBtn = el("button", "la-btn la-btn-mini", "View in workshop") as HTMLButtonElement;
     viewBtn.addEventListener("click", (ev) => {
       ev.stopPropagation();
-      deps.onFocusCharacter(entry.characterId, entry.characterName);
+      deps.onFocusCharacter(entryScope(entry), entry.label ?? entry.characterName);
     });
     const revertBtn = el("button", "la-btn la-btn-mini la-btn-danger", "Revert all") as HTMLButtonElement;
     revertBtn.title = "Revert every live edit on this character. Cascade-aware.";
@@ -118,7 +123,7 @@ export function mountCharactersPanel(deps: CharactersPanelDeps): CharactersPanel
       if (!c.confirmed) return;
       revertBtn.disabled = true;
       revertBtn.textContent = "Reverting...";
-      deps.sendBackend({ type: "revert_character_all", characterId: entry.characterId });
+      deps.sendBackend({ type: "revert_character_all", characterId: entry.characterId, scope: entryScope(entry) });
     });
     const squashBtn = el("button", "la-btn la-btn-mini la-btn-danger", "Clear ledger") as HTMLButtonElement;
     squashBtn.title = "Clear the edit ledger for this character. The card itself is NOT touched.";
@@ -133,7 +138,7 @@ export function mountCharactersPanel(deps: CharactersPanelDeps): CharactersPanel
       if (!c.confirmed) return;
       squashBtn.disabled = true;
       squashBtn.textContent = "Clearing...";
-      deps.sendBackend({ type: "squash_character", characterId: entry.characterId });
+      deps.sendBackend({ type: "squash_character", characterId: entry.characterId, scope: entryScope(entry) });
     });
     actions.append(viewBtn, revertBtn, squashBtn);
     row.append(main, actions);

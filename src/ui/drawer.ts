@@ -10,8 +10,10 @@ import type {
   EditLogEntry,
   FrontendToBackend,
   RevertOutcomeWire,
+  ScopeRef,
   SessionSummaryWire,
 } from "../types";
+import { characterScope } from "../types";
 import { STYLES } from "./styles";
 import {
   type AssistantHandle,
@@ -99,6 +101,7 @@ interface UiState {
   charactersPanel: CharactersPanelHandle | null;
   workshopFocusCharacterId: string | null;
   workshopFocusCharacterName: string | null;
+  workshopFocusScope: ScopeRef | null;
   // Whether the streaming bubble currently shows the cycling thinking
   // indicator. The indicator itself lives inside the bubble; this flag just
   // gates re-toggles so we don't churn DOM nodes on every event.
@@ -168,6 +171,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     charactersPanel: null,
     workshopFocusCharacterId: null,
     workshopFocusCharacterName: null,
+    workshopFocusScope: null,
     loading: false,
     editingMessageId: null,
   };
@@ -681,10 +685,11 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       state.charactersPanel = mountCharactersPanel({
         ctx,
         sendBackend,
-        onFocusCharacter: (cid, name) => {
-          state.workshopFocusCharacterId = cid;
-          state.workshopFocusCharacterName = name;
-          sendBackend({ type: "load_character_workshop", characterId: cid });
+        onFocusCharacter: (scope, label) => {
+          state.workshopFocusScope = scope;
+          state.workshopFocusCharacterId = scope.id;
+          state.workshopFocusCharacterName = label;
+          sendBackend({ type: "load_character_workshop", characterId: scope.id, scope });
           state.diffModal?.focusTab("edits");
         },
       });
@@ -701,15 +706,17 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         return state.characterName ?? null;
       },
       onRevert: async (editId) => {
-        const cid = state.workshopFocusCharacterId ?? state.characterId;
-        if (!cid) return;
-        sendBackend({ type: "revert_edit", characterId: cid, editId });
+        const scope = state.workshopFocusScope
+          ?? (state.characterId ? characterScope(state.characterId) : null);
+        if (!scope) return;
+        sendBackend({ type: "revert_edit", characterId: scope.id, editId, scope });
       },
       onClose: () => {
         state.diffModal = null;
         // Reset the focus override so reopening goes back to the active
         // session's character.
         if (state.workshopFocusCharacterId) {
+          state.workshopFocusScope = null;
           state.workshopFocusCharacterId = null;
           state.workshopFocusCharacterName = null;
           if (state.characterId) sendBackend({ type: "list_character_edits", characterId: state.characterId });
@@ -2361,6 +2368,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         // If we just squashed the focused character, drop the focus override
         // and reload the active character's ledger so the Edits tab is sane.
         if (state.workshopFocusCharacterId === msg.characterId) {
+          state.workshopFocusScope = null;
           state.workshopFocusCharacterId = null;
           state.workshopFocusCharacterName = null;
         }

@@ -310,6 +310,17 @@ function showAskUserQuestion(input) {
 }
 var OTHER_LABEL = "Other";
 
+// src/types.ts
+function characterScope(id) {
+  return { kind: "character", id };
+}
+function fileKeyOf(e) {
+  const r = e.record;
+  if (r.op === "edit")
+    return `${r.surface}:${r.surfaceId}:${r.field}`;
+  return `${r.surface}:${r.surfaceId}`;
+}
+
 // src/ui/loaders.ts
 var LOADER_VARIANTS = [
   "la-ld-1",
@@ -5855,14 +5866,6 @@ class ChatVirtualizer {
   }
 }
 
-// src/types.ts
-function fileKeyOf(e) {
-  const r = e.record;
-  if (r.op === "edit")
-    return `${r.surface}:${r.surfaceId}:${r.field}`;
-  return `${r.surface}:${r.surfaceId}`;
-}
-
 // src/ui/diff-modal.ts
 var SURFACE_LABELS = {
   character_field: "Character",
@@ -6654,6 +6657,9 @@ This lives under custom_tools/. The agent's saved tool recipes are stored here â
 }
 
 // src/ui/characters-panel.ts
+function entryScope(e) {
+  return e.scope ?? characterScope(e.characterId);
+}
 function el5(tag, cls, text) {
   const e = document.createElement(tag);
   if (cls)
@@ -6708,7 +6714,7 @@ function mountCharactersPanel(deps) {
       return;
     revertAllBtn.disabled = true;
     revertAllBtn.textContent = "Reverting...";
-    deps.sendBackend({ type: "revert_all_characters", characterIds: targets.map((t) => t.characterId) });
+    deps.sendBackend({ type: "revert_all_characters", characterIds: targets.map((t) => t.characterId), scopes: targets.map(entryScope) });
     revertAllBtn.disabled = false;
     revertAllBtn.textContent = "Revert all edits";
   });
@@ -6723,7 +6729,7 @@ function mountCharactersPanel(deps) {
     const viewBtn = el5("button", "la-btn la-btn-mini", "View in workshop");
     viewBtn.addEventListener("click", (ev) => {
       ev.stopPropagation();
-      deps.onFocusCharacter(entry.characterId, entry.characterName);
+      deps.onFocusCharacter(entryScope(entry), entry.label ?? entry.characterName);
     });
     const revertBtn = el5("button", "la-btn la-btn-mini la-btn-danger", "Revert all");
     revertBtn.title = "Revert every live edit on this character. Cascade-aware.";
@@ -6740,7 +6746,7 @@ function mountCharactersPanel(deps) {
         return;
       revertBtn.disabled = true;
       revertBtn.textContent = "Reverting...";
-      deps.sendBackend({ type: "revert_character_all", characterId: entry.characterId });
+      deps.sendBackend({ type: "revert_character_all", characterId: entry.characterId, scope: entryScope(entry) });
     });
     const squashBtn = el5("button", "la-btn la-btn-mini la-btn-danger", "Clear ledger");
     squashBtn.title = "Clear the edit ledger for this character. The card itself is NOT touched.";
@@ -6756,7 +6762,7 @@ function mountCharactersPanel(deps) {
         return;
       squashBtn.disabled = true;
       squashBtn.textContent = "Clearing...";
-      deps.sendBackend({ type: "squash_character", characterId: entry.characterId });
+      deps.sendBackend({ type: "squash_character", characterId: entry.characterId, scope: entryScope(entry) });
     });
     actions.append(viewBtn, revertBtn, squashBtn);
     row.append(main, actions);
@@ -7196,6 +7202,7 @@ function mountDrawer(ctx) {
     charactersPanel: null,
     workshopFocusCharacterId: null,
     workshopFocusCharacterName: null,
+    workshopFocusScope: null,
     loading: false,
     editingMessageId: null
   };
@@ -7627,10 +7634,11 @@ Force-revert anyway (this overwrites the external change)?`;
       state.charactersPanel = mountCharactersPanel({
         ctx,
         sendBackend,
-        onFocusCharacter: (cid, name) => {
-          state.workshopFocusCharacterId = cid;
-          state.workshopFocusCharacterName = name;
-          sendBackend({ type: "load_character_workshop", characterId: cid });
+        onFocusCharacter: (scope, label) => {
+          state.workshopFocusScope = scope;
+          state.workshopFocusCharacterId = scope.id;
+          state.workshopFocusCharacterName = label;
+          sendBackend({ type: "load_character_workshop", characterId: scope.id, scope });
           state.diffModal?.focusTab("edits");
         }
       });
@@ -7647,14 +7655,15 @@ Force-revert anyway (this overwrites the external change)?`;
         return state.characterName ?? null;
       },
       onRevert: async (editId) => {
-        const cid = state.workshopFocusCharacterId ?? state.characterId;
-        if (!cid)
+        const scope = state.workshopFocusScope ?? (state.characterId ? characterScope(state.characterId) : null);
+        if (!scope)
           return;
-        sendBackend({ type: "revert_edit", characterId: cid, editId });
+        sendBackend({ type: "revert_edit", characterId: scope.id, editId, scope });
       },
       onClose: () => {
         state.diffModal = null;
         if (state.workshopFocusCharacterId) {
+          state.workshopFocusScope = null;
           state.workshopFocusCharacterId = null;
           state.workshopFocusCharacterName = null;
           if (state.characterId)
@@ -9234,6 +9243,7 @@ Revert those edits to the character now, or leave them applied?`;
       }
       case "character_squashed":
         if (state.workshopFocusCharacterId === msg.characterId) {
+          state.workshopFocusScope = null;
           state.workshopFocusCharacterId = null;
           state.workshopFocusCharacterName = null;
         }

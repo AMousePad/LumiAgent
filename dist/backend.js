@@ -34809,6 +34809,46 @@ async function handleListCharactersStorage(userId) {
       };
     }));
     const entries = perChar.filter((e) => e !== null);
+    for (const kind of ["persona", "chat"]) {
+      let names = [];
+      try {
+        names = await spindle.userStorage.list(`ledgers/${kind}/`, userId);
+      } catch {}
+      for (const rel of names) {
+        const base = rel.split(/[\\/]/).pop() ?? "";
+        if (!base.endsWith(".json"))
+          continue;
+        const id = base.slice(0, -5);
+        const scope = { kind, id };
+        const ledger = await loadLedger(spindle, scope, userId).catch(() => null);
+        const view = ledger ? entriesView(ledger) : [];
+        if (view.length === 0)
+          continue;
+        let ledgerBytes = 0;
+        try {
+          const st = await spindle.userStorage.stat(ledgerPath(scope), userId);
+          if (st.exists)
+            ledgerBytes = st.sizeBytes;
+        } catch {}
+        let label = `${kind === "chat" ? "Chat" : "Persona"} ${id.slice(0, 8)}`;
+        if (kind === "persona") {
+          try {
+            const p = await spindle.personas.get(id, userId);
+            if (p)
+              label = p.name;
+          } catch {}
+        }
+        entries.push({
+          characterId: id,
+          characterName: label,
+          label,
+          scope,
+          editCount: view.length,
+          liveEditCount: view.filter((e) => !e.reverted).length,
+          ledgerBytes
+        });
+      }
+    }
     entries.sort((a, b) => b.ledgerBytes - a.ledgerBytes || b.editCount - a.editCount);
     send({
       type: "characters_storage_pushed",
@@ -34820,24 +34860,24 @@ async function handleListCharactersStorage(userId) {
     log("warn", `list_characters_storage failed: ${err.message}`);
   }
 }
-async function handleSquashCharacter(characterId, userId) {
+async function handleSquashCharacter(scope, userId) {
   try {
     const { dropCache: dropCache2 } = await Promise.resolve().then(() => (init_ledger(), exports_ledger));
     let ledgerCleared = false;
     try {
-      await spindle.userStorage.delete(ledgerPath(characterScope(characterId)), userId);
-      dropCache2(characterScope(characterId), userId);
+      await spindle.userStorage.delete(ledgerPath(scope), userId);
+      dropCache2(scope, userId);
       ledgerCleared = true;
     } catch {}
-    send({ type: "character_squashed", characterId, ledgerCleared }, userId);
+    send({ type: "character_squashed", characterId: scope.id, ledgerCleared }, userId);
     await handleListCharactersStorage(userId);
   } catch (err) {
-    log("warn", `squash_character ${characterId} failed: ${err.message}`);
+    log("warn", `squash_character ${scope.kind}:${scope.id} failed: ${err.message}`);
   }
 }
-async function handleRevertCharacterAll(characterId, userId) {
+async function handleRevertCharacterAll(scope, userId) {
   try {
-    const ledger = await loadLedger(spindle, characterScope(characterId), userId);
+    const ledger = await loadLedger(spindle, scope, userId);
     const liveIds = [];
     for (const f of ledger.files)
       for (const p of f.patches) {
@@ -34851,20 +34891,20 @@ async function handleRevertCharacterAll(characterId, userId) {
       if (!e.reverted)
         liveIds.push(e.id);
     if (liveIds.length === 0) {
-      send({ type: "edits_reverted_bulk", characterId, outcomes: [] }, userId);
+      send({ type: "edits_reverted_bulk", characterId: scope.id, outcomes: [] }, userId);
       return;
     }
-    await handleRevertEditsBulk(characterId, liveIds, userId);
+    await handleRevertEditsBulk(scope, liveIds, userId);
   } catch (err) {
-    log("warn", `revert_character_all ${characterId} failed: ${err.message}`);
+    log("warn", `revert_character_all ${scope.kind}:${scope.id} failed: ${err.message}`);
   }
 }
-async function handleLoadCharacterWorkshop(characterId, userId) {
+async function handleLoadCharacterWorkshop(scope, userId) {
   try {
-    const ledger = await loadLedger(spindle, characterScope(characterId), userId);
-    send({ type: "character_edits_pushed", characterId, entries: entriesView(ledger) }, userId);
+    const ledger = await loadLedger(spindle, scope, userId);
+    send({ type: "character_edits_pushed", characterId: scope.id, entries: entriesView(ledger) }, userId);
   } catch (err) {
-    log("warn", `load_character_workshop ${characterId} failed: ${err.message}`);
+    log("warn", `load_character_workshop ${scope.kind}:${scope.id} failed: ${err.message}`);
   }
 }
 var AUTO_COMPACT_THRESHOLD = 0.84;
@@ -35564,31 +35604,31 @@ function renderSessionMarkdown(s) {
   return { content: lines.join(`
 `), filename };
 }
-async function handleListCharacterEdits(characterId, userId) {
-  const ledger = await loadLedger(spindle, characterScope(characterId), userId);
-  send({ type: "character_edits_pushed", characterId, entries: entriesView(ledger) }, userId);
+async function handleListCharacterEdits(scope, userId) {
+  const ledger = await loadLedger(spindle, scope, userId);
+  send({ type: "character_edits_pushed", characterId: scope.id, entries: entriesView(ledger) }, userId);
 }
-async function handleRevertEdit(characterId, editId, force, userId) {
-  const ledger = await loadLedger(spindle, characterScope(characterId), userId);
+async function handleRevertEdit(scope, editId, force, userId) {
+  const ledger = await loadLedger(spindle, scope, userId);
   const entry = findEntry(ledger, editId);
   if (!entry) {
-    send({ type: "edit_reverted", characterId, editId, outcome: { kind: "failed", editId, error: "edit not found in character ledger" } }, userId);
+    send({ type: "edit_reverted", characterId: scope.id, editId, outcome: { kind: "failed", editId, error: "edit not found in ledger" } }, userId);
     return;
   }
-  const outcome = await revertEditWithCheck(spindle, ledger, editId, characterId, userId, force);
+  const outcome = await revertEditWithCheck(spindle, ledger, editId, scope.id, userId, force);
   if (outcome.kind === "clean") {
     const removedIds = new Set([editId, ...outcome.cascadedEditIds ?? []]);
     await spliceRevertedFromSession(spindle, entry.sessionId, removedIds, [buildRevertNote(entry)], userId);
   }
-  send({ type: "edit_reverted", characterId, editId, outcome }, userId);
+  send({ type: "edit_reverted", characterId: scope.id, editId, outcome }, userId);
   if (outcome.kind === "clean") {
-    send({ type: "character_edits_pushed", characterId, entries: entriesView(ledger) }, userId);
+    send({ type: "character_edits_pushed", characterId: scope.id, entries: entriesView(ledger) }, userId);
     handleListCharactersStorage(userId);
     handleListSessions(undefined, userId);
   }
 }
-async function handleRevertEditsBulk(characterId, editIds, userId, opts = {}) {
-  const ledger = await loadLedger(spindle, characterScope(characterId), userId);
+async function handleRevertEditsBulk(scope, editIds, userId, opts = {}) {
+  const ledger = await loadLedger(spindle, scope, userId);
   const targetSet = new Set(editIds);
   const outcomes = [];
   const removedIds = new Set;
@@ -35630,7 +35670,7 @@ async function handleRevertEditsBulk(characterId, editIds, userId, opts = {}) {
     file2.expectedHash = sha256(cur);
     fileWork.push({ file: file2, hits, cascadeIds, recomputed: cur });
   }
-  const fileWriteResults = await Promise.allSettled(fileWork.map(({ file: file2, recomputed }) => writeFieldValue(spindle, file2.key.surface, file2.key.surfaceId, file2.key.field, recomputed, characterId, userId)));
+  const fileWriteResults = await Promise.allSettled(fileWork.map(({ file: file2, recomputed }) => writeFieldValue(spindle, file2.key.surface, file2.key.surfaceId, file2.key.field, recomputed, scope.id, userId)));
   fileWork.forEach((work, i) => {
     const r = fileWriteResults[i];
     if (r && r.status === "fulfilled") {
@@ -35665,14 +35705,14 @@ async function handleRevertEditsBulk(characterId, editIds, userId, opts = {}) {
         id: s.id,
         ts: s.ts,
         sessionId: s.sessionId ?? "",
-        scope: characterScope(characterId),
+        scope,
         toolCallId: s.toolCallId ?? "",
         toolName: s.op,
         turn: 0,
         reverted: false,
         record: s.op === "create" ? { op: "create", surface: s.surface, surfaceId: s.surfaceId, surfaceLabel: s.surfaceLabel, snapshot: s.snapshot } : { op: "delete", surface: s.surface, surfaceId: s.surfaceId, surfaceLabel: s.surfaceLabel, snapshot: s.snapshot }
       };
-      const res = await revertEdit(spindle, entry, characterId, userId);
+      const res = await revertEdit(spindle, entry, scope.id, userId);
       if (!res.success)
         throw new Error(res.error ?? "revert failed");
     }));
@@ -35691,7 +35731,7 @@ async function handleRevertEditsBulk(characterId, editIds, userId, opts = {}) {
   const extHits = ledger.externalEdits.filter((e) => targetSet.has(e.id) && !e.reverted);
   if (extHits.length > 0) {
     const extResults = await Promise.allSettled(extHits.map(async (e) => {
-      const res = await revertEdit(spindle, e, characterId, userId);
+      const res = await revertEdit(spindle, e, scope.id, userId);
       if (!res.success)
         throw new Error(res.error ?? "revert failed");
     }));
@@ -35717,19 +35757,19 @@ async function handleRevertEditsBulk(characterId, editIds, userId, opts = {}) {
       return spliceRevertedFromSession(spindle, sid, removedIds, [note], userId);
     }));
   }
-  send({ type: "edits_reverted_bulk", characterId, outcomes }, userId);
+  send({ type: "edits_reverted_bulk", characterId: scope.id, outcomes }, userId);
   if (removedIds.size > 0) {
-    send({ type: "character_edits_pushed", characterId, entries: entriesView(ledger) }, userId);
+    send({ type: "character_edits_pushed", characterId: scope.id, entries: entriesView(ledger) }, userId);
     if (!opts.suppressRefresh) {
       handleListCharactersStorage(userId);
       handleListSessions(undefined, userId);
     }
   }
 }
-async function handleRevertAllCharacters(characterIds, userId) {
-  for (const characterId of characterIds) {
+async function handleRevertAllCharacters(scopes, userId) {
+  for (const scope of scopes) {
     try {
-      const ledger = await loadLedger(spindle, characterScope(characterId), userId);
+      const ledger = await loadLedger(spindle, scope, userId);
       const liveIds = [];
       for (const f of ledger.files)
         for (const p of f.patches) {
@@ -35743,12 +35783,12 @@ async function handleRevertAllCharacters(characterIds, userId) {
         if (!e.reverted)
           liveIds.push(e.id);
       if (liveIds.length === 0) {
-        send({ type: "edits_reverted_bulk", characterId, outcomes: [] }, userId);
+        send({ type: "edits_reverted_bulk", characterId: scope.id, outcomes: [] }, userId);
         continue;
       }
-      await handleRevertEditsBulk(characterId, liveIds, userId, { suppressRefresh: true });
+      await handleRevertEditsBulk(scope, liveIds, userId, { suppressRefresh: true });
     } catch (err) {
-      log("warn", `revert_all_characters ${characterId} failed: ${err.message}`);
+      log("warn", `revert_all_characters ${scope.kind}:${scope.id} failed: ${err.message}`);
     }
   }
   handleListCharactersStorage(userId);
@@ -35827,7 +35867,7 @@ async function revertEditsBatch(characterId, entries, userId) {
   if (entries.length === 0)
     return { ok: 0, failed: 0 };
   const ids = entries.map((e) => e.id);
-  await handleRevertEditsBulk(characterId, ids, userId);
+  await handleRevertEditsBulk(characterScope(characterId), ids, userId);
   const after = await loadLedger(spindle, characterScope(characterId), userId);
   const survivors = new Set;
   for (const f of after.files)
@@ -36382,13 +36422,13 @@ spindle.onFrontendMessage(async (raw, userId) => {
         await handleExportSessionMarkdown(msg.sessionId, userId);
         return;
       case "list_character_edits":
-        await handleListCharacterEdits(msg.characterId, userId);
+        await handleListCharacterEdits(characterScope(msg.characterId), userId);
         return;
       case "revert_edit":
-        await handleRevertEdit(msg.characterId, msg.editId, msg.force === true, userId);
+        await handleRevertEdit(msg.scope ?? characterScope(msg.characterId), msg.editId, msg.force === true, userId);
         return;
       case "revert_edits_bulk":
-        await handleRevertEditsBulk(msg.characterId, msg.editIds, userId);
+        await handleRevertEditsBulk(msg.scope ?? characterScope(msg.characterId), msg.editIds, userId);
         return;
       case "revert_session":
         await handleRevertSession(msg.sessionId, userId);
@@ -36430,16 +36470,16 @@ spindle.onFrontendMessage(async (raw, userId) => {
         await handleListCharactersStorage(userId);
         return;
       case "squash_character":
-        await handleSquashCharacter(msg.characterId, userId);
+        await handleSquashCharacter(msg.scope ?? characterScope(msg.characterId), userId);
         return;
       case "revert_character_all":
-        await handleRevertCharacterAll(msg.characterId, userId);
+        await handleRevertCharacterAll(msg.scope ?? characterScope(msg.characterId), userId);
         return;
       case "revert_all_characters":
-        await handleRevertAllCharacters(msg.characterIds, userId);
+        await handleRevertAllCharacters(msg.scopes ?? msg.characterIds.map(characterScope), userId);
         return;
       case "load_character_workshop":
-        await handleLoadCharacterWorkshop(msg.characterId, userId);
+        await handleLoadCharacterWorkshop(msg.scope ?? characterScope(msg.characterId), userId);
         return;
       case "ws_list":
         await handleWsList(msg.path, userId);

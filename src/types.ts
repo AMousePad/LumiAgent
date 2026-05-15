@@ -248,8 +248,8 @@ export type FrontendToBackend =
   | { type: "delete_session"; sessionId: string }
   | { type: "export_session_markdown"; sessionId: string }
   | { type: "list_character_edits"; characterId: string }
-  | { type: "revert_edit"; characterId: string; editId: string; force?: boolean | undefined; sessionId?: string | undefined }
-  | { type: "revert_edits_bulk"; characterId: string; editIds: readonly string[]; sessionId?: string | undefined }
+  | { type: "revert_edit"; characterId: string; editId: string; force?: boolean | undefined; sessionId?: string | undefined; scope?: ScopeRef }
+  | { type: "revert_edits_bulk"; characterId: string; editIds: readonly string[]; sessionId?: string | undefined; scope?: ScopeRef }
   | { type: "revert_session"; sessionId: string }
   | { type: "edit_user_message"; sessionId: string; messageId: string; newContent: string; editsAction: "keep" | "revert"; connectionId?: string | undefined }
   | { type: "regenerate_assistant_message"; sessionId: string; assistantMessageId: string; editsAction: "keep" | "revert"; connectionId?: string | undefined }
@@ -274,10 +274,10 @@ export type FrontendToBackend =
   | { type: "ws_download_zip"; paths: readonly string[] }
   | { type: "compact_session"; sessionId: string }
   | { type: "list_characters_storage" }
-  | { type: "squash_character"; characterId: string }
-  | { type: "revert_character_all"; characterId: string }
-  | { type: "revert_all_characters"; characterIds: readonly string[] }
-  | { type: "load_character_workshop"; characterId: string }
+  | { type: "squash_character"; characterId: string; scope?: ScopeRef }
+  | { type: "revert_character_all"; characterId: string; scope?: ScopeRef }
+  | { type: "revert_all_characters"; characterIds: readonly string[]; scopes?: readonly ScopeRef[] }
+  | { type: "load_character_workshop"; characterId: string; scope?: ScopeRef }
   | { type: "get_phoneline_pairings" }
   | { type: "set_phoneline_pairing"; identifier: string; allowed: boolean }
   | { type: "revoke_phoneline_pairing"; identifier: string }
@@ -328,6 +328,10 @@ export interface CharacterStorageEntry {
   readonly editCount: number;
   readonly liveEditCount: number;
   readonly ledgerBytes: number;
+  // Present for non-character scopes (persona/chat). Absent => character,
+  // in which case characterId/characterName carry the identity (back-compat).
+  readonly scope?: ScopeRef;
+  readonly label?: string;
 }
 
 export interface WorkspaceEntry {
