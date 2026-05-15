@@ -9,6 +9,8 @@ import type {
   RegexScriptUpdateDTO,
   RegexScriptCreateDTO,
   PersonaUpdateDTO,
+  PersonaDTO,
+  PersonaCreateDTO,
 } from "lumiverse-spindle-types";
 import type { EditLogEntry, EditRecord, RevertOutcomeWire, ScopeRef } from "../types";
 import { characterScope } from "../types";
@@ -127,6 +129,17 @@ function regexUpdateFromDTO(r: RegexScriptDTO): RegexScriptUpdateDTO {
     folder: r.folder,
     metadata: r.metadata,
   };
+}
+
+function personaCreateFromDTO(p: PersonaDTO): PersonaCreateDTO {
+  const out: PersonaCreateDTO = { name: p.name };
+  if (p.title) out.title = p.title;
+  if (p.description) out.description = p.description;
+  if (p.folder) out.folder = p.folder;
+  if (p.is_default) out.is_default = p.is_default;
+  if (p.attached_world_book_id) out.attached_world_book_id = p.attached_world_book_id;
+  if (p.metadata && Object.keys(p.metadata).length > 0) out.metadata = p.metadata;
+  return out;
 }
 
 function regexCreateFromDTO(r: RegexScriptDTO): RegexScriptCreateDTO {
@@ -256,6 +269,11 @@ export async function revertEdit(
           await spindle.chat.updateMessage(chatId!, mid!, { content: r.before });
           return { success: true };
         }
+        case "preset_block": {
+          const [presetId, blockId] = r.surfaceId.split(":");
+          await spindle.presets.blocks.update(presetId!, blockId!, { [r.field]: r.before });
+          return { success: true };
+        }
         case "extension": {
           const c = await spindle.characters.get(characterId, userId);
           if (!c) return { success: false, error: "character not found" };
@@ -283,6 +301,10 @@ export async function revertEdit(
         await spindle.characters.update(characterId, { alternate_greetings: arr }, userId);
         return { success: true };
       }
+      if (r.surface === "persona") {
+        await spindle.personas.delete(r.surfaceId, userId);
+        return { success: true };
+      }
     } else if (r.op === "delete") {
       if (r.surface === "world_book_entry") {
         const snap = r.snapshot as WorldBookEntryDTO;
@@ -302,6 +324,10 @@ export async function revertEdit(
         const target = Math.max(0, Math.min(arr.length, snap.index));
         arr.splice(target, 0, snap.greeting);
         await spindle.characters.update(characterId, { alternate_greetings: arr }, userId);
+        return { success: true };
+      }
+      if (r.surface === "persona") {
+        await spindle.personas.create(personaCreateFromDTO(r.snapshot as PersonaDTO), userId);
         return { success: true };
       }
     }
@@ -382,6 +408,15 @@ export async function readLiveValue(
       const v = getAtPath(c.extensions ?? {}, segs);
       return typeof v === "string" ? v : null;
     }
+    case "preset_block": {
+      const [presetId, blockId] = r.surfaceId.split(":");
+      const b = await spindle.presets.blocks.get(presetId!, blockId!, userId);
+      if (!b) return null;
+      const v = (b as unknown as Record<string, unknown>)[r.field];
+      return typeof v === "string" ? v : null;
+    }
+    default:
+      return null;
   }
 }
 
@@ -528,6 +563,11 @@ export async function writeFieldValue(
       const segs = parsePath(field);
       const next = setAtPath(c.extensions ?? {}, segs, value) as Record<string, unknown>;
       await spindle.characters.update(characterId, { extensions: next }, userId);
+      return;
+    }
+    case "preset_block": {
+      const [presetId, blockId] = surfaceId.split(":");
+      await spindle.presets.blocks.update(presetId!, blockId!, { [field]: value });
       return;
     }
     default:

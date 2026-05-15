@@ -3,6 +3,7 @@ import type {
   ToolCallDTO,
   WorldBookEntryDTO,
   RegexScriptDTO,
+  PersonaDTO,
 } from "lumiverse-spindle-types";
 
 export type LlmMessagePart =
@@ -39,7 +40,7 @@ export interface ToolResult {
 // Ledger filing scope. Phase 0 only ever produces "character"; the other
 // kinds are filing drawers for non-character surfaces added in later phases.
 // variables/images are singleton pseudo-scopes (id is a fixed constant).
-export type ScopeKind = "character" | "persona" | "chat" | "databank" | "variables" | "images";
+export type ScopeKind = "character" | "persona" | "chat" | "databank" | "preset" | "variables" | "images";
 
 export interface ScopeRef {
   readonly kind: ScopeKind;
@@ -68,6 +69,8 @@ export type EditSurface =
   | "extension"
   | "persona_field"
   | "chat_message"
+  | "preset_block"
+  | "persona"
   | "external";
 
 export interface EditEdit {
@@ -89,7 +92,7 @@ export interface EditCreate {
   readonly surface: Exclude<EditSurface, "character_field" | "extension">;
   readonly surfaceId: string;
   readonly surfaceLabel: string;
-  readonly snapshot: WorldBookEntryDTO | RegexScriptDTO | { greeting: string };
+  readonly snapshot: WorldBookEntryDTO | RegexScriptDTO | PersonaDTO | { greeting: string };
   readonly scope?: ScopeRef;
 }
 
@@ -98,7 +101,7 @@ export interface EditDelete {
   readonly surface: Exclude<EditSurface, "character_field" | "extension">;
   readonly surfaceId: string;
   readonly surfaceLabel: string;
-  readonly snapshot: WorldBookEntryDTO | RegexScriptDTO | { greeting: string; index: number };
+  readonly snapshot: WorldBookEntryDTO | RegexScriptDTO | PersonaDTO | { greeting: string; index: number };
   readonly scope?: ScopeRef;
 }
 

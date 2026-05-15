@@ -139,7 +139,7 @@ function upsertFile(ledger: ScopedLedger, file: FileState): void {
 }
 
 function structuralFromEntry(e: EditLogEntry, r: EditCreate | EditDelete): StructuralPatch | null {
-  if (r.surface !== "world_book_entry" && r.surface !== "regex_script" && r.surface !== "alternate_greeting") {
+  if (r.surface !== "world_book_entry" && r.surface !== "regex_script" && r.surface !== "alternate_greeting" && r.surface !== "persona") {
     return null;
   }
   return {

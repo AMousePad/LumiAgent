@@ -5875,9 +5875,11 @@ var SURFACE_LABELS = {
   extension: "Extensions",
   persona_field: "Personas",
   chat_message: "Chat messages",
+  preset_block: "Preset blocks",
+  persona: "Personas",
   external: "External (other extensions)"
 };
-var SURFACE_ORDER = ["character_field", "alternate_greeting", "world_book_entry", "regex_script", "extension", "persona_field", "chat_message", "external"];
+var SURFACE_ORDER = ["character_field", "alternate_greeting", "world_book_entry", "regex_script", "extension", "persona_field", "chat_message", "preset_block", "persona", "external"];
 var MOBILE_BREAKPOINT_PX = 720;
 var DESKTOP_WIDTH_CAP = 1700;
 var DESKTOP_WIDTH_MIN = 720;
@@ -6156,7 +6158,7 @@ function openDiffModal(ctx, deps, opts) {
       const snap = r.snapshot;
       const wrap2 = el3("div", "la-diff-pane-body");
       wrap2.appendChild(el3("div", "la-diff-pane-note", "Created — full content of the new entry is below."));
-      const full = "world_book_id" in snap || "find_regex" in snap ? JSON.stringify(snap, null, 2) : snap.greeting;
+      const full = typeof snap.greeting === "string" ? snap.greeting : JSON.stringify(snap, null, 2);
       wrap2.appendChild(renderSideBySideDiff("", full));
       pane.appendChild(wrap2);
       return;
@@ -6165,7 +6167,7 @@ function openDiffModal(ctx, deps, opts) {
       const snap = r.snapshot;
       const wrap2 = el3("div", "la-diff-pane-body");
       wrap2.appendChild(el3("div", "la-diff-pane-note", "Deleted — content shown was removed; revert restores it."));
-      const full = "world_book_id" in snap || "find_regex" in snap ? JSON.stringify(snap, null, 2) : snap.greeting;
+      const full = typeof snap.greeting === "string" ? snap.greeting : JSON.stringify(snap, null, 2);
       wrap2.appendChild(renderSideBySideDiff(full, ""));
       pane.appendChild(wrap2);
       return;

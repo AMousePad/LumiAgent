@@ -33,6 +33,7 @@ const PERSONA_STRING_FIELDS = ["name", "title", "description"] as const;
 function scopeForLeafKey(key: string, ctx: ToolCtx): ScopeRef {
   if (key.startsWith("persona/")) return { kind: "persona", id: key.split("/")[1]! };
   if (key.startsWith("chat/")) return { kind: "chat", id: key.split("/")[1]! };
+  if (key.startsWith("preset/")) return { kind: "preset", id: key.split("/")[1]! };
   return characterScope(ctx.characterId);
 }
 
@@ -40,7 +41,7 @@ export interface ResolvedLeaf {
   // Canonical key, normalized for the recent-read gate.
   readonly key: string;
   // Surface tag for analytics / ledger.
-  readonly surface: "character_field" | "alternate_greeting" | "extension" | "regex_script" | "world_book_entry" | "persona_field" | "chat_message";
+  readonly surface: "character_field" | "alternate_greeting" | "extension" | "regex_script" | "world_book_entry" | "persona_field" | "chat_message" | "preset_block";
   // surfaceId is the entity id (character id for char/extension, script id, entry id).
   readonly surfaceId: string;
   // Human-facing label for the workshop diff card.
@@ -254,7 +255,29 @@ export async function resolveRead(ctx: ToolCtx, path: string): Promise<ResolvedL
     };
   }
 
-  throw new PathError(path, `unknown surface prefix '${head}'. Expected one of: char, rx, wb, persona, chat`);
+  if (head === "preset") {
+    const presetId = parts[1];
+    if (presetId === undefined || parts[2] !== "block" || parts.length !== 5
+      || (parts[4] !== "content" && parts[4] !== "name")) {
+      throw new PathError(path, "expected preset/<presetId>/block/<blockId>/<content|name>");
+    }
+    const blockId = parts[3]!;
+    const field = parts[4]!;
+    const b = await ctx.spindle.presets.blocks.get(presetId, blockId, ctx.userId);
+    if (!b) throw new PathError(path, `block ${blockId} not found in preset ${presetId}`);
+    const bv = (b as unknown as Record<string, unknown>)[field];
+    if (typeof bv !== "string") throw new PathError(path, `block.${field} is not a string`);
+    return {
+      key: `preset/${presetId}/block/${blockId}/${field}`,
+      surface: "preset_block",
+      surfaceId: `${presetId}:${blockId}`,
+      surfaceLabel: `${b.name || "block"} (${field})`,
+      field,
+      value: bv,
+    };
+  }
+
+  throw new PathError(path, `unknown surface prefix '${head}'. Expected one of: char, rx, wb, persona, chat, preset`);
 }
 
 // Write a new value back to the leaf. Caller has already produced `nextValue`

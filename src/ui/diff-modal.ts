@@ -11,10 +11,12 @@ const SURFACE_LABELS: Record<EditSurface, string> = {
   extension: "Extensions",
   persona_field: "Personas",
   chat_message: "Chat messages",
+  preset_block: "Preset blocks",
+  persona: "Personas",
   external: "External (other extensions)",
 };
 
-const SURFACE_ORDER: EditSurface[] = ["character_field", "alternate_greeting", "world_book_entry", "regex_script", "extension", "persona_field", "chat_message", "external"];
+const SURFACE_ORDER: EditSurface[] = ["character_field", "alternate_greeting", "world_book_entry", "regex_script", "extension", "persona_field", "chat_message", "preset_block", "persona", "external"];
 
 const MOBILE_BREAKPOINT_PX = 720;
 const DESKTOP_WIDTH_CAP = 1700;
@@ -319,7 +321,7 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
       const snap = r.snapshot;
       const wrap = el("div", "la-diff-pane-body");
       wrap.appendChild(el("div", "la-diff-pane-note", "Created — full content of the new entry is below."));
-      const full = "world_book_id" in snap || "find_regex" in snap ? JSON.stringify(snap, null, 2) : (snap as { greeting: string }).greeting;
+      const full = typeof (snap as { greeting?: unknown }).greeting === "string" ? (snap as { greeting: string }).greeting : JSON.stringify(snap, null, 2);
       wrap.appendChild(renderSideBySideDiff("", full));
       pane.appendChild(wrap);
       return;
@@ -328,7 +330,7 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
       const snap = r.snapshot;
       const wrap = el("div", "la-diff-pane-body");
       wrap.appendChild(el("div", "la-diff-pane-note", "Deleted — content shown was removed; revert restores it."));
-      const full = "world_book_id" in snap || "find_regex" in snap ? JSON.stringify(snap, null, 2) : (snap as { greeting: string }).greeting;
+      const full = typeof (snap as { greeting?: unknown }).greeting === "string" ? (snap as { greeting: string }).greeting : JSON.stringify(snap, null, 2);
       wrap.appendChild(renderSideBySideDiff(full, ""));
       pane.appendChild(wrap);
       return;
