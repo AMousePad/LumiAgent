@@ -34085,7 +34085,7 @@ function subscribeToMissingChanges(handler) {
 }
 // spindle.json
 var spindle_default = {
-  version: "0.2.2",
+  version: "0.3.0",
   name: "LumiAgent",
   identifier: "lumiagent",
   author: "amousepad",
@@ -34523,26 +34523,26 @@ async function handleListCharactersStorage(userId) {
     const { workspaceCaps } = await resolveCapsForUser(userId);
     const workspaceUsage = await getWorkspaceUsage2(spindle, userId);
     const charactersRes = await spindle.characters.list({ limit: 1000, userId });
-    const entries = [];
-    for (const c of charactersRes.data) {
+    const perChar = await Promise.all(charactersRes.data.map(async (c) => {
       const ledger = await loadLedger(spindle, c.id, userId).catch(() => null);
       const view = ledger ? entriesView(ledger) : [];
       if (view.length === 0)
-        continue;
+        return null;
       let ledgerBytes = 0;
       try {
         const s = await spindle.userStorage.stat(`ledgers/${c.id}.json`, userId);
         if (s.exists)
           ledgerBytes = s.sizeBytes;
       } catch {}
-      entries.push({
+      return {
         characterId: c.id,
         characterName: c.name,
         editCount: view.length,
         liveEditCount: view.filter((e) => !e.reverted).length,
         ledgerBytes
-      });
-    }
+      };
+    }));
+    const entries = perChar.filter((e) => e !== null);
     entries.sort((a, b) => b.ledgerBytes - a.ledgerBytes || b.editCount - a.editCount);
     send({
       type: "characters_storage_pushed",
@@ -35321,7 +35321,7 @@ async function handleRevertEdit(characterId, editId, force, userId) {
     handleListSessions(undefined, userId);
   }
 }
-async function handleRevertEditsBulk(characterId, editIds, userId) {
+async function handleRevertEditsBulk(characterId, editIds, userId, opts = {}) {
   const ledger = await loadLedger(spindle, characterId, userId);
   const targetSet = new Set(editIds);
   const outcomes = [];
@@ -35454,9 +35454,39 @@ async function handleRevertEditsBulk(characterId, editIds, userId) {
   send({ type: "edits_reverted_bulk", characterId, outcomes }, userId);
   if (removedIds.size > 0) {
     send({ type: "character_edits_pushed", characterId, entries: entriesView(ledger) }, userId);
-    handleListCharactersStorage(userId);
-    handleListSessions(undefined, userId);
+    if (!opts.suppressRefresh) {
+      handleListCharactersStorage(userId);
+      handleListSessions(undefined, userId);
+    }
   }
+}
+async function handleRevertAllCharacters(characterIds, userId) {
+  for (const characterId of characterIds) {
+    try {
+      const ledger = await loadLedger(spindle, characterId, userId);
+      const liveIds = [];
+      for (const f of ledger.files)
+        for (const p of f.patches) {
+          if (!p.reverted)
+            liveIds.push(p.id);
+        }
+      for (const s of ledger.structural)
+        if (!s.reverted)
+          liveIds.push(s.id);
+      for (const e of ledger.externalEdits)
+        if (!e.reverted)
+          liveIds.push(e.id);
+      if (liveIds.length === 0) {
+        send({ type: "edits_reverted_bulk", characterId, outcomes: [] }, userId);
+        continue;
+      }
+      await handleRevertEditsBulk(characterId, liveIds, userId, { suppressRefresh: true });
+    } catch (err) {
+      log("warn", `revert_all_characters ${characterId} failed: ${err.message}`);
+    }
+  }
+  handleListCharactersStorage(userId);
+  handleListSessions(undefined, userId);
 }
 function buildRevertNote(entry) {
   const r = entry.record;
@@ -36081,6 +36111,9 @@ spindle.onFrontendMessage(async (raw, userId) => {
         return;
       case "revert_character_all":
         await handleRevertCharacterAll(msg.characterId, userId);
+        return;
+      case "revert_all_characters":
+        await handleRevertAllCharacters(msg.characterIds, userId);
         return;
       case "load_character_workshop":
         await handleLoadCharacterWorkshop(msg.characterId, userId);

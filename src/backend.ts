@@ -449,24 +449,26 @@ async function handleListCharactersStorage(userId: string): Promise<void> {
     const { workspaceCaps } = await resolveCapsForUser(userId);
     const workspaceUsage = await getWorkspaceUsage(spindle, userId);
     const charactersRes = await spindle.characters.list({ limit: 1000, userId });
-    const entries: { characterId: string; characterName: string; editCount: number; liveEditCount: number; ledgerBytes: number }[] = [];
-    for (const c of charactersRes.data) {
+    // Parallelise per-character ledger + stat. Serial scan was O(N) round-trips
+    // and dominated the workshop refresh latency on accounts with many cards.
+    const perChar = await Promise.all(charactersRes.data.map(async (c) => {
       const ledger = await loadLedger(spindle, c.id, userId).catch(() => null);
       const view = ledger ? entriesView(ledger) : [];
-      if (view.length === 0) continue;
+      if (view.length === 0) return null;
       let ledgerBytes = 0;
       try {
         const s = await spindle.userStorage.stat(`ledgers/${c.id}.json`, userId);
         if (s.exists) ledgerBytes = s.sizeBytes;
-      } catch { /* missing on disk; cache only */ }
-      entries.push({
+      } catch { /* missing on disk, cache only */ }
+      return {
         characterId: c.id,
         characterName: c.name,
         editCount: view.length,
         liveEditCount: view.filter((e) => !e.reverted).length,
         ledgerBytes,
-      });
-    }
+      };
+    }));
+    const entries = perChar.filter((e): e is NonNullable<typeof e> => e !== null);
     entries.sort((a, b) => b.ledgerBytes - a.ledgerBytes || b.editCount - a.editCount);
 
     send({
@@ -1256,7 +1258,7 @@ async function handleRevertEdit(characterId: string, editId: string, force: bool
 // and persists the ledger once at the end. For "revert all on character"
 // this collapses N×(spindle_get + spindle_update + ledger_write) to
 // roughly (unique_files) parallel spindle updates + 1 ledger write.
-async function handleRevertEditsBulk(characterId: string, editIds: readonly string[], userId: string): Promise<void> {
+async function handleRevertEditsBulk(characterId: string, editIds: readonly string[], userId: string, opts: { suppressRefresh?: boolean } = {}): Promise<void> {
   const ledger = await loadLedger(spindle, characterId, userId);
   const targetSet = new Set(editIds);
 
@@ -1388,11 +1390,39 @@ async function handleRevertEditsBulk(characterId: string, editIds: readonly stri
   send({ type: "edits_reverted_bulk", characterId, outcomes }, userId);
   if (removedIds.size > 0) {
     send({ type: "character_edits_pushed", characterId, entries: entriesView(ledger) }, userId);
-    // Push fresh Characters-tab counts and Sessions-list summaries so the
-    // workshop and session picker reflect the purge without a manual refresh.
-    void handleListCharactersStorage(userId);
-    void handleListSessions(undefined, userId);
+    // Batched callers (revert_all_characters) suppress so we don't fire one
+    // full Characters-tab + Sessions-list refresh per character.
+    if (!opts.suppressRefresh) {
+      void handleListCharactersStorage(userId);
+      void handleListSessions(undefined, userId);
+    }
   }
+}
+
+async function handleRevertAllCharacters(characterIds: readonly string[], userId: string): Promise<void> {
+  // Serialise so we don't blow up Lumiverse with N concurrent ledger loads +
+  // workspace walks. Each per-character call also suppresses its refresh
+  // fanout, then we fire ONE refresh at the end.
+  for (const characterId of characterIds) {
+    try {
+      const ledger = await loadLedger(spindle, characterId, userId);
+      const liveIds: string[] = [];
+      for (const f of ledger.files) for (const p of f.patches) {
+        if (!p.reverted) liveIds.push(p.id);
+      }
+      for (const s of ledger.structural) if (!s.reverted) liveIds.push(s.id);
+      for (const e of ledger.externalEdits) if (!e.reverted) liveIds.push(e.id);
+      if (liveIds.length === 0) {
+        send({ type: "edits_reverted_bulk", characterId, outcomes: [] }, userId);
+        continue;
+      }
+      await handleRevertEditsBulk(characterId, liveIds, userId, { suppressRefresh: true });
+    } catch (err) {
+      log("warn", `revert_all_characters ${characterId} failed: ${(err as Error).message}`);
+    }
+  }
+  void handleListCharactersStorage(userId);
+  void handleListSessions(undefined, userId);
 }
 
 function buildRevertNote(entry: EditLogEntry): string {
@@ -1950,6 +1980,7 @@ spindle.onFrontendMessage(async (raw: unknown, userId: string) => {
       case "list_characters_storage": await handleListCharactersStorage(userId); return;
       case "squash_character": await handleSquashCharacter(msg.characterId, userId); return;
       case "revert_character_all": await handleRevertCharacterAll(msg.characterId, userId); return;
+      case "revert_all_characters": await handleRevertAllCharacters(msg.characterIds, userId); return;
       case "load_character_workshop": await handleLoadCharacterWorkshop(msg.characterId, userId); return;
       case "ws_list": await handleWsList(msg.path, userId); return;
       case "ws_read_text": await handleWsReadText(msg.path, userId); return;

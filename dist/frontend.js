@@ -6753,9 +6753,7 @@ function mountCharactersPanel(deps) {
       return;
     revertAllBtn.disabled = true;
     revertAllBtn.textContent = "Reverting...";
-    for (const entry of targets) {
-      deps.sendBackend({ type: "revert_character_all", characterId: entry.characterId });
-    }
+    deps.sendBackend({ type: "revert_all_characters", characterIds: targets.map((t) => t.characterId) });
     revertAllBtn.disabled = false;
     revertAllBtn.textContent = "Revert all edits";
   });

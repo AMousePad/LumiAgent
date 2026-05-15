@@ -76,11 +76,10 @@ export function mountCharactersPanel(deps: CharactersPanelDeps): CharactersPanel
     if (!c.confirmed) return;
     revertAllBtn.disabled = true;
     revertAllBtn.textContent = "Reverting...";
-    for (const entry of targets) {
-      deps.sendBackend({ type: "revert_character_all", characterId: entry.characterId });
-    }
-    // Counts auto-refresh via characters_storage_pushed the backend sends
-    // after each bulk revert. Just unlock the button once we've dispatched.
+    // Single batched message. Fanning out per-character in parallel triggered
+    // O(N) concurrent ledger scans + workspace walks on Lumiverse and crashed
+    // the host on accounts with many cards.
+    deps.sendBackend({ type: "revert_all_characters", characterIds: targets.map((t) => t.characterId) });
     revertAllBtn.disabled = false;
     revertAllBtn.textContent = "Revert all edits";
   });

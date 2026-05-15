@@ -243,6 +243,7 @@ export type FrontendToBackend =
   | { type: "list_characters_storage" }
   | { type: "squash_character"; characterId: string }
   | { type: "revert_character_all"; characterId: string }
+  | { type: "revert_all_characters"; characterIds: readonly string[] }
   | { type: "load_character_workshop"; characterId: string }
   | { type: "get_phoneline_pairings" }
   | { type: "set_phoneline_pairing"; identifier: string; allowed: boolean }
