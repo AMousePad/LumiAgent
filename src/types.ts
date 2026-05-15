@@ -285,6 +285,7 @@ export type BackendToFrontend =
   | { type: "character_squashed"; characterId: string; ledgerCleared: boolean }
   | { type: "phoneline_pairings_pushed"; pairings: ReadonlyArray<{ identifier: string; displayName: string; allowed: boolean; decidedAt: number }> }
   | { type: "notify_missing_permissions"; missing: readonly string[]; purposes: Readonly<Record<string, string>> }
+  | { type: "notify_bridge_status"; offline: boolean; missingPermissions: readonly string[]; missingFor?: string }
   | { type: "host_version_warning"; hostVersion: string | null; minimum: string; message: string }
   | { type: "frontend_rpc_request"; rpcId: string; op: string; args: unknown };
 

@@ -56,11 +56,11 @@ const inputSchema = z.object({
 
 export const applyGlossaryTool = defineTool({
   name: "apply_glossary",
-  description: `Apply a phrase-to-translation map across the union of surfaces in ONE call. Replacements are sorted longest-first to avoid the shorter-key-clobbers-longer-key footgun. Per-surface, all hits are batched and written as one edit (one diff card per surface in the chat).
+  description: `Apply a phrase-to-translation map across the union of surfaces in one call. Replacements are sorted longest-first to avoid the shorter-key-clobbers-longer-key footgun. Per-surface, all hits are batched and written as one edit (one diff card per surface in the chat).
 
-SAFETY: by default this REFUSES single-character CJK keys, which cause substring collisions (Korean '비' → 'Rain' corrupts '비명' → 'Rain명'). Pass allow_short_cjk=true only if you know what you're doing. Use dry_run=true FIRST to see hit counts before committing.
+Safety: by default this refuses single-character CJK keys, which cause substring collisions (Korean '비' → 'Rain' corrupts '비명' → 'Rain명'). Pass allow_short_cjk=true only if you know what you're doing. Use dry_run=true first to see hit counts before committing.
 
-Scopes (default: character + world_books + regex_scripts.replace_string + extensions string leaves). regex find_regex patterns are NEVER touched (would break regex syntax).
+Scopes (default: character + world_books + regex_scripts.replace_string + extensions string leaves). Regex find_regex patterns are never touched (would break regex syntax).
 
 Returns:
 - \`dry_run\`              — whether this was a dry run.
@@ -201,9 +201,7 @@ Returns:
       let nextExt: unknown = beforeExt;
       const changedLeaves: Array<{ path: string; before: string; after: string; hits: number }> = [];
       const { buildExtensionsSearchSkip } = await import("../../phoneline/search-excludes");
-      const { makeConsentPromptFn } = await import("../../phoneline/consent");
-      const promptFn = makeConsentPromptFn(ctx.callFrontend ?? (async () => ({ denied: true })));
-      const skip = await buildExtensionsSearchSkip(ctx.spindle, ctx.userId, promptFn);
+      const skip = await buildExtensionsSearchSkip(ctx.spindle, ctx.userId);
       for (const leaf of walkStringLeaves(beforeExt, "", skip)) {
         const { out, perEntry } = applyAll(leaf.text);
         let hits = 0;

@@ -33,10 +33,10 @@ export const customToolRunTool = defineTool({
   name: "custom_tool_run",
   description: `Run multiple built-in tool calls in one turn. Two patterns:
 
-CHAIN (pipe outputs forward): step N saves its result with \`save_as\`, step N+1 references it via \`{{$var}}\`.
-FAN-OUT (gather independent calls): each step \`save_as\`s its result; the runtime returns ALL saved bindings as one object.
+Chain (pipe outputs forward): step N saves its result with \`save_as\`, step N+1 references it via \`{{$var}}\`.
+Fan-out (gather independent calls): each step \`save_as\`s its result; the runtime returns all saved bindings as one object.
 
-Use this whenever you'd otherwise call tool A, copy a value into tool B (chain) OR call several tools whose results you all want (fan-out). The intermediate results live in the interpreter, never round-trip through your tool_result stream, never get re-typed.
+Use this whenever you'd otherwise call tool A, copy a value into tool B (chain) or call several tools whose results you all want (fan-out). The intermediate results live in the interpreter, never round-trip through your tool_result stream, never get re-typed.
 
 Reference syntax inside step args (and inside an optional \`return\`):
   "{{$body}}"             — whole-string ref returns the raw value (array/object/etc.)

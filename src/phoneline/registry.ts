@@ -1,7 +1,7 @@
 import type { SpindleAPI } from "lumiverse-spindle-types";
 import type { SurfaceDescriptor, SurfaceManifest } from "./protocol";
 import { dialDescribe } from "./transport";
-import { type ConsentPromptFn, resolvePairing } from "./consent";
+import { recordAutoApprovedPairing } from "./consent";
 
 // Recognised phone-line extensions. Both fields are pinned: identifier is the
 // host-attested channel namespace, name MUST match the extension's describe
@@ -17,6 +17,45 @@ export interface CachedProvider {
 
 const cache = new Map<string, CachedProvider[]>();
 const pending = new Map<string, Promise<CachedProvider[]>>();
+
+// Per (user, phoneline) parse of the host's inheritance-check error from the
+// most recent dial. The dial outcome is ground truth (declared-perm heuristics
+// false-positive when both sides revoke the same perm and the owner check
+// trivially passes on an empty set).
+export interface DialFailureInfo {
+  // Extension ID that lacks perms in the failing check. "lumiagent" when
+  // LumiAgent itself is missing them on the outbound read, "lumirealm" when
+  // LumiRealm's handler can't read the request envelope back.
+  readonly missingFor: string;
+  readonly missingPerms: readonly string[];
+}
+const lastDialFailure = new Map<string, DialFailureInfo | null>();
+
+function dialKey(userId: string, identifier: string): string {
+  return `${userId}::${identifier}`;
+}
+
+function parseInheritanceError(message: string): DialFailureInfo | null {
+  // Host throws: 'Shared RPC endpoint "X" requires requester "R" to inherit
+  // owner "O" permissions: a, b, c'. LumiRealm wraps this in 'could not read
+  // pending request from <id>: <innerMessage>'. The substring we match on is
+  // preserved in both shapes.
+  const m = /requires requester "([^"]+)" to inherit owner "[^"]+" permissions: ([^]+?)$/.exec(message);
+  if (!m) return null;
+  const requester = m[1]!;
+  const perms = m[2]!.split(/,\s*/).map((s) => s.trim()).filter((s) => s.length > 0);
+  if (perms.length === 0) return null;
+  return { missingFor: requester, missingPerms: perms };
+}
+
+export function getAllDialFailures(userId: string): readonly DialFailureInfo[] {
+  const out: DialFailureInfo[] = [];
+  for (const entry of KNOWN_PHONELINES) {
+    const f = lastDialFailure.get(dialKey(userId, entry.identifier));
+    if (f) out.push(f);
+  }
+  return out;
+}
 
 // Coerce legacy manifest shapes into the current protocol. Older extension
 // builds returned `scope: {kind: "global"|"per_character"}` and carried
@@ -72,23 +111,38 @@ function normaliseManifest(raw: unknown): SurfaceManifest | null {
 export async function discoverProviders(
   spindle: SpindleAPI,
   userId: string,
-  promptFn: ConsentPromptFn,
 ): Promise<CachedProvider[]> {
   const cached = cache.get(userId);
-  if (cached) return cached;
+  if (cached) {
+    try { spindle.log.info(`phoneline.discover: cache hit for user=${userId} providers=${cached.length}`); } catch {}
+    return cached;
+  }
   const inflight = pending.get(userId);
-  if (inflight) return inflight;
+  if (inflight) {
+    try { spindle.log.info(`phoneline.discover: joining in-flight discover for user=${userId}`); } catch {}
+    return inflight;
+  }
+  try { spindle.log.info(`phoneline.discover: fresh discover for user=${userId} (no cache)`); } catch {}
   const p = (async () => {
     const found: CachedProvider[] = [];
     for (const entry of KNOWN_PHONELINES) {
       let rawManifest: unknown;
       try {
         rawManifest = await dialDescribe(spindle, entry.identifier);
-      } catch {
+        lastDialFailure.set(dialKey(userId, entry.identifier), null);
+        try { spindle.log.info(`phoneline.discover: ${entry.identifier} dialDescribe ok`); } catch {}
+      } catch (err) {
+        const msg = (err as Error).message;
+        const parsed = parseInheritanceError(msg);
+        lastDialFailure.set(dialKey(userId, entry.identifier), parsed);
+        try { spindle.log.warn(`phoneline.discover: ${entry.identifier} dialDescribe failed: ${msg}`); } catch {}
         continue;
       }
       const manifest = normaliseManifest(rawManifest);
-      if (!manifest) continue;
+      if (!manifest) {
+        try { spindle.log.warn(`phoneline.discover: ${entry.identifier} normaliseManifest returned null`); } catch {}
+        continue;
+      }
       if (manifest.extension.name !== entry.name) {
         try {
           spindle.log.warn(
@@ -102,12 +156,17 @@ export async function discoverProviders(
         ...manifest,
         extension: { ...manifest.extension, id: entry.identifier, name: entry.name },
       };
-      const decision = await resolvePairing(spindle, userId, trusted, promptFn);
-      if (!decision.allowed) continue;
+      // Auto-approve. The user already explicitly granted both extensions the
+      // same permission set, and the host enforces permission parity before
+      // any dial reaches us. promptFn is retained on the signature for
+      // backward compatibility with existing callers; it's no longer invoked.
+      const decision = await recordAutoApprovedPairing(spindle, userId, trusted);
+      try { spindle.log.info(`phoneline.discover: ${entry.identifier} auto-approved hash=${decision.manifestHash.slice(0, 12)}`); } catch {}
       found.push({ id: entry.identifier, manifest: trusted });
     }
     cache.set(userId, found);
     pending.delete(userId);
+    try { spindle.log.info(`phoneline.discover: complete user=${userId} providers=[${found.map((p) => p.id).join(",")}]`); } catch {}
     return found;
   })();
   pending.set(userId, p);

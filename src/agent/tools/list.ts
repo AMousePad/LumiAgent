@@ -116,18 +116,14 @@ async function listExtensions(ctx: ToolCtx, subPath: string, maxEntries: number,
   // into refused subtrees (lumirealm.source.*, etc.) by addressing them here.
   if (subPath !== "") {
     const { checkExtensionRead } = await import("../../phoneline/gate");
-    const { makeConsentPromptFn } = await import("../../phoneline/consent");
-    const promptFn = makeConsentPromptFn(ctx.callFrontend ?? (async () => ({ denied: true })));
-    const res = await checkExtensionRead(ctx.spindle, ctx.userId, ctx.characterId, subPath, promptFn);
+    const res = await checkExtensionRead(ctx.spindle, ctx.userId, ctx.characterId, subPath);
     if (!res.ok) throw new ExtensionRefusedError(`char/extensions/${subPath}`, "read", res.message ?? "extension refused read at this path");
   }
   // Same search-exclude predicate the find/grep walkers use, so refused-but-
   // unaddressed children (lumirealm.payload.background_html etc.) don't leak
   // through a list of a permitted parent.
   const { buildExtensionsSearchSkip } = await import("../../phoneline/search-excludes");
-  const { makeConsentPromptFn: makePromptFn } = await import("../../phoneline/consent");
-  const skipPromptFn = makePromptFn(ctx.callFrontend ?? (async () => ({ denied: true })));
-  const skip = await buildExtensionsSearchSkip(ctx.spindle, ctx.userId, skipPromptFn);
+  const skip = await buildExtensionsSearchSkip(ctx.spindle, ctx.userId);
 
   const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
   if (!c) throw new Error(`character ${ctx.characterId} not found`);
@@ -186,7 +182,7 @@ Each returned row carries:
 - \`type\`     — one of: \`string\`, \`array\`, \`object\`, \`regex_script\`, \`world_book\`, \`wb_entry\`, etc.
 - \`label\`    — human name when there is one (regex script name, world book name, entry comment).
 - \`size\`     — for string leaves: character count. For arrays/objects: child count. For \`wb_entry\`: content character count.
-- \`entries\`  — ONLY on \`world_book\` rows: total entry count in the book. Read this, NOT \`size\`, to gauge book volume.
+- \`entries\`  — only on \`world_book\` rows: total entry count in the book. Read this, not \`size\`, to gauge book volume.
 
 Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole via \`inspect\`; to \`read\` / \`edit\` a string leaf, append the field name (\`rx/<scriptId>/find_regex\` or \`/replace_string\`; \`wb/<entryId>/content\` or \`/comment\`). Leaf paths (\`char/<field>\`, \`char/alternate_greetings/<idx>\`, \`char/extensions/<dotted>\`) are directly read/editable.`,
   inputSchema,

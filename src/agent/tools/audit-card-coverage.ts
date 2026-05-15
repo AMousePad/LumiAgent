@@ -221,13 +221,13 @@ export const auditCardCoverageTool = defineTool({
   name: "audit_card_coverage",
   description: `Audit every editable string leaf on the character (top-level fields, alternate_greetings, regex_scripts find/replace, world_book entries content/comment, every extension string leaf) for remaining content in a target script.
 
-THE COMPLETION GATE. Call this BEFORE claiming a translation task is done. If it returns any leaves with match_chars > 0 (other than ones you intentionally left), you are NOT done.
+The completion gate. Call this before claiming a translation task is done. If it returns any leaves with match_chars > 0 (other than ones you intentionally left), you are not done.
 
-For each leaf with matches the report carries three signals you MUST read together:
+For each leaf with matches the report carries three signals you should read together:
 
 - match_chars / match_runs / match_ratio — totals.
 - density_by_quartile — match chars and distinct runs in each quartile of the leaf, labelled by line range. A non-zero quartile that no sample touches is content you have not seen.
-- samples — STRATIFIED across the leaf (one per quartile that has matches, plus the longest distinct run), each carrying its enclosing line so syntactic context (literal, comment, gated branch) is visible.
+- samples — stratified across the leaf (one per quartile that has matches, plus the longest distinct run), each carrying its enclosing line so syntactic context (literal, comment, gated branch) is visible.
 
 If the leaf's coverage_warning fires, samples cover only a fraction of the matches. Read the full leaf or run grep over the uncovered quartiles before classifying.
 
@@ -311,7 +311,7 @@ Sorted by match_chars descending so the worst offenders surface first.`,
         (entry as { must_read_in_full?: LeafReport["must_read_in_full"] }).must_read_in_full = {
           required: true,
           reason: "Code leaf. Sampling and chunked reads miss hardcoded Korean in table keys, equality branches, and render paths that bypass getText().",
-          recommended_action: `read('${leaf.key}', offset=1, limit=${totalLines}). If the read spills, follow with tmp_read on the spill handle until you've covered every line. Do not classify this leaf until that's done IN THIS PHASE. Earlier-session reads do not count.`,
+          recommended_action: `read('${leaf.key}', offset=1, limit=${totalLines}). If the read spills, follow with tmp_read on the spill handle until you've covered every line. Do not classify this leaf until that's done in this phase. Earlier-session reads do not count.`,
         };
         codeLeavesNeedingFullRead++;
       }
@@ -331,8 +331,8 @@ Sorted by match_chars descending so the worst offenders surface first.`,
       ...(includePrefixes.length > 0 ? { include_paths: includePrefixes } : {}),
       ...(excludePrefixes.length > 0 ? { exclude_paths: excludePrefixes } : {}),
       verdict: leaves.length === 0
-        ? `CLEAN. No ${pat.name} content remaining (in the scoped paths). Translation task can be claimed complete.`
-        : `INCOMPLETE. ${leaves.length} leaf${leaves.length === 1 ? "" : "es"} still contain ${pat.name} (${totalMatchChars} chars total)${codeLeavesNeedingFullRead > 0 ? `, ${codeLeavesNeedingFullRead} of which are code leaves carrying must_read_in_full` : ""}. For EACH remaining leaf: check density_by_quartile to see how matches are distributed, then examine the line context in samples (stratified: one per non-empty quartile plus the longest run). If a leaf has must_read_in_full, you MUST \`read\` it end-to-end IN THIS PHASE before classifying; reads from earlier turns do not count. If a leaf has coverage_warning, samples don't cover all distinct runs, so read it in full before classifying. If the context shows a match in a string literal (\`{"수학"}\`, \`"label = 수학"\`), HTML text node, or any rendered position, translate it. If it sits in a comment (\`//\` \`--\` \`/*\`) or a deliberately-bilingual gated block (\`{{#risu_if::lang::0}}…{{/risu_if}}\`), add the path to exclude_paths with a justification. Before labelling anything an "internal key" or "already bilingual", \`grep\` for the lookup or gate identifier and confirm the call site exists. Lookup tables that exist but are never called are common in user-authored Lua and prove nothing about runtime behaviour.`,
+        ? `Clean. No ${pat.name} content remaining (in the scoped paths). Translation task can be claimed complete.`
+        : `Incomplete. ${leaves.length} leaf${leaves.length === 1 ? "" : "es"} still contain ${pat.name} (${totalMatchChars} chars total)${codeLeavesNeedingFullRead > 0 ? `, ${codeLeavesNeedingFullRead} of which are code leaves carrying must_read_in_full` : ""}. For each remaining leaf: check density_by_quartile to see how matches are distributed, then examine the line context in samples (stratified: one per non-empty quartile plus the longest run). If a leaf has must_read_in_full, \`read\` it end-to-end in this phase before classifying; reads from earlier turns do not count. If a leaf has coverage_warning, samples don't cover all distinct runs, so read it in full before classifying. If the context shows a match in a string literal (\`{"수학"}\`, \`"label = 수학"\`), HTML text node, or any rendered position, translate it. If it sits in a comment (\`//\` \`--\` \`/*\`) or a deliberately-bilingual gated block (\`{{#risu_if::lang::0}}…{{/risu_if}}\`), add the path to exclude_paths with a justification. Before labelling anything an "internal key" or "already bilingual", \`grep\` for the lookup or gate identifier and confirm the call site exists. Lookup tables that exist but are never called are common in user-authored Lua and prove nothing about runtime behaviour.`,
       leaves,
     };
 

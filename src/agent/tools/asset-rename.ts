@@ -13,15 +13,13 @@ const inputSchema = z.object({
 
 async function findLumirealm(ctx: ToolCtx) {
   const { discoverProviders } = await import("../../phoneline/registry");
-  const { makeConsentPromptFn } = await import("../../phoneline/consent");
-  const promptFn = makeConsentPromptFn(ctx.callFrontend ?? (async () => ({ denied: true })));
-  const providers = await discoverProviders(ctx.spindle, ctx.userId, promptFn);
+  const providers = await discoverProviders(ctx.spindle, ctx.userId);
   return providers.find((p) => p.id === "lumirealm") ?? null;
 }
 
 export const assetRenameTool = defineTool({
   name: "asset_rename",
-  description: `Rename a LumiRealm asset (character-scoped or module-scoped). The new name is what \`{{img::NAME}}\` / \`{{emotion::NAME}}\` / \`<img="NAME">\` macros in regex \`replace_string\` and bg-html will reference. After rename, you MUST grep the card and update every reference to the old name.
+  description: `Rename a LumiRealm asset (character-scoped or module-scoped). The new name is what \`{{img::NAME}}\` / \`{{emotion::NAME}}\` / \`<img="NAME">\` macros in regex \`replace_string\` and bg-html will reference. After rename, grep the card and update every reference to the old name.
 
 Wraps the \`rename_asset\` WS op so the LumiRealm runtime refresh hooks fire (asset map propagation, attached-character invalidation).`,
   inputSchema,

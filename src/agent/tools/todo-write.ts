@@ -63,7 +63,7 @@ Rules:
     const completed = input.todos.filter((t) => t.status === "completed").length;
     const warnings: string[] = [];
     if (inProgressCount > 1) {
-      warnings.push(`WARNING: ${inProgressCount} items are 'in_progress'. Keep at most one active at a time.`);
+      warnings.push(`Warning: ${inProgressCount} items are 'in_progress'. Keep at most one active at a time.`);
     }
     const summary = `Todo list updated: ${input.todos.length} item${input.todos.length === 1 ? "" : "s"} (${pending} pending, ${inProgressCount} in_progress, ${completed} completed).`;
     const prefix = warnings.length > 0 ? `${warnings.join("\n")}\n\n` : "";

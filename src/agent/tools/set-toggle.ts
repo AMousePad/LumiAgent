@@ -10,17 +10,15 @@ const inputSchema = z.object({
 
 async function findLumirealm(ctx: ToolCtx) {
   const { discoverProviders } = await import("../../phoneline/registry");
-  const { makeConsentPromptFn } = await import("../../phoneline/consent");
-  const promptFn = makeConsentPromptFn(ctx.callFrontend ?? (async () => ({ denied: true })));
-  const providers = await discoverProviders(ctx.spindle, ctx.userId, promptFn);
+  const providers = await discoverProviders(ctx.spindle, ctx.userId);
   return providers.find((p) => p.id === "lumirealm") ?? null;
 }
 
 export const setToggleTool = defineTool({
   name: "set_toggle",
-  description: `Set or clear a LumiRealm module-toggle VALUE for the named chat. Writes to \`chat.metadata.macro_variables.global["toggle_<key>"]\`. Pass \`null\` for value to clear.
+  description: `Set or clear a LumiRealm module-toggle value for the named chat. Writes to \`chat.metadata.macro_variables.global["toggle_<key>"]\`. Pass \`null\` for value to clear.
 
-Toggle DEFINITIONS (what toggles exist, what type, what default) live in module envelopes at \`module.customModuleToggle\` (DSL), edit those via \`edit_external\` on the envelope. This tool changes the VALUE in the current chat.`,
+Toggle definitions (what toggles exist, what type, what default) live in module envelopes at \`module.customModuleToggle\` (DSL), edit those via \`edit_external\` on the envelope. This tool changes the value in the current chat.`,
   inputSchema,
   jsonSchema: {
     type: "object",

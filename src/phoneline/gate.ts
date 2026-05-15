@@ -1,7 +1,6 @@
 import type { SpindleAPI } from "lumiverse-spindle-types";
 import { discoverProviders } from "./registry";
 import { dialCheckWrite, dialCheckRead } from "./transport";
-import type { ConsentPromptFn } from "./consent";
 
 function firstSegment(extPath: string): string | null {
   const m = /^([A-Za-z_][A-Za-z0-9_]*)/.exec(extPath);
@@ -20,11 +19,10 @@ export async function checkExtensionWrite(
   userId: string,
   characterId: string,
   extPath: string,
-  promptFn: ConsentPromptFn,
 ): Promise<ExtensionAccessCheck> {
   const seg = firstSegment(extPath);
   if (!seg) return { ok: true };
-  const providers = await discoverProviders(spindle, userId, promptFn);
+  const providers = await discoverProviders(spindle, userId);
   const provider = providers.find((p) => p.id === seg);
   if (!provider) return { ok: true };
   try {
@@ -44,11 +42,10 @@ export async function checkExtensionRead(
   userId: string,
   characterId: string,
   extPath: string,
-  promptFn: ConsentPromptFn,
 ): Promise<ExtensionAccessCheck> {
   const seg = firstSegment(extPath);
   if (!seg) return { ok: true };
-  const providers = await discoverProviders(spindle, userId, promptFn);
+  const providers = await discoverProviders(spindle, userId);
   const provider = providers.find((p) => p.id === seg);
   if (!provider) return { ok: true };
   try {

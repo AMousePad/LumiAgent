@@ -8,7 +8,7 @@ const inputSchema = z.object({
 
 export const squashSessionEditsTool = defineTool({
   name: "squash_session_edits",
-  description: `Seals every edit made so far in THIS response into one consolidated patch per file/field.
+  description: `Seals every edit made so far in this response into one consolidated patch per file/field.
 
 Usage:
 - Call mid-response to commit a phase of work before starting another (translation pass → seal → tone refactor).

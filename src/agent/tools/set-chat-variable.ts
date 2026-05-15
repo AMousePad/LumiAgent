@@ -10,15 +10,13 @@ const inputSchema = z.object({
 
 async function findLumirealm(ctx: ToolCtx) {
   const { discoverProviders } = await import("../../phoneline/registry");
-  const { makeConsentPromptFn } = await import("../../phoneline/consent");
-  const promptFn = makeConsentPromptFn(ctx.callFrontend ?? (async () => ({ denied: true })));
-  const providers = await discoverProviders(ctx.spindle, ctx.userId, promptFn);
+  const providers = await discoverProviders(ctx.spindle, ctx.userId);
   return providers.find((p) => p.id === "lumirealm") ?? null;
 }
 
 export const setChatVariableTool = defineTool({
   name: "set_chat_variable",
-  description: `Set or clear a chat-scope LOCAL variable. Writes to \`chat.metadata.macro_variables.local[key]\` for the named chat. Pass \`null\` for value to delete.
+  description: `Set or clear a chat-scope local variable. Writes to \`chat.metadata.macro_variables.local[key]\` for the named chat. Pass \`null\` for value to delete.
 
 This is a per-chat runtime patch, not a card-level edit. Trigger \`setvar\` effects will overwrite this when they fire. For values that should survive every trigger run (the card-side baseline), edit \`char/extensions/lumirealm.payload.scriptstate_defaults\` instead.
 

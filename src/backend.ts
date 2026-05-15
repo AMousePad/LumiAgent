@@ -216,9 +216,7 @@ async function loadAgentNotes(userId: string): Promise<string | null> {
 async function resolveExternalProviders(userId: string): Promise<import("./tasks/general").ExternalProviderSummary[]> {
   try {
     const { discoverProviders } = await import("./phoneline/registry");
-    const { makeConsentPromptFn } = await import("./phoneline/consent");
-    const promptFn = makeConsentPromptFn((op, args, timeoutMs) => callFrontend(userId, op, args, timeoutMs));
-    const providers = await discoverProviders(spindle, userId, promptFn);
+    const providers = await discoverProviders(spindle, userId);
     return providers.map((p) => ({
       id: p.id,
       name: p.manifest.extension.name,
@@ -239,9 +237,7 @@ async function resolveExtensionSystemPrompts(userId: string, characterId: string
   if (characterId === null) return "";
   try {
     const { fetchSystemPromptContributions } = await import("./phoneline/prompt");
-    const { makeConsentPromptFn } = await import("./phoneline/consent");
-    const promptFn = makeConsentPromptFn((op, args, timeoutMs) => callFrontend(userId, op, args, timeoutMs));
-    return await fetchSystemPromptContributions(spindle, userId, characterId, promptFn);
+    return await fetchSystemPromptContributions(spindle, userId, characterId);
   } catch (err) {
     log("warn", `phoneline system prompt fetch failed: ${(err as Error).message}`);
     return "";
@@ -249,14 +245,12 @@ async function resolveExtensionSystemPrompts(userId: string, characterId: string
 }
 
 async function handleGetPhonelinePairings(userId: string): Promise<void> {
-  // Run discovery first. For any known phoneline without a stored decision
-  // this triggers the consent modal via the FE rpc channel. We swallow errors
-  // so the pairings list still flushes even if a provider misbehaves.
+  // Run discovery first. Each known phoneline is auto-approved on response;
+  // we swallow errors so the pairings list still flushes even if a provider
+  // misbehaves.
   try {
     const { discoverProviders } = await import("./phoneline/registry");
-    const { makeConsentPromptFn } = await import("./phoneline/consent");
-    const promptFn = makeConsentPromptFn((op, args, timeoutMs) => callFrontend(userId, op, args, timeoutMs));
-    await discoverProviders(spindle, userId, promptFn);
+    await discoverProviders(spindle, userId);
   } catch (err) {
     log("warn", `phoneline discovery during pairings refresh failed: ${(err as Error).message}`);
   }
@@ -1908,6 +1902,31 @@ function broadcastMissingPermissions(missing: readonly string[]): void {
   }
 }
 
+// Dial-based bridge status. The dial outcome is ground truth: declared-perm
+// state is misleading on its own (e.g. both sides revoking a perm leaves the
+// host check passing because the owner's perm set ends up empty). After any
+// perm change or fresh dial, look up the most recent dial failure per known
+// phoneline and broadcast based on that.
+async function broadcastBridgeStatusForUser(userId: string): Promise<void> {
+  try {
+    const { getAllDialFailures } = await import("./phoneline/registry");
+    const failures = getAllDialFailures(userId);
+    if (failures.length === 0) {
+      send({ type: "notify_bridge_status", offline: false, missingPermissions: [] }, userId);
+      return;
+    }
+    const first = failures[0]!;
+    send({
+      type: "notify_bridge_status",
+      offline: true,
+      missingPermissions: first.missingPerms,
+      missingFor: first.missingFor,
+    }, userId);
+  } catch (err) {
+    log("warn", `bridge_status: broadcastForUser failed userId=${userId}: ${(err as Error).message}`);
+  }
+}
+
 function captureUserId(userId: string): void {
   if (capturedUserIds.has(userId)) return;
   capturedUserIds.add(userId);
@@ -1917,6 +1936,16 @@ function captureUserId(userId: string): void {
     try {
       send({ type: "notify_missing_permissions", missing, purposes }, userId);
     } catch { /* */ }
+    // Kick a dial so the bridge banner reflects ground truth rather than a
+    // possibly-stale declared-perm heuristic. discoverProviders is cached
+    // per-user, so this is cheap on subsequent calls.
+    void (async () => {
+      try {
+        const { discoverProviders } = await import("./phoneline/registry");
+        await discoverProviders(spindle, userId);
+      } catch { /* dial errors are recorded inside discoverProviders */ }
+      await broadcastBridgeStatusForUser(userId);
+    })();
   }
   const warning = getHostVersionWarning();
   if (warning) {
@@ -1934,6 +1963,36 @@ function captureUserId(userId: string): void {
 void initPermissions({ info: (m) => log("info", m), warn: (m) => log("warn", m) });
 void initHostVersionCheck({ info: (m) => log("info", m), warn: (m) => log("warn", m) });
 
+// On-request probe other extensions dial after their own perm change. The
+// host inheritance check runs first (so the caller observes its own missing
+// perms if any), and the handler treats any successful invocation as a
+// signal that the caller's perm set may have shifted, triggering our own
+// re-dial so our banner picks up new failures on the outbound direction.
+try {
+  spindle.rpcPool.handle("phoneline_probe", async () => {
+    void (async () => {
+      try {
+        const { invalidate, discoverProviders } = await import("./phoneline/registry");
+        for (const userId of capturedUserIds) {
+          invalidate(userId);
+          await discoverProviders(spindle, userId);
+          await broadcastBridgeStatusForUser(userId);
+        }
+      } catch (err) {
+        log("warn", `phoneline_probe re-dial side effect failed: ${(err as Error).message}`);
+      }
+    })();
+    return { ok: true };
+  });
+} catch (err) {
+  log("warn", `phoneline_probe handle failed: ${(err as Error).message}`);
+}
+
+// On any perm change: broadcast the required-perms modal state, then
+// re-dial every known phoneline. Dial outcome is ground truth for the
+// bridge banner (declared-perm heuristics false-positive when both sides
+// revoke the same perm and the host check trivially passes on an empty
+// owner set).
 subscribeToMissingChanges((missing) => {
   broadcastMissingPermissions(missing);
   if (missing.length > 0) {
@@ -1941,6 +2000,18 @@ subscribeToMissingChanges((missing) => {
   } else {
     log("info", `permissions.changed: all required perms granted, broadcast empty set to ${capturedUserIds.size} user(s) to auto-dismiss`);
   }
+  void (async () => {
+    try {
+      const { invalidate, discoverProviders } = await import("./phoneline/registry");
+      for (const userId of capturedUserIds) {
+        invalidate(userId);
+        await discoverProviders(spindle, userId);
+        await broadcastBridgeStatusForUser(userId);
+      }
+    } catch (err) {
+      log("warn", `phoneline re-dial on perm change failed: ${(err as Error).message}`);
+    }
+  })();
 });
 
 spindle.onFrontendMessage(async (raw: unknown, userId: string) => {

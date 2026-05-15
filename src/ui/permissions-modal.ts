@@ -68,7 +68,11 @@ export function setupPermissionsModal(opts: {
 
     const note = document.createElement("div");
     note.className = "la-perm-note";
-    note.appendChild(document.createTextNode("Grant them, then toggle LumiAgent "));
+    const noteLabel = document.createElement("span");
+    noteLabel.className = "la-perm-note-label";
+    noteLabel.textContent = "⚠️";
+    note.appendChild(noteLabel);
+    note.appendChild(document.createTextNode(" Grant them, then toggle LumiAgent "));
     const emphasis = document.createElement("span");
     emphasis.className = "la-perm-emphasize";
     emphasis.textContent = "off and back on";

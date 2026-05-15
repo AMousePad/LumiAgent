@@ -87,11 +87,11 @@ Returns:
 - \`hits\` — array of \`{path, surface, surface_label, line, match, preview}\`. \`path\` is a leaf you can pass straight to \`read\` / \`inspect\` / \`edit\`.
 - \`truncated_at\` (only when capped) — \`{path, line, total_lines, leaves_unscanned}\` so you can resume.
 
-THE PRIMARY VERIFICATION TOOL. Use this to confirm cross-references, locate where a string lives, or settle a structural claim (e.g. "does \`lang::1\` actually appear in this script?") before reading or editing. ONE grep call beats a dozen partial reads.
+The primary verification tool. Use this to confirm cross-references, locate where a string lives, or settle a structural claim (e.g. "does \`lang::1\` actually appear in this script?") before reading or editing. One grep call beats a dozen partial reads.
 
 Budgets and truncation:
 - max_matches caps total returned hits across the search (default ${GREP_DEFAULT_MAX}, max ${GREP_MAX_CAP}).
-- max_hits_per_line caps hits returned PER LINE (default ${GREP_DEFAULT_HITS_PER_LINE}). For dense single-character patterns (\`[가-힣]\`, \`[一-鿿]\`, etc.) keep it at 1 so one line with 50 matches doesn't burn the whole budget. Raise it when the pattern matches distinct multi-char tokens.
+- max_hits_per_line caps hits returned per line (default ${GREP_DEFAULT_HITS_PER_LINE}). For dense single-character patterns (\`[가-힣]\`, \`[一-鿿]\`, etc.) keep it at 1 so one line with 50 matches doesn't burn the whole budget. Raise it when the pattern matches distinct multi-char tokens.
 - When the cap is hit, the result includes \`truncated_at\`: the leaf path, the last line scanned in that leaf, the leaf's total line count, and the count of leaves left entirely unscanned. Re-run with a tighter pattern, narrower include_paths, or read the remaining range of the partially-scanned leaf directly.
 
 Scoping:

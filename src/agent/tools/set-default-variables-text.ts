@@ -9,9 +9,7 @@ const inputSchema = z.object({
 
 async function findLumirealm(ctx: ToolCtx) {
   const { discoverProviders } = await import("../../phoneline/registry");
-  const { makeConsentPromptFn } = await import("../../phoneline/consent");
-  const promptFn = makeConsentPromptFn(ctx.callFrontend ?? (async () => ({ denied: true })));
-  const providers = await discoverProviders(ctx.spindle, ctx.userId, promptFn);
+  const providers = await discoverProviders(ctx.spindle, ctx.userId);
   return providers.find((p) => p.id === "lumirealm") ?? null;
 }
 
@@ -19,7 +17,7 @@ export const setDefaultVariablesTextTool = defineTool({
   name: "set_default_variables_text",
   description: `Set or clear the per-user override of LumiRealm default variables. This is the Risu-parity master text shown in State → Variables → Default for the current user only. Pass \`null\` to revert to the card-side baseline.
 
-For changes that EVERY user of the card should see, edit \`char/extensions/lumirealm.payload.scriptstate_defaults\` (the card-side baseline object) instead.`,
+For changes that every user of the card should see, edit \`char/extensions/lumirealm.payload.scriptstate_defaults\` (the card-side baseline object) instead.`,
   inputSchema,
   jsonSchema: {
     type: "object",

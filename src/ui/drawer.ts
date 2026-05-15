@@ -260,25 +260,22 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
 
   const SUGGESTIONS: ReadonlyArray<{ label: string; send: string }> = [
     {
-      label: "Translate the greeting messages of this card",
-      send: "Translate every greeting message of this card to English. That means the canonical first_mes (path `char/first_mes`) AND every alternate greeting (paths `char/alternate_greetings/<idx>`). For each one: `read` the path, construct the full English version, then `rewrite({path, new_content})` with the whole English version. Keep all <img> tags, markdown headings, status-panel emoji markers, and named regex capture groups byte-identical — only translate the natural-language prose between them. SKIP any segment that is already in English or already has an English counterpart nearby (a parenthetical English gloss, a bilingual line, a label/value pair where one side is English). Only translate text that has no English equivalent anywhere in the surrounding context. If this card has a LumiRealm payload, mirror the canonical edits into the payload so the change survives translator schema migrations.",
+      label: "Translate this card",
+      send: "Translate this card to English (or another target if I name one). Run `survey_cjk` first to see where the source-language content lives; plan from what it reports, not memory. Cover greetings (first_mes + alternate_greetings) and UI surfaces (regex replace_string, trigger displays/values, bg-html, scriptstate_defaults). Skip find_regex patterns, anything already bilingual, and internal identifiers. For greetings, `rewrite` the whole message and keep tags / markers / capture groups byte-identical. Summarise findings and ask which surfaces to touch before writing.",
     },
     {
-      label: "Translate the UI in this card",
-      send: "Translate every user-visible Korean label in this card to English.\n\nRun `survey_cjk({scopes:['regex_scripts','extensions'], top_n:200, min_length:1})` first — its `sample_surfaces` is the truth about where Korean actually lives. Don't list paths from memory; walk what the survey reports. For each surface, the LumiRealm guidance already loaded in your context tells you which path is the authoring layer (and which paths are derived / regenerated / read-only).\n\nSkip:\n- regex `find_regex` patterns (never edit — they match LLM output)\n- anything already in English or sitting next to an English form\n- map keys / state names / internal identifiers that aren't user-visible\n\nAfter each regex `replace_string` edit, `test_regex` with the original `find_regex` against representative LLM output. Before writing anything, summarise what survey_cjk found and ask which surfaces I want translated.",
+      label: "Add/update a lorebook entry",
+      send: "Help me add or update a lorebook entry for a character in this card. First ask which character and what to cover. Use `grep` / `list({path:'wb'})` to check for an existing entry; if one exists, summarise it and ask whether to update or replace. Apply via tool after I confirm, don't paste the entry's prose into chat.",
     },
     {
-      label: "Add/update a lorebook entry on this chat's characters",
-      send: "I want to add or update a lorebook entry on a character that appears in this chat. Before you do anything: ask me WHICH character the entry should cover (look at the pinned chat's recent messages for context if a chat is pinned). Then use `grep` and `list({path: 'wb'})` to check whether an entry already exists for that character. If one exists, briefly summarise its current content and ask whether I want to UPDATE it (extend / refine) or REPLACE it. If not, ask what details I want included — personality, role in the story, relationships, appearance, key facts — before creating it. Only after I confirm the plan do you call `edit` / `rewrite` / `create_world_book_entry`. Do not write the entry's prose in chat without applying it.",
+      label: "Explain this card",
+      send: "Audit this card and explain it in plain English: what it's about (setting, premise, characters), what mechanics it runs (status panels, command syntax, regex outputs, time/weather/location systems, mode toggles, dice — name the actual fields), and how the user interacts with it. Skim metadata + world book + regex; if a chat is pinned, glance at a few recent messages for tone. Read-only, no edits.",
     },
     {
-      label: "Explain the features of this chat and what it's about",
-      send: "Read this character's metadata (description, personality, scenario, first_mes, system_prompt, post_history_instructions, alternate_greetings count) and skim the world book entries and regex scripts. If a chat is pinned, look at a few of the most recent messages for tone and current state. Then explain to me in plain English: what this card is ABOUT (setting, premise, key characters), what MECHANICS the card runs (status panels, command syntax, themed regex outputs, time/weather/location systems, mode toggles, dice rolls, anything special), and HOW a user typically interacts with it (what kind of inputs the card responds to, what UI features will appear). Be specific — quote the actual regex panel markers, name the actual status fields. Don't edit anything; this is a read-only audit.",
+      label: "Change a character's gender",
+      send: "Help me change the gender of one or more characters. First ask which character(s) and what new gender for each. Then `grep` for every reference: name, pronouns, honorifics, gendered nouns. Map out the surfaces that need to change and show me the plan as (surface, what changes) before applying. Pronouns, possessives, and gendered nouns all need to flip together.",
     },
-    {
-      label: "Change the gender/sex of certain characters",
-      send: "I want to change the gender or sex of one or more characters in this card. Before any edits, ask me WHICH character(s) I want to change and WHAT the new gender should be for each. The change needs to be COMPLETE — once you have the list:\n\n1. Use `grep` to find every reference to each character: their name + all pronouns currently used for them (he/she/they/her/his/them) + any gendered honorifics in the source language (Mr./Ms./onee-chan/onii-san/etc.) + any explicitly gendered nouns (man/woman/boy/girl/lady/sir/etc.).\n2. Map out an edit plan covering EVERY surface that references them: their lorebook entry, all alternate_greetings, first_mes, scenario, description, personality, system_prompt, post_history_instructions, regex replace_string templates that mention them, and the LumiRealm payload mirror if this is a LumiRealm-imported card.\n3. Show me the plan as a list of (surface, field, what changes) BEFORE applying.\n4. After I confirm, apply. apply_glossary is the right tool for the pronoun pass — but be careful with single-character CJK keys (banned by default for substring-collision safety). Pronouns, possessives, honorifics, and gendered nouns all need to flip consistently.",
-    },
+
   ];
   const suggestions = el("div", "la-empty-suggestions");
   for (const item of SUGGESTIONS) {
@@ -2349,9 +2346,6 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
             } else if (msg.op === "ask_user_question") {
               const { showAskUserQuestion } = await import("./ask-user-modal");
               result = await showAskUserQuestion(msg.args as Parameters<typeof showAskUserQuestion>[0]);
-            } else if (msg.op === "phoneline_consent") {
-              const { showPhonelineConsent } = await import("./phoneline-consent-modal");
-              result = await showPhonelineConsent(msg.args as Parameters<typeof showPhonelineConsent>[0]);
             } else {
               sendBackend({ type: "frontend_rpc_response", rpcId: msg.rpcId, error: `unknown rpc op '${msg.op}'` });
               return;

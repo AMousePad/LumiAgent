@@ -7,7 +7,7 @@ const inputSchema = z.object({
 
 export const finishTool = defineTool({
   name: "finish",
-  description: "Declare the entire task complete. Use ONLY when the user explicitly indicates everything is done. Normally just stop without calling a tool and the conversation will pause for the user's next message.",
+  description: "Declare the entire task complete. Use only when the user explicitly indicates everything is done. Normally just stop without calling a tool and the conversation will pause for the user's next message.",
   inputSchema,
   jsonSchema: {
     type: "object",

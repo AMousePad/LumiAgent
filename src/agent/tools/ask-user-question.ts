@@ -32,14 +32,14 @@ interface AskResult {
 
 export const askUserQuestionTool = defineTool<Input>({
   name: "ask_user_question",
-  description: `Ask the user a multiple-choice question mid-task and PAUSE until they answer. Use ONLY when an irreversible or scope-changing decision genuinely needs the user's input and you can enumerate the choices for them. Do NOT use for confirmations of work you already understand.
+  description: `Ask the user a multiple-choice question mid-task and pause until they answer. Use only when an irreversible or scope-changing decision genuinely needs the user's input and you can enumerate the choices for them. Don't use for confirmations of work you already understand.
 
 Use cases:
 - Two approaches are both valid and the trade-off is opinion (which auth provider, which library, which style).
 - The user's request is ambiguous and the disambiguation has 2-4 obvious branches.
 - Before a destructive action where the user might prefer a less aggressive variant.
 
-DO NOT use for:
+Don't use for:
 - Asking permission to do the thing you were already asked to do.
 - Open-ended questions (use chat instead).
 - More than 4 questions (split the work).

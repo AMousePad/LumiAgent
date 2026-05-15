@@ -17300,8 +17300,7 @@ function* walkStringLeaves(obj, prefix = "", skip) {
 var exports_consent = {};
 __export(exports_consent, {
   savePairing: () => savePairing,
-  resolvePairing: () => resolvePairing,
-  makeConsentPromptFn: () => makeConsentPromptFn,
+  recordAutoApprovedPairing: () => recordAutoApprovedPairing,
   loadPairing: () => loadPairing,
   loadAllPairings: () => loadAllPairings,
   hashManifest: () => hashManifest,
@@ -17351,41 +17350,28 @@ async function deletePairing(spindle2, userId, identifier) {
   delete pairings[identifier];
   await saveFile(spindle2, userId, { version: 1, pairings });
 }
-async function resolvePairing(spindle2, userId, manifest, prompt) {
+async function recordAutoApprovedPairing(spindle2, userId, manifest) {
   const identifier = manifest.extension.id;
   const displayName = manifest.extension.name;
   const currentHash = await hashManifest(manifest);
   const stored = await loadPairing(spindle2, userId, identifier);
-  if (stored && stored.manifestHash === currentHash)
+  if (stored && stored.allowed && stored.manifestHash === currentHash)
     return stored;
-  const allowed = await prompt({
-    identifier,
-    displayName,
-    version: manifest.extension.version,
-    kind: stored ? "revalidate" : "initial"
-  });
   const decision = {
     identifier,
     displayName,
-    allowed,
+    allowed: true,
     manifestHash: currentHash,
     decidedAt: Date.now()
   };
-  await savePairing(spindle2, userId, decision);
-  return decision;
-}
-function makeConsentPromptFn(callFrontend, timeoutMs = 10 * 60000) {
-  return async (input) => {
+  try {
+    await savePairing(spindle2, userId, decision);
+  } catch (err) {
     try {
-      const result = await callFrontend("phoneline_consent", input, timeoutMs);
-      if (typeof result !== "object" || result === null)
-        return false;
-      const r = result;
-      return r.allowed === true;
-    } catch {
-      return false;
-    }
-  };
+      spindle2.log.warn(`phoneline.recordAutoApprovedPairing: savePairing threw id=${identifier}: ${err.message}`);
+    } catch {}
+  }
+  return decision;
 }
 var STORAGE_PATH = "phoneline-pairings.json";
 
@@ -17394,10 +17380,33 @@ var exports_registry = {};
 __export(exports_registry, {
   invalidate: () => invalidate,
   getCached: () => getCached,
+  getAllDialFailures: () => getAllDialFailures,
   findSurface: () => findSurface,
   discoverProviders: () => discoverProviders,
   KNOWN_PHONELINES: () => KNOWN_PHONELINES
 });
+function dialKey(userId, identifier) {
+  return `${userId}::${identifier}`;
+}
+function parseInheritanceError(message) {
+  const m = /requires requester "([^"]+)" to inherit owner "[^"]+" permissions: ([^]+?)$/.exec(message);
+  if (!m)
+    return null;
+  const requester = m[1];
+  const perms = m[2].split(/,\s*/).map((s) => s.trim()).filter((s) => s.length > 0);
+  if (perms.length === 0)
+    return null;
+  return { missingFor: requester, missingPerms: perms };
+}
+function getAllDialFailures(userId) {
+  const out = [];
+  for (const entry of KNOWN_PHONELINES) {
+    const f = lastDialFailure.get(dialKey(userId, entry.identifier));
+    if (f)
+      out.push(f);
+  }
+  return out;
+}
 function normaliseSurface(s) {
   if (!s || typeof s !== "object")
     return null;
@@ -17448,25 +17457,50 @@ function normaliseManifest(raw) {
   };
   return out;
 }
-async function discoverProviders(spindle2, userId, promptFn) {
+async function discoverProviders(spindle2, userId) {
   const cached2 = cache.get(userId);
-  if (cached2)
+  if (cached2) {
+    try {
+      spindle2.log.info(`phoneline.discover: cache hit for user=${userId} providers=${cached2.length}`);
+    } catch {}
     return cached2;
+  }
   const inflight = pending.get(userId);
-  if (inflight)
+  if (inflight) {
+    try {
+      spindle2.log.info(`phoneline.discover: joining in-flight discover for user=${userId}`);
+    } catch {}
     return inflight;
+  }
+  try {
+    spindle2.log.info(`phoneline.discover: fresh discover for user=${userId} (no cache)`);
+  } catch {}
   const p = (async () => {
     const found = [];
     for (const entry of KNOWN_PHONELINES) {
       let rawManifest;
       try {
         rawManifest = await dialDescribe(spindle2, entry.identifier);
-      } catch {
+        lastDialFailure.set(dialKey(userId, entry.identifier), null);
+        try {
+          spindle2.log.info(`phoneline.discover: ${entry.identifier} dialDescribe ok`);
+        } catch {}
+      } catch (err) {
+        const msg = err.message;
+        const parsed = parseInheritanceError(msg);
+        lastDialFailure.set(dialKey(userId, entry.identifier), parsed);
+        try {
+          spindle2.log.warn(`phoneline.discover: ${entry.identifier} dialDescribe failed: ${msg}`);
+        } catch {}
         continue;
       }
       const manifest = normaliseManifest(rawManifest);
-      if (!manifest)
+      if (!manifest) {
+        try {
+          spindle2.log.warn(`phoneline.discover: ${entry.identifier} normaliseManifest returned null`);
+        } catch {}
         continue;
+      }
       if (manifest.extension.name !== entry.name) {
         try {
           spindle2.log.warn(`phoneline: "${entry.identifier}" returned unexpected name "${manifest.extension.name}" ` + `(expected "${entry.name}"). Skipping. Legitimate rename requires a LumiAgent whitelist update.`);
@@ -17477,13 +17511,17 @@ async function discoverProviders(spindle2, userId, promptFn) {
         ...manifest,
         extension: { ...manifest.extension, id: entry.identifier, name: entry.name }
       };
-      const decision = await resolvePairing(spindle2, userId, trusted, promptFn);
-      if (!decision.allowed)
-        continue;
+      const decision = await recordAutoApprovedPairing(spindle2, userId, trusted);
+      try {
+        spindle2.log.info(`phoneline.discover: ${entry.identifier} auto-approved hash=${decision.manifestHash.slice(0, 12)}`);
+      } catch {}
       found.push({ id: entry.identifier, manifest: trusted });
     }
     cache.set(userId, found);
     pending.delete(userId);
+    try {
+      spindle2.log.info(`phoneline.discover: complete user=${userId} providers=[${found.map((p2) => p2.id).join(",")}]`);
+    } catch {}
     return found;
   })();
   pending.set(userId, p);
@@ -17510,7 +17548,7 @@ function findSurface(providers, surfaceId) {
     return null;
   return matches[0];
 }
-var KNOWN_PHONELINES, cache, pending;
+var KNOWN_PHONELINES, cache, pending, lastDialFailure;
 var init_registry = __esm(() => {
   init_transport();
   KNOWN_PHONELINES = [
@@ -17518,6 +17556,7 @@ var init_registry = __esm(() => {
   ];
   cache = new Map;
   pending = new Map;
+  lastDialFailure = new Map;
 });
 
 // src/phoneline/search-excludes.ts
@@ -17541,9 +17580,9 @@ function makePathSkipFn(prefixes) {
     return false;
   };
 }
-async function buildExtensionsSearchSkip(spindle2, userId, promptFn) {
+async function buildExtensionsSearchSkip(spindle2, userId) {
   try {
-    const providers = await discoverProviders(spindle2, userId, promptFn);
+    const providers = await discoverProviders(spindle2, userId);
     const all = providers.flatMap((p) => p.manifest.excludeFromSearch ?? []);
     return makePathSkipFn(all);
   } catch {
@@ -17763,9 +17802,7 @@ Returns:
         let nextExt = beforeExt;
         const changedLeaves = [];
         const { buildExtensionsSearchSkip: buildExtensionsSearchSkip2 } = await Promise.resolve().then(() => (init_search_excludes(), exports_search_excludes));
-        const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
-        const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
-        const skip = await buildExtensionsSearchSkip2(ctx.spindle, ctx.userId, promptFn);
+        const skip = await buildExtensionsSearchSkip2(ctx.spindle, ctx.userId);
         for (const leaf of walkStringLeaves(beforeExt, "", skip)) {
           const { out, perEntry } = applyAll(leaf.text);
           let hits = 0;
@@ -17908,9 +17945,7 @@ The runtime always appends an automatic "Other" option that lets the user type a
 // src/agent/tools/asset-delete.ts
 async function findLumirealm(ctx) {
   const { discoverProviders: discoverProviders2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
-  const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
-  const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
-  const providers = await discoverProviders2(ctx.spindle, ctx.userId, promptFn);
+  const providers = await discoverProviders2(ctx.spindle, ctx.userId);
   return providers.find((p) => p.id === "lumirealm") ?? null;
 }
 var inputSchema3, assetDeleteTool;
@@ -17964,9 +17999,7 @@ Wraps the \`delete_asset\` WS op so the LumiRealm runtime refresh hooks fire.`,
 // src/agent/tools/asset-rename.ts
 async function findLumirealm2(ctx) {
   const { discoverProviders: discoverProviders2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
-  const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
-  const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
-  const providers = await discoverProviders2(ctx.spindle, ctx.userId, promptFn);
+  const providers = await discoverProviders2(ctx.spindle, ctx.userId);
   return providers.find((p) => p.id === "lumirealm") ?? null;
 }
 var inputSchema4, assetRenameTool;
@@ -18029,11 +18062,11 @@ function firstSegment(extPath) {
   const m = /^([A-Za-z_][A-Za-z0-9_]*)/.exec(extPath);
   return m ? m[1] : null;
 }
-async function checkExtensionWrite(spindle2, userId, characterId, extPath, promptFn) {
+async function checkExtensionWrite(spindle2, userId, characterId, extPath) {
   const seg = firstSegment(extPath);
   if (!seg)
     return { ok: true };
-  const providers = await discoverProviders(spindle2, userId, promptFn);
+  const providers = await discoverProviders(spindle2, userId);
   const provider = providers.find((p) => p.id === seg);
   if (!provider)
     return { ok: true };
@@ -18046,11 +18079,11 @@ async function checkExtensionWrite(spindle2, userId, characterId, extPath, promp
     return { ok: true };
   }
 }
-async function checkExtensionRead(spindle2, userId, characterId, extPath, promptFn) {
+async function checkExtensionRead(spindle2, userId, characterId, extPath) {
   const seg = firstSegment(extPath);
   if (!seg)
     return { ok: true };
-  const providers = await discoverProviders(spindle2, userId, promptFn);
+  const providers = await discoverProviders(spindle2, userId);
   const provider = providers.find((p) => p.id === seg);
   if (!provider)
     return { ok: true };
@@ -18270,21 +18303,15 @@ async function resolveWrite(ctx, leaf, nextValue) {
     return;
   }
 }
-async function getConsentPromptFn(ctx) {
-  const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
-  return makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
-}
 async function assertExtensionWriteAllowed(ctx, extPath) {
   const { checkExtensionWrite: checkExtensionWrite2 } = await Promise.resolve().then(() => (init_gate(), exports_gate));
-  const promptFn = await getConsentPromptFn(ctx);
-  const res = await checkExtensionWrite2(ctx.spindle, ctx.userId, ctx.characterId, extPath, promptFn);
+  const res = await checkExtensionWrite2(ctx.spindle, ctx.userId, ctx.characterId, extPath);
   if (!res.ok)
     throw new ExtensionRefusedError(`char/extensions/${extPath}`, "write", res.message ?? "extension refused write at this path");
 }
 async function assertExtensionReadAllowed(ctx, extPath) {
   const { checkExtensionRead: checkExtensionRead2 } = await Promise.resolve().then(() => (init_gate(), exports_gate));
-  const promptFn = await getConsentPromptFn(ctx);
-  const res = await checkExtensionRead2(ctx.spindle, ctx.userId, ctx.characterId, extPath, promptFn);
+  const res = await checkExtensionRead2(ctx.spindle, ctx.userId, ctx.characterId, extPath);
   if (!res.ok)
     throw new ExtensionRefusedError(`char/extensions/${extPath}`, "read", res.message ?? "extension refused read at this path");
 }
@@ -18308,9 +18335,7 @@ async function* iterateAllLeaves(ctx) {
   }
   const { walkStringLeaves: walk } = await Promise.resolve().then(() => exports__walk);
   const { buildExtensionsSearchSkip: buildExtensionsSearchSkip2 } = await Promise.resolve().then(() => (init_search_excludes(), exports_search_excludes));
-  const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
-  const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
-  const skip = await buildExtensionsSearchSkip2(ctx.spindle, ctx.userId, promptFn);
+  const skip = await buildExtensionsSearchSkip2(ctx.spindle, ctx.userId);
   for (const leaf of walk(c.extensions ?? {}, "", skip)) {
     yield { key: `char/extensions/${leaf.path}`, surface: "extension", surfaceId: ctx.characterId, surfaceLabel: `extensions.${leaf.path}`, field: leaf.path, value: leaf.text };
   }
@@ -19884,9 +19909,7 @@ Usage:
 ${draftReuseNote(h, replace.length, "replace")}`, isError: true };
       }
       const { discoverProviders: discoverProviders2, findSurface: findSurface2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
-      const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
-      const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
-      const providers = await discoverProviders2(ctx.spindle, ctx.userId, promptFn);
+      const providers = await discoverProviders2(ctx.spindle, ctx.userId);
       const match = findSurface2(providers, input.surface_id);
       if (!match)
         return { content: `Error: unknown surface: ${input.surface_id}`, isError: true };
@@ -28504,9 +28527,7 @@ Usage:
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const { discoverProviders: discoverProviders2, findSurface: findSurface2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
-      const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
-      const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
-      const providers = await discoverProviders2(ctx.spindle, ctx.userId, promptFn);
+      const providers = await discoverProviders2(ctx.spindle, ctx.userId);
       const match = findSurface2(providers, input.surface_id);
       if (!match)
         return { content: `Error: unknown surface: ${input.surface_id}`, isError: true };
@@ -28903,16 +28924,12 @@ async function listWorldBookEntries(ctx, bookId, maxEntries) {
 async function listExtensions(ctx, subPath, maxEntries, maxDepth) {
   if (subPath !== "") {
     const { checkExtensionRead: checkExtensionRead2 } = await Promise.resolve().then(() => (init_gate(), exports_gate));
-    const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
-    const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
-    const res = await checkExtensionRead2(ctx.spindle, ctx.userId, ctx.characterId, subPath, promptFn);
+    const res = await checkExtensionRead2(ctx.spindle, ctx.userId, ctx.characterId, subPath);
     if (!res.ok)
       throw new ExtensionRefusedError(`char/extensions/${subPath}`, "read", res.message ?? "extension refused read at this path");
   }
   const { buildExtensionsSearchSkip: buildExtensionsSearchSkip2 } = await Promise.resolve().then(() => (init_search_excludes(), exports_search_excludes));
-  const { makeConsentPromptFn: makePromptFn } = await Promise.resolve().then(() => exports_consent);
-  const skipPromptFn = makePromptFn(ctx.callFrontend ?? (async () => ({ denied: true })));
-  const skip = await buildExtensionsSearchSkip2(ctx.spindle, ctx.userId, skipPromptFn);
+  const skip = await buildExtensionsSearchSkip2(ctx.spindle, ctx.userId);
   const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
   if (!c)
     throw new Error(`character ${ctx.characterId} not found`);
@@ -29320,9 +29337,7 @@ Returns:
 // src/agent/tools/set-chat-variable.ts
 async function findLumirealm3(ctx) {
   const { discoverProviders: discoverProviders2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
-  const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
-  const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
-  const providers = await discoverProviders2(ctx.spindle, ctx.userId, promptFn);
+  const providers = await discoverProviders2(ctx.spindle, ctx.userId);
   return providers.find((p) => p.id === "lumirealm") ?? null;
 }
 var inputSchema38, setChatVariableTool;
@@ -29372,9 +29387,7 @@ Lua state keys (\`__name\`) need a valid JSON string in \`value\`; the runtime w
 // src/agent/tools/set-default-variables-text.ts
 async function findLumirealm4(ctx) {
   const { discoverProviders: discoverProviders2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
-  const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
-  const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
-  const providers = await discoverProviders2(ctx.spindle, ctx.userId, promptFn);
+  const providers = await discoverProviders2(ctx.spindle, ctx.userId);
   return providers.find((p) => p.id === "lumirealm") ?? null;
 }
 var inputSchema39, setDefaultVariablesTextTool;
@@ -29419,9 +29432,7 @@ For changes that EVERY user of the card should see, edit \`char/extensions/lumir
 // src/agent/tools/set-toggle.ts
 async function findLumirealm5(ctx) {
   const { discoverProviders: discoverProviders2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
-  const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
-  const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
-  const providers = await discoverProviders2(ctx.spindle, ctx.userId, promptFn);
+  const providers = await discoverProviders2(ctx.spindle, ctx.userId);
   return providers.find((p) => p.id === "lumirealm") ?? null;
 }
 var inputSchema40, setToggleTool;
@@ -29584,9 +29595,7 @@ Returns:
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const { discoverProviders: discoverProviders2, findSurface: findSurface2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
-      const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
-      const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
-      const providers = await discoverProviders2(ctx.spindle, ctx.userId, promptFn);
+      const providers = await discoverProviders2(ctx.spindle, ctx.userId);
       const match = findSurface2(providers, input.surface_id);
       if (!match)
         return { content: `Error: unknown surface: ${input.surface_id}`, isError: true };
@@ -29672,9 +29681,7 @@ Usage:
 // src/agent/tools/module-attach.ts
 async function findLumirealm6(ctx) {
   const { discoverProviders: discoverProviders2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
-  const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
-  const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
-  const providers = await discoverProviders2(ctx.spindle, ctx.userId, promptFn);
+  const providers = await discoverProviders2(ctx.spindle, ctx.userId);
   return providers.find((p) => p.id === "lumirealm") ?? null;
 }
 var inputSchema45, moduleAttachTool;
@@ -29719,9 +29726,7 @@ Wraps the \`attach_module\` WS op so artifact install + refresh hooks fire.`,
 // src/agent/tools/module-detach.ts
 async function findLumirealm7(ctx) {
   const { discoverProviders: discoverProviders2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
-  const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
-  const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
-  const providers = await discoverProviders2(ctx.spindle, ctx.userId, promptFn);
+  const providers = await discoverProviders2(ctx.spindle, ctx.userId);
   return providers.find((p) => p.id === "lumirealm") ?? null;
 }
 var inputSchema46, moduleDetachTool;
@@ -29985,9 +29990,7 @@ Returns: JSON \`{surface_id, item_id, field, value_chars, value}\`. \`value\` is
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const { discoverProviders: discoverProviders2, findSurface: findSurface2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
-      const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
-      const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
-      const providers = await discoverProviders2(ctx.spindle, ctx.userId, promptFn);
+      const providers = await discoverProviders2(ctx.spindle, ctx.userId);
       const match = findSurface2(providers, input.surface_id);
       if (!match)
         return { content: `Error: unknown surface: ${input.surface_id}`, isError: true };
@@ -30449,9 +30452,7 @@ Returns:
       }
       if (scopes.includes("extensions")) {
         const { buildExtensionsSearchSkip: buildExtensionsSearchSkip2 } = await Promise.resolve().then(() => (init_search_excludes(), exports_search_excludes));
-        const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
-        const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
-        const skip = await buildExtensionsSearchSkip2(ctx.spindle, ctx.userId, promptFn);
+        const skip = await buildExtensionsSearchSkip2(ctx.spindle, ctx.userId);
         for (const leaf of walkStringLeaves(c.extensions ?? {}, "", skip)) {
           countCjkRuns(leaf.text, minLen, `extensions.${leaf.path}`, map2);
         }
@@ -30814,12 +30815,10 @@ Usage:
       }
       if (extensionMutations.length > 0) {
         const { checkExtensionWrite: checkExtensionWrite2 } = await Promise.resolve().then(() => (init_gate(), exports_gate));
-        const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
-        const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
         const allowedMutations = [];
         for (const m of extensionMutations) {
           const dotted = m.path.map((seg) => /^\d+$/.test(seg) ? `[${seg}]` : seg).join(".").replace(/\.\[/g, "[");
-          const res = await checkExtensionWrite2(ctx.spindle, ctx.userId, ctx.characterId, dotted, promptFn);
+          const res = await checkExtensionWrite2(ctx.spindle, ctx.userId, ctx.characterId, dotted);
           if (res.ok)
             allowedMutations.push(m);
           else
@@ -31209,9 +31208,7 @@ Usage:
     execute: async (input, ctx) => {
       const { surface_id: surfaceId, item_id: itemId, field, value } = input;
       const { discoverProviders: discoverProviders2, findSurface: findSurface2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
-      const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
-      const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
-      const providers = await discoverProviders2(ctx.spindle, ctx.userId, promptFn);
+      const providers = await discoverProviders2(ctx.spindle, ctx.userId);
       const match = findSurface2(providers, surfaceId);
       if (!match)
         return { content: `Error: unknown surface: ${surfaceId}`, isError: true };
@@ -32865,8 +32862,8 @@ var exports_prompt = {};
 __export(exports_prompt, {
   fetchSystemPromptContributions: () => fetchSystemPromptContributions
 });
-async function fetchSystemPromptContributions(spindle2, userId, characterId, promptFn) {
-  const providers = await discoverProviders(spindle2, userId, promptFn);
+async function fetchSystemPromptContributions(spindle2, userId, characterId) {
+  const providers = await discoverProviders(spindle2, userId);
   if (providers.length === 0)
     return "";
   const contributions = new Map;
@@ -34037,7 +34034,15 @@ async function initPermissions(log) {
     for (const p of list)
       granted.add(p);
     loaded = true;
-    log.info(`permissions.init: granted=[${[...granted].join(",")}]`);
+    const initialMissing = computeMissing();
+    log.info(`permissions.init: granted=[${[...granted].join(",")}] missing=[${initialMissing.join(",")}]`);
+    for (const fn of missingChangeListeners) {
+      try {
+        fn(initialMissing);
+      } catch (err) {
+        log.warn(`permissions.init: listener threw: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
   } catch (err) {
     log.warn(`permissions.init: getGranted failed: ${err instanceof Error ? err.message : String(err)}`);
     return;
@@ -34094,14 +34099,27 @@ var spindle_default = {
   description: "Agentic LLM workbench for your Lumiverse (\u02F6>\u2A4A<\u02F6)",
   permissions: [
     "generation",
+    "interceptor",
+    "tools",
+    "cors_proxy",
+    "context_handler",
+    "ephemeral_storage",
+    "chat_mutation",
+    "event_tracking",
+    "ui_panels",
+    "app_manipulation",
+    "oauth",
     "characters",
+    "chats",
     "world_books",
     "regex_scripts",
-    "chats",
-    "chat_mutation",
-    "ui_panels",
+    "databanks",
     "personas",
-    "databanks"
+    "push_notification",
+    "image_gen",
+    "images",
+    "generation_parameters",
+    "macro_interceptor"
   ],
   entry_backend: "dist/backend.js",
   entry_frontend: "dist/frontend.js",
@@ -34332,9 +34350,7 @@ async function loadAgentNotes(userId) {
 async function resolveExternalProviders(userId) {
   try {
     const { discoverProviders: discoverProviders2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
-    const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
-    const promptFn = makeConsentPromptFn2((op, args, timeoutMs) => callFrontend(userId, op, args, timeoutMs));
-    const providers = await discoverProviders2(spindle, userId, promptFn);
+    const providers = await discoverProviders2(spindle, userId);
     return providers.map((p) => ({
       id: p.id,
       name: p.manifest.extension.name,
@@ -34355,9 +34371,7 @@ async function resolveExtensionSystemPrompts(userId, characterId) {
     return "";
   try {
     const { fetchSystemPromptContributions: fetchSystemPromptContributions2 } = await Promise.resolve().then(() => (init_prompt(), exports_prompt));
-    const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
-    const promptFn = makeConsentPromptFn2((op, args, timeoutMs) => callFrontend(userId, op, args, timeoutMs));
-    return await fetchSystemPromptContributions2(spindle, userId, characterId, promptFn);
+    return await fetchSystemPromptContributions2(spindle, userId, characterId);
   } catch (err) {
     log("warn", `phoneline system prompt fetch failed: ${err.message}`);
     return "";
@@ -34366,9 +34380,7 @@ async function resolveExtensionSystemPrompts(userId, characterId) {
 async function handleGetPhonelinePairings(userId) {
   try {
     const { discoverProviders: discoverProviders2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
-    const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
-    const promptFn = makeConsentPromptFn2((op, args, timeoutMs) => callFrontend(userId, op, args, timeoutMs));
-    await discoverProviders2(spindle, userId, promptFn);
+    await discoverProviders2(spindle, userId);
   } catch (err) {
     log("warn", `phoneline discovery during pairings refresh failed: ${err.message}`);
   }
@@ -35986,6 +35998,25 @@ function broadcastMissingPermissions(missing) {
     }
   }
 }
+async function broadcastBridgeStatusForUser(userId) {
+  try {
+    const { getAllDialFailures: getAllDialFailures2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
+    const failures = getAllDialFailures2(userId);
+    if (failures.length === 0) {
+      send({ type: "notify_bridge_status", offline: false, missingPermissions: [] }, userId);
+      return;
+    }
+    const first = failures[0];
+    send({
+      type: "notify_bridge_status",
+      offline: true,
+      missingPermissions: first.missingPerms,
+      missingFor: first.missingFor
+    }, userId);
+  } catch (err) {
+    log("warn", `bridge_status: broadcastForUser failed userId=${userId}: ${err.message}`);
+  }
+}
 function captureUserId(userId) {
   if (capturedUserIds.has(userId))
     return;
@@ -35996,6 +36027,13 @@ function captureUserId(userId) {
     try {
       send({ type: "notify_missing_permissions", missing, purposes }, userId);
     } catch {}
+    (async () => {
+      try {
+        const { discoverProviders: discoverProviders2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
+        await discoverProviders2(spindle, userId);
+      } catch {}
+      await broadcastBridgeStatusForUser(userId);
+    })();
   }
   const warning = getHostVersionWarning();
   if (warning) {
@@ -36011,6 +36049,25 @@ function captureUserId(userId) {
 }
 initPermissions({ info: (m) => log("info", m), warn: (m) => log("warn", m) });
 initHostVersionCheck({ info: (m) => log("info", m), warn: (m) => log("warn", m) });
+try {
+  spindle.rpcPool.handle("phoneline_probe", async () => {
+    (async () => {
+      try {
+        const { invalidate: invalidate2, discoverProviders: discoverProviders2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
+        for (const userId of capturedUserIds) {
+          invalidate2(userId);
+          await discoverProviders2(spindle, userId);
+          await broadcastBridgeStatusForUser(userId);
+        }
+      } catch (err) {
+        log("warn", `phoneline_probe re-dial side effect failed: ${err.message}`);
+      }
+    })();
+    return { ok: true };
+  });
+} catch (err) {
+  log("warn", `phoneline_probe handle failed: ${err.message}`);
+}
 subscribeToMissingChanges((missing) => {
   broadcastMissingPermissions(missing);
   if (missing.length > 0) {
@@ -36018,6 +36075,18 @@ subscribeToMissingChanges((missing) => {
   } else {
     log("info", `permissions.changed: all required perms granted, broadcast empty set to ${capturedUserIds.size} user(s) to auto-dismiss`);
   }
+  (async () => {
+    try {
+      const { invalidate: invalidate2, discoverProviders: discoverProviders2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
+      for (const userId of capturedUserIds) {
+        invalidate2(userId);
+        await discoverProviders2(spindle, userId);
+        await broadcastBridgeStatusForUser(userId);
+      }
+    } catch (err) {
+      log("warn", `phoneline re-dial on perm change failed: ${err.message}`);
+    }
+  })();
 });
 spindle.onFrontendMessage(async (raw, userId) => {
   if (!userId) {

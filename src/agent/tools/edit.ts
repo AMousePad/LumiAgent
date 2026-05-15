@@ -31,7 +31,7 @@ export const editTool = defineTool({
   description: `Find/replace within a string-valued surface, by path.
 
 Rules:
-1. Recent-read gate: \`read\` must have run on the SAME path in this turn. Surface keys match byte-for-byte. If you read 'char/description' the gate fails for 'char/extensions/...'.
+1. Recent-read gate: \`read\` must have run on the same path in this turn. Surface keys match byte-for-byte. If you read 'char/description' the gate fails for 'char/extensions/...'.
 2. Unique-find: \`find\` must appear exactly once, unless replace_all=true.
 3. Automatic recovery: when byte-exact match fails, falls through NFC / NFD / strip-invisible / quote-asciify / whitespace-flex variants. Result includes \`recovered_via\` on success.
 4. Failure stashes the replacement payload as a draft handle the next call can pass via \`replace_handle\`.
@@ -43,7 +43,7 @@ Returns:
 - \`replacements\` — how many occurrences were replaced (1 unless replace_all).
 - \`snippet\`      — short context window around the first hit, post-replace.
 - \`patch\`        — \`{additions, deletions, hunks}\` jsdiff-structured for the UI.
-- \`recovered_via\` (only on fallback) — name of the recovery strategy that matched. Leading WARNING line precedes the JSON.`,
+- \`recovered_via\` (only on fallback) — name of the recovery strategy that matched. Leading warning line precedes the JSON.`,
   inputSchema,
   jsonSchema: {
     type: "object",
@@ -124,7 +124,7 @@ Returns:
     };
     let body = JSON.stringify(payload);
     if (outcome.recoveredVia) {
-      const warning = `WARNING: edit applied via fallback "${outcome.recoveredVia}", NOT byte-exact. The source contains typography (curly quotes, corner brackets, etc.) that your 'find' string didn't match literally. Future edits on this path: run \`inspect\` to see the encoding diagnostics, then copy bytes verbatim from a fresh \`read\` output. Repeated reliance on fallbacks usually means the source has encoding drift you haven't surfaced.`;
+      const warning = `Warning: edit applied via fallback "${outcome.recoveredVia}", not byte-exact. The source contains typography (curly quotes, corner brackets, etc.) that your 'find' string didn't match literally. Future edits on this path: run \`inspect\` to see the encoding diagnostics, then copy bytes verbatim from a fresh \`read\` output. Repeated reliance on fallbacks usually means the source has encoding drift you haven't surfaced.`;
       body = `${warning}\n\n${body}`;
     }
     return { content: body };

@@ -1,15 +1,13 @@
 import type { SpindleAPI } from "lumiverse-spindle-types";
 import { discoverProviders } from "./registry";
 import { dialSystemPrompt } from "./transport";
-import type { ConsentPromptFn } from "./consent";
 
 export async function fetchSystemPromptContributions(
   spindle: SpindleAPI,
   userId: string,
   characterId: string,
-  promptFn: ConsentPromptFn,
 ): Promise<string> {
-  const providers = await discoverProviders(spindle, userId, promptFn);
+  const providers = await discoverProviders(spindle, userId);
   if (providers.length === 0) return "";
   const contributions = new Map<string, string>();
   await Promise.all(providers.map(async (p) => {

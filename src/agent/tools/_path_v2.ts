@@ -250,22 +250,15 @@ export async function resolveWrite(
 // check_write op. Refusals throw ExtensionRefusedError carrying the bridge's
 // redirect message verbatim so callers can surface it without rewrapping.
 
-async function getConsentPromptFn(ctx: ToolCtx) {
-  const { makeConsentPromptFn } = await import("../../phoneline/consent");
-  return makeConsentPromptFn(ctx.callFrontend ?? (async () => ({ denied: true })));
-}
-
 async function assertExtensionWriteAllowed(ctx: ToolCtx, extPath: string): Promise<void> {
   const { checkExtensionWrite } = await import("../../phoneline/gate");
-  const promptFn = await getConsentPromptFn(ctx);
-  const res = await checkExtensionWrite(ctx.spindle, ctx.userId, ctx.characterId, extPath, promptFn);
+  const res = await checkExtensionWrite(ctx.spindle, ctx.userId, ctx.characterId, extPath);
   if (!res.ok) throw new ExtensionRefusedError(`char/extensions/${extPath}`, "write", res.message ?? "extension refused write at this path");
 }
 
 async function assertExtensionReadAllowed(ctx: ToolCtx, extPath: string): Promise<void> {
   const { checkExtensionRead } = await import("../../phoneline/gate");
-  const promptFn = await getConsentPromptFn(ctx);
-  const res = await checkExtensionRead(ctx.spindle, ctx.userId, ctx.characterId, extPath, promptFn);
+  const res = await checkExtensionRead(ctx.spindle, ctx.userId, ctx.characterId, extPath);
   if (!res.ok) throw new ExtensionRefusedError(`char/extensions/${extPath}`, "read", res.message ?? "extension refused read at this path");
 }
 
@@ -298,9 +291,7 @@ export async function* iterateAllLeaves(ctx: ToolCtx): AsyncGenerator<ResolvedLe
   // shared search-excludes helper.
   const { walkStringLeaves: walk } = await import("./_walk");
   const { buildExtensionsSearchSkip } = await import("../../phoneline/search-excludes");
-  const { makeConsentPromptFn } = await import("../../phoneline/consent");
-  const promptFn = makeConsentPromptFn(ctx.callFrontend ?? (async () => ({ denied: true })));
-  const skip = await buildExtensionsSearchSkip(ctx.spindle, ctx.userId, promptFn);
+  const skip = await buildExtensionsSearchSkip(ctx.spindle, ctx.userId);
   for (const leaf of walk(c.extensions ?? {}, "", skip)) {
     yield { key: `char/extensions/${leaf.path}`, surface: "extension", surfaceId: ctx.characterId, surfaceLabel: `extensions.${leaf.path}`, field: leaf.path, value: leaf.text };
   }

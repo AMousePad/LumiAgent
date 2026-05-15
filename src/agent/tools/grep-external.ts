@@ -34,9 +34,7 @@ Usage:
   requiresCharacter: true,
   execute: async (input, ctx) => {
     const { discoverProviders, findSurface } = await import("../../phoneline/registry");
-    const { makeConsentPromptFn } = await import("../../phoneline/consent");
-    const promptFn = makeConsentPromptFn(ctx.callFrontend ?? (async () => ({ denied: true })));
-    const providers = await discoverProviders(ctx.spindle, ctx.userId, promptFn);
+    const providers = await discoverProviders(ctx.spindle, ctx.userId);
     const match = findSurface(providers, input.surface_id);
     if (!match) return { content: `Error: unknown surface: ${input.surface_id}`, isError: true };
     const { dialGrepItems } = await import("../../phoneline/transport");

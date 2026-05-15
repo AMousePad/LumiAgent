@@ -93,7 +93,7 @@ async function buildDiagnostics(ctx: ToolCtx, leaf: ResolvedLeaf): Promise<Recor
           mirror_path: `char/extensions/lumirealm.payload.${leaf.field}`,
           drift: mirror !== text,
           note: mirror !== text
-            ? `WARNING: this canonical field differs from its LumiRealm payload mirror at extensions.lumirealm.payload.${leaf.field}. A future translator-schema bump on the card will rebuild this canonical field FROM the payload mirror, overwriting your changes. The mirror is refused on write, so the only durable fix is to surface this drift to the user (the source-of-truth is in the payload).`
+            ? `Warning: this canonical field differs from its LumiRealm payload mirror at extensions.lumirealm.payload.${leaf.field}. A future translator-schema bump on the card will rebuild this canonical field from the payload mirror, overwriting your changes. The mirror is refused on write, so the only durable fix is to surface this drift to the user (the source-of-truth is in the payload).`
             : "Mirror in sync with canonical; safe to edit either path.",
         };
       }
@@ -207,7 +207,7 @@ export const inspectTool = defineTool({
   name: "inspect",
   description: `Cheap orientation for any path. Dispatches by the path shape:
 
-LEAF (string-valued) paths return char/line/CJK/peek PLUS a \`diagnostics\` block:
+Leaf (string-valued) paths return char/line/CJK/peek plus a \`diagnostics\` block:
   char/<field>, char/alternate_greetings/<idx>, char/extensions/<dotted>,
   rx/<id>/find_regex, rx/<id>/replace_string, wb/<id>/content, wb/<id>/comment
 
@@ -218,9 +218,9 @@ LEAF (string-valued) paths return char/line/CJK/peek PLUS a \`diagnostics\` bloc
     smart_quotes: { single_curly, double_curly, cjk_corner_brackets }   triggers edit's typography-preserving recovery
     dual_store (character canonical fields only): { mirror_path, drift, note }   warns if LumiRealm payload mirror diverges
 
-  ALWAYS \`inspect\` a leaf before editing if you don't know its provenance. The diagnostics tell you whether to copy bytes verbatim or expect typography drift.
+  \`inspect\` a leaf before editing if you don't know its provenance. The diagnostics tell you whether to copy bytes verbatim or expect typography drift.
 
-CONTAINER paths return aggregate / metadata:
+Container paths return aggregate / metadata:
   rx                    overview of every character-scoped regex script (names, sizes, disabled, target)
   rx/<id>               full regex script metadata (name, target, placement, flags, disabled, …) + field sizes + CJK counts + peeks
   wb                    all world books (attached and unattached) with entry counts

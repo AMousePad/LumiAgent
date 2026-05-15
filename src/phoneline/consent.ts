@@ -19,15 +19,6 @@ export interface PairingDecision {
   readonly decidedAt: number;
 }
 
-export interface ConsentPromptInput {
-  readonly identifier: string;
-  readonly displayName: string;
-  readonly version: string | undefined;
-  readonly kind: "initial" | "revalidate";
-}
-
-export type ConsentPromptFn = (input: ConsentPromptInput) => Promise<boolean>;
-
 const STORAGE_PATH = "phoneline-pairings.json";
 
 interface PairingsFile {
@@ -96,48 +87,38 @@ export async function deletePairing(
   await saveFile(spindle, userId, { version: 1, pairings });
 }
 
-export async function resolvePairing(
+// Records an auto-approved pairing for a known-whitelist extension. There's
+// no user prompt: the user has already explicitly consented at install time
+// by granting the (identical) permission set to both extensions, and the
+// host enforces permission parity before any dial reaches LumiAgent. Adding
+// a second LumiAgent-side consent gate on top would be theatre. The pairing
+// file is still written so the UI list reflects "these are the connected
+// integrations" and so we have a diagnostic record of when each integration
+// first responded.
+export async function recordAutoApprovedPairing(
   spindle: SpindleAPI,
   userId: string,
   manifest: SurfaceManifest,
-  prompt: ConsentPromptFn,
 ): Promise<PairingDecision> {
   const identifier = manifest.extension.id;
   const displayName = manifest.extension.name;
   const currentHash = await hashManifest(manifest);
   const stored = await loadPairing(spindle, userId, identifier);
-  if (stored && stored.manifestHash === currentHash) return stored;
-  const allowed = await prompt({
-    identifier,
-    displayName,
-    version: manifest.extension.version,
-    kind: stored ? "revalidate" : "initial",
-  });
+  if (stored && stored.allowed && stored.manifestHash === currentHash) return stored;
   const decision: PairingDecision = {
     identifier,
     displayName,
-    allowed,
+    allowed: true,
     manifestHash: currentHash,
     decidedAt: Date.now(),
   };
-  await savePairing(spindle, userId, decision);
+  try {
+    await savePairing(spindle, userId, decision);
+  } catch (err) {
+    try {
+      spindle.log.warn(`phoneline.recordAutoApprovedPairing: savePairing threw id=${identifier}: ${(err as Error).message}`);
+    } catch {}
+  }
   return decision;
 }
 
-// Backed by the backend↔frontend rpc channel. Modal timeout doubles as a
-// default-deny: a stuck frontend never silently approves.
-export function makeConsentPromptFn(
-  callFrontend: (op: string, args: unknown, timeoutMs?: number) => Promise<unknown>,
-  timeoutMs = 10 * 60_000,
-): ConsentPromptFn {
-  return async (input) => {
-    try {
-      const result = await callFrontend("phoneline_consent", input, timeoutMs);
-      if (typeof result !== "object" || result === null) return false;
-      const r = result as { allowed?: boolean };
-      return r.allowed === true;
-    } catch {
-      return false;
-    }
-  };
-}

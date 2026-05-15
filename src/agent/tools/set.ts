@@ -75,7 +75,7 @@ async function setWorldBookEntryField(ctx: ToolCtx, entryId: string, field: stri
 
 export const setTool = defineTool({
   name: "set",
-  description: `Wholesale write of any JSON value at a path. Use for STRUCTURAL changes the read/edit/rewrite trio can't make:
+  description: `Wholesale write of any JSON value at a path. Use for structural changes the read/edit/rewrite trio can't make:
 
 - Toggling a boolean (regex.disabled, world_book_entry.constant)
 - Changing a number (priority, position, sort_order, depth)

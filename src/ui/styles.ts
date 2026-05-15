@@ -200,52 +200,78 @@ ${LOADERS_CSS}
 .la-chat-pin-btn { color: var(--lumiverse-text-muted); }
 .la-chat-pin-btn:hover { color: var(--lumiverse-text); }
 
-.la-perm-modal { padding: 4px 0; }
+.la-perm-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 20px 16px 20px;
+  color: var(--lumiverse-text, inherit);
+  font-size: 14px;
+}
 .la-perm-lead {
-  margin: 0 0 10px;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--lumiverse-text);
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.45;
 }
 .la-perm-list {
-  margin: 0 0 12px;
+  margin: 0;
   padding: 0 0 0 18px;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--lumiverse-text);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  line-height: 1.5;
 }
-.la-perm-list li { margin-bottom: 4px; }
+.la-perm-list li { list-style: disc; }
 .la-perm-name {
-  font-family: var(--lumiverse-font-mono, ui-monospace, monospace);
   font-weight: 600;
-  color: var(--lumiverse-primary, var(--lumiverse-text));
+  color: var(--lumiverse-primary, #9370db);
 }
 .la-perm-note {
-  margin: 0 0 14px;
+  margin: 4px 0 0 0;
   padding: 10px 12px;
-  font-size: 12px;
+  background: var(--lumiverse-surface-alt, rgba(147, 112, 219, 0.08));
+  border-left: 3px solid var(--lumiverse-primary, #9370db);
+  border-radius: 4px;
+  font-size: 13px;
   line-height: 1.5;
-  color: var(--lumiverse-text);
-  background: var(--lumiverse-bg-elevated, transparent);
-  border: 1px solid var(--lumiverse-border);
-  border-radius: var(--lumiverse-radius);
+  color: var(--lumiverse-text-muted, inherit);
 }
-.la-perm-emphasize { font-weight: 600; }
+.la-perm-note-label {
+  font-weight: 600;
+  margin-right: 4px;
+}
+.la-perm-emphasize {
+  display: inline-block;
+  padding: 1px 7px;
+  background: var(--lumiverse-warning, #f5a623);
+  color: #1a1a1a;
+  border-radius: 4px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  font-size: 0.95em;
+}
 .la-perm-actions {
   display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+  justify-content: flex-start;
 }
 .la-perm-ok {
-  padding: 6px 14px;
-  border-radius: var(--lumiverse-radius);
-  border: 1px solid var(--lumiverse-border);
-  background: var(--lumiverse-primary, var(--lumiverse-bg-elevated));
-  color: var(--lumiverse-primary-contrast, var(--lumiverse-text));
+  padding: 7px 18px;
+  background: var(--lumiverse-primary, #9370db);
+  border: none;
+  border-radius: 6px;
+  color: #fff;
   font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
 }
-.la-perm-ok:hover { filter: brightness(1.1); }
+.la-perm-ok:hover { filter: brightness(1.08); }
+.la-perm-ok:focus-visible {
+  outline: 2px solid var(--lumiverse-primary, #9370db);
+  outline-offset: 2px;
+}
 
 .la-modal-note {
   margin: 0 0 8px;

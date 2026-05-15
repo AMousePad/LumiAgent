@@ -372,12 +372,10 @@ Usage:
       // ones; gate each mutation, drop the refused entries, and report them
       // so the agent sees them in the result.
       const { checkExtensionWrite } = await import("../../phoneline/gate");
-      const { makeConsentPromptFn } = await import("../../phoneline/consent");
-      const promptFn = makeConsentPromptFn(ctx.callFrontend ?? (async () => ({ denied: true })));
       const allowedMutations: ExtensionMutation[] = [];
       for (const m of extensionMutations) {
         const dotted = m.path.map((seg) => /^\d+$/.test(seg) ? `[${seg}]` : seg).join(".").replace(/\.\[/g, "[");
-        const res = await checkExtensionWrite(ctx.spindle, ctx.userId, ctx.characterId, dotted, promptFn);
+        const res = await checkExtensionWrite(ctx.spindle, ctx.userId, ctx.characterId, dotted);
         if (res.ok) allowedMutations.push(m);
         else writeErrors.push({ target: `extensions.${dotted}`, error: `[REFUSED_BY_EXTENSION] ${res.message ?? "extension refused write at this path"}` });
       }

@@ -5,7 +5,7 @@ const inputSchema = z.object({}).strict();
 
 export const listChatsForCharacterTool = defineTool({
   name: "list_chats_for_character",
-  description: "List all of the user's chat sessions for the ACTIVE character. Returns id, name, updated_at, message_count, is_active (whether the host is currently showing this chat). Use this to discover what chats exist before reading messages, or to suggest one for the user to pin.",
+  description: "List all of the user's chat sessions for the active character. Returns id, name, updated_at, message_count, is_active (whether the host is currently showing this chat). Use this to discover what chats exist before reading messages, or to suggest one for the user to pin.",
   inputSchema,
   jsonSchema: { type: "object", properties: {}, required: [] },
   requiresCharacter: true,

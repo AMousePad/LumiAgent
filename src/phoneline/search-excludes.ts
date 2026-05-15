@@ -1,6 +1,5 @@
 import type { SpindleAPI } from "lumiverse-spindle-types";
 import { discoverProviders } from "./registry";
-import type { ConsentPromptFn } from "./consent";
 
 // Build a path-prefix matcher from a flat list. A pattern matches a path
 // when path === pattern, path.startsWith(pattern + '.'), or path.startsWith(
@@ -23,10 +22,9 @@ export function makePathSkipFn(prefixes: readonly string[]): (path: string) => b
 export async function buildExtensionsSearchSkip(
   spindle: SpindleAPI,
   userId: string,
-  promptFn: ConsentPromptFn,
 ): Promise<(path: string) => boolean> {
   try {
-    const providers = await discoverProviders(spindle, userId, promptFn);
+    const providers = await discoverProviders(spindle, userId);
     const all = providers.flatMap((p) => p.manifest.excludeFromSearch ?? []);
     return makePathSkipFn(all);
   } catch {

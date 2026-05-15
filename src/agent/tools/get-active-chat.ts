@@ -5,7 +5,7 @@ const inputSchema = z.object({}).strict();
 
 export const getActiveChatTool = defineTool({
   name: "get_active_chat",
-  description: "Get the user's currently active chat (whatever the frontend is showing). Different from the pinned chat — pinned is what THIS agent session reads from; active is what the user is looking at right now in their main chat panel. Returns null if no chat is open.",
+  description: "Get the user's currently active chat (whatever the frontend is showing). Different from the pinned chat — pinned is what this agent session reads from; active is what the user is looking at right now in their main chat panel. Returns null if no chat is open.",
   inputSchema,
   jsonSchema: { type: "object", properties: {}, required: [] },
   requiresCharacter: true,

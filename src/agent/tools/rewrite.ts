@@ -20,12 +20,12 @@ const gate: ReadGate = {
 
 export const rewriteTool = defineTool({
   name: "rewrite",
-  description: `Wholesale-overwrite any string-valued surface by path. Use INSTEAD of \`edit\` when:
+  description: `Wholesale-overwrite any string-valued surface by path. Use instead of \`edit\` when:
 - The whole field changes (full translation, tone refactor, schema migration).
 - Find/replace keeps failing on stylized text (zalgo, hand-tuned diacritics, NFC drift).
 - The replacement is structurally different enough that finding a stable anchor is futile.
 
-Requires a recent \`read\` on the SAME path. Pass \`new_content\` for a literal payload, or \`new_content_handle\` to reuse a draft a prior failed call stashed for you.
+Requires a recent \`read\` on the same path. Pass \`new_content\` for a literal payload, or \`new_content_handle\` to reuse a draft a prior failed call stashed for you.
 
 Returns:
 - \`path\`         — canonical leaf path that was written.

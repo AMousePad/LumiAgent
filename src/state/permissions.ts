@@ -1,5 +1,7 @@
 declare const spindle: import("lumiverse-spindle-types").SpindleAPI;
 
+// Permissions LumiAgent's own code uses directly. Missing entries fire the
+// missing-permissions modal, and core functionality is degraded without them.
 export const REQUIRED_PERMISSIONS: readonly string[] = [
   "generation",
   "characters",
@@ -54,7 +56,18 @@ export async function initPermissions(log: PermLog): Promise<void> {
     const list = await api.getGranted();
     for (const p of list) granted.add(p);
     loaded = true;
-    log.info(`permissions.init: granted=[${[...granted].join(",")}]`);
+    const initialMissing = computeMissing();
+    log.info(
+      `permissions.init: granted=[${[...granted].join(",")}] missing=[${initialMissing.join(",")}]`,
+    );
+    // Fire after initial load so users captured before perms resolved still
+    // receive the modal and bridge banner. Subsequent changes go through
+    // api.onChanged below.
+    for (const fn of missingChangeListeners) {
+      try { fn(initialMissing); } catch (err) {
+        log.warn(`permissions.init: listener threw: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
   } catch (err) {
     log.warn(`permissions.init: getGranted failed: ${err instanceof Error ? err.message : String(err)}`);
     return;

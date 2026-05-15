@@ -9,9 +9,7 @@ const inputSchema = z.object({
 
 async function findLumirealm(ctx: ToolCtx) {
   const { discoverProviders } = await import("../../phoneline/registry");
-  const { makeConsentPromptFn } = await import("../../phoneline/consent");
-  const promptFn = makeConsentPromptFn(ctx.callFrontend ?? (async () => ({ denied: true })));
-  const providers = await discoverProviders(ctx.spindle, ctx.userId, promptFn);
+  const providers = await discoverProviders(ctx.spindle, ctx.userId);
   return providers.find((p) => p.id === "lumirealm") ?? null;
 }
 

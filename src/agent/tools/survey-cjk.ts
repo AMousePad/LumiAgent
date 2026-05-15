@@ -66,7 +66,7 @@ const inputSchema = z.object({
 
 export const surveyCjkTool = defineTool({
   name: "survey_cjk",
-  description: `Walk every editable surface and group all runs of CJK characters (Korean / Japanese / Chinese) by exact string. RUN THIS FIRST on any translation task.
+  description: `Walk every editable surface and group all runs of CJK characters (Korean / Japanese / Chinese) by exact string. Run this first on any translation task.
 
 Returns:
 - \`scopes\`, \`min_length\` — request echoes.
@@ -117,9 +117,7 @@ Returns:
     }
     if (scopes.includes("extensions")) {
       const { buildExtensionsSearchSkip } = await import("../../phoneline/search-excludes");
-      const { makeConsentPromptFn } = await import("../../phoneline/consent");
-      const promptFn = makeConsentPromptFn(ctx.callFrontend ?? (async () => ({ denied: true })));
-      const skip = await buildExtensionsSearchSkip(ctx.spindle, ctx.userId, promptFn);
+      const skip = await buildExtensionsSearchSkip(ctx.spindle, ctx.userId);
       for (const leaf of walkStringLeaves(c.extensions ?? {}, "", skip)) {
         countCjkRuns(leaf.text, minLen, `extensions.${leaf.path}`, map);
       }

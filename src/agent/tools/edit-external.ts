@@ -33,7 +33,7 @@ export const editExternalTool = defineTool({
 
 Usage:
 - You must call \`read_external\` with the same surface/item/field first. This tool will error if you have not.
-- The edit will FAIL if \`find\` is not unique in the field. Either provide more surrounding context to make it unique or set \`replace_all: true\`.
+- The edit will fail if \`find\` is not unique in the field. Either provide more surrounding context to make it unique or set \`replace_all: true\`.
 - For non-string values or wholesale replacement, use \`update_external\`.
 - If a prior call returned a draft handle, pass \`replace_handle\` instead of re-emitting the literal replacement.`,
   inputSchema,
@@ -69,9 +69,7 @@ Usage:
     }
 
     const { discoverProviders, findSurface } = await import("../../phoneline/registry");
-    const { makeConsentPromptFn } = await import("../../phoneline/consent");
-    const promptFn = makeConsentPromptFn(ctx.callFrontend ?? (async () => ({ denied: true })));
-    const providers = await discoverProviders(ctx.spindle, ctx.userId, promptFn);
+    const providers = await discoverProviders(ctx.spindle, ctx.userId);
     const match = findSurface(providers, input.surface_id);
     if (!match) return { content: `Error: unknown surface: ${input.surface_id}`, isError: true };
     const surfaceLabel = match.surface.label;

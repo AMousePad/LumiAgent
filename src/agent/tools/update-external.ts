@@ -30,9 +30,7 @@ Usage:
   execute: async (input, ctx) => {
     const { surface_id: surfaceId, item_id: itemId, field, value } = input;
     const { discoverProviders, findSurface } = await import("../../phoneline/registry");
-    const { makeConsentPromptFn } = await import("../../phoneline/consent");
-    const promptFn = makeConsentPromptFn(ctx.callFrontend ?? (async () => ({ denied: true })));
-    const providers = await discoverProviders(ctx.spindle, ctx.userId, promptFn);
+    const providers = await discoverProviders(ctx.spindle, ctx.userId);
     const match = findSurface(providers, surfaceId);
     if (!match) return { content: `Error: unknown surface: ${surfaceId}`, isError: true };
     const surfaceLabel = match.surface.label;
