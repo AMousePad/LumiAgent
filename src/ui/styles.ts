@@ -1571,13 +1571,17 @@ ${LOADERS_CSS}
   font-family: var(--lumiverse-font-family);
 }
 .la-diff-modal-toolbar {
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   padding: 8px 12px;
   border-bottom: 1px solid var(--lumiverse-border);
   background: var(--lumiverse-bg-elevated);
   flex-shrink: 0;
 }
-.la-diff-modal-stats { font-size: 12px; color: var(--lumiverse-text-muted); }
+.la-diff-toolbar-select { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 auto; }
+.la-diff-scope-combo { flex: 0 1 240px; min-width: 150px; }
+.la-diff-scope-combo .la-combo-trigger { width: 100%; max-width: none; }
+.la-diff-modal-toolbar-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-shrink: 0; }
+.la-diff-modal-stats { font-size: 12px; color: var(--lumiverse-text-muted); white-space: nowrap; }
 .la-diff-view-toggle {
   display: inline-flex;
   background: var(--lumiverse-bg);
@@ -1598,6 +1602,7 @@ ${LOADERS_CSS}
 .la-diff-modal-body {
   display: grid;
   grid-template-columns: minmax(220px, 300px) 1fr;
+  grid-template-rows: minmax(0, 1fr);
   flex: 1; min-height: 0;
 }
 .la-diff-modal-tree {
@@ -1682,9 +1687,15 @@ ${LOADERS_CSS}
 /* Tree above pane. Both compact: single-line truncated rows in the tree,
    single-line pane heading + meta. Revert button stays full width but tighter. */
 @media (max-width: 720px) {
-  .la-diff-modal-toolbar { padding: 6px 8px; gap: 6px; }
+  .la-diff-modal-toolbar { padding: 6px 8px; gap: 6px 8px; }
   .la-diff-modal-stats { font-size: 11px; }
   .la-diff-view-tab { padding: 3px 8px; font-size: 10px; }
+  /* Selector takes the full first row; actions wrap to a compact second
+     row so small screens don't lose vertical space to a tall toolbar. */
+  .la-diff-toolbar-select { flex: 1 1 100%; }
+  .la-diff-scope-combo { flex: 1 1 auto; }
+  .la-diff-modal-toolbar-actions { margin-left: 0; width: 100%; gap: 6px; }
+  .la-diff-modal-toolbar-actions .la-btn-mini { padding: 4px 8px; font-size: 11px; }
 
   .la-diff-modal-body {
     grid-template-columns: 1fr;

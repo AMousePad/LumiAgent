@@ -3,6 +3,7 @@ import type {
   ToolCallDTO,
   WorldBookEntryDTO,
   RegexScriptDTO,
+  PersonaDTO,
 } from "lumiverse-spindle-types";
 
 export type LlmMessagePart =
@@ -36,12 +37,40 @@ export interface ToolResult {
   readonly is_error?: boolean | undefined;
 }
 
+// Ledger filing scope. Phase 0 only ever produces "character"; the other
+// kinds are filing drawers for non-character surfaces added in later phases.
+// variables/images are singleton pseudo-scopes (id is a fixed constant).
+export type ScopeKind = "character" | "persona" | "chat" | "databank" | "preset" | "variables" | "images";
+
+export interface ScopeRef {
+  readonly kind: ScopeKind;
+  readonly id: string;
+}
+
+export function characterScope(id: string): ScopeRef {
+  return { kind: "character", id };
+}
+
+export function scopeKeyString(s: ScopeRef): string {
+  return `${s.kind}:${s.id}`;
+}
+
+export function parseScopeKey(s: string): ScopeRef {
+  const i = s.indexOf(":");
+  if (i < 0) throw new Error(`bad scope key ${s}`);
+  return { kind: s.slice(0, i) as ScopeKind, id: s.slice(i + 1) };
+}
+
 export type EditSurface =
   | "character_field"
   | "alternate_greeting"
   | "world_book_entry"
   | "regex_script"
   | "extension"
+  | "persona_field"
+  | "chat_message"
+  | "preset_block"
+  | "persona"
   | "external";
 
 export interface EditEdit {
@@ -52,6 +81,10 @@ export interface EditEdit {
   readonly field: string;
   readonly before: string;
   readonly after: string;
+  // Filing scope. Absent = the session's character (back-compat default).
+  // Non-character surfaces set this so the edit pipeline files into the
+  // right per-object ledger.
+  readonly scope?: ScopeRef;
 }
 
 export interface EditCreate {
@@ -59,7 +92,8 @@ export interface EditCreate {
   readonly surface: Exclude<EditSurface, "character_field" | "extension">;
   readonly surfaceId: string;
   readonly surfaceLabel: string;
-  readonly snapshot: WorldBookEntryDTO | RegexScriptDTO | { greeting: string };
+  readonly snapshot: WorldBookEntryDTO | RegexScriptDTO | PersonaDTO | { greeting: string };
+  readonly scope?: ScopeRef;
 }
 
 export interface EditDelete {
@@ -67,7 +101,8 @@ export interface EditDelete {
   readonly surface: Exclude<EditSurface, "character_field" | "extension">;
   readonly surfaceId: string;
   readonly surfaceLabel: string;
-  readonly snapshot: WorldBookEntryDTO | RegexScriptDTO | { greeting: string; index: number };
+  readonly snapshot: WorldBookEntryDTO | RegexScriptDTO | PersonaDTO | { greeting: string; index: number };
+  readonly scope?: ScopeRef;
 }
 
 export interface EditExternal {
@@ -82,6 +117,7 @@ export interface EditExternal {
   readonly before: string;
   readonly after: string;
   readonly surfaceId: string;
+  readonly scope?: ScopeRef;
 }
 
 export type EditRecord = EditEdit | EditCreate | EditDelete | EditExternal;
@@ -90,7 +126,7 @@ export interface EditLogEntry {
   readonly id: string;
   readonly ts: number;
   readonly sessionId: string;
-  readonly characterId: string;
+  readonly scope: ScopeRef;
   readonly assistantMessageId?: string | undefined;
   readonly toolCallId: string;
   readonly toolName: string;
@@ -215,8 +251,8 @@ export type FrontendToBackend =
   | { type: "delete_session"; sessionId: string }
   | { type: "export_session_markdown"; sessionId: string }
   | { type: "list_character_edits"; characterId: string }
-  | { type: "revert_edit"; characterId: string; editId: string; force?: boolean | undefined; sessionId?: string | undefined }
-  | { type: "revert_edits_bulk"; characterId: string; editIds: readonly string[]; sessionId?: string | undefined }
+  | { type: "revert_edit"; characterId: string; editId: string; force?: boolean | undefined; sessionId?: string | undefined; scope?: ScopeRef }
+  | { type: "revert_edits_bulk"; characterId: string; editIds: readonly string[]; sessionId?: string | undefined; scope?: ScopeRef }
   | { type: "revert_session"; sessionId: string }
   | { type: "edit_user_message"; sessionId: string; messageId: string; newContent: string; editsAction: "keep" | "revert"; connectionId?: string | undefined }
   | { type: "regenerate_assistant_message"; sessionId: string; assistantMessageId: string; editsAction: "keep" | "revert"; connectionId?: string | undefined }
@@ -241,10 +277,10 @@ export type FrontendToBackend =
   | { type: "ws_download_zip"; paths: readonly string[] }
   | { type: "compact_session"; sessionId: string }
   | { type: "list_characters_storage" }
-  | { type: "squash_character"; characterId: string }
-  | { type: "revert_character_all"; characterId: string }
-  | { type: "revert_all_characters"; characterIds: readonly string[] }
-  | { type: "load_character_workshop"; characterId: string }
+  | { type: "squash_character"; characterId: string; scope?: ScopeRef }
+  | { type: "revert_character_all"; characterId: string; scope?: ScopeRef }
+  | { type: "revert_all_characters"; characterIds: readonly string[]; scopes?: readonly ScopeRef[] }
+  | { type: "load_character_workshop"; characterId: string; scope?: ScopeRef }
   | { type: "get_phoneline_pairings" }
   | { type: "set_phoneline_pairing"; identifier: string; allowed: boolean }
   | { type: "revoke_phoneline_pairing"; identifier: string }
@@ -295,6 +331,10 @@ export interface CharacterStorageEntry {
   readonly editCount: number;
   readonly liveEditCount: number;
   readonly ledgerBytes: number;
+  // Present for non-character scopes (persona/chat). Absent => character,
+  // in which case characterId/characterName carry the identity (back-compat).
+  readonly scope?: ScopeRef;
+  readonly label?: string;
 }
 
 export interface WorkspaceEntry {

@@ -8,9 +8,13 @@ import type {
   RegexScriptDTO,
   RegexScriptUpdateDTO,
   RegexScriptCreateDTO,
+  PersonaUpdateDTO,
+  PersonaDTO,
+  PersonaCreateDTO,
 } from "lumiverse-spindle-types";
-import type { EditLogEntry, EditRecord, RevertOutcomeWire } from "../types";
-import type { CharacterLedger } from "./ledger";
+import type { EditLogEntry, EditRecord, RevertOutcomeWire, ScopeRef } from "../types";
+import { characterScope } from "../types";
+import type { ScopedLedger } from "./ledger";
 import { findPatch, findStructural, findExternal, persistLedgerNow, purgeIdsInMemory } from "./ledger";
 import { tryRevert, recordExternalDrift, sha256, currentValue, purgeRevertedPatches } from "./patch-stack";
 
@@ -42,7 +46,7 @@ export function makeEditId(): string {
 
 export function newEditEntry(
   sessionId: string,
-  characterId: string,
+  scope: ScopeRef,
   toolCallId: string,
   toolName: string,
   turn: number,
@@ -53,7 +57,7 @@ export function newEditEntry(
     id: makeEditId(),
     ts: Date.now(),
     sessionId,
-    characterId,
+    scope,
     ...(assistantMessageId !== undefined ? { assistantMessageId } : {}),
     toolCallId,
     toolName,
@@ -125,6 +129,17 @@ function regexUpdateFromDTO(r: RegexScriptDTO): RegexScriptUpdateDTO {
     folder: r.folder,
     metadata: r.metadata,
   };
+}
+
+function personaCreateFromDTO(p: PersonaDTO): PersonaCreateDTO {
+  const out: PersonaCreateDTO = { name: p.name };
+  if (p.title) out.title = p.title;
+  if (p.description) out.description = p.description;
+  if (p.folder) out.folder = p.folder;
+  if (p.is_default) out.is_default = p.is_default;
+  if (p.attached_world_book_id) out.attached_world_book_id = p.attached_world_book_id;
+  if (p.metadata && Object.keys(p.metadata).length > 0) out.metadata = p.metadata;
+  return out;
 }
 
 function regexCreateFromDTO(r: RegexScriptDTO): RegexScriptCreateDTO {
@@ -245,6 +260,20 @@ export async function revertEdit(
           await spindle.regex_scripts.update(r.surfaceId, { [r.field]: r.before } as RegexScriptUpdateDTO, userId);
           return { success: true };
         }
+        case "persona_field": {
+          await spindle.personas.update(r.surfaceId, { [r.field]: r.before } as PersonaUpdateDTO, userId);
+          return { success: true };
+        }
+        case "chat_message": {
+          const [chatId, mid] = r.surfaceId.split(":");
+          await spindle.chat.updateMessage(chatId!, mid!, { content: r.before });
+          return { success: true };
+        }
+        case "preset_block": {
+          const [presetId, blockId] = r.surfaceId.split(":");
+          await spindle.presets.blocks.update(presetId!, blockId!, { [r.field]: r.before });
+          return { success: true };
+        }
         case "extension": {
           const c = await spindle.characters.get(characterId, userId);
           if (!c) return { success: false, error: "character not found" };
@@ -272,6 +301,10 @@ export async function revertEdit(
         await spindle.characters.update(characterId, { alternate_greetings: arr }, userId);
         return { success: true };
       }
+      if (r.surface === "persona") {
+        await spindle.personas.delete(r.surfaceId, userId);
+        return { success: true };
+      }
     } else if (r.op === "delete") {
       if (r.surface === "world_book_entry") {
         const snap = r.snapshot as WorldBookEntryDTO;
@@ -291,6 +324,10 @@ export async function revertEdit(
         const target = Math.max(0, Math.min(arr.length, snap.index));
         arr.splice(target, 0, snap.greeting);
         await spindle.characters.update(characterId, { alternate_greetings: arr }, userId);
+        return { success: true };
+      }
+      if (r.surface === "persona") {
+        await spindle.personas.create(personaCreateFromDTO(r.snapshot as PersonaDTO), userId);
         return { success: true };
       }
     }
@@ -352,6 +389,18 @@ export async function readLiveValue(
       const v = (s as unknown as Record<string, unknown>)[r.field];
       return typeof v === "string" ? v : null;
     }
+    case "persona_field": {
+      const p = await spindle.personas.get(r.surfaceId, userId);
+      if (!p) return null;
+      const v = (p as unknown as Record<string, unknown>)[r.field];
+      return typeof v === "string" ? v : null;
+    }
+    case "chat_message": {
+      const [chatId, mid] = r.surfaceId.split(":");
+      const msgs = await spindle.chat.getMessages(chatId!);
+      const m = msgs.find((x) => x.id === mid);
+      return m ? m.content : null;
+    }
     case "extension": {
       const c = await spindle.characters.get(characterId, userId);
       if (!c) return null;
@@ -359,6 +408,15 @@ export async function readLiveValue(
       const v = getAtPath(c.extensions ?? {}, segs);
       return typeof v === "string" ? v : null;
     }
+    case "preset_block": {
+      const [presetId, blockId] = r.surfaceId.split(":");
+      const b = await spindle.presets.blocks.get(presetId!, blockId!, userId);
+      if (!b) return null;
+      const v = (b as unknown as Record<string, unknown>)[r.field];
+      return typeof v === "string" ? v : null;
+    }
+    default:
+      return null;
   }
 }
 
@@ -369,7 +427,7 @@ export async function readLiveValue(
 // without the target) are reported back to the UI.
 async function revertFieldEditV2(
   spindle: SpindleAPI,
-  ledger: CharacterLedger,
+  ledger: ScopedLedger,
   editId: string,
   characterId: string,
   userId: string,
@@ -381,7 +439,7 @@ async function revertFieldEditV2(
   if (patch.reverted) return { kind: "noop_already_reverted", editId };
 
   const entryView: EditLogEntry = {
-    id: editId, ts: patch.ts, sessionId: patch.sessionId ?? "", characterId,
+    id: editId, ts: patch.ts, sessionId: patch.sessionId ?? "", scope: characterScope(characterId),
     toolCallId: patch.toolCallId ?? "", toolName: patch.toolName ?? patch.description,
     turn: patch.turn ?? 0, reverted: false,
     record: {
@@ -490,12 +548,26 @@ export async function writeFieldValue(
       await spindle.regex_scripts.update(surfaceId, { [field]: value } as RegexScriptUpdateDTO, userId);
       return;
     }
+    case "persona_field": {
+      await spindle.personas.update(surfaceId, { [field]: value } as PersonaUpdateDTO, userId);
+      return;
+    }
+    case "chat_message": {
+      const [chatId, mid] = surfaceId.split(":");
+      await spindle.chat.updateMessage(chatId!, mid!, { content: value });
+      return;
+    }
     case "extension": {
       const c = await spindle.characters.get(characterId, userId);
       if (!c) throw new Error("character not found");
       const segs = parsePath(field);
       const next = setAtPath(c.extensions ?? {}, segs, value) as Record<string, unknown>;
       await spindle.characters.update(characterId, { extensions: next }, userId);
+      return;
+    }
+    case "preset_block": {
+      const [presetId, blockId] = surfaceId.split(":");
+      await spindle.presets.blocks.update(presetId!, blockId!, { [field]: value });
       return;
     }
     default:
@@ -505,7 +577,7 @@ export async function writeFieldValue(
 
 export async function revertEditWithCheck(
   spindle: SpindleAPI,
-  ledger: CharacterLedger,
+  ledger: ScopedLedger,
   editId: string,
   characterId: string,
   userId: string,
@@ -519,7 +591,7 @@ export async function revertEditWithCheck(
   const struct = findStructural(ledger, editId);
   if (struct) {
     const entry: EditLogEntry = {
-      id: editId, ts: struct.ts, sessionId: struct.sessionId ?? "", characterId,
+      id: editId, ts: struct.ts, sessionId: struct.sessionId ?? "", scope: characterScope(characterId),
       toolCallId: struct.toolCallId ?? "", toolName: struct.op, turn: 0, reverted: false,
       record: struct.op === "create"
         ? { op: "create", surface: struct.surface, surfaceId: struct.surfaceId, surfaceLabel: struct.surfaceLabel, snapshot: struct.snapshot as never }

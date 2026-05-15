@@ -38,13 +38,39 @@ export async function* runLlmStream(
   if (input.signal !== undefined) req.signal = input.signal;
   const stream = spindle.generate.quietStream(req);
 
+  // Stream-shape diagnostics. The reasoning-only-no-action failure can't be
+  // told apart from a clean empty turn without knowing whether a terminal
+  // `done` chunk ever arrived and what it carried. Counters here + the
+  // summary log on stream end give us that.
+  let tokenChunks = 0;
+  let tokenChars = 0;
+  let reasoningChunks = 0;
+  let reasoningChars = 0;
+  let sawDone = false;
+  let lastChunkType = "<none>";
+
   for await (const raw of stream) {
     const chunk = raw as StreamChunkDTO;
+    lastChunkType = chunk.type;
     if (chunk.type === "token") {
+      tokenChunks++;
+      tokenChars += chunk.token.length;
       if (chunk.token.length > 0) yield { type: "token", token: chunk.token };
     } else if (chunk.type === "reasoning") {
+      reasoningChunks++;
+      reasoningChars += chunk.token.length;
       if (chunk.token.length > 0) yield { type: "reasoning", token: chunk.token };
     } else if (chunk.type === "done") {
+      sawDone = true;
+      const toolNames = (chunk.tool_calls ?? []).map((t) => t.name).join(",") || "<none>";
+      spindle.log.info(
+        `llm.stream done: finish_reason=${chunk.finish_reason} content_chars=${chunk.content.length} ` +
+        `tool_calls=${chunk.tool_calls?.length ?? 0}[${toolNames}] ` +
+        `reasoning_chars_terminal=${chunk.reasoning?.length ?? 0} ` +
+        `reasoning_chars_streamed=${reasoningChars}(${reasoningChunks} chunks) ` +
+        `token_chars_streamed=${tokenChars}(${tokenChunks} chunks) ` +
+        `usage=${chunk.usage ? `p${chunk.usage.prompt_tokens}/c${chunk.usage.completion_tokens}/t${chunk.usage.total_tokens}` : "<none>"}`,
+      );
       const response: LlmFinalResponse = {
         content: chunk.content,
         finish_reason: chunk.finish_reason,
@@ -63,5 +89,17 @@ export async function* runLlmStream(
       }
       yield { type: "done", response };
     }
+  }
+
+  // Stream ended without a terminal `done`. This is the prime suspect for the
+  // reasoning-only-no-action failure: provider streamed reasoning (or nothing)
+  // then closed the connection with no completion chunk and no thrown error.
+  if (!sawDone) {
+    spindle.log.warn(
+      `llm.stream ENDED WITHOUT done chunk: last_chunk_type=${lastChunkType} ` +
+      `reasoning_chars_streamed=${reasoningChars}(${reasoningChunks} chunks) ` +
+      `token_chars_streamed=${tokenChars}(${tokenChunks} chunks). ` +
+      `The loop will see empty content + no tool_calls + finish_reason="" and fail the turn.`,
+    );
   }
 }

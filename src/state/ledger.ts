@@ -9,9 +9,10 @@ import type {
   FileTimeline,
   EditSurface,
 } from "../types";
-import { fileKeyOf } from "../types";
+import { fileKeyOf, scopeKeyString } from "../types";
+import type { ScopeRef } from "../types";
 import {
-  type CharacterLedgerV2,
+  type ScopedLedgerV2,
   type FileKey,
   type FileState,
   type Patch,
@@ -27,48 +28,84 @@ import {
 
 const LEDGER_DIR = "ledgers";
 
-// V2 ledger: per-field patch stacks plus a structural list for create/delete
-// and a side list for external-surface edits (the spindle bridge owns that
-// surface's concurrency, so they don't slot into FileState cleanly).
-export interface CharacterLedger extends CharacterLedgerV2 {
+// Per-field patch stacks plus a structural list for create/delete and a side
+// list for external-surface edits (the spindle bridge owns that surface's
+// concurrency, so they don't slot into FileState cleanly).
+export interface ScopedLedger extends ScopedLedgerV2 {
   externalEdits: EditLogEntry[];
 }
 
-interface PersistedV2 {
-  version: 2;
-  characterId: string;
+interface PersistedV3 {
+  version: 3;
+  scope: ScopeRef;
   files: FileState[];
   structural: StructuralPatch[];
   externalEdits: EditLogEntry[];
 }
 
-function path(characterId: string): string {
+// Pre-scope on-disk shape. Only ever read during the one-way v2->v3 migration
+// of a character ledger; never written.
+interface LegacyPersistedV2 {
+  version: 2;
+  characterId: string;
+  files: FileState[];
+  structural: StructuralPatch[];
+  externalEdits?: EditLogEntry[];
+}
+
+export function ledgerPath(scope: ScopeRef): string {
+  return `${LEDGER_DIR}/${scope.kind}/${scope.id}.json`;
+}
+
+function legacyPath(characterId: string): string {
   return `${LEDGER_DIR}/${characterId}.json`;
 }
 
-const ledgerCache = new Map<string, CharacterLedger>();
+const ledgerCache = new Map<string, ScopedLedger>();
 
-function cacheKey(userId: string, characterId: string): string {
-  return `${userId}:${characterId}`;
+function cacheKey(userId: string, scope: ScopeRef): string {
+  return `${userId}:${scopeKeyString(scope)}`;
 }
 
-function emptyLedger(characterId: string): CharacterLedger {
-  return { ...emptyLedgerV2(characterId), externalEdits: [] };
+function emptyLedger(scope: ScopeRef): ScopedLedger {
+  return { ...emptyLedgerV2(scope), externalEdits: [] };
 }
 
-export async function loadLedger(spindle: SpindleAPI, characterId: string, userId: string): Promise<CharacterLedger> {
-  const k = cacheKey(userId, characterId);
+export async function loadLedger(spindle: SpindleAPI, scope: ScopeRef, userId: string): Promise<ScopedLedger> {
+  const k = cacheKey(userId, scope);
   const cached = ledgerCache.get(k);
   if (cached) return cached;
-  const persisted = await spindle.userStorage.getJson<PersistedV2 | null>(
-    path(characterId),
-    { fallback: null, userId },
-  );
-  const ledger: CharacterLedger = !persisted || persisted.version !== 2
-    ? emptyLedger(characterId)
+  const p = ledgerPath(scope);
+  let persisted = await spindle.userStorage.getJson<PersistedV3 | null>(p, { fallback: null, userId });
+
+  // One-way migration: a character whose ledger predates scope-addressing
+  // still lives at the flat legacy path. Rewrap (lossless, no patch replay),
+  // write the new path, then drop the legacy file. New path is authoritative
+  // the instant it's written, so legacy removal is best-effort.
+  if ((!persisted || persisted.version !== 3) && scope.kind === "character") {
+    const legacy = await spindle.userStorage.getJson<LegacyPersistedV2 | null>(
+      legacyPath(scope.id),
+      { fallback: null, userId },
+    );
+    if (legacy && legacy.version === 2) {
+      const migrated: PersistedV3 = {
+        version: 3,
+        scope,
+        files: legacy.files,
+        structural: legacy.structural,
+        externalEdits: legacy.externalEdits ?? [],
+      };
+      await spindle.userStorage.write(p, JSON.stringify(migrated), userId);
+      try { await spindle.userStorage.delete(legacyPath(scope.id), userId); } catch { /* orphan legacy is harmless */ }
+      persisted = migrated;
+    }
+  }
+
+  const ledger: ScopedLedger = !persisted || persisted.version !== 3
+    ? emptyLedger(scope)
     : {
-        version: 2,
-        characterId: persisted.characterId,
+        version: 3,
+        scope,
         files: persisted.files,
         structural: persisted.structural,
         externalEdits: persisted.externalEdits ?? [],
@@ -77,24 +114,24 @@ export async function loadLedger(spindle: SpindleAPI, characterId: string, userI
   return ledger;
 }
 
-async function persistLedger(spindle: SpindleAPI, ledger: CharacterLedger, userId: string): Promise<void> {
-  const out: PersistedV2 = {
-    version: 2,
-    characterId: ledger.characterId,
+async function persistLedger(spindle: SpindleAPI, ledger: ScopedLedger, userId: string): Promise<void> {
+  const out: PersistedV3 = {
+    version: 3,
+    scope: ledger.scope,
     files: ledger.files,
     structural: ledger.structural,
     externalEdits: ledger.externalEdits,
   };
   // Avoid setJson's default indent: 2 to keep ledger files small.
-  await spindle.userStorage.write(path(ledger.characterId), JSON.stringify(out), userId);
+  await spindle.userStorage.write(ledgerPath(ledger.scope), JSON.stringify(out), userId);
 }
 
-function findFile(ledger: CharacterLedger, key: FileKey): FileState | undefined {
+function findFile(ledger: ScopedLedger, key: FileKey): FileState | undefined {
   const ks = fileKeyString(key);
   return ledger.files.find((f) => fileKeyString(f.key) === ks);
 }
 
-function upsertFile(ledger: CharacterLedger, file: FileState): void {
+function upsertFile(ledger: ScopedLedger, file: FileState): void {
   const ks = fileKeyString(file.key);
   const i = ledger.files.findIndex((f) => fileKeyString(f.key) === ks);
   if (i < 0) ledger.files.push(file);
@@ -102,7 +139,7 @@ function upsertFile(ledger: CharacterLedger, file: FileState): void {
 }
 
 function structuralFromEntry(e: EditLogEntry, r: EditCreate | EditDelete): StructuralPatch | null {
-  if (r.surface !== "world_book_entry" && r.surface !== "regex_script" && r.surface !== "alternate_greeting") {
+  if (r.surface !== "world_book_entry" && r.surface !== "regex_script" && r.surface !== "alternate_greeting" && r.surface !== "persona") {
     return null;
   }
   return {
@@ -126,12 +163,12 @@ function structuralFromEntry(e: EditLogEntry, r: EditCreate | EditDelete): Struc
 // the structural list; external edits stay on their own list.
 export async function appendEntries(
   spindle: SpindleAPI,
-  characterId: string,
+  scope: ScopeRef,
   entries: readonly EditLogEntry[],
   userId: string,
 ): Promise<void> {
   if (entries.length === 0) return;
-  const ledger = await loadLedger(spindle, characterId, userId);
+  const ledger = await loadLedger(spindle, scope, userId);
   for (const e of entries) {
     const r = e.record;
     if (r.op === "edit" && r.surface !== "external") {
@@ -152,6 +189,8 @@ export async function appendEntries(
         ...(e.assistantMessageId !== undefined ? { assistantMessageId: e.assistantMessageId } : {}),
         turn: e.turn,
       });
+      // Skip a brand-new file that a no-op edit left empty: nothing to track.
+      if (!existing && result.file.patches.length === 0) continue;
       upsertFile(ledger, result.file);
     } else if (r.op === "create" || r.op === "delete") {
       const sp = structuralFromEntry(e, r);
@@ -164,7 +203,7 @@ export async function appendEntries(
   await persistLedger(spindle, ledger, userId);
 }
 
-export async function persistLedgerNow(spindle: SpindleAPI, ledger: CharacterLedger, userId: string): Promise<void> {
+export async function persistLedgerNow(spindle: SpindleAPI, ledger: ScopedLedger, userId: string): Promise<void> {
   await persistLedger(spindle, ledger, userId);
 }
 
@@ -173,7 +212,7 @@ export async function persistLedgerNow(spindle: SpindleAPI, ledger: CharacterLed
 // ids that were actually removed (subset of input — ids not present in the
 // ledger are silently skipped). Callers persist if anything changed.
 export function purgeIdsInMemory(
-  ledger: CharacterLedger,
+  ledger: ScopedLedger,
   ids: readonly string[],
 ): readonly string[] {
   if (ids.length === 0) return [];
@@ -208,12 +247,12 @@ export function purgeIdsInMemory(
 
 export async function purgeIds(
   spindle: SpindleAPI,
-  characterId: string,
+  scope: ScopeRef,
   ids: readonly string[],
   userId: string,
 ): Promise<readonly string[]> {
   if (ids.length === 0) return [];
-  const ledger = await loadLedger(spindle, characterId, userId);
+  const ledger = await loadLedger(spindle, scope, userId);
   const removed = purgeIdsInMemory(ledger, ids);
   if (removed.length > 0) await persistLedger(spindle, ledger, userId);
   return removed;
@@ -222,7 +261,7 @@ export async function purgeIds(
 // Drop every patch / structural / external entry currently flagged reverted.
 // Used to clean up after a revert flow where tryRevert/markReverted has
 // already marked the ledger but we haven't yet persisted.
-export function purgeAllRevertedInMemory(ledger: CharacterLedger): readonly string[] {
+export function purgeAllRevertedInMemory(ledger: ScopedLedger): readonly string[] {
   const removed: string[] = [];
   for (const f of ledger.files) {
     const ids = purgeRevertedPatches(f);
@@ -250,7 +289,7 @@ export function purgeAllRevertedInMemory(ledger: CharacterLedger): readonly stri
 // Reconstruct an EditLogEntry view for a single patch. The frontend's diff
 // modal already takes (before, after) strings, so synthesizing the v1 shape
 // keeps the UI unchanged.
-function synthesizeFromPatch(file: FileState, p: Patch, characterId: string): EditLogEntry | null {
+function synthesizeFromPatch(file: FileState, p: Patch, scope: ScopeRef): EditLogEntry | null {
   const slice = sliceForPatch(file, p.id);
   if (!slice) return null;
   const record: EditEdit = {
@@ -266,7 +305,7 @@ function synthesizeFromPatch(file: FileState, p: Patch, characterId: string): Ed
     id: p.id,
     ts: p.ts,
     sessionId: p.sessionId ?? "",
-    characterId,
+    scope,
     ...(p.assistantMessageId !== undefined ? { assistantMessageId: p.assistantMessageId } : {}),
     toolCallId: p.toolCallId ?? "",
     toolName: p.toolName ?? p.description,
@@ -277,7 +316,7 @@ function synthesizeFromPatch(file: FileState, p: Patch, characterId: string): Ed
   };
 }
 
-function synthesizeFromStructural(s: StructuralPatch, characterId: string): EditLogEntry {
+function synthesizeFromStructural(s: StructuralPatch, scope: ScopeRef): EditLogEntry {
   const record: EditCreate | EditDelete = s.op === "create"
     ? {
         op: "create",
@@ -297,7 +336,7 @@ function synthesizeFromStructural(s: StructuralPatch, characterId: string): Edit
     id: s.id,
     ts: s.ts,
     sessionId: s.sessionId ?? "",
-    characterId,
+    scope,
     toolCallId: s.toolCallId ?? "",
     toolName: s.op,
     turn: 0,
@@ -308,16 +347,19 @@ function synthesizeFromStructural(s: StructuralPatch, characterId: string): Edit
 }
 
 // Project the v2 ledger to a chronological EditLogEntry[] for the workshop.
-export function entriesView(ledger: CharacterLedger): EditLogEntry[] {
+export function entriesView(ledger: ScopedLedger): EditLogEntry[] {
   const out: EditLogEntry[] = [];
   for (const f of ledger.files) {
     for (const p of f.patches) {
-      const e = synthesizeFromPatch(f, p, ledger.characterId);
+      // Hide no-op patches (before === after). Prevention stops new ones;
+      // this also clears legacy empties persisted before that landed.
+      if (p.hashBefore === p.hashAfter) continue;
+      const e = synthesizeFromPatch(f, p, ledger.scope);
       if (e) out.push(e);
     }
   }
   for (const s of ledger.structural) {
-    out.push(synthesizeFromStructural(s, ledger.characterId));
+    out.push(synthesizeFromStructural(s, ledger.scope));
   }
   for (const e of ledger.externalEdits) {
     out.push({ ...e });
@@ -326,14 +368,14 @@ export function entriesView(ledger: CharacterLedger): EditLogEntry[] {
   return out;
 }
 
-export function findEntry(ledger: CharacterLedger, editId: string): EditLogEntry | null {
+export function findEntry(ledger: ScopedLedger, editId: string): EditLogEntry | null {
   for (const f of ledger.files) {
     for (const p of f.patches) {
-      if (p.id === editId) return synthesizeFromPatch(f, p, ledger.characterId);
+      if (p.id === editId) return synthesizeFromPatch(f, p, ledger.scope);
     }
   }
   for (const s of ledger.structural) {
-    if (s.id === editId) return synthesizeFromStructural(s, ledger.characterId);
+    if (s.id === editId) return synthesizeFromStructural(s, ledger.scope);
   }
   for (const e of ledger.externalEdits) {
     if (e.id === editId) return { ...e };
@@ -342,7 +384,7 @@ export function findEntry(ledger: CharacterLedger, editId: string): EditLogEntry
 }
 
 // Locate the (file, patch) pair for an edit id, if it's a field edit.
-export function findPatch(ledger: CharacterLedger, editId: string): { file: FileState; patch: Patch } | null {
+export function findPatch(ledger: ScopedLedger, editId: string): { file: FileState; patch: Patch } | null {
   for (const f of ledger.files) {
     for (const p of f.patches) {
       if (p.id === editId) return { file: f, patch: p };
@@ -351,16 +393,16 @@ export function findPatch(ledger: CharacterLedger, editId: string): { file: File
   return null;
 }
 
-export function findStructural(ledger: CharacterLedger, editId: string): StructuralPatch | null {
+export function findStructural(ledger: ScopedLedger, editId: string): StructuralPatch | null {
   return ledger.structural.find((s) => s.id === editId) ?? null;
 }
 
-export function findExternal(ledger: CharacterLedger, editId: string): EditLogEntry | null {
+export function findExternal(ledger: ScopedLedger, editId: string): EditLogEntry | null {
   return ledger.externalEdits.find((e) => e.id === editId) ?? null;
 }
 
 // Group ledger view into per-file timelines (for the workshop "by file" tab).
-export function groupByFile(ledger: CharacterLedger): FileTimeline[] {
+export function groupByFile(ledger: ScopedLedger): FileTimeline[] {
   const view = entriesView(ledger);
   const groups = new Map<string, EditLogEntry[]>();
   for (const e of view) {
@@ -409,12 +451,12 @@ export interface SquashSummary {
 // across.
 export async function squashMessage(
   spindle: SpindleAPI,
-  characterId: string,
+  scope: ScopeRef,
   assistantMessageId: string,
   userId: string,
   opts: { sealed?: boolean } = {},
 ): Promise<SquashSummary> {
-  const ledger = await loadLedger(spindle, characterId, userId);
+  const ledger = await loadLedger(spindle, scope, userId);
   const absorbedIds: string[] = [];
   const newPatchIds: string[] = [];
   const absorbedToMerged = new Map<string, string>();
@@ -426,13 +468,20 @@ export async function squashMessage(
     if (res.length === 0) continue;
     let actuallyMerged = 0;
     for (const r of res) {
-      if (r.absorbedIds.length > 1) {
+      if (r.merged === null) {
+        // Run collapsed to no net change: every absorbed id is gone, no
+        // replacement patch. Surface them so the frontend drops the rows.
+        for (const id of r.absorbedIds) absorbedIds.push(id);
+        actuallyMerged++;
+        changed = true;
+      } else if (r.absorbedIds.length > 1) {
+        const mergedId = r.merged.id;
         for (const id of r.absorbedIds) {
-          if (id === r.merged.id) continue;
+          if (id === mergedId) continue;
           absorbedIds.push(id);
-          absorbedToMerged.set(id, r.merged.id);
+          absorbedToMerged.set(id, mergedId);
         }
-        newPatchIds.push(r.merged.id);
+        newPatchIds.push(mergedId);
         actuallyMerged++;
         changed = true;
       } else if (opts.sealed === true) {
@@ -451,12 +500,12 @@ export async function squashMessage(
 
 export type { SquashGroupResult };
 
-export function dropCache(characterId: string, userId?: string): void {
+export function dropCache(scope: ScopeRef, userId?: string): void {
   if (userId) {
-    ledgerCache.delete(cacheKey(userId, characterId));
+    ledgerCache.delete(cacheKey(userId, scope));
     return;
   }
-  const suffix = `:${characterId}`;
+  const suffix = `:${scopeKeyString(scope)}`;
   for (const k of ledgerCache.keys()) {
     if (k.endsWith(suffix)) ledgerCache.delete(k);
   }
@@ -466,7 +515,7 @@ export function dropCache(characterId: string, userId?: string): void {
 // file" check stays useful only for backwards compatibility with the existing
 // revert flow. We keep the function as a no-op for v2 (cascade is handled
 // inside patch-stack on revert).
-export function laterEditsOnSameFile(_ledger: CharacterLedger, _editId: string): EditLogEntry[] {
+export function laterEditsOnSameFile(_ledger: ScopedLedger, _editId: string): EditLogEntry[] {
   return [];
 }
 

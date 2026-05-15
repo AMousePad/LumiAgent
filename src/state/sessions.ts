@@ -5,6 +5,7 @@ import type {
   LlmMessage,
   SessionSummaryWire,
 } from "../types";
+import { characterScope } from "../types";
 
 const SESSION_DIR = "sessions";
 const INDEX_PATH = `${SESSION_DIR}/index.json`;
@@ -128,7 +129,21 @@ export async function saveSession(spindle: SpindleAPI, s: PersistedSession, user
 }
 
 export async function loadSession(spindle: SpindleAPI, sessionId: string, userId: string): Promise<PersistedSession | null> {
-  return spindle.userStorage.getJson<PersistedSession | null>(path(sessionId), { fallback: null, userId });
+  const s = await spindle.userStorage.getJson<PersistedSession | null>(path(sessionId), { fallback: null, userId });
+  if (s) normalizeLegacyEditScopes(s);
+  return s;
+}
+
+// Pre-scope sessions persisted edits with a flat `characterId`. Backfill
+// `scope` so cross-scope revert (Phase 2+) can route each edit to its ledger.
+// Mutates in place; the next saveSession rewrites the upgraded shape.
+type MutableLegacyEdit = Omit<EditLogEntry, "scope"> & { scope?: EditLogEntry["scope"]; characterId?: string };
+
+function normalizeLegacyEditScopes(s: PersistedSession): void {
+  for (const e of s.edits ?? []) {
+    const le = e as unknown as MutableLegacyEdit;
+    if (!le.scope) le.scope = characterScope(le.characterId ?? s.characterId ?? "");
+  }
 }
 
 // Mark a set of edit ids reverted in their owning session and append system

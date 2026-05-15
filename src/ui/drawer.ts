@@ -7,11 +7,14 @@ import type {
   ChatUserMessage,
   CharacterSummary,
   ConnectionSummary,
+  CharacterStorageEntry,
   EditLogEntry,
   FrontendToBackend,
   RevertOutcomeWire,
+  ScopeRef,
   SessionSummaryWire,
 } from "../types";
+import { characterScope } from "../types";
 import { STYLES } from "./styles";
 import {
   type AssistantHandle,
@@ -22,7 +25,6 @@ import {
 import { ChatVirtualizer } from "./chat-virtualizer";
 import { openDiffModal, type DiffModalHandle } from "./diff-modal";
 import { mountWorkspacePanel, type WorkspacePanelHandle } from "./workspace-panel";
-import { mountCharactersPanel, type CharactersPanelHandle } from "./characters-panel";
 import { mountCombo, type ComboHandle } from "./combo";
 import { handleAgentEvent, type AgentEventCtx } from "./agent-event-handler";
 import { ICON_TRASH, ICON_DOWNLOAD, ICON_PIN, ICON_PIN_OFF, ICON_NEW, ICON_SESSIONS, ICON_SETTINGS, ICON_TICK, ICON_WORKSHOP, ICON_EXPAND, ICON_COLLAPSE } from "./icons";
@@ -96,9 +98,10 @@ interface UiState {
   currentAssistantMessage: ChatAssistantMessage | null;
   diffModal: DiffModalHandle | null;
   workspacePanel: WorkspacePanelHandle | null;
-  charactersPanel: CharactersPanelHandle | null;
+  scopeStorage: readonly CharacterStorageEntry[];
   workshopFocusCharacterId: string | null;
   workshopFocusCharacterName: string | null;
+  workshopFocusScope: ScopeRef | null;
   // Whether the streaming bubble currently shows the cycling thinking
   // indicator. The indicator itself lives inside the bubble; this flag just
   // gates re-toggles so we don't churn DOM nodes on every event.
@@ -165,9 +168,10 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     currentAssistantMessage: null,
     diffModal: null,
     workspacePanel: null,
-    charactersPanel: null,
+    scopeStorage: [],
     workshopFocusCharacterId: null,
     workshopFocusCharacterName: null,
+    workshopFocusScope: null,
     loading: false,
     editingMessageId: null,
   };
@@ -677,47 +681,60 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     if (!state.workspacePanel) {
       state.workspacePanel = mountWorkspacePanel({ ctx, sendBackend });
     }
-    if (!state.charactersPanel) {
-      state.charactersPanel = mountCharactersPanel({
-        ctx,
-        sendBackend,
-        onFocusCharacter: (cid, name) => {
-          state.workshopFocusCharacterId = cid;
-          state.workshopFocusCharacterName = name;
-          sendBackend({ type: "load_character_workshop", characterId: cid });
-          state.diffModal?.focusTab("edits");
-        },
-      });
-    }
     state.diffModal = openDiffModal(ctx, {
-      getEdits: () => {
-        // Focus override: Characters tab can swap the Edits view to another
-        // character's ledger. characterLedger is reused as the carrier.
-        return ledgerSource();
-      },
-      getScopeLabel: () => {
-        if (state.workshopFocusCharacterId) return state.workshopFocusCharacterName ?? "focused character";
-        if (state.characterId === null) return "no character attached";
-        return state.characterName ?? null;
+      getEdits: () => ledgerSource(),
+      getScopes: () => state.scopeStorage.map((e) => ({
+        scope: e.scope ?? characterScope(e.characterId),
+        label: e.label ?? e.characterName,
+        liveCount: e.liveEditCount,
+        totalCount: e.editCount,
+      })),
+      getSelectedScope: () => state.workshopFocusScope
+        ?? (state.characterId ? characterScope(state.characterId) : null),
+      onSelectScope: (scope) => {
+        state.workshopFocusScope = scope;
+        state.workshopFocusCharacterId = scope.id;
+        const opt = state.scopeStorage.find((e) => (e.scope?.id ?? e.characterId) === scope.id);
+        state.workshopFocusCharacterName = opt?.label ?? opt?.characterName ?? null;
+        sendBackend({ type: "load_character_workshop", characterId: scope.id, scope });
       },
       onRevert: async (editId) => {
-        const cid = state.workshopFocusCharacterId ?? state.characterId;
-        if (!cid) return;
-        sendBackend({ type: "revert_edit", characterId: cid, editId });
+        const scope = state.workshopFocusScope
+          ?? (state.characterId ? characterScope(state.characterId) : null);
+        if (!scope) return;
+        sendBackend({ type: "revert_edit", characterId: scope.id, editId, scope });
       },
+      onRevertAll: async (scope) => {
+        const c = await ctx.ui.showConfirm({
+          title: "Revert all edits",
+          message: "Revert every live edit in this scope? Cascade-aware. The ledger keeps history so reverts can be undone individually.",
+          variant: "danger",
+          confirmLabel: "Revert all",
+        });
+        if (c.confirmed) sendBackend({ type: "revert_character_all", characterId: scope.id, scope });
+      },
+      onForget: async (scope) => {
+        const c = await ctx.ui.showConfirm({
+          title: "Forget changes",
+          message: "Permanently clear this scope's edit ledger? The underlying data is NOT touched, but you won't be able to revert any of these edits afterwards.",
+          variant: "danger",
+          confirmLabel: "Forget",
+        });
+        if (c.confirmed) sendBackend({ type: "squash_character", characterId: scope.id, scope });
+      },
+      onScopesNeeded: () => sendBackend({ type: "list_characters_storage" }),
       onClose: () => {
         state.diffModal = null;
         // Reset the focus override so reopening goes back to the active
         // session's character.
         if (state.workshopFocusCharacterId) {
+          state.workshopFocusScope = null;
           state.workshopFocusCharacterId = null;
           state.workshopFocusCharacterName = null;
           if (state.characterId) sendBackend({ type: "list_character_edits", characterId: state.characterId });
         }
       },
       filesPanel: state.workspacePanel.root,
-      charactersPanel: state.charactersPanel.root,
-      onCharactersTabActivated: () => state.charactersPanel?.refresh(),
     }, initialEditId !== undefined ? { initialEditId } : {});
   };
 
@@ -2327,11 +2344,13 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         }
         break;
       case "characters_storage_pushed":
-        state.charactersPanel?.onPushed(
-          msg.entries,
-          msg.workspaceUsedBytes,
-          msg.workspaceCapBytes,
-        );
+        state.scopeStorage = msg.entries;
+        state.diffModal?.setScopes(msg.entries.map((e) => ({
+          scope: e.scope ?? characterScope(e.characterId),
+          label: e.label ?? e.characterName,
+          liveCount: e.liveEditCount,
+          totalCount: e.editCount,
+        })));
         break;
       case "frontend_rpc_request": {
         // Backend asked us to do something only the browser can (currently:
@@ -2361,6 +2380,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         // If we just squashed the focused character, drop the focus override
         // and reload the active character's ledger so the Edits tab is sane.
         if (state.workshopFocusCharacterId === msg.characterId) {
+          state.workshopFocusScope = null;
           state.workshopFocusCharacterId = null;
           state.workshopFocusCharacterName = null;
         }

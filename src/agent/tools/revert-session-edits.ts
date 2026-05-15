@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import { loadLedger, findPatch } from "../../state/ledger";
+import { characterScope } from "../../types";
 import { revertEditWithCheck } from "../../state/edit-log";
 import { spliceRevertedFromSession } from "../../state/sessions";
 
@@ -31,7 +32,7 @@ Usage:
   requiresCharacter: true,
   execute: async (input, ctx) => {
     const allowCrossSession = input.allow_cross_session === true;
-    const ledger = await loadLedger(ctx.spindle, ctx.characterId, ctx.userId);
+    const ledger = await loadLedger(ctx.spindle, characterScope(ctx.characterId), ctx.userId);
 
     interface Accepted { id: string; ownerSessionId: string | null; ts: number; }
     const accepted: Accepted[] = [];

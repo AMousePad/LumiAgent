@@ -1,5 +1,5 @@
 import { createPatch, applyPatch } from "diff";
-import type { EditSurface } from "../types";
+import type { EditSurface, ScopeRef } from "../types";
 
 // Per-field patch-stack storage for the edit ledger. One FileState per touched
 // field; each agent edit appends a Patch. External drift (an edit that
@@ -242,6 +242,12 @@ export function recordEdit(
     }
   }
 
+  // No-op edit (value unchanged, e.g. `set` to an identical value): don't
+  // record a +0 -0 phantom patch. External drift folded above is still kept.
+  if (input.live === input.next) {
+    return { file, appended };
+  }
+
   const p = buildPatch({
     before: input.live,
     after: input.next,
@@ -392,7 +398,7 @@ export function sliceForPatch(file: FileState, patchId: string): PatchSlice | nu
 export interface StructuralPatch {
   readonly id: string;
   readonly op: "create" | "delete";
-  readonly surface: "world_book_entry" | "regex_script" | "alternate_greeting";
+  readonly surface: "world_book_entry" | "regex_script" | "alternate_greeting" | "persona";
   readonly surfaceId: string;
   readonly surfaceLabel: string;
   readonly snapshot: unknown;
@@ -404,19 +410,22 @@ export interface StructuralPatch {
   revertedAt?: number;
 }
 
-export interface CharacterLedgerV2 {
-  readonly version: 2;
-  readonly characterId: string;
+// version 3 = scope-addressed. v2 (characterId-only) is migrated on load.
+export interface ScopedLedgerV2 {
+  readonly version: 3;
+  readonly scope: ScopeRef;
   files: FileState[];
   structural: StructuralPatch[];
 }
 
-export function emptyLedgerV2(characterId: string): CharacterLedgerV2 {
-  return { version: 2, characterId, files: [], structural: [] };
+export function emptyLedgerV2(scope: ScopeRef): ScopedLedgerV2 {
+  return { version: 3, scope, files: [], structural: [] };
 }
 
 export interface SquashGroupResult {
-  readonly merged: Patch;
+  // null when the run had no net effect (e.g. a change and its same-message
+  // revert): the absorbed patches are removed and nothing replaces them.
+  readonly merged: Patch | null;
   readonly absorbedIds: readonly string[];
 }
 
@@ -457,6 +466,12 @@ export function squashRange(
   }
   const absorbed = file.patches.slice(start, end + 1);
   const absorbedIds = absorbed.map((p) => p.id);
+  // Run had no net effect (change then same-message revert): drop the whole
+  // range, don't leave a +0 -0 phantom patch behind.
+  if (sha256(before) === sha256(after)) {
+    file.patches.splice(start, end - start + 1);
+    return { merged: null, absorbedIds };
+  }
   const first = absorbed[0]!;
   const last = absorbed[absorbed.length - 1]!;
   const merged = buildPatch({

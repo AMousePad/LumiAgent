@@ -24,6 +24,7 @@
     "regex_scripts",
     "databanks",
     "personas",
+    "presets",
     "push_notification",
     "image_gen",
     "images",
