@@ -2,6 +2,12 @@ import type { LlmMessage, LlmMessagePart, ToolCall, ToolResult } from "../types"
 
 const MAX_RESULT_CHARS = 48_000;
 
+// Anthropic 400s ("text content blocks must be non-empty") on empty or
+// whitespace-only text/tool_result blocks and on an assistant message with no
+// blocks. History is reused across providers, so one bad block poisons every
+// later strict-provider call in the session.
+const EMPTY_BLOCK_PLACEHOLDER = "(no output)";
+
 function clipStructured(s: string): string | null {
   if (s.length <= MAX_RESULT_CHARS) return s;
   const trimmed = s.trimStart();
@@ -45,19 +51,25 @@ function clip(s: string): string {
 // the reasoning that produced its tool calls. Other providers ignore the field.
 export function encodeAssistantTurn(content: string, toolCalls: readonly ToolCall[], reasoning?: string): LlmMessage {
   const parts: LlmMessagePart[] = [];
-  if (content.length > 0) parts.push({ type: "text", text: content });
+  if (content.trim().length > 0) parts.push({ type: "text", text: content });
   for (const tc of toolCalls) {
     parts.push({ type: "tool_use", id: tc.call_id, name: tc.name, input: tc.args ?? {}, ...(tc.thought_signature ? { thought_signature: tc.thought_signature } : {}) });
   }
+  // A turn with only whitespace prose and no tool calls would otherwise emit
+  // an empty assistant message.
+  if (parts.length === 0) parts.push({ type: "text", text: EMPTY_BLOCK_PLACEHOLDER });
   return { role: "assistant", content: parts, ...(reasoning ? { reasoning_content: reasoning } : {}) };
 }
 
 export function encodeToolResults(results: readonly ToolResult[]): LlmMessage {
-  const parts: LlmMessagePart[] = results.map((r) => ({
-    type: "tool_result",
-    tool_use_id: r.call_id,
-    content: clip(r.content),
-    ...(r.is_error ? { is_error: true } : {}),
-  }));
+  const parts: LlmMessagePart[] = results.map((r) => {
+    const clipped = clip(r.content);
+    return {
+      type: "tool_result",
+      tool_use_id: r.call_id,
+      content: clipped.trim().length > 0 ? clipped : EMPTY_BLOCK_PLACEHOLDER,
+      ...(r.is_error ? { is_error: true } : {}),
+    };
+  });
   return { role: "user", content: parts };
 }

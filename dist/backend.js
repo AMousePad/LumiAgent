@@ -2511,6 +2511,27 @@ var init_tmp_store = __esm(() => {
 function defineTool(config) {
   return config;
 }
+function stripNonPortableSchemaKeys(node) {
+  if (Array.isArray(node))
+    return node.map(stripNonPortableSchemaKeys);
+  if (!node || typeof node !== "object")
+    return node;
+  const out = {};
+  for (const [k, v] of Object.entries(node)) {
+    if (NON_PORTABLE_SCHEMA_KEYS.has(k))
+      continue;
+    out[k] = stripNonPortableSchemaKeys(v);
+  }
+  return out;
+}
+function portableJsonSchema(schema) {
+  const hit = sanitizedSchemaCache.get(schema);
+  if (hit)
+    return hit;
+  const cleaned = stripNonPortableSchemaKeys(schema);
+  sanitizedSchemaCache.set(schema, cleaned);
+  return cleaned;
+}
 
 class ToolRegistry {
   map = new Map;
@@ -2530,14 +2551,14 @@ class ToolRegistry {
     return this.list().map((t) => ({
       name: t.name,
       description: t.description,
-      parameters: t.jsonSchema
+      parameters: portableJsonSchema(t.jsonSchema)
     }));
   }
   schemaFor(name) {
     const t = this.map.get(name);
     if (!t)
       return;
-    return { name: t.name, description: t.description, parameters: t.jsonSchema };
+    return { name: t.name, description: t.description, parameters: portableJsonSchema(t.jsonSchema) };
   }
   requiresCharacter(name) {
     return this.map.get(name)?.requiresCharacter === true;
@@ -2547,6 +2568,21 @@ function formatZodError(err) {
   return err.issues.map((i) => `  \u2022 ${i.path.length > 0 ? i.path.join(".") : "(root)"}: ${i.message}`).join(`
 `);
 }
+var NON_PORTABLE_SCHEMA_KEYS, sanitizedSchemaCache;
+var init__framework = __esm(() => {
+  NON_PORTABLE_SCHEMA_KEYS = new Set([
+    "additionalProperties",
+    "$schema",
+    "$id",
+    "$ref",
+    "$defs",
+    "definitions",
+    "patternProperties",
+    "unevaluatedProperties",
+    "propertyNames"
+  ]);
+  sanitizedSchemaCache = new WeakMap;
+});
 
 // node_modules/zod/v4/core/core.js
 function $constructor(name, initializer, params) {
@@ -17629,6 +17665,7 @@ async function loadAllWorldBookEntries(ctx, c) {
 var CJK_RE, inputSchema, applyGlossaryTool;
 var init_apply_glossary = __esm(() => {
   init_zod();
+  init__framework();
   init__surfaces();
   CJK_RE = /[\u3040-\u309F\u30A0-\u30FF\u31F0-\u31FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7A3\u8C48-\uFAFF]/;
   inputSchema = exports_external.object({
@@ -17844,6 +17881,7 @@ Returns:
 var optionSchema, questionSchema, inputSchema2, askUserQuestionTool;
 var init_ask_user_question = __esm(() => {
   init_zod();
+  init__framework();
   optionSchema = exports_external.object({
     label: exports_external.string().min(1).describe("Display text (1-5 words, distinct from siblings)."),
     description: exports_external.string().describe("Sentence explaining what the choice does or implies."),
@@ -17951,6 +17989,7 @@ async function findLumirealm(ctx) {
 var inputSchema3, assetDeleteTool;
 var init_asset_delete = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema3 = exports_external.object({
     source: exports_external.union([
       exports_external.object({ kind: exports_external.literal("character"), character_id: exports_external.string().min(1) }),
@@ -18005,6 +18044,7 @@ async function findLumirealm2(ctx) {
 var inputSchema4, assetRenameTool;
 var init_asset_rename = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema4 = exports_external.object({
     source: exports_external.union([
       exports_external.object({ kind: exports_external.literal("character"), character_id: exports_external.string().min(1) }),
@@ -18592,6 +18632,7 @@ function buildCoverageWarning(matchRuns, samplesShown, densities) {
 var LANG_PATTERNS, inputSchema5, LINE_CONTEXT_BEFORE = 60, LINE_CONTEXT_AFTER = 60, MAX_SAMPLES = 5, auditCardCoverageTool;
 var init_audit_card_coverage = __esm(() => {
   init_zod();
+  init__framework();
   init__path_v2();
   LANG_PATTERNS = {
     ko: { name: "Korean (Hangul)", regex: /[\uAC00-\uD7A3]/g },
@@ -18728,6 +18769,7 @@ function resolveChatId(input, ctx) {
 var inputSchema6, chatStatsTool;
 var init_chat_stats = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema6 = exports_external.object({
     chat_id: exports_external.string().optional()
   });
@@ -18793,6 +18835,7 @@ function classifyChar(code) {
 var CJK_RANGES, inputSchema7, countCjkCharsTool;
 var init_count_cjk_chars = __esm(() => {
   init_zod();
+  init__framework();
   CJK_RANGES = [
     [44032, 55203, "korean_hangul"],
     [4352, 4607, "korean_jamo"],
@@ -18837,6 +18880,7 @@ var init_count_cjk_chars = __esm(() => {
 var inputSchema8, createAlternateGreetingTool;
 var init_create_alternate_greeting = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema8 = exports_external.object({
     content: exports_external.string(),
     index: exports_external.number().optional()
@@ -18880,6 +18924,7 @@ var init_create_alternate_greeting = __esm(() => {
 var inputSchema9, createRegexScriptTool;
 var init_create_regex_script = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema9 = exports_external.object({
     name: exports_external.string().min(1),
     find_regex: exports_external.string().min(1),
@@ -18940,6 +18985,7 @@ var init_create_regex_script = __esm(() => {
 var inputSchema10, createWorldBookEntryTool;
 var init_create_world_book_entry = __esm(() => {
   init_zod();
+  init__framework();
   init__surfaces();
   inputSchema10 = exports_external.object({
     world_book_id: exports_external.string().optional(),
@@ -19208,15 +19254,22 @@ function substituteValue(v, scope) {
 function substituteString(s, scope) {
   const whole = WHOLE_RE.exec(s);
   if (whole) {
-    const { found, value } = lookup(whole[1], scope);
-    if (!found)
-      throw new Error(`unknown ref '{{${whole[1]}}}'`);
+    const ref = whole[1];
+    const { found, value } = lookup(ref, scope);
+    if (!found) {
+      if (ref.startsWith("$"))
+        throw new Error(`unknown ref '{{${ref}}}'`);
+      return s;
+    }
     return value;
   }
-  return s.replace(TEMPLATE_RE, (_match, name) => {
+  return s.replace(TEMPLATE_RE, (match, name) => {
     const { found, value } = lookup(name, scope);
-    if (!found)
-      throw new Error(`unknown ref '{{${name}}}'`);
+    if (!found) {
+      if (name.startsWith("$"))
+        throw new Error(`unknown ref '{{${name}}}'`);
+      return match;
+    }
     if (typeof value === "string")
       return value;
     if (typeof value === "number" || typeof value === "boolean")
@@ -19313,6 +19366,7 @@ var init_custom_tools = __esm(() => {
 var inputSchema11, customToolDeleteTool;
 var init_custom_tool_delete = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema11 = exports_external.object({
     name: exports_external.string().min(1)
   });
@@ -19337,6 +19391,7 @@ var init_custom_tool_delete = __esm(() => {
 var inputSchema12, customToolListTool;
 var init_custom_tool_list = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema12 = exports_external.object({});
   customToolListTool = defineTool({
     name: "custom_tool_list",
@@ -19355,6 +19410,7 @@ var init_custom_tool_list = __esm(() => {
 var inputSchema13, customToolRunTool;
 var init_custom_tool_run = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema13 = exports_external.object({
     name: exports_external.string().min(1).optional(),
     steps: exports_external.array(exports_external.object({
@@ -19484,6 +19540,7 @@ Budget: 50 steps / depth 4 / 60s wall-clock.
 var inputSchema14, customToolSaveTool;
 var init_custom_tool_save = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema14 = exports_external.object({
     manifest: exports_external.record(exports_external.string(), exports_external.unknown())
   });
@@ -19520,6 +19577,7 @@ var init_custom_tool_save = __esm(() => {
 var inputSchema15, deleteAlternateGreetingTool;
 var init_delete_alternate_greeting = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema15 = exports_external.object({
     index: exports_external.number()
   });
@@ -19560,6 +19618,7 @@ var init_delete_alternate_greeting = __esm(() => {
 var inputSchema16, deleteRegexScriptTool;
 var init_delete_regex_script = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema16 = exports_external.object({
     script_id: exports_external.string().min(1)
   });
@@ -19589,6 +19648,7 @@ var init_delete_regex_script = __esm(() => {
 var inputSchema17, deleteWorldBookEntryTool;
 var init_delete_world_book_entry = __esm(() => {
   init_zod();
+  init__framework();
   init__surfaces();
   inputSchema17 = exports_external.object({
     entry_id: exports_external.string().min(1)
@@ -19842,6 +19902,7 @@ var init__drafts = __esm(() => {
 var inputSchema18, gate, editExternalTool;
 var init_edit_external = __esm(() => {
   init_zod();
+  init__framework();
   init__edit();
   init__patch();
   init__gates();
@@ -19989,6 +20050,7 @@ ${draftReuseNote(h, replace.length, "replace")}`, isError: true };
 var inputSchema19, gate2, editTool;
 var init_edit = __esm(() => {
   init_zod();
+  init__framework();
   init__edit();
   init__patch();
   init__gates();
@@ -20120,6 +20182,7 @@ ${body}`;
 var inputSchema20, finishTool;
 var init_finish = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema20 = exports_external.object({
     summary: exports_external.string().min(1)
   });
@@ -27620,6 +27683,7 @@ var init_workspace = __esm(() => {
 var inputSchema21, fsDeleteTool;
 var init_fs_delete = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema21 = exports_external.object({
     path: exports_external.string().min(1),
     recursive: exports_external.boolean().optional()
@@ -27657,6 +27721,7 @@ var init_fs_delete = __esm(() => {
 var inputSchema22, gate3, fsEditTool;
 var init_fs_edit = __esm(() => {
   init_zod();
+  init__framework();
   init__edit();
   init__patch();
   init__gates();
@@ -27742,6 +27807,7 @@ ${draftReuseNote(h, replace.length, "replace")}`, isError: true };
 var inputSchema23, fsListTool;
 var init_fs_list = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema23 = exports_external.object({
     path: exports_external.string().optional()
   });
@@ -27771,6 +27837,7 @@ var init_fs_list = __esm(() => {
 var inputSchema24, fsMkdirTool;
 var init_fs_mkdir = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema24 = exports_external.object({
     path: exports_external.string().min(1)
   });
@@ -27797,6 +27864,7 @@ var init_fs_mkdir = __esm(() => {
 var inputSchema25, fsMoveTool;
 var init_fs_move = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema25 = exports_external.object({
     from: exports_external.string().min(1),
     to: exports_external.string().min(1)
@@ -27825,6 +27893,7 @@ var init_fs_move = __esm(() => {
 var inputSchema26, fsReadTool;
 var init_fs_read = __esm(() => {
   init_zod();
+  init__framework();
   init__gates();
   inputSchema26 = exports_external.object({
     path: exports_external.string().min(1),
@@ -27864,6 +27933,7 @@ var init_fs_read = __esm(() => {
 var inputSchema27, fsStatTool;
 var init_fs_stat = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema27 = exports_external.object({
     path: exports_external.string().min(1)
   });
@@ -28071,6 +28141,7 @@ var CRC_TABLE = null, SIG_LOCAL = 67324752, SIG_CENTRAL = 33639248, SIG_EOCD = 1
 var inputSchema28, fsUnzipTool;
 var init_fs_unzip = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema28 = exports_external.object({
     zip_path: exports_external.string().min(1),
     dest_dir: exports_external.string()
@@ -28113,6 +28184,7 @@ var init_fs_unzip = __esm(() => {
 var inputSchema29, fsWriteTool;
 var init_fs_write = __esm(() => {
   init_zod();
+  init__framework();
   init__drafts();
   inputSchema29 = exports_external.object({
     path: exports_external.string().min(1),
@@ -28163,6 +28235,7 @@ ${draftReuseNote(h, content.length, "content")}`, isError: true };
 var inputSchema30, fsZipTool;
 var init_fs_zip = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema30 = exports_external.object({
     paths: exports_external.array(exports_external.string()).min(1),
     output: exports_external.string().min(1)
@@ -28266,6 +28339,7 @@ function grepLeaf(text, re, leafKey, surface, surfaceLabel, maxRemaining, maxHit
 var GREP_DEFAULT_MAX = 50, GREP_MAX_CAP = 200, GREP_PREVIEW_CHARS = 150, GREP_DEFAULT_HITS_PER_LINE = 1, inputSchema31, grepTool;
 var init_grep = __esm(() => {
   init_zod();
+  init__framework();
   init__path_v2();
   inputSchema31 = exports_external.object({
     pattern: exports_external.string().min(1).describe("ECMAScript regex pattern. The global flag is added automatically."),
@@ -28405,6 +28479,7 @@ function resolveChatId2(input, ctx) {
 var CHAT_GREP_DEFAULT_MAX = 50, CHAT_GREP_MAX_CAP = 500, CHAT_GREP_PREVIEW_CHARS = 160, inputSchema32, grepChatMessagesTool;
 var init_grep_chat_messages = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema32 = exports_external.object({
     chat_id: exports_external.string().optional(),
     pattern: exports_external.string(),
@@ -28496,6 +28571,7 @@ var init_grep_chat_messages = __esm(() => {
 var inputSchema33, grepExternalTool;
 var init_grep_external = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema33 = exports_external.object({
     surface_id: exports_external.string().min(1),
     pattern: exports_external.string().min(1),
@@ -28720,6 +28796,7 @@ async function inspectWorldBook(ctx, bookId) {
 var PEEK_CHARS = 200, TOP_N = 10, CJK_RE2, HANGUL_NFC_RANGE, HANGUL_JAMO_RANGE, MIRRORED_CHARACTER_FIELDS, inputSchema34, inspectTool;
 var init_inspect = __esm(() => {
   init_zod();
+  init__framework();
   init__path_v2();
   init__surfaces();
   CJK_RE2 = /[\uAC00-\uD7A3\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\u8C48-\uFAFF]/g;
@@ -28978,6 +29055,7 @@ async function listExtensions(ctx, subPath, maxEntries, maxDepth) {
 var inputSchema35, listTool;
 var init_list = __esm(() => {
   init_zod();
+  init__framework();
   init__surfaces();
   init__path_v2();
   inputSchema35 = exports_external.object({
@@ -29060,6 +29138,7 @@ Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole
 var inputSchema36, gate4, rewriteTool;
 var init_rewrite = __esm(() => {
   init_zod();
+  init__framework();
   init__patch();
   init__gates();
   init__drafts();
@@ -29235,6 +29314,7 @@ async function setWorldBookEntryField(ctx, entryId, field, value) {
 var inputSchema37, setTool;
 var init_set = __esm(() => {
   init_zod();
+  init__framework();
   init__surfaces();
   init__path_v2();
   inputSchema37 = exports_external.object({
@@ -29343,6 +29423,7 @@ async function findLumirealm3(ctx) {
 var inputSchema38, setChatVariableTool;
 var init_set_chat_variable = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema38 = exports_external.object({
     chat_id: exports_external.string().min(1),
     key: exports_external.string().min(1),
@@ -29393,6 +29474,7 @@ async function findLumirealm4(ctx) {
 var inputSchema39, setDefaultVariablesTextTool;
 var init_set_default_variables_text = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema39 = exports_external.object({
     character_id: exports_external.string().min(1),
     text: exports_external.string().nullable()
@@ -29438,6 +29520,7 @@ async function findLumirealm5(ctx) {
 var inputSchema40, setToggleTool;
 var init_set_toggle = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema40 = exports_external.object({
     chat_id: exports_external.string().min(1),
     key: exports_external.string().min(1),
@@ -29481,6 +29564,7 @@ Toggle definitions (what toggles exist, what type, what default) live in module 
 var CHAT_LIST_SNIPPET_CHARS = 80, inputSchema41, listChatMessagesTool;
 var init_list_chat_messages = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema41 = exports_external.object({
     chat_id: exports_external.string().optional(),
     offset: exports_external.number().optional(),
@@ -29539,6 +29623,7 @@ var init_list_chat_messages = __esm(() => {
 var inputSchema42, listChatsForCharacterTool;
 var init_list_chats_for_character = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema42 = exports_external.object({}).strict();
   listChatsForCharacterTool = defineTool({
     name: "list_chats_for_character",
@@ -29570,6 +29655,7 @@ var init_list_chats_for_character = __esm(() => {
 var inputSchema43, listExternalTool;
 var init_list_external = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema43 = exports_external.object({
     surface_id: exports_external.string().min(1)
   });
@@ -29614,6 +29700,7 @@ Returns:
 var inputSchema44, listSessionEditsTool;
 var init_list_session_edits = __esm(() => {
   init_zod();
+  init__framework();
   init_ledger();
   inputSchema44 = exports_external.object({
     scope: exports_external.enum(["current_message", "current_session", "all_sessions"]).optional().describe("current_message: just this response. current_session: every edit you've made in this session. all_sessions: every agent-authored edit on this character across every session (useful when the user asks about prior conversations). Default current_message."),
@@ -29687,6 +29774,7 @@ async function findLumirealm6(ctx) {
 var inputSchema45, moduleAttachTool;
 var init_module_attach = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema45 = exports_external.object({
     character_id: exports_external.string().min(1),
     module_id: exports_external.string().min(1)
@@ -29732,6 +29820,7 @@ async function findLumirealm7(ctx) {
 var inputSchema46, moduleDetachTool;
 var init_module_detach = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema46 = exports_external.object({
     character_id: exports_external.string().min(1),
     module_id: exports_external.string().min(1)
@@ -29772,6 +29861,7 @@ Wraps the \`detach_module\` WS op so artifact uninstall + refresh hooks fire.`,
 var inputSchema47, randomPickTool;
 var init_random_pick = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema47 = exports_external.object({
     items: exports_external.array(exports_external.unknown()),
     count: exports_external.number().optional(),
@@ -29827,6 +29917,7 @@ Returns:
 var inputSchema48, readTool;
 var init_read = __esm(() => {
   init_zod();
+  init__framework();
   init__gates();
   init__path_v2();
   inputSchema48 = exports_external.object({
@@ -29918,6 +30009,7 @@ async function readChatMessagesImpl(ctx, chatId, offsetIn, limitIn) {
 var CHAT_MESSAGES_DEFAULT_LIMIT = 100, CHAT_MESSAGES_MAX_LIMIT = 500, CHAT_MESSAGE_PREVIEW_CHARS = 1200, inputSchema49, readChatMessagesTool;
 var init_read_chat_messages = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema49 = exports_external.object({
     chat_id: exports_external.string().optional(),
     offset: exports_external.number().optional(),
@@ -29961,6 +30053,7 @@ Usage:
 var inputSchema50, readExternalTool;
 var init_read_external = __esm(() => {
   init_zod();
+  init__framework();
   init__gates();
   inputSchema50 = exports_external.object({
     surface_id: exports_external.string().min(1),
@@ -30171,6 +30264,7 @@ var init_sessions = __esm(() => {
 var inputSchema51, revertSessionEditsTool;
 var init_revert_session_edits = __esm(() => {
   init_zod();
+  init__framework();
   init_ledger();
   init_edit_log();
   init_sessions();
@@ -30255,6 +30349,7 @@ Usage:
 var inputSchema52, rollDiceTool;
 var init_roll_dice = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema52 = exports_external.object({
     spec: exports_external.string().min(1)
   });
@@ -30295,6 +30390,7 @@ var init_roll_dice = __esm(() => {
 var inputSchema53, squashSessionEditsTool;
 var init_squash_session_edits = __esm(() => {
   init_zod();
+  init__framework();
   init_ledger();
   inputSchema53 = exports_external.object({
     phase_label: exports_external.string().max(120).optional().describe("Optional label for what this phase represented (e.g. 'translation pass', 'tone refactor'). Stored on the merged patch's description.")
@@ -30390,6 +30486,7 @@ async function loadAllWorldBookEntries2(ctx, c) {
 var SURVEY_DEFAULT_MIN_LEN = 2, SURVEY_DEFAULT_TOP_N = 60, CJK_RUN_RE, inputSchema54, surveyCjkTool;
 var init_survey_cjk = __esm(() => {
   init_zod();
+  init__framework();
   init__surfaces();
   CJK_RUN_RE = /[\u3040-\u309F\u30A0-\u30FF\u31F0-\u31FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7A3\u8C48-\uFAFF]+/g;
   inputSchema54 = exports_external.object({
@@ -30485,6 +30582,7 @@ Returns:
 var inputSchema55, testRegexTool;
 var init_test_regex = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema55 = exports_external.object({
     pattern: exports_external.string(),
     flags: exports_external.string().optional(),
@@ -30529,6 +30627,7 @@ function isNonEmptyString(v) {
 var INCLUDE_VALUES, inputSchema56, DEFAULT_INCLUDE, CODE_EFFECT_TYPES, SETVAR_LIKE_TYPES, ALERT_LIKE_TYPES, RUNLLM_TYPES, DEFAULT_MIN_CHARS = 2, translateCardStringsTool;
 var init_translate_card_strings = __esm(() => {
   init_zod();
+  init__framework();
   INCLUDE_VALUES = [
     "regex_scripts",
     "lumirealm_bghtml",
@@ -30964,6 +31063,7 @@ function grepText(text, re, maxRemaining) {
 var TMP_GREP_DEFAULT_MAX = 100, TMP_GREP_MAX_CAP = 1000, GREP_PREVIEW_CHARS2 = 150, inputSchema57, tmpGrepTool;
 var init_tmp_grep = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema57 = exports_external.object({
     handle: exports_external.string(),
     pattern: exports_external.string(),
@@ -31027,6 +31127,7 @@ Returns:
 var inputSchema58, tmpListTool;
 var init_tmp_list = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema58 = exports_external.object({});
   tmpListTool = defineTool({
     name: "tmp_list",
@@ -31054,6 +31155,7 @@ var init_tmp_list = __esm(() => {
 var TMP_READ_DEFAULT_LIMIT = 200, TMP_READ_MAX_LIMIT = 4000, inputSchema59, tmpReadTool;
 var init_tmp_read = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema59 = exports_external.object({
     handle: exports_external.string(),
     offset: exports_external.number().optional(),
@@ -31099,6 +31201,7 @@ ${sliced}` : sliced;
 var inputSchema60, tmpStatTool;
 var init_tmp_stat = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema60 = exports_external.object({
     handle: exports_external.string()
   });
@@ -31131,6 +31234,7 @@ Returns:
 var inputSchema61, updateCharacterTool;
 var init_update_character = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema61 = exports_external.object({
     patch: exports_external.record(exports_external.string(), exports_external.unknown())
   });
@@ -31180,6 +31284,7 @@ Usage:
 var inputSchema62, updateExternalTool;
 var init_update_external = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema62 = exports_external.object({
     surface_id: exports_external.string().min(1),
     item_id: exports_external.string().min(1),
@@ -31254,6 +31359,7 @@ Usage:
 var inputSchema63, updateRegexScriptTool;
 var init_update_regex_script = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema63 = exports_external.object({
     script_id: exports_external.string().min(1),
     patch: exports_external.record(exports_external.string(), exports_external.unknown())
@@ -31299,6 +31405,7 @@ Usage:
 var inputSchema64, updateWorldBookEntryTool;
 var init_update_world_book_entry = __esm(() => {
   init_zod();
+  init__framework();
   init__surfaces();
   inputSchema64 = exports_external.object({
     entry_id: exports_external.string().min(1),
@@ -31347,6 +31454,7 @@ Usage:
 var inputSchema65, countTokensTool;
 var init_count_tokens = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema65 = exports_external.object({
     text: exports_external.string().optional(),
     chat_id: exports_external.string().optional(),
@@ -31393,6 +31501,7 @@ var init_count_tokens = __esm(() => {
 var inputSchema66, dryRunPromptTool;
 var init_dry_run_prompt = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema66 = exports_external.object({
     chat_id: exports_external.string().optional(),
     connection_id: exports_external.string().optional(),
@@ -31453,6 +31562,7 @@ var init_dry_run_prompt = __esm(() => {
 var inputSchema67, getActiveChatTool;
 var init_get_active_chat = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema67 = exports_external.object({}).strict();
   getActiveChatTool = defineTool({
     name: "get_active_chat",
@@ -31477,6 +31587,7 @@ var init_get_active_chat = __esm(() => {
 var TARGETS, inputSchema68, listActiveRegexScriptsTool;
 var init_list_active_regex_scripts = __esm(() => {
   init_zod();
+  init__framework();
   TARGETS = ["prompt", "response", "display"];
   inputSchema68 = exports_external.object({
     target: exports_external.enum(TARGETS),
@@ -31538,6 +31649,7 @@ Usage:
 var inputSchema69, listActivatedWorldInfoTool;
 var init_list_activated_world_info = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema69 = exports_external.object({
     chat_id: exports_external.string().optional()
   }).strict();
@@ -31577,6 +31689,7 @@ Usage:
 var inputSchema70, listChatMemoriesTool;
 var init_list_chat_memories = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema70 = exports_external.object({
     chat_id: exports_external.string().optional(),
     top_k: exports_external.number().int().min(1).max(50).optional()
@@ -31622,6 +31735,7 @@ Usage:
 var inputSchema71, getLumiverseVersionTool;
 var init_get_lumiverse_version = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema71 = exports_external.object({}).strict();
   getLumiverseVersionTool = defineTool({
     name: "get_lumiverse_version",
@@ -31646,6 +31760,7 @@ var init_get_lumiverse_version = __esm(() => {
 var inputSchema72, getUserInfoTool;
 var init_get_user_info = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema72 = exports_external.object({}).strict();
   getUserInfoTool = defineTool({
     name: "get_user_info",
@@ -31670,6 +31785,7 @@ var init_get_user_info = __esm(() => {
 var inputSchema73, listConnectionsTool;
 var init_list_connections = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema73 = exports_external.object({}).strict();
   listConnectionsTool = defineTool({
     name: "list_connections",
@@ -31701,6 +31817,7 @@ var init_list_connections = __esm(() => {
 var inputSchema74, listDatabankDocumentsTool;
 var init_list_databank_documents = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema74 = exports_external.object({
     databank_id: exports_external.string().min(1),
     limit: exports_external.number().int().min(1).max(500).optional(),
@@ -31749,6 +31866,7 @@ var init_list_databank_documents = __esm(() => {
 var inputSchema75, listDatabanksTool;
 var init_list_databanks = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema75 = exports_external.object({
     scope: exports_external.enum(["global", "character", "chat"]).optional(),
     scope_id: exports_external.string().nullable().optional(),
@@ -31804,6 +31922,7 @@ var init_list_databanks = __esm(() => {
 var inputSchema76, listPersonasTool;
 var init_list_personas = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema76 = exports_external.object({
     limit: exports_external.number().int().min(1).max(500).optional(),
     offset: exports_external.number().int().min(0).optional()
@@ -31850,6 +31969,7 @@ var init_list_personas = __esm(() => {
 var inputSchema77, listVariablesTool;
 var init_list_variables = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema77 = exports_external.object({
     scope: exports_external.enum(["chat", "local", "global", "macro"]),
     chat_id: exports_external.string().optional()
@@ -31897,6 +32017,7 @@ var init_list_variables = __esm(() => {
 var inputSchema78, readConnectionTool;
 var init_read_connection = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema78 = exports_external.object({
     connection_id: exports_external.string().min(1)
   }).strict();
@@ -31928,6 +32049,7 @@ var init_read_connection = __esm(() => {
 var inputSchema79, readDatabankTool;
 var init_read_databank = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema79 = exports_external.object({
     databank_id: exports_external.string().min(1)
   }).strict();
@@ -31959,6 +32081,7 @@ var init_read_databank = __esm(() => {
 var inputSchema80, readDatabankDocumentTool;
 var init_read_databank_document = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema80 = exports_external.object({
     document_id: exports_external.string().min(1),
     meta_only: exports_external.boolean().optional()
@@ -31996,6 +32119,7 @@ var init_read_databank_document = __esm(() => {
 var inputSchema81, readPersonaTool;
 var init_read_persona = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema81 = exports_external.object({
     persona_id: exports_external.string().optional(),
     which: exports_external.enum(["active", "default"]).optional()
@@ -32039,6 +32163,7 @@ var init_read_persona = __esm(() => {
 var inputSchema82, readPersonaWorldBookTool;
 var init_read_persona_world_book = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema82 = exports_external.object({
     persona_id: exports_external.string().min(1)
   }).strict();
@@ -32075,6 +32200,7 @@ Usage:
 var inputSchema83, readVariableTool;
 var init_read_variable = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema83 = exports_external.object({
     scope: exports_external.enum(["chat", "local", "global", "macro"]),
     key: exports_external.string().min(1),
@@ -32133,6 +32259,7 @@ var init_read_variable = __esm(() => {
 var inputSchema84, resolveMacrosTool;
 var init_resolve_macros = __esm(() => {
   init_zod();
+  init__framework();
   inputSchema84 = exports_external.object({
     template: exports_external.string().min(1),
     chat_id: exports_external.string().optional(),
@@ -32178,6 +32305,7 @@ var init_resolve_macros = __esm(() => {
 var todoSchema, inputSchema85, todoWriteTool;
 var init_todo_write = __esm(() => {
   init_zod();
+  init__framework();
   todoSchema = exports_external.object({
     content: exports_external.string().min(1).describe("Imperative form of the task ('Run tests', 'Fix the bug')."),
     activeForm: exports_external.string().min(1).describe("Present-continuous form ('Running tests', 'Fixing the bug')."),
@@ -32279,6 +32407,7 @@ ${lines.join(`
 var inputSchema86, toolSearchTool;
 var init_tool_search = __esm(() => {
   init_zod();
+  init__framework();
   init__registry();
   inputSchema86 = exports_external.object({
     query: exports_external.string().min(1).describe("Either 'select:Name1,Name2' to fetch named tools directly, or a free-text keyword search (matches against tool name + description)."),
@@ -32398,6 +32527,7 @@ function maxResultSizeCharsFor(name) {
 }
 var registry2, DEFERRED_TOOL_NAMES, READ_ONLY_TOOL_NAMES, PER_TOOL_RESULT_CAP_CHARS;
 var init__registry = __esm(() => {
+  init__framework();
   init_apply_glossary();
   init_ask_user_question();
   init_asset_delete();
@@ -32888,6 +33018,7 @@ var init_prompt = __esm(() => {
 
 // src/agent/protocol.ts
 var MAX_RESULT_CHARS = 48000;
+var EMPTY_BLOCK_PLACEHOLDER = "(no output)";
 function clipStructured(s) {
   if (s.length <= MAX_RESULT_CHARS)
     return s;
@@ -32934,20 +33065,25 @@ ${tail}`;
 }
 function encodeAssistantTurn(content, toolCalls, reasoning) {
   const parts = [];
-  if (content.length > 0)
+  if (content.trim().length > 0)
     parts.push({ type: "text", text: content });
   for (const tc of toolCalls) {
     parts.push({ type: "tool_use", id: tc.call_id, name: tc.name, input: tc.args ?? {}, ...tc.thought_signature ? { thought_signature: tc.thought_signature } : {} });
   }
+  if (parts.length === 0)
+    parts.push({ type: "text", text: EMPTY_BLOCK_PLACEHOLDER });
   return { role: "assistant", content: parts, ...reasoning ? { reasoning_content: reasoning } : {} };
 }
 function encodeToolResults(results) {
-  const parts = results.map((r) => ({
-    type: "tool_result",
-    tool_use_id: r.call_id,
-    content: clip(r.content),
-    ...r.is_error ? { is_error: true } : {}
-  }));
+  const parts = results.map((r) => {
+    const clipped = clip(r.content);
+    return {
+      type: "tool_result",
+      tool_use_id: r.call_id,
+      content: clipped.trim().length > 0 ? clipped : EMPTY_BLOCK_PLACEHOLDER,
+      ...r.is_error ? { is_error: true } : {}
+    };
+  });
   return { role: "user", content: parts };
 }
 
@@ -33167,6 +33303,7 @@ init_tmp_store();
 
 // src/agent/tools.ts
 init__registry();
+init__framework();
 
 // src/agent/tools/_context.ts
 class RecentReadsCache {

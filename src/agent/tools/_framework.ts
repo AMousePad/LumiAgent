@@ -58,6 +58,37 @@ export function defineTool<TInput>(config: {
   return config;
 }
 
+// Gemini's function-declaration schema is a restricted OpenAPI subset that
+// 400s on these JSON Schema keywords. Strip them so tool schemas survive every
+// provider route, not only Lumiverse's native google path that sanitizes but
+// also the openai-compatible / OpenRouter / custom routes that forward raw.
+const NON_PORTABLE_SCHEMA_KEYS = new Set([
+  "additionalProperties", "$schema", "$id", "$ref", "$defs", "definitions",
+  "patternProperties", "unevaluatedProperties", "propertyNames",
+]);
+
+function stripNonPortableSchemaKeys(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(stripNonPortableSchemaKeys);
+  if (!node || typeof node !== "object") return node;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+    if (NON_PORTABLE_SCHEMA_KEYS.has(k)) continue;
+    out[k] = stripNonPortableSchemaKeys(v);
+  }
+  return out;
+}
+
+// jsonSchema is stable per ToolDefinition, so the deep walk runs once per tool.
+const sanitizedSchemaCache = new WeakMap<Record<string, unknown>, Record<string, unknown>>();
+
+function portableJsonSchema(schema: Record<string, unknown>): Record<string, unknown> {
+  const hit = sanitizedSchemaCache.get(schema);
+  if (hit) return hit;
+  const cleaned = stripNonPortableSchemaKeys(schema) as Record<string, unknown>;
+  sanitizedSchemaCache.set(schema, cleaned);
+  return cleaned;
+}
+
 export class ToolRegistry {
   private readonly map = new Map<string, ToolDefinition>();
 
@@ -80,14 +111,14 @@ export class ToolRegistry {
     return this.list().map((t) => ({
       name: t.name,
       description: t.description,
-      parameters: t.jsonSchema,
+      parameters: portableJsonSchema(t.jsonSchema),
     }));
   }
 
   schemaFor(name: string): { name: string; description: string; parameters: Record<string, unknown> } | undefined {
     const t = this.map.get(name);
     if (!t) return undefined;
-    return { name: t.name, description: t.description, parameters: t.jsonSchema };
+    return { name: t.name, description: t.description, parameters: portableJsonSchema(t.jsonSchema) };
   }
 
   // True when the tool requires an active character. Used by the LLM-facing
