@@ -17639,11 +17639,11 @@ var init_apply_glossary = __esm(() => {
   });
   applyGlossaryTool = defineTool({
     name: "apply_glossary",
-    description: `Apply a phrase-to-translation map across the union of surfaces in ONE call. Replacements are sorted longest-first to avoid the shorter-key-clobbers-longer-key footgun. Per-surface, all hits are batched and written as one edit (one diff card per surface in the chat).
+    description: `Apply a phrase-to-translation map across the union of surfaces in one call. Replacements are sorted longest-first to avoid the shorter-key-clobbers-longer-key footgun. Per-surface, all hits are batched and written as one edit (one diff card per surface in the chat).
 
-SAFETY: by default this REFUSES single-character CJK keys, which cause substring collisions (Korean '\uBE44' \u2192 'Rain' corrupts '\uBE44\uBA85' \u2192 'Rain\uBA85'). Pass allow_short_cjk=true only if you know what you're doing. Use dry_run=true FIRST to see hit counts before committing.
+Safety: by default this refuses single-character CJK keys, which cause substring collisions (Korean '\uBE44' \u2192 'Rain' corrupts '\uBE44\uBA85' \u2192 'Rain\uBA85'). Pass allow_short_cjk=true only if you know what you're doing. Use dry_run=true first to see hit counts before committing.
 
-Scopes (default: character + world_books + regex_scripts.replace_string + extensions string leaves). regex find_regex patterns are NEVER touched (would break regex syntax).
+Scopes (default: character + world_books + regex_scripts.replace_string + extensions string leaves). Regex find_regex patterns are never touched (would break regex syntax).
 
 Returns:
 - \`dry_run\`              \u2014 whether this was a dry run.
@@ -17860,14 +17860,14 @@ var init_ask_user_question = __esm(() => {
   }).strict();
   askUserQuestionTool = defineTool({
     name: "ask_user_question",
-    description: `Ask the user a multiple-choice question mid-task and PAUSE until they answer. Use ONLY when an irreversible or scope-changing decision genuinely needs the user's input and you can enumerate the choices for them. Do NOT use for confirmations of work you already understand.
+    description: `Ask the user a multiple-choice question mid-task and pause until they answer. Use only when an irreversible or scope-changing decision genuinely needs the user's input and you can enumerate the choices for them. Don't use for confirmations of work you already understand.
 
 Use cases:
 - Two approaches are both valid and the trade-off is opinion (which auth provider, which library, which style).
 - The user's request is ambiguous and the disambiguation has 2-4 obvious branches.
 - Before a destructive action where the user might prefer a less aggressive variant.
 
-DO NOT use for:
+Don't use for:
 - Asking permission to do the thing you were already asked to do.
 - Open-ended questions (use chat instead).
 - More than 4 questions (split the work).
@@ -18015,7 +18015,7 @@ var init_asset_rename = __esm(() => {
   });
   assetRenameTool = defineTool({
     name: "asset_rename",
-    description: `Rename a LumiRealm asset (character-scoped or module-scoped). The new name is what \`{{img::NAME}}\` / \`{{emotion::NAME}}\` / \`<img="NAME">\` macros in regex \`replace_string\` and bg-html will reference. After rename, you MUST grep the card and update every reference to the old name.
+    description: `Rename a LumiRealm asset (character-scoped or module-scoped). The new name is what \`{{img::NAME}}\` / \`{{emotion::NAME}}\` / \`<img="NAME">\` macros in regex \`replace_string\` and bg-html will reference. After rename, grep the card and update every reference to the old name.
 
 Wraps the \`rename_asset\` WS op so the LumiRealm runtime refresh hooks fire (asset map propagation, attached-character invalidation).`,
     inputSchema: inputSchema4,
@@ -18612,13 +18612,13 @@ var init_audit_card_coverage = __esm(() => {
     name: "audit_card_coverage",
     description: `Audit every editable string leaf on the character (top-level fields, alternate_greetings, regex_scripts find/replace, world_book entries content/comment, every extension string leaf) for remaining content in a target script.
 
-THE COMPLETION GATE. Call this BEFORE claiming a translation task is done. If it returns any leaves with match_chars > 0 (other than ones you intentionally left), you are NOT done.
+The completion gate. Call this before claiming a translation task is done. If it returns any leaves with match_chars > 0 (other than ones you intentionally left), you are not done.
 
-For each leaf with matches the report carries three signals you MUST read together:
+For each leaf with matches the report carries three signals you should read together:
 
 - match_chars / match_runs / match_ratio \u2014 totals.
 - density_by_quartile \u2014 match chars and distinct runs in each quartile of the leaf, labelled by line range. A non-zero quartile that no sample touches is content you have not seen.
-- samples \u2014 STRATIFIED across the leaf (one per quartile that has matches, plus the longest distinct run), each carrying its enclosing line so syntactic context (literal, comment, gated branch) is visible.
+- samples \u2014 stratified across the leaf (one per quartile that has matches, plus the longest distinct run), each carrying its enclosing line so syntactic context (literal, comment, gated branch) is visible.
 
 If the leaf's coverage_warning fires, samples cover only a fraction of the matches. Read the full leaf or run grep over the uncovered quartiles before classifying.
 
@@ -18690,7 +18690,7 @@ Sorted by match_chars descending so the worst offenders surface first.`,
           entry.must_read_in_full = {
             required: true,
             reason: "Code leaf. Sampling and chunked reads miss hardcoded Korean in table keys, equality branches, and render paths that bypass getText().",
-            recommended_action: `read('${leaf.key}', offset=1, limit=${totalLines}). If the read spills, follow with tmp_read on the spill handle until you've covered every line. Do not classify this leaf until that's done IN THIS PHASE. Earlier-session reads do not count.`
+            recommended_action: `read('${leaf.key}', offset=1, limit=${totalLines}). If the read spills, follow with tmp_read on the spill handle until you've covered every line. Do not classify this leaf until that's done in this phase. Earlier-session reads do not count.`
           };
           codeLeavesNeedingFullRead++;
         }
@@ -18707,7 +18707,7 @@ Sorted by match_chars descending so the worst offenders surface first.`,
         code_leaves_needing_full_read: codeLeavesNeedingFullRead,
         ...includePrefixes.length > 0 ? { include_paths: includePrefixes } : {},
         ...excludePrefixes.length > 0 ? { exclude_paths: excludePrefixes } : {},
-        verdict: leaves.length === 0 ? `CLEAN. No ${pat.name} content remaining (in the scoped paths). Translation task can be claimed complete.` : `INCOMPLETE. ${leaves.length} leaf${leaves.length === 1 ? "" : "es"} still contain ${pat.name} (${totalMatchChars} chars total)${codeLeavesNeedingFullRead > 0 ? `, ${codeLeavesNeedingFullRead} of which are code leaves carrying must_read_in_full` : ""}. For EACH remaining leaf: check density_by_quartile to see how matches are distributed, then examine the line context in samples (stratified: one per non-empty quartile plus the longest run). If a leaf has must_read_in_full, you MUST \`read\` it end-to-end IN THIS PHASE before classifying; reads from earlier turns do not count. If a leaf has coverage_warning, samples don't cover all distinct runs, so read it in full before classifying. If the context shows a match in a string literal (\`{"\uC218\uD559"}\`, \`"label = \uC218\uD559"\`), HTML text node, or any rendered position, translate it. If it sits in a comment (\`//\` \`--\` \`/*\`) or a deliberately-bilingual gated block (\`{{#risu_if::lang::0}}\u2026{{/risu_if}}\`), add the path to exclude_paths with a justification. Before labelling anything an "internal key" or "already bilingual", \`grep\` for the lookup or gate identifier and confirm the call site exists. Lookup tables that exist but are never called are common in user-authored Lua and prove nothing about runtime behaviour.`,
+        verdict: leaves.length === 0 ? `Clean. No ${pat.name} content remaining (in the scoped paths). Translation task can be claimed complete.` : `Incomplete. ${leaves.length} leaf${leaves.length === 1 ? "" : "es"} still contain ${pat.name} (${totalMatchChars} chars total)${codeLeavesNeedingFullRead > 0 ? `, ${codeLeavesNeedingFullRead} of which are code leaves carrying must_read_in_full` : ""}. For each remaining leaf: check density_by_quartile to see how matches are distributed, then examine the line context in samples (stratified: one per non-empty quartile plus the longest run). If a leaf has must_read_in_full, \`read\` it end-to-end in this phase before classifying; reads from earlier turns do not count. If a leaf has coverage_warning, samples don't cover all distinct runs, so read it in full before classifying. If the context shows a match in a string literal (\`{"\uC218\uD559"}\`, \`"label = \uC218\uD559"\`), HTML text node, or any rendered position, translate it. If it sits in a comment (\`//\` \`--\` \`/*\`) or a deliberately-bilingual gated block (\`{{#risu_if::lang::0}}\u2026{{/risu_if}}\`), add the path to exclude_paths with a justification. Before labelling anything an "internal key" or "already bilingual", \`grep\` for the lookup or gate identifier and confirm the call site exists. Lookup tables that exist but are never called are common in user-authored Lua and prove nothing about runtime behaviour.`,
         leaves
       };
       const text = JSON.stringify(summary, null, 2);
@@ -18733,7 +18733,7 @@ var init_chat_stats = __esm(() => {
   });
   chatStatsTool = defineTool({
     name: "chat_stats",
-    description: "ALWAYS CALL THIS FIRST when the user references a chat. Cheap orientation: returns total_messages, total_chars, longest_message_chars, by_role counts, first_ts, last_ts. Use the result to choose between read_chat_messages (small), list_chat_messages (skim), or grep_chat_messages (search). Omit chat_id to use the pinned chat.",
+    description: "Call this first when the user references a chat. Cheap orientation: returns total_messages, total_chars, longest_message_chars, by_role counts, first_ts, last_ts. Use the result to choose between read_chat_messages (small), list_chat_messages (skim), or grep_chat_messages (search). Omit chat_id to use the pinned chat.",
     inputSchema: inputSchema6,
     jsonSchema: {
       type: "object",
@@ -19371,10 +19371,10 @@ var init_custom_tool_run = __esm(() => {
     name: "custom_tool_run",
     description: `Run multiple built-in tool calls in one turn. Two patterns:
 
-CHAIN (pipe outputs forward): step N saves its result with \`save_as\`, step N+1 references it via \`{{$var}}\`.
-FAN-OUT (gather independent calls): each step \`save_as\`s its result; the runtime returns ALL saved bindings as one object.
+Chain (pipe outputs forward): step N saves its result with \`save_as\`, step N+1 references it via \`{{$var}}\`.
+Fan-out (gather independent calls): each step \`save_as\`s its result; the runtime returns all saved bindings as one object.
 
-Use this whenever you'd otherwise call tool A, copy a value into tool B (chain) OR call several tools whose results you all want (fan-out). The intermediate results live in the interpreter, never round-trip through your tool_result stream, never get re-typed.
+Use this whenever you'd otherwise call tool A, copy a value into tool B (chain) or call several tools whose results you all want (fan-out). The intermediate results live in the interpreter, never round-trip through your tool_result stream, never get re-typed.
 
 Reference syntax inside step args (and inside an optional \`return\`):
   "{{$body}}"             \u2014 whole-string ref returns the raw value (array/object/etc.)
@@ -19489,7 +19489,7 @@ var init_custom_tool_save = __esm(() => {
   });
   customToolSaveTool = defineTool({
     name: "custom_tool_save",
-    description: "Save (or overwrite) a custom tool manifest. The manifest must declare a name (a-z, 0-9, _), a description, a params object, and an ordered steps array. Each step calls a built-in tool with args that can reference `{{param_name}}` (from inputs) or `{{$var_name}}` (from earlier `save_as` bindings). After saving, you MUST also update workspace/custom_tools/tools.md to keep the index in sync.",
+    description: "Save (or overwrite) a custom tool manifest. The manifest must declare a name (a-z, 0-9, _), a description, a params object, and an ordered steps array. Each step calls a built-in tool with args that can reference `{{param_name}}` (from inputs) or `{{$var_name}}` (from earlier `save_as` bindings). After saving, update workspace/custom_tools/tools.md to keep the index in sync.",
     inputSchema: inputSchema14,
     jsonSchema: {
       type: "object",
@@ -19871,7 +19871,7 @@ var init_edit_external = __esm(() => {
 
 Usage:
 - You must call \`read_external\` with the same surface/item/field first. This tool will error if you have not.
-- The edit will FAIL if \`find\` is not unique in the field. Either provide more surrounding context to make it unique or set \`replace_all: true\`.
+- The edit will fail if \`find\` is not unique in the field. Either provide more surrounding context to make it unique or set \`replace_all: true\`.
 - For non-string values or wholesale replacement, use \`update_external\`.
 - If a prior call returned a draft handle, pass \`replace_handle\` instead of re-emitting the literal replacement.`,
     inputSchema: inputSchema18,
@@ -20012,7 +20012,7 @@ var init_edit = __esm(() => {
     description: `Find/replace within a string-valued surface, by path.
 
 Rules:
-1. Recent-read gate: \`read\` must have run on the SAME path in this turn. Surface keys match byte-for-byte. If you read 'char/description' the gate fails for 'char/extensions/...'.
+1. Recent-read gate: \`read\` must have run on the same path in this turn. Surface keys match byte-for-byte. If you read 'char/description' the gate fails for 'char/extensions/...'.
 2. Unique-find: \`find\` must appear exactly once, unless replace_all=true.
 3. Automatic recovery: when byte-exact match fails, falls through NFC / NFD / strip-invisible / quote-asciify / whitespace-flex variants. Result includes \`recovered_via\` on success.
 4. Failure stashes the replacement payload as a draft handle the next call can pass via \`replace_handle\`.
@@ -20024,7 +20024,7 @@ Returns:
 - \`replacements\` \u2014 how many occurrences were replaced (1 unless replace_all).
 - \`snippet\`      \u2014 short context window around the first hit, post-replace.
 - \`patch\`        \u2014 \`{additions, deletions, hunks}\` jsdiff-structured for the UI.
-- \`recovered_via\` (only on fallback) \u2014 name of the recovery strategy that matched. Leading WARNING line precedes the JSON.`,
+- \`recovered_via\` (only on fallback) \u2014 name of the recovery strategy that matched. Leading warning line precedes the JSON.`,
     inputSchema: inputSchema19,
     jsonSchema: {
       type: "object",
@@ -20106,7 +20106,7 @@ ${draftReuseNote(h, replace.length, "replace")}`, isError: true };
       };
       let body = JSON.stringify(payload);
       if (outcome.recoveredVia) {
-        const warning = `WARNING: edit applied via fallback "${outcome.recoveredVia}", NOT byte-exact. The source contains typography (curly quotes, corner brackets, etc.) that your 'find' string didn't match literally. Future edits on this path: run \`inspect\` to see the encoding diagnostics, then copy bytes verbatim from a fresh \`read\` output. Repeated reliance on fallbacks usually means the source has encoding drift you haven't surfaced.`;
+        const warning = `Warning: edit applied via fallback "${outcome.recoveredVia}", not byte-exact. The source contains typography (curly quotes, corner brackets, etc.) that your 'find' string didn't match literally. Future edits on this path: run \`inspect\` to see the encoding diagnostics, then copy bytes verbatim from a fresh \`read\` output. Repeated reliance on fallbacks usually means the source has encoding drift you haven't surfaced.`;
         body = `${warning}
 
 ${body}`;
@@ -20125,7 +20125,7 @@ var init_finish = __esm(() => {
   });
   finishTool = defineTool({
     name: "finish",
-    description: "Declare the entire task complete. Use ONLY when the user explicitly indicates everything is done. Normally just stop without calling a tool and the conversation will pause for the user's next message.",
+    description: "Declare the entire task complete. Use only when the user explicitly indicates everything is done. Normally just stop without calling a tool and the conversation will pause for the user's next message.",
     inputSchema: inputSchema20,
     jsonSchema: {
       type: "object",
@@ -28287,11 +28287,11 @@ Returns:
 - \`hits\` \u2014 array of \`{path, surface, surface_label, line, match, preview}\`. \`path\` is a leaf you can pass straight to \`read\` / \`inspect\` / \`edit\`.
 - \`truncated_at\` (only when capped) \u2014 \`{path, line, total_lines, leaves_unscanned}\` so you can resume.
 
-THE PRIMARY VERIFICATION TOOL. Use this to confirm cross-references, locate where a string lives, or settle a structural claim (e.g. "does \`lang::1\` actually appear in this script?") before reading or editing. ONE grep call beats a dozen partial reads.
+The primary verification tool. Use this to confirm cross-references, locate where a string lives, or settle a structural claim (e.g. "does \`lang::1\` actually appear in this script?") before reading or editing. One grep call beats a dozen partial reads.
 
 Budgets and truncation:
 - max_matches caps total returned hits across the search (default ${GREP_DEFAULT_MAX}, max ${GREP_MAX_CAP}).
-- max_hits_per_line caps hits returned PER LINE (default ${GREP_DEFAULT_HITS_PER_LINE}). For dense single-character patterns (\`[\uAC00-\uD7A3]\`, \`[\u4E00-\u9FFF]\`, etc.) keep it at 1 so one line with 50 matches doesn't burn the whole budget. Raise it when the pattern matches distinct multi-char tokens.
+- max_hits_per_line caps hits returned per line (default ${GREP_DEFAULT_HITS_PER_LINE}). For dense single-character patterns (\`[\uAC00-\uD7A3]\`, \`[\u4E00-\u9FFF]\`, etc.) keep it at 1 so one line with 50 matches doesn't burn the whole budget. Raise it when the pattern matches distinct multi-char tokens.
 - When the cap is hit, the result includes \`truncated_at\`: the leaf path, the last line scanned in that leaf, the leaf's total line count, and the count of leaves left entirely unscanned. Re-run with a tighter pattern, narrower include_paths, or read the remaining range of the partially-scanned leaf directly.
 
 Scoping:
@@ -28611,7 +28611,7 @@ async function buildDiagnostics(ctx, leaf) {
         diag["dual_store"] = {
           mirror_path: `char/extensions/lumirealm.payload.${leaf.field}`,
           drift: mirror !== text,
-          note: mirror !== text ? `WARNING: this canonical field differs from its LumiRealm payload mirror at extensions.lumirealm.payload.${leaf.field}. A future translator-schema bump on the card will rebuild this canonical field FROM the payload mirror, overwriting your changes. The mirror is refused on write, so the only durable fix is to surface this drift to the user (the source-of-truth is in the payload).` : "Mirror in sync with canonical; safe to edit either path."
+          note: mirror !== text ? `Warning: this canonical field differs from its LumiRealm payload mirror at extensions.lumirealm.payload.${leaf.field}. A future translator-schema bump on the card will rebuild this canonical field from the payload mirror, overwriting your changes. The mirror is refused on write, so the only durable fix is to surface this drift to the user (the source-of-truth is in the payload).` : "Mirror in sync with canonical; safe to edit either path."
         };
       }
     } catch {}
@@ -28741,7 +28741,7 @@ var init_inspect = __esm(() => {
     name: "inspect",
     description: `Cheap orientation for any path. Dispatches by the path shape:
 
-LEAF (string-valued) paths return char/line/CJK/peek PLUS a \`diagnostics\` block:
+Leaf (string-valued) paths return char/line/CJK/peek plus a \`diagnostics\` block:
   char/<field>, char/alternate_greetings/<idx>, char/extensions/<dotted>,
   rx/<id>/find_regex, rx/<id>/replace_string, wb/<id>/content, wb/<id>/comment
 
@@ -28752,9 +28752,9 @@ LEAF (string-valued) paths return char/line/CJK/peek PLUS a \`diagnostics\` bloc
     smart_quotes: { single_curly, double_curly, cjk_corner_brackets }   triggers edit's typography-preserving recovery
     dual_store (character canonical fields only): { mirror_path, drift, note }   warns if LumiRealm payload mirror diverges
 
-  ALWAYS \`inspect\` a leaf before editing if you don't know its provenance. The diagnostics tell you whether to copy bytes verbatim or expect typography drift.
+  \`inspect\` a leaf before editing if you don't know its provenance. The diagnostics tell you whether to copy bytes verbatim or expect typography drift.
 
-CONTAINER paths return aggregate / metadata:
+Container paths return aggregate / metadata:
   rx                    overview of every character-scoped regex script (names, sizes, disabled, target)
   rx/<id>               full regex script metadata (name, target, placement, flags, disabled, \u2026) + field sizes + CJK counts + peeks
   wb                    all world books (attached and unattached) with entry counts
@@ -29004,7 +29004,7 @@ Each returned row carries:
 - \`type\`     \u2014 one of: \`string\`, \`array\`, \`object\`, \`regex_script\`, \`world_book\`, \`wb_entry\`, etc.
 - \`label\`    \u2014 human name when there is one (regex script name, world book name, entry comment).
 - \`size\`     \u2014 for string leaves: character count. For arrays/objects: child count. For \`wb_entry\`: content character count.
-- \`entries\`  \u2014 ONLY on \`world_book\` rows: total entry count in the book. Read this, NOT \`size\`, to gauge book volume.
+- \`entries\`  \u2014 only on \`world_book\` rows: total entry count in the book. Read this, not \`size\`, to gauge book volume.
 
 Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole via \`inspect\`; to \`read\` / \`edit\` a string leaf, append the field name (\`rx/<scriptId>/find_regex\` or \`/replace_string\`; \`wb/<entryId>/content\` or \`/comment\`). Leaf paths (\`char/<field>\`, \`char/alternate_greetings/<idx>\`, \`char/extensions/<dotted>\`) are directly read/editable.`,
     inputSchema: inputSchema35,
@@ -29077,12 +29077,12 @@ var init_rewrite = __esm(() => {
   };
   rewriteTool = defineTool({
     name: "rewrite",
-    description: `Wholesale-overwrite any string-valued surface by path. Use INSTEAD of \`edit\` when:
+    description: `Wholesale-overwrite any string-valued surface by path. Use instead of \`edit\` when:
 - The whole field changes (full translation, tone refactor, schema migration).
 - Find/replace keeps failing on stylized text (zalgo, hand-tuned diacritics, NFC drift).
 - The replacement is structurally different enough that finding a stable anchor is futile.
 
-Requires a recent \`read\` on the SAME path. Pass \`new_content\` for a literal payload, or \`new_content_handle\` to reuse a draft a prior failed call stashed for you.
+Requires a recent \`read\` on the same path. Pass \`new_content\` for a literal payload, or \`new_content_handle\` to reuse a draft a prior failed call stashed for you.
 
 Returns:
 - \`path\`         \u2014 canonical leaf path that was written.
@@ -29243,7 +29243,7 @@ var init_set = __esm(() => {
   }).strict();
   setTool = defineTool({
     name: "set",
-    description: `Wholesale write of any JSON value at a path. Use for STRUCTURAL changes the read/edit/rewrite trio can't make:
+    description: `Wholesale write of any JSON value at a path. Use for structural changes the read/edit/rewrite trio can't make:
 
 - Toggling a boolean (regex.disabled, world_book_entry.constant)
 - Changing a number (priority, position, sort_order, depth)
@@ -29350,7 +29350,7 @@ var init_set_chat_variable = __esm(() => {
   });
   setChatVariableTool = defineTool({
     name: "set_chat_variable",
-    description: `Set or clear a chat-scope LOCAL variable. Writes to \`chat.metadata.macro_variables.local[key]\` for the named chat. Pass \`null\` for value to delete.
+    description: `Set or clear a chat-scope local variable. Writes to \`chat.metadata.macro_variables.local[key]\` for the named chat. Pass \`null\` for value to delete.
 
 This is a per-chat runtime patch, not a card-level edit. Trigger \`setvar\` effects will overwrite this when they fire. For values that should survive every trigger run (the card-side baseline), edit \`char/extensions/lumirealm.payload.scriptstate_defaults\` instead.
 
@@ -29401,7 +29401,7 @@ var init_set_default_variables_text = __esm(() => {
     name: "set_default_variables_text",
     description: `Set or clear the per-user override of LumiRealm default variables. This is the Risu-parity master text shown in State \u2192 Variables \u2192 Default for the current user only. Pass \`null\` to revert to the card-side baseline.
 
-For changes that EVERY user of the card should see, edit \`char/extensions/lumirealm.payload.scriptstate_defaults\` (the card-side baseline object) instead.`,
+For changes that every user of the card should see, edit \`char/extensions/lumirealm.payload.scriptstate_defaults\` (the card-side baseline object) instead.`,
     inputSchema: inputSchema39,
     jsonSchema: {
       type: "object",
@@ -29445,9 +29445,9 @@ var init_set_toggle = __esm(() => {
   });
   setToggleTool = defineTool({
     name: "set_toggle",
-    description: `Set or clear a LumiRealm module-toggle VALUE for the named chat. Writes to \`chat.metadata.macro_variables.global["toggle_<key>"]\`. Pass \`null\` for value to clear.
+    description: `Set or clear a LumiRealm module-toggle value for the named chat. Writes to \`chat.metadata.macro_variables.global["toggle_<key>"]\`. Pass \`null\` for value to clear.
 
-Toggle DEFINITIONS (what toggles exist, what type, what default) live in module envelopes at \`module.customModuleToggle\` (DSL), edit those via \`edit_external\` on the envelope. This tool changes the VALUE in the current chat.`,
+Toggle definitions (what toggles exist, what type, what default) live in module envelopes at \`module.customModuleToggle\` (DSL), edit those via \`edit_external\` on the envelope. This tool changes the value in the current chat.`,
     inputSchema: inputSchema40,
     jsonSchema: {
       type: "object",
@@ -29542,7 +29542,7 @@ var init_list_chats_for_character = __esm(() => {
   inputSchema42 = exports_external.object({}).strict();
   listChatsForCharacterTool = defineTool({
     name: "list_chats_for_character",
-    description: "List all of the user's chat sessions for the ACTIVE character. Returns id, name, updated_at, message_count, is_active (whether the host is currently showing this chat). Use this to discover what chats exist before reading messages, or to suggest one for the user to pin.",
+    description: "List all of the user's chat sessions for the active character. Returns id, name, updated_at, message_count, is_active (whether the host is currently showing this chat). Use this to discover what chats exist before reading messages, or to suggest one for the user to pin.",
     inputSchema: inputSchema42,
     jsonSchema: { type: "object", properties: {}, required: [] },
     requiresCharacter: true,
@@ -29781,7 +29781,7 @@ var init_random_pick = __esm(() => {
     name: "random_pick",
     description: `Pick one or more items from a list at random. Use this whenever the user asks you to choose, pick, or randomize, models are bad at random selection on their own.
 
-The items you pass MUST come from a real tool result (\`list\`, \`grep\`, \`inspect\`, \`tmp_grep\`). Don't synthesize ids or paths from memory and feed them in, you'll pick from things that don't exist. If you don't have the candidate set yet, call \`list\` first.
+The items you pass must come from a real tool result (\`list\`, \`grep\`, \`inspect\`, \`tmp_grep\`). Don't synthesize ids or paths from memory and feed them in, you'll pick from things that don't exist. If you don't have the candidate set yet, call \`list\` first.
 
 Returns:
 - \`count\`       \u2014 how many were picked.
@@ -30301,7 +30301,7 @@ var init_squash_session_edits = __esm(() => {
   }).strict();
   squashSessionEditsTool = defineTool({
     name: "squash_session_edits",
-    description: `Seals every edit made so far in THIS response into one consolidated patch per file/field.
+    description: `Seals every edit made so far in this response into one consolidated patch per file/field.
 
 Usage:
 - Call mid-response to commit a phase of work before starting another (translation pass \u2192 seal \u2192 tone refactor).
@@ -30399,7 +30399,7 @@ var init_survey_cjk = __esm(() => {
   });
   surveyCjkTool = defineTool({
     name: "survey_cjk",
-    description: `Walk every editable surface and group all runs of CJK characters (Korean / Japanese / Chinese) by exact string. RUN THIS FIRST on any translation task.
+    description: `Walk every editable surface and group all runs of CJK characters (Korean / Japanese / Chinese) by exact string. Run this first on any translation task.
 
 Returns:
 - \`scopes\`, \`min_length\` \u2014 request echoes.
@@ -31063,11 +31063,11 @@ var init_tmp_read = __esm(() => {
     name: "tmp_read",
     description: `Read lines from a tmp handle by offset/limit, with line numbers.
 
-For JSON-shaped spills (\`list\`, \`inspect\`, \`grep\`, \`audit_card_coverage\`, \`dry_run_prompt\`): ALWAYS \`tmp_grep\` first. The body is structured: most lines are braces, commas, and field names. Grepping for the id / key / token you care about returns the few lines you need; full \`tmp_read\` of a JSON spill burns 10-50x more tokens for no extra information.
+For JSON-shaped spills (\`list\`, \`inspect\`, \`grep\`, \`audit_card_coverage\`, \`dry_run_prompt\`): \`tmp_grep\` first. The body is structured: most lines are braces, commas, and field names. Grepping for the id / key / token you care about returns the few lines you need; full \`tmp_read\` of a JSON spill burns 10-50x more tokens for no extra information.
 
 For prose spills (chat logs, large string leaves), reading by offset/limit is fine. Always pair this tool with \`tmp_stat\` first to learn total_lines before deciding on a range.
 
-Returns: a string body. First line is a metadata header \`[origin=..., total_lines=N, total_chars=M]\` followed by the line-numbered slice. NOT JSON, parse line-by-line.`,
+Returns: a string body. First line is a metadata header \`[origin=..., total_lines=N, total_chars=M]\` followed by the line-numbered slice. Not JSON, parse line-by-line.`,
     inputSchema: inputSchema59,
     jsonSchema: {
       type: "object",
@@ -31401,7 +31401,7 @@ var init_dry_run_prompt = __esm(() => {
   }).strict();
   dryRunPromptTool = defineTool({
     name: "dry_run_prompt",
-    description: "Run Lumiverse's prompt-assembly pipeline WITHOUT calling the LLM. Returns the exact messages that would be sent, plus a per-block breakdown (system / persona / world info entries / character fields / chat memory / chat history / etc.), token count, model, provider, world-info activation stats, and memory stats. THE definitive way to answer 'why is the AI saying X' or 'what's actually in the prompt'. Defaults to the pinned chat. The full messages array often spills to a tmp handle.",
+    description: "Run Lumiverse's prompt-assembly pipeline without calling the LLM. Returns the exact messages that would be sent, plus a per-block breakdown (system / persona / world info entries / character fields / chat memory / chat history / etc.), token count, model, provider, world-info activation stats, and memory stats. The definitive way to answer 'why is the AI saying X' or 'what's actually in the prompt'. Defaults to the pinned chat. The full messages array often spills to a tmp handle.",
     inputSchema: inputSchema66,
     jsonSchema: {
       type: "object",
@@ -31456,7 +31456,7 @@ var init_get_active_chat = __esm(() => {
   inputSchema67 = exports_external.object({}).strict();
   getActiveChatTool = defineTool({
     name: "get_active_chat",
-    description: "Get the user's currently active chat (whatever the frontend is showing). Different from the pinned chat \u2014 pinned is what THIS agent session reads from; active is what the user is looking at right now in their main chat panel. Returns null if no chat is open.",
+    description: "Get the user's currently active chat (whatever the frontend is showing). Different from the pinned chat \u2014 pinned is what this agent session reads from; active is what the user is looking at right now in their main chat panel. Returns null if no chat is open.",
     inputSchema: inputSchema67,
     jsonSchema: { type: "object", properties: {}, required: [] },
     requiresCharacter: true,
@@ -32234,7 +32234,7 @@ Rules:
       const completed = input.todos.filter((t) => t.status === "completed").length;
       const warnings = [];
       if (inProgressCount > 1) {
-        warnings.push(`WARNING: ${inProgressCount} items are 'in_progress'. Keep at most one active at a time.`);
+        warnings.push(`Warning: ${inProgressCount} items are 'in_progress'. Keep at most one active at a time.`);
       }
       const summary = `Todo list updated: ${input.todos.length} item${input.todos.length === 1 ? "" : "s"} (${pending2} pending, ${inProgressCount} in_progress, ${completed} completed).`;
       const prefix = warnings.length > 0 ? `${warnings.join(`
@@ -32288,7 +32288,7 @@ var init_tool_search = __esm(() => {
     name: "tool_search",
     description: `Fetches full schema definitions for deferred tools so they can be called.
 
-Deferred tools appear by NAME ONLY in the system prompt under "Deferred tools available via tool_search". Their input schemas are not loaded, so calling them directly will fail. Use this tool with query "select:<name>[,<name>...]" to load the full schema, then invoke the tool normally on the next turn.
+Deferred tools appear by name only in the system prompt under "Deferred tools available via tool_search". Their input schemas are not loaded, so calling them directly will fail. Use this tool with query "select:<name>[,<name>...]" to load the full schema, then invoke the tool normally on the next turn.
 
 Result format: each matched tool appears as one <function>{"description":"...","name":"...","parameters":{...}}</function> line inside a <functions> block. Once a tool's schema appears in that result, it becomes callable like any tool defined at the top of the prompt.
 
