@@ -1824,8 +1824,27 @@ function makeCallId() {
 async function dial(spindle2, extId, request) {
   const existing = request.callId;
   const enriched = { ...request, callId: existing ?? makeCallId() };
-  spindle2.rpcPool.sync(PHONELINE_REQUEST_CHANNEL, enriched);
-  return await spindle2.rpcPool.read(PHONELINE_ENDPOINT(extId));
+  const run = async () => {
+    spindle2.rpcPool.sync(PHONELINE_REQUEST_CHANNEL, enriched);
+    let timer = null;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`phoneline dial to '${extId}' timed out after ${DIAL_TIMEOUT_MS}ms`)), DIAL_TIMEOUT_MS);
+    });
+    try {
+      return await Promise.race([
+        spindle2.rpcPool.read(PHONELINE_ENDPOINT(extId)),
+        timeout
+      ]);
+    } finally {
+      if (timer !== null)
+        clearTimeout(timer);
+    }
+  };
+  const next = dialChain.then(run, run);
+  dialChain = next.catch(() => {
+    return;
+  });
+  return next;
 }
 function dialDescribe(spindle2, extId) {
   return dial(spindle2, extId, { op: "describe" });
@@ -1866,8 +1885,10 @@ function dialSetChatVariable(spindle2, extId, req) {
 function dialSetDefaultVariablesText(spindle2, extId, req) {
   return dial(spindle2, extId, { op: "set_default_variables_text", ...req });
 }
-var callIdCounter = 0;
-var init_transport = () => {};
+var callIdCounter = 0, dialChain, DIAL_TIMEOUT_MS = 15000;
+var init_transport = __esm(() => {
+  dialChain = Promise.resolve();
+});
 
 // src/state/edit-log.ts
 function sample(s) {
@@ -17418,11 +17439,13 @@ function normaliseManifest(raw) {
   return out;
 }
 async function discoverProviders(spindle2, userId, promptFn) {
-  if (cache)
-    return cache;
-  if (pending)
-    return pending;
-  pending = (async () => {
+  const cached2 = cache.get(userId);
+  if (cached2)
+    return cached2;
+  const inflight = pending.get(userId);
+  if (inflight)
+    return inflight;
+  const p = (async () => {
     const found = [];
     for (const entry of KNOWN_PHONELINES) {
       let rawManifest;
@@ -17449,18 +17472,24 @@ async function discoverProviders(spindle2, userId, promptFn) {
         continue;
       found.push({ id: entry.identifier, manifest: trusted });
     }
-    cache = found;
-    pending = null;
+    cache.set(userId, found);
+    pending.delete(userId);
     return found;
   })();
-  return pending;
+  pending.set(userId, p);
+  return p;
 }
-function invalidate() {
-  cache = null;
-  pending = null;
+function invalidate(userId) {
+  if (userId === undefined) {
+    cache.clear();
+    pending.clear();
+    return;
+  }
+  cache.delete(userId);
+  pending.delete(userId);
 }
-function getCached() {
-  return cache ?? [];
+function getCached(userId) {
+  return cache.get(userId) ?? [];
 }
 function findSurface(providers, surfaceId) {
   const matches = providers.map((p) => {
@@ -17471,12 +17500,14 @@ function findSurface(providers, surfaceId) {
     return null;
   return matches[0];
 }
-var KNOWN_PHONELINES, cache = null, pending = null;
+var KNOWN_PHONELINES, cache, pending;
 var init_registry = __esm(() => {
   init_transport();
   KNOWN_PHONELINES = [
     { identifier: "lumirealm", name: "LumiRealm" }
   ];
+  cache = new Map;
+  pending = new Map;
 });
 
 // src/phoneline/search-excludes.ts
@@ -33831,7 +33862,7 @@ function subscribeToMissingChanges(handler) {
 }
 // spindle.json
 var spindle_default = {
-  version: "0.2.0",
+  version: "0.2.1",
   name: "LumiAgent",
   identifier: "lumiagent",
   author: "amousepad",
@@ -33931,10 +33962,13 @@ function getHostVersionWarning() {
 }
 
 // src/backend.ts
+function scopedKey(userId, id) {
+  return `${userId}:${id}`;
+}
 var activeSessions = new Map;
 var pendingSessions = new Map;
 async function loadSessionWithPending(sessionId, userId) {
-  const p = pendingSessions.get(sessionId);
+  const p = pendingSessions.get(scopedKey(userId, sessionId));
   if (p)
     return p;
   return loadSession(spindle, sessionId, userId);
@@ -33952,7 +33986,7 @@ function callFrontend(userId, op, args, timeoutMs = DEFAULT_FRONTEND_RPC_TIMEOUT
       pendingFrontendRpc.delete(rpcId);
       reject(new Error(`frontend rpc '${op}' timed out after ${timeoutMs}ms`));
     }, timeoutMs);
-    pendingFrontendRpc.set(rpcId, { resolve, reject, timer });
+    pendingFrontendRpc.set(rpcId, { userId, resolve, reject, timer });
     try {
       send({ type: "frontend_rpc_request", rpcId, op, args }, userId);
     } catch (e) {
@@ -33962,10 +33996,14 @@ function callFrontend(userId, op, args, timeoutMs = DEFAULT_FRONTEND_RPC_TIMEOUT
     }
   });
 }
-function resolveFrontendRpc(rpcId, result, error51) {
+function resolveFrontendRpc(rpcId, fromUserId, result, error51) {
   const pending2 = pendingFrontendRpc.get(rpcId);
   if (!pending2)
     return;
+  if (pending2.userId !== fromUserId) {
+    log("warn", `dropped frontend_rpc_response: rpcId=${rpcId} responder=${fromUserId} expected=${pending2.userId}`);
+    return;
+  }
   clearTimeout(pending2.timer);
   pendingFrontendRpc.delete(rpcId);
   if (error51 !== undefined)
@@ -33982,7 +34020,7 @@ function log(level, msg) {
     spindle.log.error(msg);
 }
 function makeId(prefix) {
-  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  return `${prefix}_${crypto.randomUUID()}`;
 }
 function characterToSummary(c, regexCount) {
   return {
@@ -34128,14 +34166,14 @@ async function handleSetPhonelinePairing(userId, identifier, allowed) {
     return;
   await savePairing2(spindle, userId, { ...existing, allowed, decidedAt: Date.now() });
   const { invalidate: invalidate2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
-  invalidate2();
+  invalidate2(userId);
   await handleGetPhonelinePairings(userId);
 }
 async function handleRevokePhonelinePairing(userId, identifier) {
   const { deletePairing: deletePairing2 } = await Promise.resolve().then(() => exports_consent);
   await deletePairing2(spindle, userId, identifier);
   const { invalidate: invalidate2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
-  invalidate2();
+  invalidate2(userId);
   await handleGetPhonelinePairings(userId);
 }
 async function buildSessionSystemMessage(c, s, settings, userId) {
@@ -34299,7 +34337,7 @@ async function handleSquashCharacter(characterId, userId) {
     let ledgerCleared = false;
     try {
       await spindle.userStorage.delete(`ledgers/${characterId}.json`, userId);
-      dropCache2(characterId);
+      dropCache2(characterId, userId);
       ledgerCleared = true;
     } catch {}
     send({ type: "character_squashed", characterId, ledgerCleared }, userId);
@@ -34386,7 +34424,7 @@ Rules:
 }
 async function compactSession(sessionId, userId, trigger) {
   log("info", `compact_session sessionId=${sessionId} trigger=${trigger}`);
-  if (activeSessions.has(sessionId)) {
+  if (activeSessions.has(scopedKey(userId, sessionId))) {
     send({ type: "ws_error", error: "Wait for the current generation to finish before compacting." }, userId);
     return;
   }
@@ -34408,7 +34446,7 @@ async function compactSession(sessionId, userId, trigger) {
   const contextTokens = resolveContextTokens(settings.samplers);
   const maxHandoffChars = Math.floor(contextTokens * 0.15) * 3;
   const ac = new AbortController;
-  activeSessions.set(sessionId, ac);
+  activeSessions.set(scopedKey(userId, sessionId), ac);
   try {
     const systemMsg = await buildSessionSystemMessage(c, s, settings, userId);
     const compactPrompt = buildCompactionInstruction(maxHandoffChars);
@@ -34508,7 +34546,7 @@ async function compactSession(sessionId, userId, trigger) {
     log("error", `compactSession ${sessionId} failed: ${err.message}`);
     send({ type: "ws_error", error: `Compaction failed: ${err.message}` }, userId);
   } finally {
-    activeSessions.delete(sessionId);
+    activeSessions.delete(scopedKey(userId, sessionId));
   }
 }
 function guessMimeType(path3) {
@@ -34808,7 +34846,7 @@ async function handleWsDownloadZip(paths, userId) {
 }
 async function handleSetPinnedChat(sessionId, chatId, userId) {
   log("info", `set_pinned_chat sessionId=${sessionId} chatId=${chatId ?? "null"}`);
-  const isPending = pendingSessions.has(sessionId);
+  const isPending = pendingSessions.has(scopedKey(userId, sessionId));
   const s = await loadSessionWithPending(sessionId, userId);
   if (!s) {
     log("warn", `set_pinned_chat: session ${sessionId} not found, evicting frontend`);
@@ -34828,7 +34866,12 @@ async function handleSetPinnedChat(sessionId, chatId, userId) {
   send({ type: "pinned_chat_set", sessionId, chatId }, userId);
 }
 async function handleListSessions(filter, userId) {
-  const activeIds = new Set(activeSessions.keys());
+  const prefix = `${userId}:`;
+  const activeIds = new Set;
+  for (const k of activeSessions.keys()) {
+    if (k.startsWith(prefix))
+      activeIds.add(k.slice(prefix.length));
+  }
   const sessions = await listSessionSummaries(spindle, userId, activeIds, filter);
   send({ type: "sessions_pushed", sessions }, userId);
 }
@@ -34857,12 +34900,12 @@ async function handleStartSession(sessionId, characterId, connectionId, userId) 
     characterName: "",
     connectionId: connectionId ?? null
   });
-  pendingSessions.set(sessionId, s);
+  pendingSessions.set(scopedKey(userId, sessionId), s);
   try {
     if (characterId !== null) {
       const c = await spindle.characters.get(characterId, userId);
       if (!c) {
-        pendingSessions.delete(sessionId);
+        pendingSessions.delete(scopedKey(userId, sessionId));
         send({ type: "generation_error", sessionId, error: `character ${characterId} not found` }, userId);
         return;
       }
@@ -34878,14 +34921,14 @@ async function handleStartSession(sessionId, characterId, connectionId, userId) 
       createdAt: s.createdAt
     }, userId);
   } catch (err) {
-    pendingSessions.delete(sessionId);
+    pendingSessions.delete(scopedKey(userId, sessionId));
     const msg = err.message;
     log("error", `start_session ${sessionId} threw: ${msg}`);
     send({ type: "generation_error", sessionId, error: `start_session failed: ${msg}` }, userId);
   }
 }
 async function handleContinueSession(sessionId, connectionId, userId) {
-  if (activeSessions.has(sessionId)) {
+  if (activeSessions.has(scopedKey(userId, sessionId))) {
     send({ type: "generation_error", sessionId, error: "session already has a generation in flight" }, userId);
     return;
   }
@@ -34902,11 +34945,11 @@ async function handleContinueSession(sessionId, connectionId, userId) {
 }
 async function handleSendMessage(sessionId, userMessageId, content, connectionId, userId) {
   log("info", `send_message sessionId=${sessionId} userMessageId=${userMessageId} contentLen=${content.length}`);
-  if (activeSessions.has(sessionId)) {
+  if (activeSessions.has(scopedKey(userId, sessionId))) {
     send({ type: "generation_error", sessionId, error: "session already has a generation in flight" }, userId);
     return;
   }
-  const wasPending = pendingSessions.has(sessionId);
+  const wasPending = pendingSessions.has(scopedKey(userId, sessionId));
   const s = await loadSessionWithPending(sessionId, userId);
   if (!s) {
     send({ type: "generation_error", sessionId, error: `session ${sessionId} not found` }, userId);
@@ -34917,13 +34960,13 @@ async function handleSendMessage(sessionId, userMessageId, content, connectionId
   s.llmHistory.push({ role: "user", content });
   await saveSession(spindle, s, userId);
   if (wasPending) {
-    pendingSessions.delete(sessionId);
+    pendingSessions.delete(scopedKey(userId, sessionId));
     handleListSessions(undefined, userId);
   }
   await handleSendMessageInternal(s, userId, connectionId);
 }
 function handleCancelGeneration(sessionId, userId) {
-  const ac = activeSessions.get(sessionId);
+  const ac = activeSessions.get(scopedKey(userId, sessionId));
   if (!ac) {
     log("warn", `cancel: no active generation on session ${sessionId}`);
     return;
@@ -34933,10 +34976,10 @@ function handleCancelGeneration(sessionId, userId) {
   send({ type: "generation_cancelled", sessionId }, userId);
 }
 async function handleDeleteSession(sessionId, userId) {
-  const ac = activeSessions.get(sessionId);
+  const ac = activeSessions.get(scopedKey(userId, sessionId));
   if (ac)
     ac.abort();
-  pendingSessions.delete(sessionId);
+  pendingSessions.delete(scopedKey(userId, sessionId));
   await deleteSessionFile(spindle, sessionId, userId);
   try {
     const { clearSessionTmp: clearSessionTmp2 } = await Promise.resolve().then(() => (init_tmp_store(), exports_tmp_store));
@@ -35286,7 +35329,7 @@ async function revertEditsBatch(characterId, entries, userId) {
   return { ok, failed };
 }
 async function handleDeleteMessage(sessionId, messageId, editsAction, userId) {
-  if (activeSessions.has(sessionId)) {
+  if (activeSessions.has(scopedKey(userId, sessionId))) {
     send({ type: "generation_error", sessionId, error: "wait for the current generation to finish" }, userId);
     return;
   }
@@ -35318,7 +35361,7 @@ async function handleDeleteMessage(sessionId, messageId, editsAction, userId) {
   send({ type: "session_truncated", sessionId, messages: s.messages, edits: s.edits }, userId);
 }
 async function handleFreeToolResult(sessionId, callId, userId) {
-  if (activeSessions.has(sessionId)) {
+  if (activeSessions.has(scopedKey(userId, sessionId))) {
     send({ type: "generation_error", sessionId, error: "wait for the current generation to finish before freeing tool results" }, userId);
     return;
   }
@@ -35371,7 +35414,7 @@ async function handleFreeToolResult(sessionId, callId, userId) {
   send({ type: "session_truncated", sessionId, messages: s.messages, edits: s.edits }, userId);
 }
 async function handleEditUserMessage(sessionId, messageId, newContent, editsAction, connectionId, userId) {
-  if (activeSessions.has(sessionId)) {
+  if (activeSessions.has(scopedKey(userId, sessionId))) {
     send({ type: "generation_error", sessionId, error: "wait for the current generation to finish" }, userId);
     return;
   }
@@ -35403,7 +35446,7 @@ async function handleEditUserMessage(sessionId, messageId, newContent, editsActi
   handleSendMessageInternal(s, userId, connectionId);
 }
 async function handleRegenerateAssistant(sessionId, assistantMessageId, editsAction, connectionId, userId) {
-  if (activeSessions.has(sessionId)) {
+  if (activeSessions.has(scopedKey(userId, sessionId))) {
     send({ type: "generation_error", sessionId, error: "wait for the current generation to finish" }, userId);
     return;
   }
@@ -35457,7 +35500,7 @@ async function handleSendMessageInternal(s, userId, connectionIdOverride) {
     }
   }
   const ac = new AbortController;
-  activeSessions.set(s.sessionId, ac);
+  activeSessions.set(scopedKey(userId, s.sessionId), ac);
   const settings = await loadSettings(spindle, userId);
   const systemMsg = await buildSessionSystemMessage(c, s, settings, userId);
   const conv = [systemMsg, ...s.llmHistory];
@@ -35602,7 +35645,7 @@ async function handleSendMessageInternal(s, userId, connectionIdOverride) {
       send({ type: "generation_error", sessionId: s.sessionId, error: msg }, userId);
     }
   }
-  activeSessions.delete(s.sessionId);
+  activeSessions.delete(scopedKey(userId, s.sessionId));
   s.llmHistory = conv.slice(1);
   if (ac.signal.aborted && !errored)
     assistant.status = "cancelled";
@@ -35815,7 +35858,7 @@ spindle.onFrontendMessage(async (raw, userId) => {
         await handleRevokePhonelinePairing(userId, msg.identifier);
         return;
       case "frontend_rpc_response":
-        resolveFrontendRpc(msg.rpcId, msg.result, msg.error);
+        resolveFrontendRpc(msg.rpcId, userId, msg.result, msg.error);
         return;
       default:
         log("warn", `unknown frontend message type=${msg.type ?? "?"}`);

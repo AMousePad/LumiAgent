@@ -15,8 +15,8 @@ export interface CachedProvider {
   readonly manifest: SurfaceManifest;
 }
 
-let cache: CachedProvider[] | null = null;
-let pending: Promise<CachedProvider[]> | null = null;
+const cache = new Map<string, CachedProvider[]>();
+const pending = new Map<string, Promise<CachedProvider[]>>();
 
 // Coerce legacy manifest shapes into the current protocol. Older extension
 // builds returned `scope: {kind: "global"|"per_character"}` and carried
@@ -74,9 +74,11 @@ export async function discoverProviders(
   userId: string,
   promptFn: ConsentPromptFn,
 ): Promise<CachedProvider[]> {
-  if (cache) return cache;
-  if (pending) return pending;
-  pending = (async () => {
+  const cached = cache.get(userId);
+  if (cached) return cached;
+  const inflight = pending.get(userId);
+  if (inflight) return inflight;
+  const p = (async () => {
     const found: CachedProvider[] = [];
     for (const entry of KNOWN_PHONELINES) {
       let rawManifest: unknown;
@@ -104,20 +106,22 @@ export async function discoverProviders(
       if (!decision.allowed) continue;
       found.push({ id: entry.identifier, manifest: trusted });
     }
-    cache = found;
-    pending = null;
+    cache.set(userId, found);
+    pending.delete(userId);
     return found;
   })();
-  return pending;
+  pending.set(userId, p);
+  return p;
 }
 
-export function invalidate(): void {
-  cache = null;
-  pending = null;
+export function invalidate(userId?: string): void {
+  if (userId === undefined) { cache.clear(); pending.clear(); return; }
+  cache.delete(userId);
+  pending.delete(userId);
 }
 
-export function getCached(): readonly CachedProvider[] {
-  return cache ?? [];
+export function getCached(userId: string): readonly CachedProvider[] {
+  return cache.get(userId) ?? [];
 }
 
 export function findSurface(

@@ -45,6 +45,14 @@ import {
 } from "./state/permissions";
 import { initHostVersionCheck, getHostVersionWarning } from "./state/version-check";
 
+// Operator-scoped: one process serves every user, so any map keyed only by
+// a user-supplied id (sessionId, rpcId, transferId) is a cross-user channel.
+// Keep keys namespaced by userId so a request from user B can never reach
+// user A's slot.
+function scopedKey(userId: string, id: string): string {
+  return `${userId}:${id}`;
+}
+
 const activeSessions = new Map<string, AbortController>();
 
 // Sessions the user has started but never sent a message in. We keep them
@@ -54,7 +62,7 @@ const activeSessions = new Map<string, AbortController>();
 const pendingSessions = new Map<string, PersistedSession>();
 
 async function loadSessionWithPending(sessionId: string, userId: string): Promise<PersistedSession | null> {
-  const p = pendingSessions.get(sessionId);
+  const p = pendingSessions.get(scopedKey(userId, sessionId));
   if (p) return p;
   return loadSession(spindle, sessionId, userId);
 }
@@ -69,7 +77,7 @@ function send(msg: BackendToFrontend, userId: string): void {
 // that needs a browser-side capability (Chrome Translator, etc.) hands a
 // request to the frontend via this channel. Keyed by rpcId; the frontend
 // posts back a frontend_rpc_response which resolves the pending promise.
-interface PendingRpc { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }
+interface PendingRpc { userId: string; resolve: (v: unknown) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }
 const pendingFrontendRpc = new Map<string, PendingRpc>();
 const DEFAULT_FRONTEND_RPC_TIMEOUT_MS = 60_000;
 
@@ -80,7 +88,7 @@ function callFrontend(userId: string, op: string, args: unknown, timeoutMs = DEF
       pendingFrontendRpc.delete(rpcId);
       reject(new Error(`frontend rpc '${op}' timed out after ${timeoutMs}ms`));
     }, timeoutMs);
-    pendingFrontendRpc.set(rpcId, { resolve, reject, timer });
+    pendingFrontendRpc.set(rpcId, { userId, resolve, reject, timer });
     try { send({ type: "frontend_rpc_request", rpcId, op, args }, userId); }
     catch (e) {
       clearTimeout(timer);
@@ -90,9 +98,16 @@ function callFrontend(userId: string, op: string, args: unknown, timeoutMs = DEF
   });
 }
 
-function resolveFrontendRpc(rpcId: string, result: unknown, error: string | undefined): void {
+// The responding userId must match the user the request was issued for.
+// Without this check, any user could resolve another user's pending RPC
+// (which routes phoneline-consent decisions), silently approving pairings.
+function resolveFrontendRpc(rpcId: string, fromUserId: string, result: unknown, error: string | undefined): void {
   const pending = pendingFrontendRpc.get(rpcId);
   if (!pending) return;
+  if (pending.userId !== fromUserId) {
+    log("warn", `dropped frontend_rpc_response: rpcId=${rpcId} responder=${fromUserId} expected=${pending.userId}`);
+    return;
+  }
   clearTimeout(pending.timer);
   pendingFrontendRpc.delete(rpcId);
   if (error !== undefined) pending.reject(new Error(error));
@@ -106,7 +121,11 @@ function log(level: "info" | "warn" | "error", msg: string): void {
 }
 
 function makeId(prefix: string): string {
-  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  // crypto.randomUUID() is unguessable, 122 bits of entropy. The prior
+  // Date.now+Math.random scheme was ~30 bits, which made cross-user id-guessing
+  // attacks practical given that sessionId/rpcId/transferId were used as map
+  // keys.
+  return `${prefix}_${crypto.randomUUID()}`;
 }
 
 function characterToSummary(c: CharacterDTO, regexCount: number): CharacterSummary {
@@ -258,7 +277,7 @@ async function handleSetPhonelinePairing(userId: string, identifier: string, all
   if (!existing) return; // user shouldn't be able to toggle a pairing that isn't already known
   await savePairing(spindle, userId, { ...existing, allowed, decidedAt: Date.now() });
   const { invalidate } = await import("./phoneline/registry");
-  invalidate();
+  invalidate(userId);
   await handleGetPhonelinePairings(userId);
 }
 
@@ -266,7 +285,7 @@ async function handleRevokePhonelinePairing(userId: string, identifier: string):
   const { deletePairing } = await import("./phoneline/consent");
   await deletePairing(spindle, userId, identifier);
   const { invalidate } = await import("./phoneline/registry");
-  invalidate();
+  invalidate(userId);
   await handleGetPhonelinePairings(userId);
 }
 
@@ -467,7 +486,7 @@ async function handleSquashCharacter(characterId: string, userId: string): Promi
     let ledgerCleared = false;
     try {
       await spindle.userStorage.delete(`ledgers/${characterId}.json`, userId);
-      dropCache(characterId);
+      dropCache(characterId, userId);
       ledgerCleared = true;
     } catch { /* nothing to clear */ }
     send({ type: "character_squashed", characterId, ledgerCleared }, userId);
@@ -565,7 +584,7 @@ Rules:
 
 async function compactSession(sessionId: string, userId: string, trigger: "auto" | "manual"): Promise<void> {
   log("info", `compact_session sessionId=${sessionId} trigger=${trigger}`);
-  if (activeSessions.has(sessionId)) {
+  if (activeSessions.has(scopedKey(userId, sessionId))) {
     send({ type: "ws_error", error: "Wait for the current generation to finish before compacting." }, userId);
     return;
   }
@@ -585,7 +604,7 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
   const maxHandoffChars = Math.floor(contextTokens * 0.15) * 3;
 
   const ac = new AbortController();
-  activeSessions.set(sessionId, ac);
+  activeSessions.set(scopedKey(userId, sessionId), ac);
 
   try {
     const systemMsg = await buildSessionSystemMessage(c, s, settings, userId);
@@ -673,7 +692,7 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
     log("error", `compactSession ${sessionId} failed: ${(err as Error).message}`);
     send({ type: "ws_error", error: `Compaction failed: ${(err as Error).message}` }, userId);
   } finally {
-    activeSessions.delete(sessionId);
+    activeSessions.delete(scopedKey(userId, sessionId));
   }
 }
 
@@ -939,7 +958,7 @@ async function handleWsDownloadZip(paths: readonly string[], userId: string): Pr
 
 async function handleSetPinnedChat(sessionId: string, chatId: string | null, userId: string): Promise<void> {
   log("info", `set_pinned_chat sessionId=${sessionId} chatId=${chatId ?? "null"}`);
-  const isPending = pendingSessions.has(sessionId);
+  const isPending = pendingSessions.has(scopedKey(userId, sessionId));
   const s = await loadSessionWithPending(sessionId, userId);
   if (!s) {
     log("warn", `set_pinned_chat: session ${sessionId} not found, evicting frontend`);
@@ -971,7 +990,14 @@ async function handleSetPinnedChat(sessionId: string, chatId: string | null, use
 }
 
 async function handleListSessions(filter: string | null | undefined, userId: string): Promise<void> {
-  const activeIds = new Set(activeSessions.keys());
+  // activeSessions is keyed by `${userId}:${sessionId}`. Extract just this
+  // user's sessionIds for the "isActive" flag, otherwise we'd leak that another
+  // user has a session of that id running.
+  const prefix = `${userId}:`;
+  const activeIds = new Set<string>();
+  for (const k of activeSessions.keys()) {
+    if (k.startsWith(prefix)) activeIds.add(k.slice(prefix.length));
+  }
   const sessions = await listSessionSummaries(spindle, userId, activeIds, filter);
   send({ type: "sessions_pushed", sessions }, userId);
 }
@@ -1008,13 +1034,13 @@ async function handleStartSession(sessionId: string, characterId: string | null,
     characterName: "",
     connectionId: connectionId ?? null,
   });
-  pendingSessions.set(sessionId, s);
+  pendingSessions.set(scopedKey(userId, sessionId), s);
 
   try {
     if (characterId !== null) {
       const c = await spindle.characters.get(characterId, userId);
       if (!c) {
-        pendingSessions.delete(sessionId);
+        pendingSessions.delete(scopedKey(userId, sessionId));
         send({ type: "generation_error", sessionId, error: `character ${characterId} not found` }, userId);
         return;
       }
@@ -1034,7 +1060,7 @@ async function handleStartSession(sessionId: string, characterId: string | null,
     }, userId);
     // No list refresh, an empty session shouldn't appear in the picker.
   } catch (err) {
-    pendingSessions.delete(sessionId);
+    pendingSessions.delete(scopedKey(userId, sessionId));
     const msg = (err as Error).message;
     log("error", `start_session ${sessionId} threw: ${msg}`);
     send({ type: "generation_error", sessionId, error: `start_session failed: ${msg}` }, userId);
@@ -1045,7 +1071,7 @@ async function handleStartSession(sessionId: string, characterId: string | null,
 // user message. Used by the composer's "empty send" path when the last
 // message is a user message that the agent didn't finish replying to.
 async function handleContinueSession(sessionId: string, connectionId: string | undefined, userId: string): Promise<void> {
-  if (activeSessions.has(sessionId)) {
+  if (activeSessions.has(scopedKey(userId, sessionId))) {
     send({ type: "generation_error", sessionId, error: "session already has a generation in flight" }, userId);
     return;
   }
@@ -1066,11 +1092,11 @@ async function handleSendMessage(
   userId: string,
 ): Promise<void> {
   log("info", `send_message sessionId=${sessionId} userMessageId=${userMessageId} contentLen=${content.length}`);
-  if (activeSessions.has(sessionId)) {
+  if (activeSessions.has(scopedKey(userId, sessionId))) {
     send({ type: "generation_error", sessionId, error: "session already has a generation in flight" }, userId);
     return;
   }
-  const wasPending = pendingSessions.has(sessionId);
+  const wasPending = pendingSessions.has(scopedKey(userId, sessionId));
   const s = await loadSessionWithPending(sessionId, userId);
   if (!s) {
     send({ type: "generation_error", sessionId, error: `session ${sessionId} not found` }, userId);
@@ -1082,7 +1108,7 @@ async function handleSendMessage(
   await saveSession(spindle, s, userId);
   if (wasPending) {
     // Now persisted; drop the in-memory hold so future loads come from disk.
-    pendingSessions.delete(sessionId);
+    pendingSessions.delete(scopedKey(userId, sessionId));
     // First time this session appears in the picker.
     void handleListSessions(undefined, userId);
   }
@@ -1090,7 +1116,7 @@ async function handleSendMessage(
 }
 
 function handleCancelGeneration(sessionId: string, userId: string): void {
-  const ac = activeSessions.get(sessionId);
+  const ac = activeSessions.get(scopedKey(userId, sessionId));
   if (!ac) {
     log("warn", `cancel: no active generation on session ${sessionId}`);
     return;
@@ -1101,9 +1127,9 @@ function handleCancelGeneration(sessionId: string, userId: string): void {
 }
 
 async function handleDeleteSession(sessionId: string, userId: string): Promise<void> {
-  const ac = activeSessions.get(sessionId);
+  const ac = activeSessions.get(scopedKey(userId, sessionId));
   if (ac) ac.abort();
-  pendingSessions.delete(sessionId);
+  pendingSessions.delete(scopedKey(userId, sessionId));
   await deleteSessionFile(spindle, sessionId, userId);
   try {
     const { clearSessionTmp } = await import("./state/tmp-store");
@@ -1471,7 +1497,7 @@ async function revertEditsBatch(characterId: string, entries: readonly EditLogEn
 // turn that made live edits, the caller chooses whether to revert those
 // edits or leave them on the card.
 async function handleDeleteMessage(sessionId: string, messageId: string, editsAction: "keep" | "revert", userId: string): Promise<void> {
-  if (activeSessions.has(sessionId)) {
+  if (activeSessions.has(scopedKey(userId, sessionId))) {
     send({ type: "generation_error", sessionId, error: "wait for the current generation to finish" }, userId);
     return;
   }
@@ -1496,7 +1522,7 @@ async function handleDeleteMessage(sessionId: string, messageId: string, editsAc
 }
 
 async function handleFreeToolResult(sessionId: string, callId: string, userId: string): Promise<void> {
-  if (activeSessions.has(sessionId)) {
+  if (activeSessions.has(scopedKey(userId, sessionId))) {
     send({ type: "generation_error", sessionId, error: "wait for the current generation to finish before freeing tool results" }, userId);
     return;
   }
@@ -1545,7 +1571,7 @@ async function handleFreeToolResult(sessionId: string, callId: string, userId: s
 }
 
 async function handleEditUserMessage(sessionId: string, messageId: string, newContent: string, editsAction: "keep" | "revert", connectionId: string | undefined, userId: string): Promise<void> {
-  if (activeSessions.has(sessionId)) {
+  if (activeSessions.has(scopedKey(userId, sessionId))) {
     send({ type: "generation_error", sessionId, error: "wait for the current generation to finish" }, userId);
     return;
   }
@@ -1574,7 +1600,7 @@ async function handleEditUserMessage(sessionId: string, messageId: string, newCo
 }
 
 async function handleRegenerateAssistant(sessionId: string, assistantMessageId: string, editsAction: "keep" | "revert", connectionId: string | undefined, userId: string): Promise<void> {
-  if (activeSessions.has(sessionId)) {
+  if (activeSessions.has(scopedKey(userId, sessionId))) {
     send({ type: "generation_error", sessionId, error: "wait for the current generation to finish" }, userId);
     return;
   }
@@ -1618,7 +1644,7 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
     if (!c) { send({ type: "generation_error", sessionId: s.sessionId, error: `character ${s.characterId} not found` }, userId); return; }
   }
   const ac = new AbortController();
-  activeSessions.set(s.sessionId, ac);
+  activeSessions.set(scopedKey(userId, s.sessionId), ac);
 
   const settings = await loadSettings(spindle, userId);
   const systemMsg = await buildSessionSystemMessage(c, s, settings, userId);
@@ -1755,7 +1781,7 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
       send({ type: "generation_error", sessionId: s.sessionId, error: msg }, userId);
     }
   }
-  activeSessions.delete(s.sessionId);
+  activeSessions.delete(scopedKey(userId, s.sessionId));
   s.llmHistory = conv.slice(1);
   if (ac.signal.aborted && !errored) assistant.status = "cancelled";
   await saveSession(spindle, s, userId);
@@ -1890,7 +1916,7 @@ spindle.onFrontendMessage(async (raw: unknown, userId: string) => {
       case "get_phoneline_pairings": await handleGetPhonelinePairings(userId); return;
       case "set_phoneline_pairing": await handleSetPhonelinePairing(userId, msg.identifier, msg.allowed); return;
       case "revoke_phoneline_pairing": await handleRevokePhonelinePairing(userId, msg.identifier); return;
-      case "frontend_rpc_response": resolveFrontendRpc(msg.rpcId, msg.result, msg.error); return;
+      case "frontend_rpc_response": resolveFrontendRpc(msg.rpcId, userId, msg.result, msg.error); return;
       default:
         log("warn", `unknown frontend message type=${(msg as { type?: string }).type ?? "?"}`);
     }

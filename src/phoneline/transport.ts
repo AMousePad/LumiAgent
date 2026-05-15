@@ -19,11 +19,35 @@ function makeCallId(): string {
   return `pl_${Date.now().toString(36)}_${callIdCounter}`;
 }
 
+let dialChain: Promise<unknown> = Promise.resolve();
+
+// Per-dial hard timeout. The chain is global, so a hung responder would
+// otherwise stall every user's chat.
+const DIAL_TIMEOUT_MS = 15_000;
+
 async function dial<T>(spindle: SpindleAPI, extId: string, request: PhoneLineRequest): Promise<T> {
   const existing = (request as { callId?: string }).callId;
   const enriched = { ...request, callId: existing ?? makeCallId() } as PhoneLineRequest;
-  spindle.rpcPool.sync(PHONELINE_REQUEST_CHANNEL, enriched);
-  return await spindle.rpcPool.read<T>(PHONELINE_ENDPOINT(extId));
+  const run = async (): Promise<T> => {
+    spindle.rpcPool.sync(PHONELINE_REQUEST_CHANNEL, enriched);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`phoneline dial to '${extId}' timed out after ${DIAL_TIMEOUT_MS}ms`)), DIAL_TIMEOUT_MS);
+    });
+    try {
+      return await Promise.race([
+        spindle.rpcPool.read<T>(PHONELINE_ENDPOINT(extId)),
+        timeout,
+      ]);
+    } finally {
+      if (timer !== null) clearTimeout(timer);
+    }
+  };
+  const next = dialChain.then(run, run);
+  // Keep the chain alive even if this dial rejected, so a failure on one
+  // caller doesn't poison every later dial.
+  dialChain = next.catch(() => undefined);
+  return next;
 }
 
 export function dialDescribe(spindle: SpindleAPI, extId: string): Promise<SurfaceManifest> {
