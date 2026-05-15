@@ -1224,6 +1224,9 @@ function recordEdit(existing, input) {
       }
     }
   }
+  if (input.live === input.next) {
+    return { file, appended };
+  }
   const p = buildPatch({
     before: input.live,
     after: input.next,
@@ -1360,6 +1363,10 @@ function squashRange(file, start, end, opts) {
   }
   const absorbed = file.patches.slice(start, end + 1);
   const absorbedIds = absorbed.map((p) => p.id);
+  if (sha256(before) === sha256(after)) {
+    file.patches.splice(start, end - start + 1);
+    return { merged: null, absorbedIds };
+  }
   const first = absorbed[0];
   const last = absorbed[absorbed.length - 1];
   const merged = buildPatch({
@@ -1542,6 +1549,8 @@ async function appendEntries(spindle2, scope, entries, userId) {
         ...e.assistantMessageId !== undefined ? { assistantMessageId: e.assistantMessageId } : {},
         turn: e.turn
       });
+      if (!existing && result.file.patches.length === 0)
+        continue;
       upsertFile(ledger, result.file);
     } else if (r.op === "create" || r.op === "delete") {
       const sp = structuralFromEntry(e, r);
@@ -1788,14 +1797,20 @@ async function squashMessage(spindle2, scope, assistantMessageId, userId, opts =
       continue;
     let actuallyMerged = 0;
     for (const r of res) {
-      if (r.absorbedIds.length > 1) {
+      if (r.merged === null) {
+        for (const id of r.absorbedIds)
+          absorbedIds.push(id);
+        actuallyMerged++;
+        changed = true;
+      } else if (r.absorbedIds.length > 1) {
+        const mergedId = r.merged.id;
         for (const id of r.absorbedIds) {
-          if (id === r.merged.id)
+          if (id === mergedId)
             continue;
           absorbedIds.push(id);
-          absorbedToMerged.set(id, r.merged.id);
+          absorbedToMerged.set(id, mergedId);
         }
-        newPatchIds.push(r.merged.id);
+        newPatchIds.push(mergedId);
         actuallyMerged++;
         changed = true;
       } else if (opts.sealed === true) {

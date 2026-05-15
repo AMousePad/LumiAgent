@@ -1,6 +1,7 @@
 import type { SpindleFrontendContext, SpindleModalHandle } from "lumiverse-spindle-types";
-import type { EditLogEntry, EditSurface } from "../types";
-import { fileKeyOf } from "../types";
+import type { EditLogEntry, EditSurface, ScopeRef } from "../types";
+import { fileKeyOf, scopeKeyString } from "../types";
+import { mountCombo } from "./combo";
 import { renderInlineFieldDiff, renderSideBySideDiff, renderUnifiedDiff, computeDiffStats, isShortField } from "./diff";
 
 const SURFACE_LABELS: Record<EditSurface, string> = {
@@ -35,29 +36,39 @@ function computeModalMaxHeight(): number {
   return Math.max(DESKTOP_HEIGHT_MIN, Math.min(DESKTOP_HEIGHT_CAP, vh - DESKTOP_MARGIN_PX));
 }
 
+// A selectable ledger scope (one character / persona / chat / preset).
+export interface ScopeOption {
+  readonly scope: ScopeRef;
+  readonly label: string;
+  readonly liveCount: number;
+  readonly totalCount: number;
+}
+
+type WorkshopTab = "characters" | "lumiverse" | "files";
+
+function isLumiverseKind(k: ScopeRef["kind"]): boolean {
+  return k !== "character";
+}
+
 export interface DiffModalDeps {
   getEdits(): readonly EditLogEntry[];
+  getScopes(): readonly ScopeOption[];
+  getSelectedScope(): ScopeRef | null;
+  onSelectScope(scope: ScopeRef): void;
   onRevert(editId: string): Promise<void>;
+  onRevertAll(scope: ScopeRef): void;
+  onForget(scope: ScopeRef): void;
+  // Called when the modal needs a fresh scope list (open / tab switch).
+  onScopesNeeded?(): void;
   onClose?(): void;
-  // Optional: when supplied, a "Files" tab is shown alongside "Edits" and
-  // mounts this panel root. The drawer owns the panel's wiring.
   filesPanel?: HTMLElement;
-  // Optional: when supplied, a "Characters" tab is shown for per-character
-  // storage management and switching the Edits view.
-  charactersPanel?: HTMLElement;
-  // Optional: fired whenever the Characters tab is activated so the drawer
-  // can re-fetch fresh per-character data.
-  onCharactersTabActivated?: () => void;
-  // Optional: a short label describing whose edits are being shown. Surfaces
-  // in the stats line and empty state. Lets the modal distinguish a
-  // no-character session from a character with zero edits.
-  getScopeLabel?(): string | null;
 }
 
 export interface DiffModalHandle {
   setEdits(edits: readonly EditLogEntry[]): void;
+  setScopes(scopes: readonly ScopeOption[]): void;
   focusEdit(editId: string): void;
-  focusTab(tab: "edits" | "files" | "characters"): void;
+  focusTab(tab: WorkshopTab): void;
   close(): void;
   isOpen(): boolean;
 }
@@ -126,39 +137,76 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
     deps.onClose?.();
   });
 
-  // Top-level tabs.
-  let activeTab: "edits" | "files" | "characters" = "edits";
-  const tabs = el("div", "la-workshop-tabs");
-  const editsTabBtn = el("button", "la-workshop-tab is-active", "Edits") as HTMLButtonElement;
-  const filesTabBtn = el("button", "la-workshop-tab", "Files") as HTMLButtonElement;
-  const charsTabBtn = el("button", "la-workshop-tab", "Characters") as HTMLButtonElement;
-  tabs.append(editsTabBtn, filesTabBtn, charsTabBtn);
-  if (!deps.filesPanel) filesTabBtn.style.display = "none";
-  if (!deps.charactersPanel) charsTabBtn.style.display = "none";
+  let activeTab: WorkshopTab = "characters";
+  let scopes: readonly ScopeOption[] = deps.getScopes();
+  // Remembered combo selection per scope tab so switching back restores it.
+  const remembered: { characters: string | null; lumiverse: string | null } = { characters: null, lumiverse: null };
 
+  // ── Tabs ──
+  const tabs = el("div", "la-workshop-tabs");
+  const charsTabBtn = el("button", "la-workshop-tab is-active", "Characters") as HTMLButtonElement;
+  const lumiTabBtn = el("button", "la-workshop-tab", "Lumiverse") as HTMLButtonElement;
+  const filesTabBtn = el("button", "la-workshop-tab", "Files") as HTMLButtonElement;
+  tabs.append(charsTabBtn, lumiTabBtn, filesTabBtn);
+  if (!deps.filesPanel) filesTabBtn.style.display = "none";
+
+  // ── Toolbar: [combo] · N live / N total ........ [by time|by file] [Revert all] [Forget changes] ──
   const toolbar = el("div", "la-diff-modal-toolbar");
-  const stats = el("div", "la-diff-modal-stats");
-  const spacer = el("div", "la-flex-spacer");
+  const selectGroup = el("div", "la-diff-toolbar-select");
+  const comboRoot = el("div", "la-diff-scope-combo");
+  const combo = mountCombo(comboRoot);
+  combo.setPlaceholder("No scopes");
+  const stats = el("span", "la-diff-modal-stats");
+  selectGroup.append(comboRoot, stats);
+
+  const actions = el("div", "la-diff-modal-toolbar-actions");
   const viewToggle = el("div", "la-diff-view-toggle");
   const byTimeBtn = el("button", "la-diff-view-tab is-active", "By time") as HTMLButtonElement;
   const byFileBtn = el("button", "la-diff-view-tab", "By file") as HTMLButtonElement;
   viewToggle.append(byTimeBtn, byFileBtn);
-  toolbar.append(stats, spacer, viewToggle);
+  const revertAllBtn = el("button", "la-btn la-btn-mini la-btn-danger", "Revert all") as HTMLButtonElement;
+  revertAllBtn.title = "Revert every live edit in the selected scope. Cascade-aware.";
+  const forgetBtn = el("button", "la-btn la-btn-mini la-btn-danger", "Forget changes") as HTMLButtonElement;
+  forgetBtn.title = "Clear the edit ledger for the selected scope. The underlying data is NOT touched.";
+  actions.append(viewToggle, revertAllBtn, forgetBtn);
+  toolbar.append(selectGroup, actions);
 
   let viewMode: "time" | "file" = "time";
   byTimeBtn.addEventListener("click", () => {
     if (viewMode === "time") return;
     viewMode = "time";
     byTimeBtn.classList.add("is-active"); byFileBtn.classList.remove("is-active");
-    refresh();
+    renderTree();
   });
   byFileBtn.addEventListener("click", () => {
     if (viewMode === "file") return;
     viewMode = "file";
     byFileBtn.classList.add("is-active"); byTimeBtn.classList.remove("is-active");
-    refresh();
+    renderTree();
   });
 
+  const selectedOption = (): ScopeOption | null => {
+    const id = combo.getValue();
+    if (!id) return null;
+    return scopes.find((s) => scopeKeyString(s.scope) === id) ?? null;
+  };
+
+  revertAllBtn.addEventListener("click", () => {
+    const o = selectedOption();
+    if (o && o.liveCount > 0) deps.onRevertAll(o.scope);
+  });
+  forgetBtn.addEventListener("click", () => {
+    const o = selectedOption();
+    if (o && o.totalCount > 0) deps.onForget(o.scope);
+  });
+
+  combo.onChange((id) => {
+    remembered[activeTab === "lumiverse" ? "lumiverse" : "characters"] = id;
+    const o = id ? scopes.find((s) => scopeKeyString(s.scope) === id) ?? null : null;
+    if (o) deps.onSelectScope(o.scope);
+  });
+
+  // ── Body ──
   const body = el("div", "la-diff-modal-body");
   const tree = el("aside", "la-diff-modal-tree");
   const pane = el("section", "la-diff-modal-pane");
@@ -168,33 +216,42 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
   editsView.append(toolbar, body);
   const filesView = el("div", "la-workshop-view la-workshop-view-files");
   if (deps.filesPanel) filesView.appendChild(deps.filesPanel);
-  const charsView = el("div", "la-workshop-view la-workshop-view-chars");
-  if (deps.charactersPanel) charsView.appendChild(deps.charactersPanel);
 
-  const switchTab = (next: "edits" | "files" | "characters"): void => {
-    if (activeTab === next) return;
-    activeTab = next;
-    editsTabBtn.classList.toggle("is-active", next === "edits");
-    filesTabBtn.classList.toggle("is-active", next === "files");
-    charsTabBtn.classList.toggle("is-active", next === "characters");
-    editsView.classList.toggle("is-active", next === "edits");
-    filesView.classList.toggle("is-active", next === "files");
-    charsView.classList.toggle("is-active", next === "characters");
-    if (next === "characters") deps.onCharactersTabActivated?.();
-  };
-  editsTabBtn.addEventListener("click", () => switchTab("edits"));
-  filesTabBtn.addEventListener("click", () => { if (deps.filesPanel) switchTab("files"); });
-  charsTabBtn.addEventListener("click", () => { if (deps.charactersPanel) switchTab("characters"); });
-
-  root.append(tabs, editsView, filesView, charsView);
+  root.append(tabs, editsView, filesView);
 
   let currentEditId: string | null = opts?.initialEditId ?? null;
   let edits: readonly EditLogEntry[] = deps.getEdits();
 
+  // Repopulate the combo for the active scope tab and sync the selection.
+  const syncCombo = (): void => {
+    const wantLumi = activeTab === "lumiverse";
+    const opts2 = scopes.filter((s) => isLumiverseKind(s.scope.kind) === wantLumi);
+    combo.setItems(opts2.map((s) => ({
+      id: scopeKeyString(s.scope),
+      label: s.label,
+      sublabel: `${s.liveCount} live / ${s.totalCount} total`,
+    })));
+    const tabKey = wantLumi ? "lumiverse" : "characters";
+    let want = remembered[tabKey];
+    if (!want || !opts2.some((s) => scopeKeyString(s.scope) === want)) {
+      const sel = deps.getSelectedScope();
+      const selKey = sel ? scopeKeyString(sel) : null;
+      want = selKey && opts2.some((s) => scopeKeyString(s.scope) === selKey)
+        ? selKey
+        : (opts2[0] ? scopeKeyString(opts2[0].scope) : null);
+    }
+    remembered[tabKey] = want;
+    // Silent: don't fire a reload just for repopulating; only an explicit
+    // user pick or a tab switch to an unloaded scope loads edits.
+    combo.setValue(want, true);
+  };
+
   const refresh = (): void => {
     const liveCount = edits.filter((e) => !e.reverted).length;
-    const scope = deps.getScopeLabel?.();
-    stats.textContent = `${liveCount} live / ${edits.length} total${scope ? ` · ${scope}` : ""}`;
+    stats.textContent = `· ${liveCount} live / ${edits.length} total`;
+    const o = selectedOption();
+    revertAllBtn.disabled = !o || o.liveCount === 0;
+    forgetBtn.disabled = !o || o.totalCount === 0;
     renderTree();
     renderPane();
   };
@@ -274,10 +331,11 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
   const renderPane = (): void => {
     pane.innerHTML = "";
     if (edits.length === 0) {
-      const scope = deps.getScopeLabel?.();
-      const msg = scope
-        ? `Nothing changed in this session yet. (${scope})`
-        : "Nothing changed in this session yet.";
+      const o = selectedOption();
+      const noun = activeTab === "lumiverse" ? "Lumiverse" : "character";
+      const msg = o
+        ? `Nothing changed in ${o.label} yet.`
+        : `No ${noun} edits yet.`;
       pane.appendChild(el("div", "la-diff-pane-empty", msg));
       return;
     }
@@ -289,32 +347,29 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
     currentEditId = target.id;
     const r = target.record;
 
-    const toolbar = el("div", "la-diff-pane-toolbar");
+    const paneToolbar = el("div", "la-diff-pane-toolbar");
     const heading = el("div", "la-diff-pane-heading");
     const desc = describeRecord(target);
     heading.appendChild(el("strong", undefined, desc.primary));
     heading.appendChild(el("span", "la-diff-pane-sub", ` · ${desc.secondary}`));
     const meta = el("div", "la-diff-pane-meta", `Turn ${target.turn} · ${desc.statSummary} · tool ${target.toolName} · ${new Date(target.ts).toLocaleString()}`);
 
-    const actions = el("div", "la-diff-pane-actions");
+    const paneActions = el("div", "la-diff-pane-actions");
     const revertBtn = el("button", `la-btn ${target.reverted ? "la-btn-disabled" : "la-btn-danger"}`, target.reverted ? "Reverted" : "Revert this edit") as HTMLButtonElement;
     revertBtn.disabled = target.reverted;
     revertBtn.addEventListener("click", async () => {
       if (target.reverted) return;
       revertBtn.disabled = true;
       revertBtn.textContent = "Reverting…";
-      try {
-        await deps.onRevert(target.id);
-      } finally {
-        // Caller refreshes edits via setEdits().
-      }
+      await deps.onRevert(target.id);
+      // Caller refreshes edits via setEdits().
     });
-    actions.appendChild(revertBtn);
+    paneActions.appendChild(revertBtn);
 
-    toolbar.appendChild(heading);
-    toolbar.appendChild(meta);
-    toolbar.appendChild(actions);
-    pane.appendChild(toolbar);
+    paneToolbar.appendChild(heading);
+    paneToolbar.appendChild(meta);
+    paneToolbar.appendChild(paneActions);
+    pane.appendChild(paneToolbar);
 
     const isMobile = window.innerWidth < MOBILE_BREAKPOINT_PX;
     if (r.op === "create") {
@@ -347,10 +402,45 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
     pane.appendChild(wrap);
   };
 
+  const switchTab = (next: WorkshopTab): void => {
+    if (activeTab === next) return;
+    const prev = activeTab;
+    activeTab = next;
+    charsTabBtn.classList.toggle("is-active", next === "characters");
+    lumiTabBtn.classList.toggle("is-active", next === "lumiverse");
+    filesTabBtn.classList.toggle("is-active", next === "files");
+    editsView.classList.toggle("is-active", next !== "files");
+    filesView.classList.toggle("is-active", next === "files");
+    if (next === "files") return;
+    deps.onScopesNeeded?.();
+    // Moving between scope tabs: repoint the combo and load the scope that
+    // tab should show if it isn't already the loaded one.
+    if (prev !== next) {
+      syncCombo();
+      const o = selectedOption();
+      const sel = deps.getSelectedScope();
+      if (o && (!sel || scopeKeyString(sel) !== scopeKeyString(o.scope))) {
+        deps.onSelectScope(o.scope);
+      }
+      refresh();
+    }
+  };
+  charsTabBtn.addEventListener("click", () => switchTab("characters"));
+  lumiTabBtn.addEventListener("click", () => switchTab("lumiverse"));
+  filesTabBtn.addEventListener("click", () => { if (deps.filesPanel) switchTab("files"); });
+
+  deps.onScopesNeeded?.();
+  syncCombo();
   refresh();
 
   return {
     setEdits(next) { if (!open) return; edits = next; refresh(); },
+    setScopes(next) {
+      if (!open) return;
+      scopes = next;
+      syncCombo();
+      refresh();
+    },
     focusEdit(editId) { if (!open) return; currentEditId = editId; refresh(); },
     focusTab(tab) { if (!open) return; switchTab(tab); },
     isOpen() { return open; },

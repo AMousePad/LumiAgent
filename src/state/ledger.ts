@@ -189,6 +189,8 @@ export async function appendEntries(
         ...(e.assistantMessageId !== undefined ? { assistantMessageId: e.assistantMessageId } : {}),
         turn: e.turn,
       });
+      // Skip a brand-new file that a no-op edit left empty: nothing to track.
+      if (!existing && result.file.patches.length === 0) continue;
       upsertFile(ledger, result.file);
     } else if (r.op === "create" || r.op === "delete") {
       const sp = structuralFromEntry(e, r);
@@ -463,13 +465,20 @@ export async function squashMessage(
     if (res.length === 0) continue;
     let actuallyMerged = 0;
     for (const r of res) {
-      if (r.absorbedIds.length > 1) {
+      if (r.merged === null) {
+        // Run collapsed to no net change: every absorbed id is gone, no
+        // replacement patch. Surface them so the frontend drops the rows.
+        for (const id of r.absorbedIds) absorbedIds.push(id);
+        actuallyMerged++;
+        changed = true;
+      } else if (r.absorbedIds.length > 1) {
+        const mergedId = r.merged.id;
         for (const id of r.absorbedIds) {
-          if (id === r.merged.id) continue;
+          if (id === mergedId) continue;
           absorbedIds.push(id);
-          absorbedToMerged.set(id, r.merged.id);
+          absorbedToMerged.set(id, mergedId);
         }
-        newPatchIds.push(r.merged.id);
+        newPatchIds.push(mergedId);
         actuallyMerged++;
         changed = true;
       } else if (opts.sealed === true) {
