@@ -1772,11 +1772,11 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
           break;
         }
         case "edit_logged":
-          // Ledger / edit-events are character-scoped; in no-character sessions
-          // the char-required tools that produce edits are filtered out of the
-          // schema, so this branch is defensive: it can't fire unless a future
-          // char-agnostic tool starts pushing edits.
-          if (s.characterId === null) break;
+          // A character-scoped edit in a no-character session is nonsensical
+          // (the char tools are filtered out). Non-character scopes
+          // (persona/chat/preset, e.g. create_persona) are valid without a
+          // character and must still file into their own ledger.
+          if (s.characterId === null && ev.entry.scope.kind === "character") break;
           s.edits.push(ev.entry);
           void appendEntries(spindle, ev.entry.scope, [ev.entry], userId).catch((e) => log("warn", `ledger append failed: ${(e as Error).message}`));
           break;

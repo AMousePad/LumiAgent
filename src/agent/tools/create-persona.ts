@@ -27,7 +27,9 @@ export const createPersonaTool = defineTool({
     },
     required: ["name"],
   },
-  requiresCharacter: true,
+  // Personas are user-scoped, not tied to the active character. Available
+  // even in a no-character session.
+  requiresCharacter: false,
   execute: async (input, ctx) => {
     const create: PersonaCreateDTO = { name: input.name };
     if (input.title !== undefined) create.title = input.title;

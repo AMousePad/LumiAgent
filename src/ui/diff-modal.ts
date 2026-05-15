@@ -206,8 +206,7 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
 
   combo.onChange((id) => {
     remembered[activeTab === "lumiverse" ? "lumiverse" : "characters"] = id;
-    const o = id ? scopes.find((s) => scopeKeyString(s.scope) === id) ?? null : null;
-    if (o) deps.onSelectScope(o.scope);
+    selectAndLoad();
   });
 
   // ── Body ──
@@ -225,6 +224,10 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
 
   let currentEditId: string | null = opts?.initialEditId ?? null;
   let edits: readonly EditLogEntry[] = deps.getEdits();
+  // True between asking the drawer to load a scope and its setEdits arriving.
+  // Keeps the pane from flashing a previous scope's edits or a false "no
+  // edits" while the ledger round-trips.
+  let loading = false;
 
   // Repopulate the combo for the active scope tab and sync the selection.
   const syncCombo = (): void => {
@@ -250,6 +253,22 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
     combo.setValue(want, true);
   };
 
+  // Establish the active tab's scope and load its edits. Clears the pane
+  // immediately so a previous scope's edits never linger while the new
+  // ledger round-trips. Used by open, tab switch, and combo pick.
+  const selectAndLoad = (): void => {
+    const o = selectedOption();
+    const scope = o ? o.scope : (activeTab === "characters" ? deps.getSelectedScope() : null);
+    edits = [];
+    if (scope) {
+      loading = true;
+      deps.onSelectScope(scope);
+    } else {
+      loading = false;
+    }
+    refresh();
+  };
+
   const refresh = (): void => {
     const liveCount = edits.filter((e) => !e.reverted).length;
     stats.textContent = `· ${liveCount} live / ${edits.length} total`;
@@ -263,7 +282,7 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
   const renderTree = (): void => {
     tree.innerHTML = "";
     if (edits.length === 0) {
-      tree.appendChild(el("div", "la-diff-tree-empty", "No edits yet."));
+      tree.appendChild(el("div", "la-diff-tree-empty", loading ? "Loading…" : "No edits yet."));
       return;
     }
     if (viewMode === "time") renderTreeByTime();
@@ -335,6 +354,10 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
   const renderPane = (): void => {
     pane.innerHTML = "";
     if (edits.length === 0) {
+      if (loading) {
+        pane.appendChild(el("div", "la-diff-pane-empty", "Loading…"));
+        return;
+      }
       const o = selectedOption();
       const noun = activeTab === "lumiverse" ? "Lumiverse" : "character";
       const msg = o
@@ -417,16 +440,12 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
     filesView.classList.toggle("is-active", next === "files");
     if (next === "files") return;
     deps.onScopesNeeded?.();
-    // Moving between scope tabs: repoint the combo and load the scope that
-    // tab should show if it isn't already the loaded one.
+    // Moving between scope tabs: repoint the combo and load that tab's
+    // scope. selectAndLoad clears the pane so the other tab's edits don't
+    // linger (and shows a proper empty state when the tab has no scopes).
     if (prev !== next) {
       syncCombo();
-      const o = selectedOption();
-      const sel = deps.getSelectedScope();
-      if (o && (!sel || scopeKeyString(sel) !== scopeKeyString(o.scope))) {
-        deps.onSelectScope(o.scope);
-      }
-      refresh();
+      selectAndLoad();
     }
   };
   charsTabBtn.addEventListener("click", () => switchTab("characters"));
@@ -435,10 +454,10 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
 
   deps.onScopesNeeded?.();
   syncCombo();
-  refresh();
+  selectAndLoad();
 
   return {
-    setEdits(next) { if (!open) return; edits = next; refresh(); },
+    setEdits(next) { if (!open) return; loading = false; edits = next; refresh(); },
     setScopes(next) {
       if (!open) return;
       scopes = next;

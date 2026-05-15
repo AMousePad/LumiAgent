@@ -6251,9 +6251,7 @@ function openDiffModal(ctx, deps, opts) {
   });
   combo.onChange((id) => {
     remembered[activeTab === "lumiverse" ? "lumiverse" : "characters"] = id;
-    const o = id ? scopes.find((s) => scopeKeyString(s.scope) === id) ?? null : null;
-    if (o)
-      deps.onSelectScope(o.scope);
+    selectAndLoad();
   });
   const body = el4("div", "la-diff-modal-body");
   const tree = el4("aside", "la-diff-modal-tree");
@@ -6267,6 +6265,7 @@ function openDiffModal(ctx, deps, opts) {
   root.append(tabs, editsView, filesView);
   let currentEditId = opts?.initialEditId ?? null;
   let edits = deps.getEdits();
+  let loading = false;
   const syncCombo = () => {
     const wantLumi = activeTab === "lumiverse";
     const opts2 = scopes.filter((s) => isLumiverseKind(s.scope.kind) === wantLumi);
@@ -6285,6 +6284,18 @@ function openDiffModal(ctx, deps, opts) {
     remembered[tabKey] = want;
     combo.setValue(want, true);
   };
+  const selectAndLoad = () => {
+    const o = selectedOption();
+    const scope = o ? o.scope : activeTab === "characters" ? deps.getSelectedScope() : null;
+    edits = [];
+    if (scope) {
+      loading = true;
+      deps.onSelectScope(scope);
+    } else {
+      loading = false;
+    }
+    refresh();
+  };
   const refresh = () => {
     const liveCount = edits.filter((e) => !e.reverted).length;
     stats.textContent = `· ${liveCount} live / ${edits.length} total`;
@@ -6297,7 +6308,7 @@ function openDiffModal(ctx, deps, opts) {
   const renderTree = () => {
     tree.innerHTML = "";
     if (edits.length === 0) {
-      tree.appendChild(el4("div", "la-diff-tree-empty", "No edits yet."));
+      tree.appendChild(el4("div", "la-diff-tree-empty", loading ? "Loading…" : "No edits yet."));
       return;
     }
     if (viewMode === "time")
@@ -6372,6 +6383,10 @@ function openDiffModal(ctx, deps, opts) {
   const renderPane = () => {
     pane.innerHTML = "";
     if (edits.length === 0) {
+      if (loading) {
+        pane.appendChild(el4("div", "la-diff-pane-empty", "Loading…"));
+        return;
+      }
       const o = selectedOption();
       const noun = activeTab === "lumiverse" ? "Lumiverse" : "character";
       const msg = o ? `Nothing changed in ${o.label} yet.` : `No ${noun} edits yet.`;
@@ -6450,12 +6465,7 @@ function openDiffModal(ctx, deps, opts) {
     deps.onScopesNeeded?.();
     if (prev !== next) {
       syncCombo();
-      const o = selectedOption();
-      const sel = deps.getSelectedScope();
-      if (o && (!sel || scopeKeyString(sel) !== scopeKeyString(o.scope))) {
-        deps.onSelectScope(o.scope);
-      }
-      refresh();
+      selectAndLoad();
     }
   };
   charsTabBtn.addEventListener("click", () => switchTab("characters"));
@@ -6466,11 +6476,12 @@ function openDiffModal(ctx, deps, opts) {
   });
   deps.onScopesNeeded?.();
   syncCombo();
-  refresh();
+  selectAndLoad();
   return {
     setEdits(next) {
       if (!open)
         return;
+      loading = false;
       edits = next;
       refresh();
     },

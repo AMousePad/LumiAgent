@@ -19198,7 +19198,7 @@ var init_create_persona = __esm(() => {
       },
       required: ["name"]
     },
-    requiresCharacter: true,
+    requiresCharacter: false,
     execute: async (input, ctx) => {
       const create = { name: input.name };
       if (input.title !== undefined)
@@ -36423,7 +36423,7 @@ async function handleSendMessageInternal(s, userId, connectionIdOverride) {
           break;
         }
         case "edit_logged":
-          if (s.characterId === null)
+          if (s.characterId === null && ev.entry.scope.kind === "character")
             break;
           s.edits.push(ev.entry);
           appendEntries(spindle, ev.entry.scope, [ev.entry], userId).catch((e) => log("warn", `ledger append failed: ${e.message}`));
