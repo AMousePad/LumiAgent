@@ -13,8 +13,9 @@ interface OutgoingItem {
     | { kind: "regex_replace_string"; scriptId: string; scriptName: string }
     | { kind: "regex_find_regex"; scriptId: string; scriptName: string }
     | { kind: "lumirealm_bghtml" }
-    | { kind: "lumirealm_lua_script"; index: number }
-    | { kind: "lumirealm_trigger_code"; index: number }
+    | { kind: "lumirealm_trigger_code"; triggerIndex: number; effectIndex: number }
+    | { kind: "lumirealm_trigger_value"; triggerIndex: number; effectIndex: number }
+    | { kind: "lumirealm_trigger_display"; triggerIndex: number; effectIndex: number }
     | { kind: "lumirealm_scriptstate_default"; key: string }
     | { kind: "character_field"; field: string }
     | { kind: "alternate_greeting"; index: number }
@@ -37,7 +38,7 @@ interface TranslateBatchResponse {
 const INCLUDE_VALUES = [
   "regex_scripts",
   "lumirealm_bghtml",
-  "lumirealm_lua",
+  "lumirealm_triggers",
   "lumirealm_scriptstate",
   "character_fields",
   "alternate_greetings",
@@ -47,12 +48,26 @@ const INCLUDE_VALUES = [
 const inputSchema = z.object({
   source_lang: z.string().min(2).max(10).describe("BCP-47 source language tag (e.g. 'ko', 'ja', 'zh-Hans'). Chrome's Translator API picks the on-device model from this."),
   target_lang: z.string().min(2).max(10).describe("BCP-47 target language tag (e.g. 'en'). Same caveat as source_lang."),
-  include: z.array(z.enum(INCLUDE_VALUES)).optional().describe("Which surfaces to translate. Default: regex_scripts + lumirealm_bghtml + lumirealm_lua + lumirealm_scriptstate. Skips alternate_greetings, character_fields, world_book_entries by default since those are prose you should review yourself."),
+  include: z.array(z.enum(INCLUDE_VALUES)).optional().describe("Which surfaces to translate. Default: regex_scripts + lumirealm_bghtml + lumirealm_triggers + lumirealm_scriptstate. Skips alternate_greetings, character_fields, world_book_entries by default since those are prose you should review yourself. lumirealm_triggers covers all trigger string surfaces: triggerlua/triggercode code blobs (literal extraction only), setvar/addvar/setdefaultvar values, alert displays, runLLM prompts."),
   dry_run: z.boolean().optional().describe("Collect translatable items but don't write any edits. Returns the would-translate manifest."),
   min_chars: z.number().int().min(0).max(1000).optional().describe("Skip strings shorter than this. Default 2."),
 }).strict();
 
-const DEFAULT_INCLUDE = ["regex_scripts", "lumirealm_bghtml", "lumirealm_lua", "lumirealm_scriptstate"] as const;
+const DEFAULT_INCLUDE = ["regex_scripts", "lumirealm_bghtml", "lumirealm_triggers", "lumirealm_scriptstate"] as const;
+
+const CODE_EFFECT_TYPES = new Set<string>(["triggerlua", "triggercode"]);
+// .value carries the user-visible string (label that ends up in {{getvar::*}}
+// macros). .target is the variable name and stays untouched. Mirror of the
+// bridge's SETVAR_LIKE_TYPES.
+const SETVAR_LIKE_TYPES = new Set<string>([
+  "setvar", "addvar", "setdefaultvar", "v2SetVar", "v2DeclareLocalVar", "settempvar",
+]);
+// .display is popup text. Mirror of the bridge's ALERT_LIKE_TYPES.
+const ALERT_LIKE_TYPES = new Set<string>([
+  "alertNormal", "alertError", "alertSelect", "alertInput", "alertConfirm", "alert", "showAlert", "v2ShowAlert",
+]);
+// .value is the sub-prompt sent to the aux LLM.
+const RUNLLM_TYPES = new Set<string>(["runLLM", "v2RunLLM", "runAxLLM", "sendAIprompt"]);
 const DEFAULT_MIN_CHARS = 2;
 
 function looksLikeRegexPattern(s: string): boolean {
@@ -120,29 +135,87 @@ Usage:
     const payload = lumirealm?.["payload"] as Record<string, unknown> | undefined;
 
     if (include.has("lumirealm_bghtml") && payload) {
-      const bghtml = payload["background_html"];
-      if (isNonEmptyString(bghtml) && bghtml.length >= minChars) {
+      // Read from background_html_source (the authoring surface); fall back to
+      // background_html only if _source is missing (legacy unseeded card).
+      const source = payload["background_html_source"];
+      const fallback = payload["background_html"];
+      const bghtml = isNonEmptyString(source) ? source : (isNonEmptyString(fallback) ? fallback : null);
+      if (bghtml !== null && bghtml.length >= minChars) {
         items.push({ id: mkId(), text: bghtml, kind: "html", target: { kind: "lumirealm_bghtml" } });
       }
     }
 
-    if (include.has("lumirealm_lua") && payload) {
-      const luaScripts = payload["lua_scripts"];
-      if (Array.isArray(luaScripts)) {
-        luaScripts.forEach((entry, i) => {
-          const code = typeof entry === "string" ? entry : isNonEmptyString((entry as { code?: unknown })?.code) ? (entry as { code: string }).code : null;
-          if (code !== null && code.length >= minChars) {
-            items.push({ id: mkId(), text: code, kind: "lua", target: { kind: "lumirealm_lua_script", index: i } });
-          }
-        });
-      }
+    if (include.has("lumirealm_triggers") && payload) {
+      // Walks triggers[i].effect[k] and dispatches by effect.type. The Risu
+      // trigger model has three flavors: V1 opcodes (setvar/showAlert/runLLM
+      // etc.), V2 opcodes (v2SetVar/v2ShowAlert/v2RunLLM etc.), and Lua/JS
+      // code (triggerlua, triggercode). The schema doesn't enforce mutual
+      // exclusion at the trigger level, so we dispatch per-effect, not per-
+      // trigger. Each effect type has its own user-visible string field:
+      //   code effects:    .code     (translate via the lua kind, which
+      //                                extracts only string literals)
+      //   setvar-likes:    .value    (the displayed-via-{{getvar::*}} label;
+      //                                .target is the var name, untouched)
+      //   alert-likes:     .display  (popup text); .value sometimes holds
+      //                                an options array — we skip that shape
+      //                                for now, agent can edit manually
+      //   runLLM-likes:    .value    (sub-prompt sent to the aux LLM)
       const triggers = payload["triggers"];
       if (Array.isArray(triggers)) {
-        triggers.forEach((entry, i) => {
-          const code = isNonEmptyString((entry as { code?: unknown })?.code) ? (entry as { code: string }).code : null;
-          if (code !== null && code.length >= minChars) {
-            items.push({ id: mkId(), text: code, kind: "lua", target: { kind: "lumirealm_trigger_code", index: i } });
-          }
+        triggers.forEach((tEntry, ti) => {
+          if (!tEntry || typeof tEntry !== "object") return;
+          const effects = (tEntry as { effect?: unknown }).effect;
+          if (!Array.isArray(effects)) return;
+          effects.forEach((eEntry, ei) => {
+            if (!eEntry || typeof eEntry !== "object") return;
+            const e = eEntry as { type?: unknown; code?: unknown; value?: unknown; display?: unknown };
+            const etype = typeof e.type === "string" ? e.type : "";
+            if (CODE_EFFECT_TYPES.has(etype)) {
+              const code = isNonEmptyString(e.code) ? e.code : null;
+              if (code === null || code.length < minChars) return;
+              items.push({
+                id: mkId(),
+                text: code,
+                kind: "lua",
+                target: { kind: "lumirealm_trigger_code", triggerIndex: ti, effectIndex: ei },
+              });
+              return;
+            }
+            if (SETVAR_LIKE_TYPES.has(etype) || RUNLLM_TYPES.has(etype)) {
+              const value = isNonEmptyString(e.value) ? e.value : null;
+              if (value === null || value.length < minChars) return;
+              items.push({
+                id: mkId(),
+                text: value,
+                kind: "plain",
+                target: { kind: "lumirealm_trigger_value", triggerIndex: ti, effectIndex: ei },
+              });
+              return;
+            }
+            if (ALERT_LIKE_TYPES.has(etype)) {
+              const display = isNonEmptyString(e.display) ? e.display : null;
+              if (display !== null && display.length >= minChars) {
+                items.push({
+                  id: mkId(),
+                  text: display,
+                  kind: "plain",
+                  target: { kind: "lumirealm_trigger_display", triggerIndex: ti, effectIndex: ei },
+                });
+              }
+              // Plain-string `.value` on alerts is the body/prompt (e.g.
+              // alertInput placeholder); array-shaped `.value` for alertSelect
+              // options is left for manual edits.
+              if (isNonEmptyString(e.value) && e.value.length >= minChars) {
+                items.push({
+                  id: mkId(),
+                  text: e.value,
+                  kind: "plain",
+                  target: { kind: "lumirealm_trigger_value", triggerIndex: ti, effectIndex: ei },
+                });
+              }
+              return;
+            }
+          });
         });
       }
     }
@@ -242,11 +315,24 @@ Usage:
         else { existing.patch["find_regex"] = t.text; existing.before.find_regex = item.text; }
         regexUpdates.set(target.scriptId, existing);
       } else if (target.kind === "lumirealm_bghtml") {
-        extensionMutations.push({ path: ["lumirealm", "payload", "background_html"], before: item.text, after: t.text, label: "lumirealm.payload.background_html" });
-      } else if (target.kind === "lumirealm_lua_script") {
-        extensionMutations.push({ path: ["lumirealm", "payload", "lua_scripts", String(target.index), "code"], before: item.text, after: t.text, label: `lumirealm.payload.lua_scripts[${target.index}]` });
-      } else if (target.kind === "lumirealm_trigger_code") {
-        extensionMutations.push({ path: ["lumirealm", "payload", "triggers", String(target.index), "code"], before: item.text, after: t.text, label: `lumirealm.payload.triggers[${target.index}]` });
+        extensionMutations.push({ path: ["lumirealm", "payload", "background_html_source"], before: item.text, after: t.text, label: "lumirealm.payload.background_html_source" });
+      } else if (
+        target.kind === "lumirealm_trigger_code" ||
+        target.kind === "lumirealm_trigger_value" ||
+        target.kind === "lumirealm_trigger_display"
+      ) {
+        const field = target.kind === "lumirealm_trigger_code"
+          ? "code"
+          : target.kind === "lumirealm_trigger_value"
+            ? "value"
+            : "display";
+        const dotted = `lumirealm.payload.triggers[${target.triggerIndex}].effect[${target.effectIndex}].${field}`;
+        extensionMutations.push({
+          path: ["lumirealm", "payload", "triggers", String(target.triggerIndex), "effect", String(target.effectIndex), field],
+          before: item.text,
+          after: t.text,
+          label: dotted,
+        });
       } else if (target.kind === "lumirealm_scriptstate_default") {
         extensionMutations.push({ path: ["lumirealm", "payload", "scriptstate_defaults", target.key], before: item.text, after: t.text, label: `lumirealm.payload.scriptstate_defaults.${target.key}` });
       } else if (target.kind === "character_field") {
@@ -281,31 +367,47 @@ Usage:
     }
 
     if (extensionMutations.length > 0) {
-      nextExtensionsRoot = JSON.parse(JSON.stringify(c.extensions ?? {})) as Record<string, unknown>;
+      // Per-leaf phone-line write check. We can't pass refused leaves through
+      // the wholesale extensions update or they'd land alongside the allowed
+      // ones; gate each mutation, drop the refused entries, and report them
+      // so the agent sees them in the result.
+      const { checkExtensionWrite } = await import("../../phoneline/gate");
+      const { makeConsentPromptFn } = await import("../../phoneline/consent");
+      const promptFn = makeConsentPromptFn(ctx.callFrontend ?? (async () => ({ denied: true })));
+      const allowedMutations: ExtensionMutation[] = [];
       for (const m of extensionMutations) {
-        let cur: unknown = nextExtensionsRoot;
-        for (let i = 0; i < m.path.length - 1; i++) {
-          const seg = m.path[i]!;
-          if (cur === null || typeof cur !== "object") { cur = null; break; }
-          const isIdx = /^\d+$/.test(seg);
-          if (isIdx && Array.isArray(cur)) cur = cur[parseInt(seg, 10)];
-          else if (!Array.isArray(cur)) cur = (cur as Record<string, unknown>)[seg];
-          else cur = undefined;
-        }
-        const last = m.path[m.path.length - 1]!;
-        if (cur !== null && typeof cur === "object") {
-          if (Array.isArray(cur) && /^\d+$/.test(last)) (cur as unknown[])[parseInt(last, 10)] = m.after;
-          else (cur as Record<string, unknown>)[last] = m.after;
-        }
+        const dotted = m.path.map((seg) => /^\d+$/.test(seg) ? `[${seg}]` : seg).join(".").replace(/\.\[/g, "[");
+        const res = await checkExtensionWrite(ctx.spindle, ctx.userId, ctx.characterId, dotted, promptFn);
+        if (res.ok) allowedMutations.push(m);
+        else writeErrors.push({ target: `extensions.${dotted}`, error: `[REFUSED_BY_EXTENSION] ${res.message ?? "extension refused write at this path"}` });
       }
-      try {
-        await ctx.spindle.characters.update(ctx.characterId, { extensions: nextExtensionsRoot } as CharacterUpdateDTO, ctx.userId);
-        for (const m of extensionMutations) {
-          ctx.pushEdit({ op: "edit", surface: "extension", surfaceId: ctx.characterId, surfaceLabel: m.label, field: m.path.join("."), before: m.before, after: m.after });
-          extensionApplied++;
+      if (allowedMutations.length > 0) {
+        nextExtensionsRoot = JSON.parse(JSON.stringify(c.extensions ?? {})) as Record<string, unknown>;
+        for (const m of allowedMutations) {
+          let cur: unknown = nextExtensionsRoot;
+          for (let i = 0; i < m.path.length - 1; i++) {
+            const seg = m.path[i]!;
+            if (cur === null || typeof cur !== "object") { cur = null; break; }
+            const isIdx = /^\d+$/.test(seg);
+            if (isIdx && Array.isArray(cur)) cur = cur[parseInt(seg, 10)];
+            else if (!Array.isArray(cur)) cur = (cur as Record<string, unknown>)[seg];
+            else cur = undefined;
+          }
+          const last = m.path[m.path.length - 1]!;
+          if (cur !== null && typeof cur === "object") {
+            if (Array.isArray(cur) && /^\d+$/.test(last)) (cur as unknown[])[parseInt(last, 10)] = m.after;
+            else (cur as Record<string, unknown>)[last] = m.after;
+          }
         }
-      } catch (err) {
-        writeErrors.push({ target: "character.extensions", error: (err as Error).message });
+        try {
+          await ctx.spindle.characters.update(ctx.characterId, { extensions: nextExtensionsRoot } as CharacterUpdateDTO, ctx.userId);
+          for (const m of allowedMutations) {
+            ctx.pushEdit({ op: "edit", surface: "extension", surfaceId: ctx.characterId, surfaceLabel: m.label, field: m.path.join("."), before: m.before, after: m.after });
+            extensionApplied++;
+          }
+        } catch (err) {
+          writeErrors.push({ target: "character.extensions", error: (err as Error).message });
+        }
       }
     }
 

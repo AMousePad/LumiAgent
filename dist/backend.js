@@ -1750,6 +1750,7 @@ async function squashMessage(spindle2, characterId, assistantMessageId, userId, 
   const ledger = await loadLedger(spindle2, characterId, userId);
   const absorbedIds = [];
   const newPatchIds = [];
+  const absorbedToMerged = new Map;
   let filesTouched = 0;
   let groupsMerged = 0;
   let changed = false;
@@ -1760,7 +1761,12 @@ async function squashMessage(spindle2, characterId, assistantMessageId, userId, 
     let actuallyMerged = 0;
     for (const r of res) {
       if (r.absorbedIds.length > 1) {
-        absorbedIds.push(...r.absorbedIds.filter((id) => id !== r.merged.id));
+        for (const id of r.absorbedIds) {
+          if (id === r.merged.id)
+            continue;
+          absorbedIds.push(id);
+          absorbedToMerged.set(id, r.merged.id);
+        }
         newPatchIds.push(r.merged.id);
         actuallyMerged++;
         changed = true;
@@ -1775,7 +1781,7 @@ async function squashMessage(spindle2, characterId, assistantMessageId, userId, 
   }
   if (changed)
     await persistLedger(spindle2, ledger, userId);
-  return { filesTouched, groupsMerged, absorbedIds, newPatchIds };
+  return { filesTouched, groupsMerged, absorbedIds, newPatchIds, absorbedToMerged };
 }
 function dropCache(characterId, userId) {
   if (userId) {
@@ -1814,6 +1820,7 @@ __export(exports_transport, {
   dialDetachModule: () => dialDetachModule,
   dialDescribe: () => dialDescribe,
   dialCheckWrite: () => dialCheckWrite,
+  dialCheckRead: () => dialCheckRead,
   dialAttachModule: () => dialAttachModule,
   dialAssetMutate: () => dialAssetMutate
 });
@@ -1854,6 +1861,9 @@ function dialSystemPrompt(spindle2, extId, userId, characterId) {
 }
 function dialCheckWrite(spindle2, extId, userId, characterId, extPath) {
   return dial(spindle2, extId, { op: "check_write", userId, characterId, extPath });
+}
+function dialCheckRead(spindle2, extId, userId, characterId, extPath) {
+  return dial(spindle2, extId, { op: "check_read", userId, characterId, extPath });
 }
 function dialListItems(spindle2, extId, req) {
   return dial(spindle2, extId, { op: "list_items", ...req });
@@ -18009,6 +18019,55 @@ Wraps the \`rename_asset\` WS op so the LumiRealm runtime refresh hooks fire (as
   });
 });
 
+// src/phoneline/gate.ts
+var exports_gate = {};
+__export(exports_gate, {
+  checkExtensionWrite: () => checkExtensionWrite,
+  checkExtensionRead: () => checkExtensionRead
+});
+function firstSegment(extPath) {
+  const m = /^([A-Za-z_][A-Za-z0-9_]*)/.exec(extPath);
+  return m ? m[1] : null;
+}
+async function checkExtensionWrite(spindle2, userId, characterId, extPath, promptFn) {
+  const seg = firstSegment(extPath);
+  if (!seg)
+    return { ok: true };
+  const providers = await discoverProviders(spindle2, userId, promptFn);
+  const provider = providers.find((p) => p.id === seg);
+  if (!provider)
+    return { ok: true };
+  try {
+    const res = await dialCheckWrite(spindle2, provider.id, userId, characterId, extPath);
+    if (typeof res?.ok !== "boolean")
+      return { ok: true };
+    return res.message !== undefined ? { ok: res.ok, message: res.message } : { ok: res.ok };
+  } catch {
+    return { ok: true };
+  }
+}
+async function checkExtensionRead(spindle2, userId, characterId, extPath, promptFn) {
+  const seg = firstSegment(extPath);
+  if (!seg)
+    return { ok: true };
+  const providers = await discoverProviders(spindle2, userId, promptFn);
+  const provider = providers.find((p) => p.id === seg);
+  if (!provider)
+    return { ok: true };
+  try {
+    const res = await dialCheckRead(spindle2, provider.id, userId, characterId, extPath);
+    if (typeof res?.ok !== "boolean")
+      return { ok: true };
+    return res.message !== undefined ? { ok: res.ok, message: res.message } : { ok: res.ok };
+  } catch {
+    return { ok: true };
+  }
+}
+var init_gate = __esm(() => {
+  init_registry();
+  init_transport();
+});
+
 // src/agent/tools/_path_v2.ts
 function splitTopLevel(path2) {
   return path2.split("/").filter((s) => s.length > 0);
@@ -18049,6 +18108,7 @@ async function resolveRead(ctx, path2) {
       const extPath = parts.slice(2).join(".");
       if (extPath.length === 0)
         throw new PathError(path2, "extensions requires a sub-path");
+      await assertExtensionReadAllowed(ctx, extPath);
       const segs = parseExtensionPath(extPath);
       const v2 = getAtPath2(c.extensions ?? {}, segs);
       if (typeof v2 !== "string") {
@@ -18165,6 +18225,7 @@ async function resolveWrite(ctx, leaf, nextValue) {
     return;
   }
   if (leaf.surface === "extension") {
+    await assertExtensionWriteAllowed(ctx, leaf.field);
     const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
     if (!c)
       throw new Error("character not found");
@@ -18208,6 +18269,24 @@ async function resolveWrite(ctx, leaf, nextValue) {
     });
     return;
   }
+}
+async function getConsentPromptFn(ctx) {
+  const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
+  return makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
+}
+async function assertExtensionWriteAllowed(ctx, extPath) {
+  const { checkExtensionWrite: checkExtensionWrite2 } = await Promise.resolve().then(() => (init_gate(), exports_gate));
+  const promptFn = await getConsentPromptFn(ctx);
+  const res = await checkExtensionWrite2(ctx.spindle, ctx.userId, ctx.characterId, extPath, promptFn);
+  if (!res.ok)
+    throw new ExtensionRefusedError(`char/extensions/${extPath}`, "write", res.message ?? "extension refused write at this path");
+}
+async function assertExtensionReadAllowed(ctx, extPath) {
+  const { checkExtensionRead: checkExtensionRead2 } = await Promise.resolve().then(() => (init_gate(), exports_gate));
+  const promptFn = await getConsentPromptFn(ctx);
+  const res = await checkExtensionRead2(ctx.spindle, ctx.userId, ctx.characterId, extPath, promptFn);
+  if (!res.ok)
+    throw new ExtensionRefusedError(`char/extensions/${extPath}`, "read", res.message ?? "extension refused read at this path");
 }
 async function* iterateAllLeaves(ctx) {
   const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
@@ -18268,7 +18347,7 @@ async function* iterateAllLeaves(ctx) {
     }
   }
 }
-var PathError, OutOfRangeError;
+var PathError, OutOfRangeError, ExtensionRefusedError;
 var init__path_v2 = __esm(() => {
   init__surfaces();
   PathError = class PathError extends Error {
@@ -18285,6 +18364,16 @@ var init__path_v2 = __esm(() => {
       super(`Path '${path2}': ${msg}`);
       this.path = path2;
       this.name = "OutOfRangeError";
+    }
+  };
+  ExtensionRefusedError = class ExtensionRefusedError extends Error {
+    path;
+    mode;
+    constructor(path2, mode, msg) {
+      super(msg);
+      this.path = path2;
+      this.mode = mode;
+      this.name = "ExtensionRefusedError";
     }
   };
 });
@@ -19905,7 +19994,7 @@ Rules:
 3. Automatic recovery: when byte-exact match fails, falls through NFC / NFD / strip-invisible / quote-asciify / whitespace-flex variants. Result includes \`recovered_via\` on success.
 4. Failure stashes the replacement payload as a draft handle the next call can pass via \`replace_handle\`.
 
-Path grammar: same as \`read\`. Examples: 'char/first_mes', 'rx/<id>/replace_string', 'wb/<id>/comment', 'char/extensions/lumirealm.payload.background_html'.
+Path grammar: same as \`read\`. Examples: 'char/first_mes', 'rx/<id>/replace_string', 'wb/<id>/comment', 'char/extensions/lumirealm.payload.background_html_source'.
 
 Returns:
 - \`path\`         \u2014 canonical leaf path that was written.
@@ -19942,6 +20031,8 @@ Returns:
       try {
         leaf = await resolveRead(ctx, input.path);
       } catch (err) {
+        if (err instanceof ExtensionRefusedError)
+          return { content: `Error: [REFUSED_BY_EXTENSION] ${err.message}`, isError: true };
         if (err instanceof OutOfRangeError)
           return { content: `Error: [OUT_OF_RANGE] ${err.message}`, isError: true };
         if (err instanceof PathError)
@@ -19974,6 +20065,12 @@ ${draftReuseNote(h, replace.length, "replace")}`, isError: true };
       try {
         await resolveWrite(ctx, leaf, outcome.result);
       } catch (err) {
+        if (err instanceof ExtensionRefusedError) {
+          const h = await stashDraft(ctx, `edit:${leaf.key}`, replace);
+          return { content: `Error: [REFUSED_BY_EXTENSION] ${err.message}
+
+${draftReuseNote(h, replace.length, "replace")}`, isError: true };
+        }
         return { content: `Error: write failed: ${err.message}`, isError: true };
       }
       refreshReadHash(ctx, leaf.key, outcome.result);
@@ -28493,7 +28590,7 @@ async function buildDiagnostics(ctx, leaf) {
         diag["dual_store"] = {
           mirror_path: `char/extensions/lumirealm.payload.${leaf.field}`,
           drift: mirror !== text,
-          note: mirror !== text ? `WARNING: this canonical field differs from its LumiRealm payload mirror at extensions.lumirealm.payload.${leaf.field}. A future translator-schema bump on the card will rebuild this canonical field FROM the payload mirror, overwriting your changes. Mirror your edit into both paths to make it survive.` : "Mirror in sync with canonical; safe to edit either path."
+          note: mirror !== text ? `WARNING: this canonical field differs from its LumiRealm payload mirror at extensions.lumirealm.payload.${leaf.field}. A future translator-schema bump on the card will rebuild this canonical field FROM the payload mirror, overwriting your changes. The mirror is refused on write, so the only durable fix is to surface this drift to the user (the source-of-truth is in the payload).` : "Mirror in sync with canonical; safe to edit either path."
         };
       }
     } catch {}
@@ -28679,6 +28776,8 @@ One tool, one path argument.`,
       try {
         leaf = await resolveRead(ctx, path2);
       } catch (err) {
+        if (err instanceof ExtensionRefusedError)
+          return { content: `Error: [REFUSED_BY_EXTENSION] ${err.message}`, isError: true };
         if (err instanceof OutOfRangeError)
           return { content: `Error: [OUT_OF_RANGE] ${err.message}`, isError: true };
         if (err instanceof PathError)
@@ -28802,6 +28901,18 @@ async function listWorldBookEntries(ctx, bookId, maxEntries) {
   return out;
 }
 async function listExtensions(ctx, subPath, maxEntries, maxDepth) {
+  if (subPath !== "") {
+    const { checkExtensionRead: checkExtensionRead2 } = await Promise.resolve().then(() => (init_gate(), exports_gate));
+    const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
+    const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
+    const res = await checkExtensionRead2(ctx.spindle, ctx.userId, ctx.characterId, subPath, promptFn);
+    if (!res.ok)
+      throw new ExtensionRefusedError(`char/extensions/${subPath}`, "read", res.message ?? "extension refused read at this path");
+  }
+  const { buildExtensionsSearchSkip: buildExtensionsSearchSkip2 } = await Promise.resolve().then(() => (init_search_excludes(), exports_search_excludes));
+  const { makeConsentPromptFn: makePromptFn } = await Promise.resolve().then(() => exports_consent);
+  const skipPromptFn = makePromptFn(ctx.callFrontend ?? (async () => ({ denied: true })));
+  const skip = await buildExtensionsSearchSkip2(ctx.spindle, ctx.userId, skipPromptFn);
   const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
   if (!c)
     throw new Error(`character ${ctx.characterId} not found`);
@@ -28814,9 +28925,11 @@ async function listExtensions(ctx, subPath, maxEntries, maxDepth) {
     if (out.length >= maxEntries)
       return;
     const info = classifyNode(node);
+    const fullDotted = subPath === "" ? prefix : prefix === "" ? subPath : subPath + (prefix.startsWith("[") ? "" : ".") + prefix;
+    if (prefix !== "" && skip(fullDotted))
+      return;
     if (prefix !== "") {
-      const fullPath = `char/extensions/${subPath === "" ? prefix : subPath + (prefix.startsWith("[") ? "" : ".") + prefix}`;
-      const entry = { path: fullPath, type: info.type };
+      const entry = { path: `char/extensions/${fullDotted}`, type: info.type };
       if (info.size !== undefined)
         entry.size = info.size;
       out.push(entry);
@@ -28849,6 +28962,7 @@ var inputSchema35, listTool;
 var init_list = __esm(() => {
   init_zod();
   init__surfaces();
+  init__path_v2();
   inputSchema35 = exports_external.object({
     path: exports_external.string().describe("Container path. Empty / 'char' for the character overview. 'rx' for regex scripts. 'wb' for world books. 'wb/<bookId>' for entries in a book. 'char/alternate_greetings' for all greetings. 'char/extensions[/dotted]' for an extensions subtree."),
     max_entries: exports_external.number().int().positive().max(2000).optional().describe("Max items returned. Default 200."),
@@ -28917,6 +29031,8 @@ Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole
         }
         return { content: JSON.stringify({ path: path2, count: entries.length, entries }, null, 2) };
       } catch (err) {
+        if (err instanceof ExtensionRefusedError)
+          return { content: `Error: [REFUSED_BY_EXTENSION] ${err.message}`, isError: true };
         return { content: `Error: ${err.message}`, isError: true };
       }
     }
@@ -28982,6 +29098,8 @@ Returns:
       try {
         leaf = await resolveRead(ctx, input.path);
       } catch (err) {
+        if (err instanceof ExtensionRefusedError)
+          return { content: `Error: [REFUSED_BY_EXTENSION] ${err.message}`, isError: true };
         if (err instanceof OutOfRangeError)
           return { content: `Error: [OUT_OF_RANGE] ${err.message}`, isError: true };
         if (err instanceof PathError)
@@ -29005,6 +29123,12 @@ ${draftReuseNote(h, next.length, "new_content")}`, isError: true };
       try {
         await resolveWrite(ctx, leaf, next);
       } catch (err) {
+        if (err instanceof ExtensionRefusedError) {
+          const h = await stashDraft(ctx, `rewrite:${leaf.key}`, next);
+          return { content: `Error: [REFUSED_BY_EXTENSION] ${err.message}
+
+${draftReuseNote(h, next.length, "new_content")}`, isError: true };
+        }
         return { content: `Error: write failed: ${err.message}`, isError: true };
       }
       refreshReadHash(ctx, leaf.key, next);
@@ -29055,6 +29179,7 @@ async function setAlternateGreeting(ctx, idx, value) {
   return { before, after: value, label: `Greeting #${idx}`, surface: "alternate_greeting", surfaceId: ctx.characterId, field: String(idx) };
 }
 async function setExtension(ctx, dotted, value) {
+  await assertExtensionWriteAllowed(ctx, dotted);
   const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
   if (!c)
     return "character not found";
@@ -29094,6 +29219,7 @@ var inputSchema37, setTool;
 var init_set = __esm(() => {
   init_zod();
   init__surfaces();
+  init__path_v2();
   inputSchema37 = exports_external.object({
     path: exports_external.string().min(3).describe("Slash-separated path. Same grammar as `read` / `edit`."),
     value: exports_external.unknown().describe("The new value. Any JSON-encodable type (string, number, boolean, array, object, null). Wholesale replacement at the path.")
@@ -29104,7 +29230,7 @@ var init_set = __esm(() => {
 
 - Toggling a boolean (regex.disabled, world_book_entry.constant)
 - Changing a number (priority, position, sort_order, depth)
-- Replacing an array / object value (extensions.lumirealm.payload.lua_scripts, scriptstate_defaults)
+- Replacing an array / object value (e.g. extensions.lumirealm.payload.scriptstate_defaults)
 - Setting a typed value at an extension path that isn't a string
 
 Path grammar matches \`read\` / \`edit\` / \`rewrite\`. The value field accepts any JSON-encodable type. For string-leaf paths, set is a wholesale alternative to \`rewrite\` (no read-gate, so use only when you don't need to anchor against current content).
@@ -29136,7 +29262,13 @@ Returns:
         const dotted = path2.replace(/^(char|character)\/extensions\//, "");
         if (dotted.length === 0)
           return { content: "Error: extensions path requires a sub-path", isError: true };
-        result = await setExtension(ctx, dotted, value);
+        try {
+          result = await setExtension(ctx, dotted, value);
+        } catch (err) {
+          if (err instanceof ExtensionRefusedError)
+            return { content: `Error: [REFUSED_BY_EXTENSION] ${err.message}`, isError: true };
+          throw err;
+        }
       } else if (path2.startsWith("char/alternate_greetings/") || path2.startsWith("character/alternate_greetings/")) {
         const rest = path2.replace(/^(char|character)\/alternate_greetings\//, "");
         const idx = parseInt(rest, 10);
@@ -29693,7 +29825,7 @@ var init_read = __esm(() => {
   init__gates();
   init__path_v2();
   inputSchema48 = exports_external.object({
-    path: exports_external.string().min(3).describe("Slash-separated path to a string leaf. Examples: 'char/description', 'char/first_mes', 'char/alternate_greetings/0', 'char/extensions/lumirealm.payload.background_html', 'rx/<scriptId>/replace_string', 'wb/<entryId>/content', 'wb/<entryId>/comment'."),
+    path: exports_external.string().min(3).describe("Slash-separated path to a string leaf. Examples: 'char/description', 'char/first_mes', 'char/alternate_greetings/0', 'char/extensions/lumirealm.payload.background_html_source', 'rx/<scriptId>/replace_string', 'wb/<entryId>/content', 'wb/<entryId>/comment'."),
     offset: exports_external.number().int().positive().optional().describe("1-based starting line number."),
     limit: exports_external.number().int().positive().optional().describe("Max lines to return.")
   }).strict();
@@ -29704,7 +29836,7 @@ var init_read = __esm(() => {
 Path grammar:
   char/<field>                          top-level character string (description, first_mes, scenario, personality, mes_example, system_prompt, post_history_instructions, creator_notes, creator, name)
   char/alternate_greetings/<idx>        one greeting by 0-based index
-  char/extensions/<dotted-extension>    a string leaf under character.extensions (dotted-with-brackets, e.g. lumirealm.payload.lua_scripts[0].code)
+  char/extensions/<dotted-extension>    a string leaf under character.extensions (dotted-with-brackets, e.g. lumirealm.payload.triggers[0].effect[0].value)
   rx/<scriptId>/find_regex              regex script pattern
   rx/<scriptId>/replace_string          regex script body
   wb/<entryId>/content                  lorebook entry body
@@ -29730,6 +29862,8 @@ Returns: a plain string body. Most of the time that's line-numbered text (\`   1
       try {
         leaf = await resolveRead(ctx, input.path);
       } catch (err) {
+        if (err instanceof ExtensionRefusedError)
+          return { content: `Error: [REFUSED_BY_EXTENSION] ${err.message}`, isError: true };
         if (err instanceof OutOfRangeError)
           return { content: `Error: [OUT_OF_RANGE] ${err.message}`, isError: true };
         if (err instanceof PathError)
@@ -30391,13 +30525,13 @@ function looksLikeRegexPattern(s) {
 function isNonEmptyString(v) {
   return typeof v === "string" && v.length > 0;
 }
-var INCLUDE_VALUES, inputSchema56, DEFAULT_INCLUDE, DEFAULT_MIN_CHARS = 2, translateCardStringsTool;
+var INCLUDE_VALUES, inputSchema56, DEFAULT_INCLUDE, CODE_EFFECT_TYPES, SETVAR_LIKE_TYPES, ALERT_LIKE_TYPES, RUNLLM_TYPES, DEFAULT_MIN_CHARS = 2, translateCardStringsTool;
 var init_translate_card_strings = __esm(() => {
   init_zod();
   INCLUDE_VALUES = [
     "regex_scripts",
     "lumirealm_bghtml",
-    "lumirealm_lua",
+    "lumirealm_triggers",
     "lumirealm_scriptstate",
     "character_fields",
     "alternate_greetings",
@@ -30406,11 +30540,31 @@ var init_translate_card_strings = __esm(() => {
   inputSchema56 = exports_external.object({
     source_lang: exports_external.string().min(2).max(10).describe("BCP-47 source language tag (e.g. 'ko', 'ja', 'zh-Hans'). Chrome's Translator API picks the on-device model from this."),
     target_lang: exports_external.string().min(2).max(10).describe("BCP-47 target language tag (e.g. 'en'). Same caveat as source_lang."),
-    include: exports_external.array(exports_external.enum(INCLUDE_VALUES)).optional().describe("Which surfaces to translate. Default: regex_scripts + lumirealm_bghtml + lumirealm_lua + lumirealm_scriptstate. Skips alternate_greetings, character_fields, world_book_entries by default since those are prose you should review yourself."),
+    include: exports_external.array(exports_external.enum(INCLUDE_VALUES)).optional().describe("Which surfaces to translate. Default: regex_scripts + lumirealm_bghtml + lumirealm_triggers + lumirealm_scriptstate. Skips alternate_greetings, character_fields, world_book_entries by default since those are prose you should review yourself. lumirealm_triggers covers all trigger string surfaces: triggerlua/triggercode code blobs (literal extraction only), setvar/addvar/setdefaultvar values, alert displays, runLLM prompts."),
     dry_run: exports_external.boolean().optional().describe("Collect translatable items but don't write any edits. Returns the would-translate manifest."),
     min_chars: exports_external.number().int().min(0).max(1000).optional().describe("Skip strings shorter than this. Default 2.")
   }).strict();
-  DEFAULT_INCLUDE = ["regex_scripts", "lumirealm_bghtml", "lumirealm_lua", "lumirealm_scriptstate"];
+  DEFAULT_INCLUDE = ["regex_scripts", "lumirealm_bghtml", "lumirealm_triggers", "lumirealm_scriptstate"];
+  CODE_EFFECT_TYPES = new Set(["triggerlua", "triggercode"]);
+  SETVAR_LIKE_TYPES = new Set([
+    "setvar",
+    "addvar",
+    "setdefaultvar",
+    "v2SetVar",
+    "v2DeclareLocalVar",
+    "settempvar"
+  ]);
+  ALERT_LIKE_TYPES = new Set([
+    "alertNormal",
+    "alertError",
+    "alertSelect",
+    "alertInput",
+    "alertConfirm",
+    "alert",
+    "showAlert",
+    "v2ShowAlert"
+  ]);
+  RUNLLM_TYPES = new Set(["runLLM", "v2RunLLM", "runAxLLM", "sendAIprompt"]);
   translateCardStringsTool = defineTool({
     name: "translate_card_strings",
     description: `Mechanical bulk translation via Chrome's on-device Translator API. No LLM tokens.
@@ -30461,28 +30615,72 @@ Usage:
       const lumirealm = ext["lumirealm"];
       const payload = lumirealm?.["payload"];
       if (include.has("lumirealm_bghtml") && payload) {
-        const bghtml = payload["background_html"];
-        if (isNonEmptyString(bghtml) && bghtml.length >= minChars) {
+        const source = payload["background_html_source"];
+        const fallback = payload["background_html"];
+        const bghtml = isNonEmptyString(source) ? source : isNonEmptyString(fallback) ? fallback : null;
+        if (bghtml !== null && bghtml.length >= minChars) {
           items.push({ id: mkId(), text: bghtml, kind: "html", target: { kind: "lumirealm_bghtml" } });
         }
       }
-      if (include.has("lumirealm_lua") && payload) {
-        const luaScripts = payload["lua_scripts"];
-        if (Array.isArray(luaScripts)) {
-          luaScripts.forEach((entry, i) => {
-            const code = typeof entry === "string" ? entry : isNonEmptyString(entry?.code) ? entry.code : null;
-            if (code !== null && code.length >= minChars) {
-              items.push({ id: mkId(), text: code, kind: "lua", target: { kind: "lumirealm_lua_script", index: i } });
-            }
-          });
-        }
+      if (include.has("lumirealm_triggers") && payload) {
         const triggers = payload["triggers"];
         if (Array.isArray(triggers)) {
-          triggers.forEach((entry, i) => {
-            const code = isNonEmptyString(entry?.code) ? entry.code : null;
-            if (code !== null && code.length >= minChars) {
-              items.push({ id: mkId(), text: code, kind: "lua", target: { kind: "lumirealm_trigger_code", index: i } });
-            }
+          triggers.forEach((tEntry, ti) => {
+            if (!tEntry || typeof tEntry !== "object")
+              return;
+            const effects = tEntry.effect;
+            if (!Array.isArray(effects))
+              return;
+            effects.forEach((eEntry, ei) => {
+              if (!eEntry || typeof eEntry !== "object")
+                return;
+              const e = eEntry;
+              const etype = typeof e.type === "string" ? e.type : "";
+              if (CODE_EFFECT_TYPES.has(etype)) {
+                const code = isNonEmptyString(e.code) ? e.code : null;
+                if (code === null || code.length < minChars)
+                  return;
+                items.push({
+                  id: mkId(),
+                  text: code,
+                  kind: "lua",
+                  target: { kind: "lumirealm_trigger_code", triggerIndex: ti, effectIndex: ei }
+                });
+                return;
+              }
+              if (SETVAR_LIKE_TYPES.has(etype) || RUNLLM_TYPES.has(etype)) {
+                const value = isNonEmptyString(e.value) ? e.value : null;
+                if (value === null || value.length < minChars)
+                  return;
+                items.push({
+                  id: mkId(),
+                  text: value,
+                  kind: "plain",
+                  target: { kind: "lumirealm_trigger_value", triggerIndex: ti, effectIndex: ei }
+                });
+                return;
+              }
+              if (ALERT_LIKE_TYPES.has(etype)) {
+                const display = isNonEmptyString(e.display) ? e.display : null;
+                if (display !== null && display.length >= minChars) {
+                  items.push({
+                    id: mkId(),
+                    text: display,
+                    kind: "plain",
+                    target: { kind: "lumirealm_trigger_display", triggerIndex: ti, effectIndex: ei }
+                  });
+                }
+                if (isNonEmptyString(e.value) && e.value.length >= minChars) {
+                  items.push({
+                    id: mkId(),
+                    text: e.value,
+                    kind: "plain",
+                    target: { kind: "lumirealm_trigger_value", triggerIndex: ti, effectIndex: ei }
+                  });
+                }
+                return;
+              }
+            });
           });
         }
       }
@@ -30574,11 +30772,16 @@ Usage:
           }
           regexUpdates.set(target.scriptId, existing);
         } else if (target.kind === "lumirealm_bghtml") {
-          extensionMutations.push({ path: ["lumirealm", "payload", "background_html"], before: item.text, after: t.text, label: "lumirealm.payload.background_html" });
-        } else if (target.kind === "lumirealm_lua_script") {
-          extensionMutations.push({ path: ["lumirealm", "payload", "lua_scripts", String(target.index), "code"], before: item.text, after: t.text, label: `lumirealm.payload.lua_scripts[${target.index}]` });
-        } else if (target.kind === "lumirealm_trigger_code") {
-          extensionMutations.push({ path: ["lumirealm", "payload", "triggers", String(target.index), "code"], before: item.text, after: t.text, label: `lumirealm.payload.triggers[${target.index}]` });
+          extensionMutations.push({ path: ["lumirealm", "payload", "background_html_source"], before: item.text, after: t.text, label: "lumirealm.payload.background_html_source" });
+        } else if (target.kind === "lumirealm_trigger_code" || target.kind === "lumirealm_trigger_value" || target.kind === "lumirealm_trigger_display") {
+          const field = target.kind === "lumirealm_trigger_code" ? "code" : target.kind === "lumirealm_trigger_value" ? "value" : "display";
+          const dotted = `lumirealm.payload.triggers[${target.triggerIndex}].effect[${target.effectIndex}].${field}`;
+          extensionMutations.push({
+            path: ["lumirealm", "payload", "triggers", String(target.triggerIndex), "effect", String(target.effectIndex), field],
+            before: item.text,
+            after: t.text,
+            label: dotted
+          });
         } else if (target.kind === "lumirealm_scriptstate_default") {
           extensionMutations.push({ path: ["lumirealm", "payload", "scriptstate_defaults", target.key], before: item.text, after: t.text, label: `lumirealm.payload.scriptstate_defaults.${target.key}` });
         } else if (target.kind === "character_field") {
@@ -30610,39 +30813,53 @@ Usage:
         }
       }
       if (extensionMutations.length > 0) {
-        nextExtensionsRoot = JSON.parse(JSON.stringify(c.extensions ?? {}));
+        const { checkExtensionWrite: checkExtensionWrite2 } = await Promise.resolve().then(() => (init_gate(), exports_gate));
+        const { makeConsentPromptFn: makeConsentPromptFn2 } = await Promise.resolve().then(() => exports_consent);
+        const promptFn = makeConsentPromptFn2(ctx.callFrontend ?? (async () => ({ denied: true })));
+        const allowedMutations = [];
         for (const m of extensionMutations) {
-          let cur = nextExtensionsRoot;
-          for (let i = 0;i < m.path.length - 1; i++) {
-            const seg = m.path[i];
-            if (cur === null || typeof cur !== "object") {
-              cur = null;
-              break;
-            }
-            const isIdx = /^\d+$/.test(seg);
-            if (isIdx && Array.isArray(cur))
-              cur = cur[parseInt(seg, 10)];
-            else if (!Array.isArray(cur))
-              cur = cur[seg];
-            else
-              cur = undefined;
-          }
-          const last = m.path[m.path.length - 1];
-          if (cur !== null && typeof cur === "object") {
-            if (Array.isArray(cur) && /^\d+$/.test(last))
-              cur[parseInt(last, 10)] = m.after;
-            else
-              cur[last] = m.after;
-          }
+          const dotted = m.path.map((seg) => /^\d+$/.test(seg) ? `[${seg}]` : seg).join(".").replace(/\.\[/g, "[");
+          const res = await checkExtensionWrite2(ctx.spindle, ctx.userId, ctx.characterId, dotted, promptFn);
+          if (res.ok)
+            allowedMutations.push(m);
+          else
+            writeErrors.push({ target: `extensions.${dotted}`, error: `[REFUSED_BY_EXTENSION] ${res.message ?? "extension refused write at this path"}` });
         }
-        try {
-          await ctx.spindle.characters.update(ctx.characterId, { extensions: nextExtensionsRoot }, ctx.userId);
-          for (const m of extensionMutations) {
-            ctx.pushEdit({ op: "edit", surface: "extension", surfaceId: ctx.characterId, surfaceLabel: m.label, field: m.path.join("."), before: m.before, after: m.after });
-            extensionApplied++;
+        if (allowedMutations.length > 0) {
+          nextExtensionsRoot = JSON.parse(JSON.stringify(c.extensions ?? {}));
+          for (const m of allowedMutations) {
+            let cur = nextExtensionsRoot;
+            for (let i = 0;i < m.path.length - 1; i++) {
+              const seg = m.path[i];
+              if (cur === null || typeof cur !== "object") {
+                cur = null;
+                break;
+              }
+              const isIdx = /^\d+$/.test(seg);
+              if (isIdx && Array.isArray(cur))
+                cur = cur[parseInt(seg, 10)];
+              else if (!Array.isArray(cur))
+                cur = cur[seg];
+              else
+                cur = undefined;
+            }
+            const last = m.path[m.path.length - 1];
+            if (cur !== null && typeof cur === "object") {
+              if (Array.isArray(cur) && /^\d+$/.test(last))
+                cur[parseInt(last, 10)] = m.after;
+              else
+                cur[last] = m.after;
+            }
           }
-        } catch (err) {
-          writeErrors.push({ target: "character.extensions", error: err.message });
+          try {
+            await ctx.spindle.characters.update(ctx.characterId, { extensions: nextExtensionsRoot }, ctx.userId);
+            for (const m of allowedMutations) {
+              ctx.pushEdit({ op: "edit", surface: "extension", surfaceId: ctx.characterId, surfaceLabel: m.label, field: m.path.join("."), before: m.before, after: m.after });
+              extensionApplied++;
+            }
+          } catch (err) {
+            writeErrors.push({ target: "character.extensions", error: err.message });
+          }
         }
       }
       if (charFieldMutations.length > 0) {
@@ -30935,6 +31152,12 @@ Usage:
     requiresCharacter: true,
     execute: async (input, ctx) => {
       const patch = input.patch;
+      if (Object.prototype.hasOwnProperty.call(patch, "extensions")) {
+        return {
+          content: "Error: [REFUSED_BY_EXTENSION] update_character cannot patch `extensions` wholesale. Use `set({path: 'char/extensions/<dotted>', value})`, `edit`, or `rewrite` on the specific path so per-extension write rules apply.",
+          isError: true
+        };
+      }
       const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
       if (!c)
         return { content: `Error: character ${ctx.characterId} not found`, isError: true };
@@ -33862,7 +34085,7 @@ function subscribeToMissingChanges(handler) {
 }
 // spindle.json
 var spindle_default = {
-  version: "0.2.1",
+  version: "0.2.2",
   name: "LumiAgent",
   identifier: "lumiagent",
   author: "amousepad",
@@ -35650,8 +35873,11 @@ async function handleSendMessageInternal(s, userId, connectionIdOverride) {
   if (ac.signal.aborted && !errored)
     assistant.status = "cancelled";
   await saveSession(spindle, s, userId);
-  if (s.characterId !== null)
-    await autosquashAndNotify(s.characterId, assistantId, userId);
+  if (s.characterId !== null) {
+    const squashed = await autosquashAndNotify(s, s.characterId, assistantId, userId);
+    if (squashed)
+      await saveSession(spindle, s, userId);
+  }
   if (ac.signal.aborted)
     send({ type: "generation_cancelled", sessionId: s.sessionId }, userId);
   else if (!errored) {
@@ -35662,15 +35888,59 @@ async function handleSendMessageInternal(s, userId, connectionIdOverride) {
   }
   handleListSessions(undefined, userId);
 }
-async function autosquashAndNotify(characterId, assistantMessageId, userId) {
+async function autosquashAndNotify(s, characterId, assistantMessageId, userId) {
   try {
     const summary = await squashMessage(spindle, characterId, assistantMessageId, userId, { sealed: false });
-    if (summary.groupsMerged > 0) {
-      const ledger = await loadLedger(spindle, characterId, userId);
-      send({ type: "character_edits_pushed", characterId, entries: entriesView(ledger) }, userId);
+    if (summary.groupsMerged === 0)
+      return false;
+    const ledger = await loadLedger(spindle, characterId, userId);
+    const view = entriesView(ledger);
+    let mutated = false;
+    if (summary.absorbedIds.length > 0) {
+      const absorbed = new Set(summary.absorbedIds);
+      const before = s.edits.length;
+      s.edits = s.edits.filter((e) => !absorbed.has(e.id));
+      if (s.edits.length !== before)
+        mutated = true;
+      if (summary.newPatchIds.length > 0) {
+        const newIds = new Set(summary.newPatchIds);
+        for (const e of view)
+          if (newIds.has(e.id)) {
+            s.edits.push(e);
+            mutated = true;
+          }
+      }
+      const msg = s.messages.find((m) => m.role === "assistant" && m.id === assistantMessageId);
+      if (msg && msg.role === "assistant") {
+        for (const block of msg.blocks) {
+          if (block.type !== "tool" || block.edit_ids.length === 0)
+            continue;
+          const remapped = [];
+          const seen = new Set;
+          let changed = false;
+          for (const id of block.edit_ids) {
+            const mapped = summary.absorbedToMerged.get(id) ?? id;
+            if (mapped !== id)
+              changed = true;
+            if (!seen.has(mapped)) {
+              seen.add(mapped);
+              remapped.push(mapped);
+            }
+          }
+          if (changed || remapped.length !== block.edit_ids.length) {
+            block.edit_ids = remapped;
+            mutated = true;
+          }
+        }
+        if (mutated)
+          send({ type: "session_truncated", sessionId: s.sessionId, messages: s.messages, edits: s.edits }, userId);
+      }
     }
+    send({ type: "character_edits_pushed", characterId, entries: view }, userId);
+    return mutated;
   } catch (err) {
     log("warn", `autosquash failed for ${characterId}/${assistantMessageId}: ${err.message}`);
+    return false;
   }
 }
 var capturedUserIds = new Set;

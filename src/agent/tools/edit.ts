@@ -4,7 +4,7 @@ import { applyEdit } from "./_edit";
 import { buildEditPatch } from "./_patch";
 import { ensureFreshRead, ensureRecentRead, refreshReadHash } from "./_gates";
 import { stashDraft, loadDraft, draftReuseNote } from "./_drafts";
-import { resolveRead, resolveWrite, PathError, OutOfRangeError } from "./_path_v2";
+import { resolveRead, resolveWrite, PathError, OutOfRangeError, ExtensionRefusedError } from "./_path_v2";
 
 const inputSchema = z.object({
   path: z.string().min(3).describe("Slash-separated path. Same grammar as `read`."),
@@ -36,7 +36,7 @@ Rules:
 3. Automatic recovery: when byte-exact match fails, falls through NFC / NFD / strip-invisible / quote-asciify / whitespace-flex variants. Result includes \`recovered_via\` on success.
 4. Failure stashes the replacement payload as a draft handle the next call can pass via \`replace_handle\`.
 
-Path grammar: same as \`read\`. Examples: 'char/first_mes', 'rx/<id>/replace_string', 'wb/<id>/comment', 'char/extensions/lumirealm.payload.background_html'.
+Path grammar: same as \`read\`. Examples: 'char/first_mes', 'rx/<id>/replace_string', 'wb/<id>/comment', 'char/extensions/lumirealm.payload.background_html_source'.
 
 Returns:
 - \`path\`         — canonical leaf path that was written.
@@ -71,6 +71,7 @@ Returns:
     let leaf;
     try { leaf = await resolveRead(ctx, input.path); }
     catch (err) {
+      if (err instanceof ExtensionRefusedError) return { content: `Error: [REFUSED_BY_EXTENSION] ${err.message}`, isError: true };
       if (err instanceof OutOfRangeError) return { content: `Error: [OUT_OF_RANGE] ${err.message}`, isError: true };
       if (err instanceof PathError) return { content: `Error: [PATH_NOT_FOUND] ${err.message}`, isError: true };
       return { content: `Error: ${(err as Error).message}`, isError: true };
@@ -102,7 +103,13 @@ Returns:
     }
 
     try { await resolveWrite(ctx, leaf, outcome.result); }
-    catch (err) { return { content: `Error: write failed: ${(err as Error).message}`, isError: true }; }
+    catch (err) {
+      if (err instanceof ExtensionRefusedError) {
+        const h = await stashDraft(ctx, `edit:${leaf.key}`, replace);
+        return { content: `Error: [REFUSED_BY_EXTENSION] ${err.message}\n\n${draftReuseNote(h, replace.length, "replace")}`, isError: true };
+      }
+      return { content: `Error: write failed: ${(err as Error).message}`, isError: true };
+    }
     refreshReadHash(ctx, leaf.key, outcome.result);
 
     const diffPatch = buildEditPatch(leaf.key, leaf.value, outcome.result);

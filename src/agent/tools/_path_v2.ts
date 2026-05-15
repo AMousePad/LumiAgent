@@ -8,7 +8,7 @@
 //   char/extensions/<dotted>           -> a string leaf under character.extensions.*
 //                                          dotted-path uses '.' separators and
 //                                          [<n>] for array index (legacy form),
-//                                          e.g. lumirealm.payload.lua_scripts[0].code
+//                                          e.g. lumirealm.payload.triggers[0].effect[0].value
 //   rx/<scriptId>/<field>              -> regex_script field ("find_regex" or "replace_string")
 //   wb/<entryId>/<field>               -> world_book_entry field ("content" or "comment")
 //
@@ -54,6 +54,20 @@ export class OutOfRangeError extends Error {
   }
 }
 
+// Refusal from a phone-line extension's check_read / check_write op. Carries
+// the redirect message verbatim so callers can surface the bridge's authoring
+// guidance to the agent without rewrapping.
+export class ExtensionRefusedError extends Error {
+  constructor(
+    public readonly path: string,
+    public readonly mode: "read" | "write",
+    msg: string,
+  ) {
+    super(msg);
+    this.name = "ExtensionRefusedError";
+  }
+}
+
 function splitTopLevel(path: string): readonly string[] {
   return path.split("/").filter((s) => s.length > 0);
 }
@@ -94,6 +108,7 @@ export async function resolveRead(ctx: ToolCtx, path: string): Promise<ResolvedL
     if (sub === "extensions") {
       const extPath = parts.slice(2).join(".");
       if (extPath.length === 0) throw new PathError(path, "extensions requires a sub-path");
+      await assertExtensionReadAllowed(ctx, extPath);
       const segs = parseExtensionPath(extPath);
       const v = getAtPath(c.extensions ?? {}, segs);
       if (typeof v !== "string") {
@@ -200,6 +215,7 @@ export async function resolveWrite(
     return;
   }
   if (leaf.surface === "extension") {
+    await assertExtensionWriteAllowed(ctx, leaf.field);
     const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
     if (!c) throw new Error("character not found");
     const segs = parseExtensionPath(leaf.field);
@@ -228,6 +244,33 @@ export async function resolveWrite(
     return;
   }
 }
+
+// Phone-line read/write access gates. Routes the extension's first path
+// segment (`lumirealm`, etc.) to the owning provider's check_read /
+// check_write op. Refusals throw ExtensionRefusedError carrying the bridge's
+// redirect message verbatim so callers can surface it without rewrapping.
+
+async function getConsentPromptFn(ctx: ToolCtx) {
+  const { makeConsentPromptFn } = await import("../../phoneline/consent");
+  return makeConsentPromptFn(ctx.callFrontend ?? (async () => ({ denied: true })));
+}
+
+async function assertExtensionWriteAllowed(ctx: ToolCtx, extPath: string): Promise<void> {
+  const { checkExtensionWrite } = await import("../../phoneline/gate");
+  const promptFn = await getConsentPromptFn(ctx);
+  const res = await checkExtensionWrite(ctx.spindle, ctx.userId, ctx.characterId, extPath, promptFn);
+  if (!res.ok) throw new ExtensionRefusedError(`char/extensions/${extPath}`, "write", res.message ?? "extension refused write at this path");
+}
+
+async function assertExtensionReadAllowed(ctx: ToolCtx, extPath: string): Promise<void> {
+  const { checkExtensionRead } = await import("../../phoneline/gate");
+  const promptFn = await getConsentPromptFn(ctx);
+  const res = await checkExtensionRead(ctx.spindle, ctx.userId, ctx.characterId, extPath, promptFn);
+  if (!res.ok) throw new ExtensionRefusedError(`char/extensions/${extPath}`, "read", res.message ?? "extension refused read at this path");
+}
+
+// Export so update_character can run the same gate against its extensions patch.
+export { assertExtensionWriteAllowed };
 
 // All editable string leaves on the character + extensions + regex + lorebook,
 // flat-listed by path. Used by the audit tool and (later) the path-based

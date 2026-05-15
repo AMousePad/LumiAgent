@@ -3,6 +3,7 @@ import { defineTool } from "./_framework";
 import type { ToolCtx } from "./_context";
 import { parseExtensionPath, getAtPath } from "./_paths";
 import { wbLabel } from "./_surfaces";
+import { ExtensionRefusedError } from "./_path_v2";
 
 const inputSchema = z.object({
   path: z.string().describe("Container path. Empty / 'char' for the character overview. 'rx' for regex scripts. 'wb' for world books. 'wb/<bookId>' for entries in a book. 'char/alternate_greetings' for all greetings. 'char/extensions[/dotted]' for an extensions subtree."),
@@ -111,6 +112,23 @@ async function listWorldBookEntries(ctx: ToolCtx, bookId: string, maxEntries: nu
 }
 
 async function listExtensions(ctx: ToolCtx, subPath: string, maxEntries: number, maxDepth: number): Promise<ListEntry[]> {
+  // Gate the entry point on the phone-line check_read so callers can't peek
+  // into refused subtrees (lumirealm.source.*, etc.) by addressing them here.
+  if (subPath !== "") {
+    const { checkExtensionRead } = await import("../../phoneline/gate");
+    const { makeConsentPromptFn } = await import("../../phoneline/consent");
+    const promptFn = makeConsentPromptFn(ctx.callFrontend ?? (async () => ({ denied: true })));
+    const res = await checkExtensionRead(ctx.spindle, ctx.userId, ctx.characterId, subPath, promptFn);
+    if (!res.ok) throw new ExtensionRefusedError(`char/extensions/${subPath}`, "read", res.message ?? "extension refused read at this path");
+  }
+  // Same search-exclude predicate the find/grep walkers use, so refused-but-
+  // unaddressed children (lumirealm.payload.background_html etc.) don't leak
+  // through a list of a permitted parent.
+  const { buildExtensionsSearchSkip } = await import("../../phoneline/search-excludes");
+  const { makeConsentPromptFn: makePromptFn } = await import("../../phoneline/consent");
+  const skipPromptFn = makePromptFn(ctx.callFrontend ?? (async () => ({ denied: true })));
+  const skip = await buildExtensionsSearchSkip(ctx.spindle, ctx.userId, skipPromptFn);
+
   const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
   if (!c) throw new Error(`character ${ctx.characterId} not found`);
   const segs = subPath === "" ? [] : parseExtensionPath(subPath);
@@ -120,9 +138,12 @@ async function listExtensions(ctx: ToolCtx, subPath: string, maxEntries: number,
   const visit = (node: unknown, prefix: string, depth: number): void => {
     if (out.length >= maxEntries) return;
     const info = classifyNode(node);
+    const fullDotted = subPath === ""
+      ? prefix
+      : (prefix === "" ? subPath : (subPath + (prefix.startsWith("[") ? "" : ".") + prefix));
+    if (prefix !== "" && skip(fullDotted)) return;
     if (prefix !== "") {
-      const fullPath = `char/extensions/${subPath === "" ? prefix : (subPath + (prefix.startsWith("[") ? "" : ".") + prefix)}`;
-      const entry: ListEntry = { path: fullPath, type: info.type };
+      const entry: ListEntry = { path: `char/extensions/${fullDotted}`, type: info.type };
       if (info.size !== undefined) entry.size = info.size;
       out.push(entry);
     }
@@ -208,6 +229,7 @@ Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole
       }
       return { content: JSON.stringify({ path, count: entries.length, entries }, null, 2) };
     } catch (err) {
+      if (err instanceof ExtensionRefusedError) return { content: `Error: [REFUSED_BY_EXTENSION] ${err.message}`, isError: true };
       return { content: `Error: ${(err as Error).message}`, isError: true };
     }
   },

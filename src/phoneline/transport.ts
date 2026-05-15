@@ -6,6 +6,7 @@ import {
   type SurfaceManifest,
   type SystemPromptResponse,
   type CheckWriteResponse,
+  type CheckReadResponse,
   type ListItemsResponse,
   type ReadItemResponse,
   type WriteFieldResponse,
@@ -71,6 +72,16 @@ export function dialCheckWrite(
   extPath: string,
 ): Promise<CheckWriteResponse> {
   return dial<CheckWriteResponse>(spindle, extId, { op: "check_write", userId, characterId, extPath });
+}
+
+export function dialCheckRead(
+  spindle: SpindleAPI,
+  extId: string,
+  userId: string,
+  characterId: string,
+  extPath: string,
+): Promise<CheckReadResponse> {
+  return dial<CheckReadResponse>(spindle, extId, { op: "check_read", userId, characterId, extPath });
 }
 
 export function dialListItems(

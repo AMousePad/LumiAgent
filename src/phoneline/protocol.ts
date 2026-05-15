@@ -5,8 +5,9 @@
 // requester id. rpcPool is pull-only, so this stays serial within a turn.
 //
 // Required op: `describe`. Optional ops: `system_prompt`, `check_write`,
-// `list_items`, `read_item`, `write_field`. Optional means the extension can
-// throw "unknown op" and the caller falls back to "no contribution / allow".
+// `check_read`, `list_items`, `read_item`, `write_field`. Optional means the
+// extension can throw "unknown op" and the caller falls back to "no
+// contribution / allow".
 
 export interface SurfaceDescriptor {
   readonly id: string;
@@ -52,6 +53,12 @@ export interface SystemPromptRequest extends BaseRequest {
 
 export interface CheckWriteRequest extends BaseRequest {
   readonly op: "check_write";
+  readonly characterId: string;
+  readonly extPath: string;
+}
+
+export interface CheckReadRequest extends BaseRequest {
+  readonly op: "check_read";
   readonly characterId: string;
   readonly extPath: string;
 }
@@ -146,6 +153,7 @@ export type PhoneLineRequest =
   | DescribeRequest
   | SystemPromptRequest
   | CheckWriteRequest
+  | CheckReadRequest
   | ListItemsRequest
   | ReadItemRequest
   | WriteFieldRequest
@@ -162,6 +170,11 @@ export interface SystemPromptResponse {
 }
 
 export interface CheckWriteResponse {
+  readonly ok: boolean;
+  readonly message?: string;
+}
+
+export interface CheckReadResponse {
   readonly ok: boolean;
   readonly message?: string;
 }

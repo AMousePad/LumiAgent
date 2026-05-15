@@ -2,10 +2,10 @@ import { z } from "zod";
 import { defineTool } from "./_framework";
 import { formatLineSlice, spillOrReturn } from "./_io";
 import { markReadWithHash } from "./_gates";
-import { resolveRead, PathError, OutOfRangeError } from "./_path_v2";
+import { resolveRead, PathError, OutOfRangeError, ExtensionRefusedError } from "./_path_v2";
 
 const inputSchema = z.object({
-  path: z.string().min(3).describe("Slash-separated path to a string leaf. Examples: 'char/description', 'char/first_mes', 'char/alternate_greetings/0', 'char/extensions/lumirealm.payload.background_html', 'rx/<scriptId>/replace_string', 'wb/<entryId>/content', 'wb/<entryId>/comment'."),
+  path: z.string().min(3).describe("Slash-separated path to a string leaf. Examples: 'char/description', 'char/first_mes', 'char/alternate_greetings/0', 'char/extensions/lumirealm.payload.background_html_source', 'rx/<scriptId>/replace_string', 'wb/<entryId>/content', 'wb/<entryId>/comment'."),
   offset: z.number().int().positive().optional().describe("1-based starting line number."),
   limit: z.number().int().positive().optional().describe("Max lines to return."),
 }).strict();
@@ -17,7 +17,7 @@ export const readTool = defineTool({
 Path grammar:
   char/<field>                          top-level character string (description, first_mes, scenario, personality, mes_example, system_prompt, post_history_instructions, creator_notes, creator, name)
   char/alternate_greetings/<idx>        one greeting by 0-based index
-  char/extensions/<dotted-extension>    a string leaf under character.extensions (dotted-with-brackets, e.g. lumirealm.payload.lua_scripts[0].code)
+  char/extensions/<dotted-extension>    a string leaf under character.extensions (dotted-with-brackets, e.g. lumirealm.payload.triggers[0].effect[0].value)
   rx/<scriptId>/find_regex              regex script pattern
   rx/<scriptId>/replace_string          regex script body
   wb/<entryId>/content                  lorebook entry body
@@ -42,6 +42,7 @@ Returns: a plain string body. Most of the time that's line-numbered text (\`   1
     let leaf;
     try { leaf = await resolveRead(ctx, input.path); }
     catch (err) {
+      if (err instanceof ExtensionRefusedError) return { content: `Error: [REFUSED_BY_EXTENSION] ${err.message}`, isError: true };
       if (err instanceof OutOfRangeError) return { content: `Error: [OUT_OF_RANGE] ${err.message}`, isError: true };
       if (err instanceof PathError) return { content: `Error: [PATH_NOT_FOUND] ${err.message}`, isError: true };
       return { content: `Error: ${(err as Error).message}`, isError: true };

@@ -395,6 +395,10 @@ export interface SquashSummary {
   readonly groupsMerged: number;
   readonly absorbedIds: readonly string[];
   readonly newPatchIds: readonly string[];
+  // Maps every absorbed (now-gone) id to the merged patch id that replaced
+  // it. Lets callers rewrite frontend-facing edit_ids so post-squash revert
+  // UI still resolves to a live ledger entry.
+  readonly absorbedToMerged: ReadonlyMap<string, string>;
 }
 
 // Squash every contiguous run of agent patches sharing the given
@@ -413,6 +417,7 @@ export async function squashMessage(
   const ledger = await loadLedger(spindle, characterId, userId);
   const absorbedIds: string[] = [];
   const newPatchIds: string[] = [];
+  const absorbedToMerged = new Map<string, string>();
   let filesTouched = 0;
   let groupsMerged = 0;
   let changed = false;
@@ -422,7 +427,11 @@ export async function squashMessage(
     let actuallyMerged = 0;
     for (const r of res) {
       if (r.absorbedIds.length > 1) {
-        absorbedIds.push(...r.absorbedIds.filter((id) => id !== r.merged.id));
+        for (const id of r.absorbedIds) {
+          if (id === r.merged.id) continue;
+          absorbedIds.push(id);
+          absorbedToMerged.set(id, r.merged.id);
+        }
         newPatchIds.push(r.merged.id);
         actuallyMerged++;
         changed = true;
@@ -437,7 +446,7 @@ export async function squashMessage(
     }
   }
   if (changed) await persistLedger(spindle, ledger, userId);
-  return { filesTouched, groupsMerged, absorbedIds, newPatchIds };
+  return { filesTouched, groupsMerged, absorbedIds, newPatchIds, absorbedToMerged };
 }
 
 export type { SquashGroupResult };

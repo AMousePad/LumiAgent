@@ -1785,7 +1785,13 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
   s.llmHistory = conv.slice(1);
   if (ac.signal.aborted && !errored) assistant.status = "cancelled";
   await saveSession(spindle, s, userId);
-  if (s.characterId !== null) await autosquashAndNotify(s.characterId, assistantId, userId);
+  if (s.characterId !== null) {
+    const squashed = await autosquashAndNotify(s, s.characterId, assistantId, userId);
+    // Picker count (session_index.editCount) lives in s.edits.length. When
+    // autosquash collapses N raw edits into 1 merged patch, the picker would
+    // otherwise stay at N while the workshop modal shows 1.
+    if (squashed) await saveSession(spindle, s, userId);
+  }
   if (ac.signal.aborted) send({ type: "generation_cancelled", sessionId: s.sessionId }, userId);
   else if (!errored) {
     send({ type: "generation_done", sessionId: s.sessionId, turns: lastTurn }, userId);
@@ -1801,15 +1807,58 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
 // patches (mid-message squash_session_edits) form boundaries that won't merge.
 // Errors are swallowed: a failed squash leaves the timeline noisier but
 // otherwise correct, so the message lifecycle shouldn't trip on it.
-async function autosquashAndNotify(characterId: string, assistantMessageId: string, userId: string): Promise<void> {
+async function autosquashAndNotify(
+  s: PersistedSession,
+  characterId: string,
+  assistantMessageId: string,
+  userId: string,
+): Promise<boolean> {
   try {
     const summary = await squashMessage(spindle, characterId, assistantMessageId, userId, { sealed: false });
-    if (summary.groupsMerged > 0) {
-      const ledger = await loadLedger(spindle, characterId, userId);
-      send({ type: "character_edits_pushed", characterId, entries: entriesView(ledger) }, userId);
+    if (summary.groupsMerged === 0) return false;
+    const ledger = await loadLedger(spindle, characterId, userId);
+    const view = entriesView(ledger);
+    let mutated = false;
+    if (summary.absorbedIds.length > 0) {
+      const absorbed = new Set(summary.absorbedIds);
+      const before = s.edits.length;
+      s.edits = s.edits.filter((e) => !absorbed.has(e.id));
+      if (s.edits.length !== before) mutated = true;
+      if (summary.newPatchIds.length > 0) {
+        const newIds = new Set(summary.newPatchIds);
+        for (const e of view) if (newIds.has(e.id)) { s.edits.push(e); mutated = true; }
+      }
+      // Rewrite tool-block edit_ids on the squashed message so the per-message
+      // "Edits (N)" banner and its "Revert all" button still resolve to live
+      // ledger patches. Without this, the banner shows 0 entries post-squash
+      // and the agent's "revert what I just did" affordance silently no-ops.
+      const msg = s.messages.find((m) => m.role === "assistant" && m.id === assistantMessageId);
+      if (msg && msg.role === "assistant") {
+        for (const block of msg.blocks) {
+          if (block.type !== "tool" || block.edit_ids.length === 0) continue;
+          const remapped: string[] = [];
+          const seen = new Set<string>();
+          let changed = false;
+          for (const id of block.edit_ids) {
+            const mapped = summary.absorbedToMerged.get(id) ?? id;
+            if (mapped !== id) changed = true;
+            if (!seen.has(mapped)) { seen.add(mapped); remapped.push(mapped); }
+          }
+          if (changed || remapped.length !== block.edit_ids.length) {
+            block.edit_ids = remapped;
+            mutated = true;
+          }
+        }
+        // Frontend caches s.messages in state.messages, push a refresh so
+        // the virtualizer re-renders bubbles with the remapped ids.
+        if (mutated) send({ type: "session_truncated", sessionId: s.sessionId, messages: s.messages, edits: s.edits }, userId);
+      }
     }
+    send({ type: "character_edits_pushed", characterId, entries: view }, userId);
+    return mutated;
   } catch (err) {
     log("warn", `autosquash failed for ${characterId}/${assistantMessageId}: ${(err as Error).message}`);
+    return false;
   }
 }
 

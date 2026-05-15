@@ -3,7 +3,7 @@ import { defineTool, type ReadGate } from "./_framework";
 import { buildEditPatch } from "./_patch";
 import { ensureFreshRead, ensureRecentRead, refreshReadHash } from "./_gates";
 import { stashDraft, loadDraft, draftReuseNote } from "./_drafts";
-import { resolveRead, resolveWrite, PathError, OutOfRangeError } from "./_path_v2";
+import { resolveRead, resolveWrite, PathError, OutOfRangeError, ExtensionRefusedError } from "./_path_v2";
 
 const inputSchema = z.object({
   path: z.string().min(3).describe("Slash-separated path. Same grammar as `read` / `edit`."),
@@ -56,6 +56,7 @@ Returns:
     let leaf;
     try { leaf = await resolveRead(ctx, input.path); }
     catch (err) {
+      if (err instanceof ExtensionRefusedError) return { content: `Error: [REFUSED_BY_EXTENSION] ${err.message}`, isError: true };
       if (err instanceof OutOfRangeError) return { content: `Error: [OUT_OF_RANGE] ${err.message}`, isError: true };
       if (err instanceof PathError) return { content: `Error: [PATH_NOT_FOUND] ${err.message}`, isError: true };
       return { content: `Error: ${(err as Error).message}`, isError: true };
@@ -74,7 +75,13 @@ Returns:
     }
 
     try { await resolveWrite(ctx, leaf, next); }
-    catch (err) { return { content: `Error: write failed: ${(err as Error).message}`, isError: true }; }
+    catch (err) {
+      if (err instanceof ExtensionRefusedError) {
+        const h = await stashDraft(ctx, `rewrite:${leaf.key}`, next);
+        return { content: `Error: [REFUSED_BY_EXTENSION] ${err.message}\n\n${draftReuseNote(h, next.length, "new_content")}`, isError: true };
+      }
+      return { content: `Error: write failed: ${(err as Error).message}`, isError: true };
+    }
     refreshReadHash(ctx, leaf.key, next);
 
     const patch = buildEditPatch(leaf.key, leaf.value, next);

@@ -5,6 +5,7 @@ import type { ToolCtx } from "./_context";
 import type { EditRecord } from "../../types";
 import { isCharacterStringField, wbLabel } from "./_surfaces";
 import { parseExtensionPath, setAtPath } from "./_paths";
+import { ExtensionRefusedError, assertExtensionWriteAllowed } from "./_path_v2";
 
 const inputSchema = z.object({
   path: z.string().min(3).describe("Slash-separated path. Same grammar as `read` / `edit`."),
@@ -40,6 +41,7 @@ async function setAlternateGreeting(ctx: ToolCtx, idx: number, value: unknown): 
 }
 
 async function setExtension(ctx: ToolCtx, dotted: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string } | string> {
+  await assertExtensionWriteAllowed(ctx, dotted);
   const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
   if (!c) return "character not found";
   const segs = parseExtensionPath(dotted);
@@ -77,7 +79,7 @@ export const setTool = defineTool({
 
 - Toggling a boolean (regex.disabled, world_book_entry.constant)
 - Changing a number (priority, position, sort_order, depth)
-- Replacing an array / object value (extensions.lumirealm.payload.lua_scripts, scriptstate_defaults)
+- Replacing an array / object value (e.g. extensions.lumirealm.payload.scriptstate_defaults)
 - Setting a typed value at an extension path that isn't a string
 
 Path grammar matches \`read\` / \`edit\` / \`rewrite\`. The value field accepts any JSON-encodable type. For string-leaf paths, set is a wholesale alternative to \`rewrite\` (no read-gate, so use only when you don't need to anchor against current content).
@@ -110,7 +112,11 @@ Returns:
     if (path.startsWith("char/extensions/") || path.startsWith("character/extensions/")) {
       const dotted = path.replace(/^(char|character)\/extensions\//, "");
       if (dotted.length === 0) return { content: "Error: extensions path requires a sub-path", isError: true };
-      result = await setExtension(ctx, dotted, value);
+      try { result = await setExtension(ctx, dotted, value); }
+      catch (err) {
+        if (err instanceof ExtensionRefusedError) return { content: `Error: [REFUSED_BY_EXTENSION] ${err.message}`, isError: true };
+        throw err;
+      }
     } else if (path.startsWith("char/alternate_greetings/") || path.startsWith("character/alternate_greetings/")) {
       const rest = path.replace(/^(char|character)\/alternate_greetings\//, "");
       const idx = parseInt(rest, 10);

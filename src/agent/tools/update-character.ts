@@ -23,6 +23,16 @@ Usage:
   requiresCharacter: true,
   execute: async (input, ctx) => {
     const patch = input.patch as CharacterUpdateDTO;
+    // Refuse `extensions` here. A wholesale extensions patch bypasses the
+    // per-path phone-line gates and would let the agent clobber any frozen /
+    // derived surface (e.g. lumirealm.source) in one call. Direct it to the
+    // path-based tools, which gate via check_write per leaf.
+    if (Object.prototype.hasOwnProperty.call(patch, "extensions")) {
+      return {
+        content: "Error: [REFUSED_BY_EXTENSION] update_character cannot patch `extensions` wholesale. Use `set({path: 'char/extensions/<dotted>', value})`, `edit`, or `rewrite` on the specific path so per-extension write rules apply.",
+        isError: true,
+      };
+    }
     const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
     if (!c) return { content: `Error: character ${ctx.characterId} not found`, isError: true };
     const updated = await ctx.spindle.characters.update(ctx.characterId, patch, ctx.userId);

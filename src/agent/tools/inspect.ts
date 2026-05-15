@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { WorldBookEntryDTO } from "lumiverse-spindle-types";
 import { defineTool } from "./_framework";
 import type { ToolCtx } from "./_context";
-import { resolveRead, PathError, OutOfRangeError, type ResolvedLeaf } from "./_path_v2";
+import { resolveRead, PathError, OutOfRangeError, ExtensionRefusedError, type ResolvedLeaf } from "./_path_v2";
 import { wbLabel } from "./_surfaces";
 
 const PEEK_CHARS = 200;
@@ -93,7 +93,7 @@ async function buildDiagnostics(ctx: ToolCtx, leaf: ResolvedLeaf): Promise<Recor
           mirror_path: `char/extensions/lumirealm.payload.${leaf.field}`,
           drift: mirror !== text,
           note: mirror !== text
-            ? `WARNING: this canonical field differs from its LumiRealm payload mirror at extensions.lumirealm.payload.${leaf.field}. A future translator-schema bump on the card will rebuild this canonical field FROM the payload mirror, overwriting your changes. Mirror your edit into both paths to make it survive.`
+            ? `WARNING: this canonical field differs from its LumiRealm payload mirror at extensions.lumirealm.payload.${leaf.field}. A future translator-schema bump on the card will rebuild this canonical field FROM the payload mirror, overwriting your changes. The mirror is refused on write, so the only durable fix is to surface this drift to the user (the source-of-truth is in the payload).`
             : "Mirror in sync with canonical; safe to edit either path.",
         };
       }
@@ -266,6 +266,7 @@ One tool, one path argument.`,
     let leaf;
     try { leaf = await resolveRead(ctx, path); }
     catch (err) {
+      if (err instanceof ExtensionRefusedError) return { content: `Error: [REFUSED_BY_EXTENSION] ${err.message}`, isError: true };
       if (err instanceof OutOfRangeError) return { content: `Error: [OUT_OF_RANGE] ${err.message}`, isError: true };
       if (err instanceof PathError) return { content: `Error: [PATH_NOT_FOUND] ${err.message}`, isError: true };
       return { content: `Error: ${(err as Error).message}`, isError: true };
