@@ -11,7 +11,16 @@ import type {
   PersonaUpdateDTO,
   PersonaDTO,
   PersonaCreateDTO,
+  WorldBookDTO,
+  WorldBookCreateDTO,
+  WorldBookUpdateDTO,
+  UserPresetDTO,
+  UserPresetCreateDTO,
+  UserPresetUpdateDTO,
+  PromptBlockDTO,
+  PromptBlockCreateDTO,
 } from "lumiverse-spindle-types";
+import type { WorldBookSnapshot, PresetSnapshot } from "../types";
 import type { EditLogEntry, EditRecord, RevertOutcomeWire, ScopeRef } from "../types";
 import { characterScope } from "../types";
 import type { ScopedLedger } from "./ledger";
@@ -166,6 +175,43 @@ function regexCreateFromDTO(r: RegexScriptDTO): RegexScriptCreateDTO {
   };
 }
 
+// Container-level (world_book / preset) fields that are plain strings. Every
+// other field (metadata, parameters, prompt_order, prompts) round-trips as
+// JSON so object / array values survive a revert losslessly.
+const SCALAR_STRING_FIELDS: ReadonlySet<string> = new Set(["name", "description", "provider", "engine"]);
+
+function encodeScalar(field: string, v: unknown): string {
+  if (SCALAR_STRING_FIELDS.has(field) && typeof v === "string") return v;
+  return JSON.stringify(v ?? null);
+}
+
+function decodeScalar(field: string, s: string): unknown {
+  if (SCALAR_STRING_FIELDS.has(field)) return s;
+  try { return JSON.parse(s); } catch { return s; }
+}
+
+function worldBookCreateFromDTO(b: WorldBookDTO): WorldBookCreateDTO {
+  const out: WorldBookCreateDTO = { name: b.name };
+  if (b.description) out.description = b.description;
+  if (b.metadata && Object.keys(b.metadata).length > 0) out.metadata = b.metadata;
+  return out;
+}
+
+function presetCreateFromDTO(p: UserPresetDTO): UserPresetCreateDTO {
+  const out: UserPresetCreateDTO = { name: p.name, provider: p.provider };
+  if (p.engine) out.engine = p.engine;
+  if (p.parameters) out.parameters = p.parameters;
+  if (p.prompts) out.prompts = p.prompts;
+  if (p.metadata) out.metadata = p.metadata;
+  return out;
+}
+
+function blockCreateFromDTO(b: PromptBlockDTO): PromptBlockCreateDTO {
+  const { id: _id, ...rest } = b;
+  void _id;
+  return rest as PromptBlockCreateDTO;
+}
+
 type PathSegment = { kind: "key"; value: string } | { kind: "index"; value: number };
 
 function parsePath(path: string): PathSegment[] {
@@ -274,6 +320,14 @@ export async function revertEdit(
           await spindle.presets.blocks.update(presetId!, blockId!, { [r.field]: r.before });
           return { success: true };
         }
+        case "world_book": {
+          await spindle.world_books.update(r.surfaceId, { [r.field]: decodeScalar(r.field, r.before) } as WorldBookUpdateDTO, userId);
+          return { success: true };
+        }
+        case "preset": {
+          await spindle.presets.update(r.surfaceId, { [r.field]: decodeScalar(r.field, r.before) } as UserPresetUpdateDTO, userId);
+          return { success: true };
+        }
         case "extension": {
           const c = await spindle.characters.get(characterId, userId);
           if (!c) return { success: false, error: "character not found" };
@@ -305,6 +359,19 @@ export async function revertEdit(
         await spindle.personas.delete(r.surfaceId, userId);
         return { success: true };
       }
+      if (r.surface === "world_book") {
+        await spindle.world_books.delete(r.surfaceId, userId);
+        return { success: true };
+      }
+      if (r.surface === "preset") {
+        await spindle.presets.delete(r.surfaceId, userId);
+        return { success: true };
+      }
+      if (r.surface === "preset_block") {
+        const [presetId, blockId] = r.surfaceId.split(":");
+        await spindle.presets.blocks.delete(presetId!, blockId!, userId);
+        return { success: true };
+      }
     } else if (r.op === "delete") {
       if (r.surface === "world_book_entry") {
         const snap = r.snapshot as WorldBookEntryDTO;
@@ -328,6 +395,30 @@ export async function revertEdit(
       }
       if (r.surface === "persona") {
         await spindle.personas.create(personaCreateFromDTO(r.snapshot as PersonaDTO), userId);
+        return { success: true };
+      }
+      if (r.surface === "world_book") {
+        // Book delete cascades its entries, so the snapshot carries both.
+        // The recreated book gets a fresh id; any character world_book_ids
+        // pointing at the old id stay stale (same caveat as persona revert).
+        const snap = r.snapshot as WorldBookSnapshot;
+        const book = await spindle.world_books.create(worldBookCreateFromDTO(snap.book), userId);
+        for (const e of snap.entries) {
+          await spindle.world_books.entries.create(book.id, entryCreateFromDTO(e), userId);
+        }
+        return { success: true };
+      }
+      if (r.surface === "preset") {
+        const snap = r.snapshot as PresetSnapshot;
+        const preset = await spindle.presets.create(presetCreateFromDTO(snap.preset), userId);
+        for (let i = 0; i < snap.blocks.length; i++) {
+          await spindle.presets.blocks.create(preset.id, blockCreateFromDTO(snap.blocks[i]!), { index: i, userId });
+        }
+        return { success: true };
+      }
+      if (r.surface === "preset_block") {
+        const snap = r.snapshot as PromptBlockDTO & { __presetId: string; __index: number };
+        await spindle.presets.blocks.create(snap.__presetId, blockCreateFromDTO(snap), { index: snap.__index, userId });
         return { success: true };
       }
     }
@@ -414,6 +505,16 @@ export async function readLiveValue(
       if (!b) return null;
       const v = (b as unknown as Record<string, unknown>)[r.field];
       return typeof v === "string" ? v : null;
+    }
+    case "world_book": {
+      const b = await spindle.world_books.get(r.surfaceId, userId);
+      if (!b) return null;
+      return encodeScalar(r.field, (b as unknown as Record<string, unknown>)[r.field]);
+    }
+    case "preset": {
+      const p = await spindle.presets.get(r.surfaceId, userId);
+      if (!p) return null;
+      return encodeScalar(r.field, (p as unknown as Record<string, unknown>)[r.field]);
     }
     default:
       return null;
@@ -568,6 +669,14 @@ export async function writeFieldValue(
     case "preset_block": {
       const [presetId, blockId] = surfaceId.split(":");
       await spindle.presets.blocks.update(presetId!, blockId!, { [field]: value });
+      return;
+    }
+    case "world_book": {
+      await spindle.world_books.update(surfaceId, { [field]: decodeScalar(field, value) } as WorldBookUpdateDTO, userId);
+      return;
+    }
+    case "preset": {
+      await spindle.presets.update(surfaceId, { [field]: decodeScalar(field, value) } as UserPresetUpdateDTO, userId);
       return;
     }
     default:

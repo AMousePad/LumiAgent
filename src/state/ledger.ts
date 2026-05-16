@@ -138,14 +138,19 @@ function upsertFile(ledger: ScopedLedger, file: FileState): void {
   else ledger.files[i] = file;
 }
 
+type StructuralSurface = StructuralPatch["surface"];
+const STRUCTURAL_SURFACES: ReadonlySet<string> = new Set<StructuralSurface>([
+  "world_book_entry", "world_book", "regex_script", "alternate_greeting", "persona", "preset", "preset_block",
+]);
+
 function structuralFromEntry(e: EditLogEntry, r: EditCreate | EditDelete): StructuralPatch | null {
-  if (r.surface !== "world_book_entry" && r.surface !== "regex_script" && r.surface !== "alternate_greeting" && r.surface !== "persona") {
+  if (!STRUCTURAL_SURFACES.has(r.surface)) {
     return null;
   }
   return {
     id: e.id,
     op: r.op,
-    surface: r.surface,
+    surface: r.surface as StructuralSurface,
     surfaceId: r.surfaceId,
     surfaceLabel: r.surfaceLabel,
     snapshot: r.snapshot,

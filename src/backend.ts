@@ -495,6 +495,8 @@ async function handleListCharactersStorage(userId: string): Promise<void> {
           try { const p = await spindle.personas.get(id, userId); if (p) label = p.name; } catch { /* fall back to id */ }
         } else if (kind === "preset") {
           try { const p = await spindle.presets.get(id, userId); if (p) label = p.name; } catch { /* fall back to id */ }
+        } else if (kind === "world_book") {
+          try { const wb = await spindle.world_books.get(id, userId); if (wb) label = wb.name; } catch { /* fall back to id */ }
         }
         entries.push({
           characterId: id, characterName: label, label, scope,
@@ -1783,7 +1785,7 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
         case "edit_logged":
           // A character-scoped edit in a no-character session is nonsensical
           // (the char tools are filtered out). Non-character scopes
-          // (persona/chat/preset, e.g. create_persona) are valid without a
+          // (persona/chat/preset, e.g. create persona) are valid without a
           // character and must still file into their own ledger.
           if (s.characterId === null && ev.entry.scope.kind === "character") break;
           s.edits.push(ev.entry);

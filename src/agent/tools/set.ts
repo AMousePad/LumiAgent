@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { CharacterUpdateDTO, RegexScriptUpdateDTO, WorldBookEntryUpdateDTO } from "lumiverse-spindle-types";
+import type { CharacterUpdateDTO, RegexScriptUpdateDTO, WorldBookEntryUpdateDTO, WorldBookUpdateDTO, UserPresetUpdateDTO } from "lumiverse-spindle-types";
 import { defineTool } from "./_framework";
 import type { ToolCtx } from "./_context";
 import type { EditRecord } from "../../types";
@@ -65,12 +65,28 @@ async function setRegexScriptField(ctx: ToolCtx, scriptId: string, field: string
   return { before: stringify(before), after: stringify(value), label: r.name, surface: "regex_script", surfaceId: scriptId, field };
 }
 
-async function setWorldBookEntryField(ctx: ToolCtx, entryId: string, field: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string } | string> {
-  const e = await ctx.spindle.world_books.entries.get(entryId, ctx.userId);
-  if (!e) return `world book entry ${entryId} not found`;
+async function setWorldBookField(ctx: ToolCtx, id: string, field: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string } | string> {
+  // wb/<id>/<field> is overloaded: id may be a book (name/description/metadata)
+  // or an entry. Resolve by lookup so one path grammar covers both.
+  const book = await ctx.spindle.world_books.get(id, ctx.userId).catch(() => null);
+  if (book) {
+    const before = (book as unknown as Record<string, unknown>)[field];
+    await ctx.spindle.world_books.update(id, { [field]: value } as WorldBookUpdateDTO, ctx.userId);
+    return { before: stringify(before), after: stringify(value), label: book.name, surface: "world_book", surfaceId: id, field };
+  }
+  const e = await ctx.spindle.world_books.entries.get(id, ctx.userId);
+  if (!e) return `no world book or entry with id ${id}`;
   const before = (e as unknown as Record<string, unknown>)[field];
-  await ctx.spindle.world_books.entries.update(entryId, { [field]: value } as WorldBookEntryUpdateDTO, ctx.userId);
-  return { before: stringify(before), after: stringify(value), label: wbLabel(e), surface: "world_book_entry", surfaceId: entryId, field };
+  await ctx.spindle.world_books.entries.update(id, { [field]: value } as WorldBookEntryUpdateDTO, ctx.userId);
+  return { before: stringify(before), after: stringify(value), label: wbLabel(e), surface: "world_book_entry", surfaceId: id, field };
+}
+
+async function setPresetField(ctx: ToolCtx, presetId: string, field: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string } | string> {
+  const p = await ctx.spindle.presets.get(presetId, ctx.userId);
+  if (!p) return `preset ${presetId} not found`;
+  const before = (p as unknown as Record<string, unknown>)[field];
+  await ctx.spindle.presets.update(presetId, { [field]: value } as UserPresetUpdateDTO, ctx.userId);
+  return { before: stringify(before), after: stringify(value), label: p.name, surface: "preset", surfaceId: presetId, field };
 }
 
 export const setTool = defineTool({
@@ -131,10 +147,14 @@ Returns:
       const parts = path.split("/").slice(1);
       if (parts.length !== 2) return { content: "Error: expected rx/<scriptId>/<field>", isError: true };
       result = await setRegexScriptField(ctx, parts[0]!, parts[1]!, value);
-    } else if (path.startsWith("wb/") || path.startsWith("world_book_entry/")) {
+    } else if (path.startsWith("wb/") || path.startsWith("world_book_entry/") || path.startsWith("world_book/")) {
       const parts = path.split("/").slice(1);
-      if (parts.length !== 2) return { content: "Error: expected wb/<entryId>/<field>", isError: true };
-      result = await setWorldBookEntryField(ctx, parts[0]!, parts[1]!, value);
+      if (parts.length !== 2) return { content: "Error: expected wb/<id>/<field> (id = book or entry)", isError: true };
+      result = await setWorldBookField(ctx, parts[0]!, parts[1]!, value);
+    } else if (path.startsWith("preset/")) {
+      const parts = path.split("/").slice(1);
+      if (parts.length !== 2) return { content: "Error: expected preset/<presetId>/<field>. For block content/name use edit/rewrite on preset/<id>/block/<bid>/<field>.", isError: true };
+      result = await setPresetField(ctx, parts[0]!, parts[1]!, value);
     } else {
       return { content: `Error: unknown set path '${path}'. See \`read\` tool for grammar.`, isError: true };
     }

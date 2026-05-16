@@ -109,6 +109,9 @@ Path grammar (forward slashes; first segment names the surface):
 - \`char/extensions/<dotted>\` — any string leaf under \`character.extensions.*\`. Dotted with brackets, e.g. \`<extId>.<group>.<item>[0].code\`
 - \`rx/<scriptId>/find_regex\` or \`rx/<scriptId>/replace_string\` — regex script
 - \`wb/<entryId>/content\` or \`wb/<entryId>/comment\` — lorebook entry
+- \`persona/<id>/<name|title|description>\`, \`persona/<id>/wb/<entryId>/<content|comment>\` — a user persona
+- \`chat/<chatId>/msg/<msgId>/content\` — one chat message
+- \`preset/<presetId>/block/<blockId>/<content|name>\` — a prompt-preset block
 
 \`read({path, [offset, limit]})\` → line-numbered text; records the path as recently-read.
 \`edit({path, find, replace, [replace_all]})\` → find/replace; gated on a matching prior \`read\` of the same path. Match is byte-exact, with ONE fallback: curly / corner / fullwidth quotes get normalized to ASCII on both sides (because LLMs can't reliably emit them). Everything else — NFC vs NFD Hangul, NBSPs, BOMs, line endings — is on you: copy bytes verbatim from a recent \`read\`, or run \`inspect\` first to see the encoding diagnostics.
@@ -142,7 +145,9 @@ Flow for "translate the third greeting":
 **rewrite vs edit vs set**:
 - **rewrite({path, new_content})** — whole-field overwrite of a string leaf. One call, no find string, no chunking, no byte-match risk.
 - **edit({path, find, replace})** — targeted find/replace inside an existing string field (typo, name swap, single paragraph). NOT for full rewrites.
-- **set({path, value})** — wholesale set of any path including non-string values (arrays, objects, numbers).
+- **set({path, value})** — wholesale set of any path including non-string values (arrays, objects, numbers). Also writes container-level fields: \`wb/<bookId>/<name|description>\`, \`preset/<presetId>/<name|provider|engine|parameters|prompt_order|prompts|metadata>\`.
+- **create({path, value})** — make a new entity inside a container: \`wb\` (a world book), \`wb/<bookId>/entry\`, \`rx\`, \`persona\`, \`preset\`, \`preset/<presetId>/block\`, \`char/alternate_greetings\`. Reorder preset blocks by \`set\`-ing \`preset/<id>/prompt_order\`.
+- **delete({path})** — remove the entity at a path: \`wb/<id>\` (book or entry), \`rx/<id>\`, \`persona/<id>\`, \`preset/<id>\`, \`preset/<id>/block/<bid>\`, \`char/alternate_greetings/<idx>\`. Snapshotted, so revert restores it (a book/preset restores its children too, with a fresh id).
 
 If you find yourself making more than 2-3 \`edit\` calls on one field, switch to \`rewrite\`. Wholesale rewrites are ONE call. If a rewrite is huge and risky, sketch a paragraph, ask "apply this style?", pause.
 

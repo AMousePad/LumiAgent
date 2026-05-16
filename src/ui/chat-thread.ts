@@ -123,7 +123,6 @@ function describeExternalTarget(surfaceId: string | undefined, itemId: string | 
 
 function describeToolActivity(name: string, args: Record<string, unknown>): { kind: "read" | "write" | "create" | "delete" | "search" | "test" | "finish"; verb: string; target: string } {
   const s = (k: string): string | undefined => typeof args[k] === "string" ? args[k] as string : undefined;
-  const n = (k: string): number | undefined => typeof args[k] === "number" ? args[k] as number : undefined;
   switch (name) {
     // Path-based read/edit/inspect/list/grep — the workhorses.
     case "read": return { kind: "read", verb: "Reading", target: describePath(s("path")) };
@@ -140,12 +139,8 @@ function describeToolActivity(name: string, args: Record<string, unknown>): { ki
     case "update_character": return { kind: "write", verb: "Updating", target: `character (${Object.keys((args["patch"] as Record<string, unknown>) ?? {}).join(", ")})` };
     case "update_regex_script": return { kind: "write", verb: "Updating", target: `regex ${shortId(s("script_id") ?? "?")} metadata` };
     case "update_world_book_entry": return { kind: "write", verb: "Updating", target: `world book entry ${shortId(s("entry_id") ?? "?")} metadata` };
-    case "create_world_book_entry": return { kind: "create", verb: "Creating", target: `world book entry${s("comment") ? ` '${s("comment")}'` : ""}` };
-    case "delete_world_book_entry": return { kind: "delete", verb: "Deleting", target: `world book entry ${shortId(s("entry_id") ?? "?")}` };
-    case "create_regex_script": return { kind: "create", verb: "Creating", target: `regex script${s("name") ? ` '${s("name")}'` : ""}` };
-    case "delete_regex_script": return { kind: "delete", verb: "Deleting", target: `regex script ${shortId(s("script_id") ?? "?")}` };
-    case "create_alternate_greeting": { const i = n("index"); return { kind: "create", verb: "Adding", target: i !== undefined ? `alternate greeting #${i}` : "alternate greeting" }; }
-    case "delete_alternate_greeting": { const i = n("index"); return { kind: "delete", verb: "Deleting", target: `alternate greeting #${i ?? "?"}` }; }
+    case "create": return { kind: "create", verb: "Creating", target: describePath(s("path")) };
+    case "delete": return { kind: "delete", verb: "Deleting", target: describePath(s("path")) };
     case "apply_glossary": { const e = (args["entries"] as Record<string, unknown>) ?? {}; const dry = args["dry_run"] === true; return { kind: dry ? "search" : "write", verb: dry ? "Dry-running" : "Applying", target: `glossary (${Object.keys(e).length} entries)` }; }
     case "test_regex": return { kind: "test", verb: "Testing", target: "regex pattern" };
     case "count_cjk_chars": return { kind: "read", verb: "Counting", target: "CJK chars" };

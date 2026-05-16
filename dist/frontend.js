@@ -4064,7 +4064,6 @@ function describeExternalTarget(surfaceId, itemId, field) {
 }
 function describeToolActivity(name, args) {
   const s = (k) => typeof args[k] === "string" ? args[k] : undefined;
-  const n = (k) => typeof args[k] === "number" ? args[k] : undefined;
   switch (name) {
     case "read":
       return { kind: "read", verb: "Reading", target: describePath(s("path")) };
@@ -4098,22 +4097,10 @@ function describeToolActivity(name, args) {
       return { kind: "write", verb: "Updating", target: `regex ${shortId(s("script_id") ?? "?")} metadata` };
     case "update_world_book_entry":
       return { kind: "write", verb: "Updating", target: `world book entry ${shortId(s("entry_id") ?? "?")} metadata` };
-    case "create_world_book_entry":
-      return { kind: "create", verb: "Creating", target: `world book entry${s("comment") ? ` '${s("comment")}'` : ""}` };
-    case "delete_world_book_entry":
-      return { kind: "delete", verb: "Deleting", target: `world book entry ${shortId(s("entry_id") ?? "?")}` };
-    case "create_regex_script":
-      return { kind: "create", verb: "Creating", target: `regex script${s("name") ? ` '${s("name")}'` : ""}` };
-    case "delete_regex_script":
-      return { kind: "delete", verb: "Deleting", target: `regex script ${shortId(s("script_id") ?? "?")}` };
-    case "create_alternate_greeting": {
-      const i = n("index");
-      return { kind: "create", verb: "Adding", target: i !== undefined ? `alternate greeting #${i}` : "alternate greeting" };
-    }
-    case "delete_alternate_greeting": {
-      const i = n("index");
-      return { kind: "delete", verb: "Deleting", target: `alternate greeting #${i ?? "?"}` };
-    }
+    case "create":
+      return { kind: "create", verb: "Creating", target: describePath(s("path")) };
+    case "delete":
+      return { kind: "delete", verb: "Deleting", target: describePath(s("path")) };
     case "apply_glossary": {
       const e = args["entries"] ?? {};
       const dry = args["dry_run"] === true;
@@ -6093,15 +6080,17 @@ var SURFACE_LABELS = {
   character_field: "Character",
   alternate_greeting: "Alternate greetings",
   world_book_entry: "World book",
+  world_book: "World books",
   regex_script: "Regex scripts",
   extension: "Extensions",
   persona_field: "Personas",
   chat_message: "Chat messages",
   preset_block: "Preset blocks",
+  preset: "Presets",
   persona: "Personas",
   external: "External (other extensions)"
 };
-var SURFACE_ORDER = ["character_field", "alternate_greeting", "world_book_entry", "regex_script", "extension", "persona_field", "chat_message", "preset_block", "persona", "external"];
+var SURFACE_ORDER = ["character_field", "alternate_greeting", "world_book_entry", "world_book", "regex_script", "extension", "persona_field", "chat_message", "preset_block", "preset", "persona", "external"];
 var MOBILE_BREAKPOINT_PX = 720;
 var DESKTOP_WIDTH_CAP = 1700;
 var DESKTOP_WIDTH_MIN = 720;
@@ -8852,7 +8841,7 @@ Revert those edits to the character now, or leave them applied?`;
       return;
     for (let i = state.messages.length - 1;i >= 0; i--) {
       const m = state.messages[i];
-      if (m && m.role === "assistant" && m.status === "streaming") {
+      if (m && m.role === "assistant") {
         state.currentAssistantMessage = m;
         return;
       }
@@ -8875,11 +8864,13 @@ Revert those edits to the character now, or leave them applied?`;
   const finalizeAssistantTurn = (status) => {
     hideLoading();
     const handle = state.streamingAssistant;
-    const msg = state.currentAssistantMessage;
-    if (!handle || !msg)
+    if (!handle)
       return;
+    rebindCurrentAssistantMessage();
+    const msg = state.currentAssistantMessage;
     handle.setStatus(status);
-    msg.status = status;
+    if (msg)
+      msg.status = status;
     state.streamingAssistant = null;
     state.currentAssistantMessage = null;
   };

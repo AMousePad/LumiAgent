@@ -2,8 +2,11 @@ import type {
   ToolSchemaDTO,
   ToolCallDTO,
   WorldBookEntryDTO,
+  WorldBookDTO,
   RegexScriptDTO,
   PersonaDTO,
+  UserPresetDTO,
+  PromptBlockDTO,
 } from "lumiverse-spindle-types";
 
 export type LlmMessagePart =
@@ -70,8 +73,30 @@ export type EditSurface =
   | "persona_field"
   | "chat_message"
   | "preset_block"
+  | "preset"
+  | "world_book"
   | "persona"
   | "external";
+
+// Cascade snapshots: deleting a book/preset also drops its children, so the
+// structural snapshot carries the whole subtree for a faithful revert.
+export interface WorldBookSnapshot {
+  readonly book: WorldBookDTO;
+  readonly entries: readonly WorldBookEntryDTO[];
+}
+export interface PresetSnapshot {
+  readonly preset: UserPresetDTO;
+  readonly blocks: readonly PromptBlockDTO[];
+}
+
+export type StructuralSnapshot =
+  | WorldBookEntryDTO
+  | RegexScriptDTO
+  | PersonaDTO
+  | WorldBookSnapshot
+  | PresetSnapshot
+  | PromptBlockDTO
+  | { greeting: string };
 
 export interface EditEdit {
   readonly op: "edit";
@@ -92,7 +117,7 @@ export interface EditCreate {
   readonly surface: Exclude<EditSurface, "character_field" | "extension">;
   readonly surfaceId: string;
   readonly surfaceLabel: string;
-  readonly snapshot: WorldBookEntryDTO | RegexScriptDTO | PersonaDTO | { greeting: string };
+  readonly snapshot: StructuralSnapshot;
   readonly scope?: ScopeRef;
 }
 
@@ -101,7 +126,7 @@ export interface EditDelete {
   readonly surface: Exclude<EditSurface, "character_field" | "extension">;
   readonly surfaceId: string;
   readonly surfaceLabel: string;
-  readonly snapshot: WorldBookEntryDTO | RegexScriptDTO | PersonaDTO | { greeting: string; index: number };
+  readonly snapshot: StructuralSnapshot | { greeting: string; index: number };
   readonly scope?: ScopeRef;
 }
 
