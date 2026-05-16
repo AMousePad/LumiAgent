@@ -6266,6 +6266,7 @@ function openDiffModal(ctx, deps, opts) {
   let currentEditId = opts?.initialEditId ?? null;
   let edits = deps.getEdits();
   let loading = false;
+  let requestedKey = null;
   const syncCombo = () => {
     const wantLumi = activeTab === "lumiverse";
     const opts2 = scopes.filter((s) => isLumiverseKind(s.scope.kind) === wantLumi);
@@ -6288,6 +6289,7 @@ function openDiffModal(ctx, deps, opts) {
     const o = selectedOption();
     const scope = o ? o.scope : activeTab === "characters" ? deps.getSelectedScope() : null;
     edits = [];
+    requestedKey = scope ? scopeKeyString(scope) : null;
     if (scope) {
       loading = true;
       deps.onSelectScope(scope);
@@ -6490,7 +6492,11 @@ function openDiffModal(ctx, deps, opts) {
         return;
       scopes = next;
       syncCombo();
-      refresh();
+      const o = selectedOption();
+      if (o && scopeKeyString(o.scope) !== requestedKey)
+        selectAndLoad();
+      else
+        refresh();
     },
     focusEdit(editId) {
       if (!open)

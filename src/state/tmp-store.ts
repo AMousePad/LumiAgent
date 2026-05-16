@@ -64,6 +64,25 @@ async function deleteTmp(spindle: SpindleAPI, info: TmpHandleInfo, userId: strin
   try { await spindle.userStorage.delete(metaPath(info.sessionId, info.handle), userId); } catch { /* already gone */ }
 }
 
+// Drop any now-empty per-session tmp directories. Best-effort: a host whose
+// userStorage.delete is still file-only (pre-rebuild) throws on the dir, which
+// we swallow, so this is a no-op there and a real cleanup once the host can
+// remove directories.
+async function pruneEmptySessionDirs(spindle: SpindleAPI, userId: string): Promise<void> {
+  let dirs: string[];
+  try { dirs = await spindle.userStorage.list(`${TMP_ROOT}/`, userId); }
+  catch { return; }
+  for (const rel of dirs) {
+    const sid = rel.endsWith("/") ? rel.slice(0, -1) : rel;
+    let entries: string[];
+    try { entries = await spindle.userStorage.list(`${TMP_ROOT}/${sid}/`, userId); }
+    catch { continue; }
+    if (entries.length === 0) {
+      try { await spindle.userStorage.delete(`${TMP_ROOT}/${sid}`, userId); } catch { /* host dir-delete unsupported */ }
+    }
+  }
+}
+
 async function listAllTmpMeta(spindle: SpindleAPI, userId: string): Promise<TmpHandleInfo[]> {
   // userStorage.list is non-recursive, so walk session dirs by hand.
   let sessionDirs: string[];
@@ -94,6 +113,7 @@ async function evictUntilFits(spindle: SpindleAPI, userId: string, incomingBytes
   let totalBytes = all.reduce((s, x) => s + x.totalChars, 0);
   let totalFiles = all.length;
   // +1 for the file we're about to create.
+  let evicted = false;
   while (
     totalFiles + 1 > TMP_MAX_FILES_PER_USER ||
     totalBytes + incomingBytes > TMP_MAX_BYTES_PER_USER
@@ -103,7 +123,9 @@ async function evictUntilFits(spindle: SpindleAPI, userId: string, incomingBytes
     await deleteTmp(spindle, victim, userId);
     totalBytes -= victim.totalChars;
     totalFiles -= 1;
+    evicted = true;
   }
+  if (evicted) await pruneEmptySessionDirs(spindle, userId);
 }
 
 export async function readTmp(
@@ -169,4 +191,7 @@ export async function clearSessionTmp(
 ): Promise<void> {
   const entries = await listTmp(spindle, sessionId, userId);
   for (const info of entries) await deleteTmp(spindle, info, userId);
+  // Remove the now-empty session directory (recursive delete also sweeps any
+  // stray non-meta files). Best-effort if the host can't delete dirs yet.
+  try { await spindle.userStorage.delete(`${TMP_ROOT}/${sessionId}`, userId); } catch { /* host dir-delete unsupported */ }
 }

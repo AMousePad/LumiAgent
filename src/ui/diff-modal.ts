@@ -234,6 +234,10 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
   // Keeps the pane from flashing a previous scope's edits or a false "no
   // edits" while the ledger round-trips.
   let loading = false;
+  // Scope key we last asked the drawer to load. Lets setScopes tell an
+  // initial async population (load the now-available scope) apart from a
+  // background refresh of an already-loaded scope (leave the view alone).
+  let requestedKey: string | null = null;
 
   // Repopulate the combo for the active scope tab and sync the selection.
   const syncCombo = (): void => {
@@ -266,6 +270,7 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
     const o = selectedOption();
     const scope = o ? o.scope : (activeTab === "characters" ? deps.getSelectedScope() : null);
     edits = [];
+    requestedKey = scope ? scopeKeyString(scope) : null;
     if (scope) {
       loading = true;
       deps.onSelectScope(scope);
@@ -468,7 +473,13 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
       if (!open) return;
       scopes = next;
       syncCombo();
-      refresh();
+      // First population (or any change to a scope we haven't loaded, e.g.
+      // a no-character open where scopes arrive after the modal mounts):
+      // load it. A background refresh of the already-loaded scope is a
+      // no-op here, so the current view isn't yanked.
+      const o = selectedOption();
+      if (o && scopeKeyString(o.scope) !== requestedKey) selectAndLoad();
+      else refresh();
     },
     focusEdit(editId) { if (!open) return; currentEditId = editId; refresh(); },
     focusTab(tab) { if (!open) return; switchTab(tab); },

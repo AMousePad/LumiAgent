@@ -2540,6 +2540,28 @@ async function deleteTmp(spindle2, info, userId) {
     await spindle2.userStorage.delete(metaPath(info.sessionId, info.handle), userId);
   } catch {}
 }
+async function pruneEmptySessionDirs(spindle2, userId) {
+  let dirs;
+  try {
+    dirs = await spindle2.userStorage.list(`${TMP_ROOT}/`, userId);
+  } catch {
+    return;
+  }
+  for (const rel of dirs) {
+    const sid = rel.endsWith("/") ? rel.slice(0, -1) : rel;
+    let entries;
+    try {
+      entries = await spindle2.userStorage.list(`${TMP_ROOT}/${sid}/`, userId);
+    } catch {
+      continue;
+    }
+    if (entries.length === 0) {
+      try {
+        await spindle2.userStorage.delete(`${TMP_ROOT}/${sid}`, userId);
+      } catch {}
+    }
+  }
+}
 async function listAllTmpMeta(spindle2, userId) {
   let sessionDirs;
   try {
@@ -2572,6 +2594,7 @@ async function evictUntilFits(spindle2, userId, incomingBytes) {
   all.sort((a, b) => a.createdAt - b.createdAt);
   let totalBytes = all.reduce((s, x) => s + x.totalChars, 0);
   let totalFiles = all.length;
+  let evicted = false;
   while (totalFiles + 1 > TMP_MAX_FILES_PER_USER || totalBytes + incomingBytes > TMP_MAX_BYTES_PER_USER) {
     const victim = all.shift();
     if (!victim)
@@ -2579,7 +2602,10 @@ async function evictUntilFits(spindle2, userId, incomingBytes) {
     await deleteTmp(spindle2, victim, userId);
     totalBytes -= victim.totalChars;
     totalFiles -= 1;
+    evicted = true;
   }
+  if (evicted)
+    await pruneEmptySessionDirs(spindle2, userId);
 }
 async function readTmp(spindle2, sessionId, userId, handle) {
   try {
@@ -2621,6 +2647,9 @@ async function clearSessionTmp(spindle2, sessionId, userId) {
   const entries = await listTmp(spindle2, sessionId, userId);
   for (const info of entries)
     await deleteTmp(spindle2, info, userId);
+  try {
+    await spindle2.userStorage.delete(`${TMP_ROOT}/${sessionId}`, userId);
+  } catch {}
 }
 var TMP_ROOT = "workspace/tmp", MAX_HANDLES_PER_LIST = 200, TMP_MAX_FILES_PER_USER = 50, TMP_MAX_BYTES_PER_USER, counter = 0;
 var init_tmp_store = __esm(() => {
@@ -34627,7 +34656,7 @@ function subscribeToMissingChanges(handler) {
 }
 // spindle.json
 var spindle_default = {
-  version: "0.3.1",
+  version: "0.4.0",
   name: "LumiAgent",
   identifier: "lumiagent",
   author: "amousepad",
