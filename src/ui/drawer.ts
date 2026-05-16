@@ -2348,7 +2348,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
           sendBackend({ type: "load_session", sessionId: msg.sessionId });
         }
         break;
-      case "characters_storage_pushed":
+      case "characters_storage_pushed": {
         state.scopeStorage = msg.entries;
         state.diffModal?.setScopes(msg.entries.map((e) => ({
           scope: e.scope ?? characterScope(e.characterId),
@@ -2356,7 +2356,18 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
           liveCount: e.liveEditCount,
           totalCount: e.editCount,
         })));
+        // Authoritatively re-sync the header badge to the active character's
+        // live edit count. The backend fires this after every revert / forget
+        // / squash, so the counter self-heals regardless of which modal or
+        // path did the revert (the client-side splice can miss cases).
+        if (state.characterId !== null) {
+          const e = msg.entries.find((x) =>
+            (x.scope && x.scope.kind === "character" ? x.scope.id : x.characterId) === state.characterId);
+          editsCount.textContent = String(e ? e.liveEditCount : 0);
+          editsBadge.classList.toggle("has-edits", (e?.editCount ?? 0) > 0);
+        }
         break;
+      }
       case "frontend_rpc_request": {
         // Backend asked us to do something only the browser can (currently:
         // run Chrome's on-device Translator API). Dispatch by op, post the

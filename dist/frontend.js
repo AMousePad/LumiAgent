@@ -9193,7 +9193,7 @@ Revert those edits to the character now, or leave them applied?`;
           sendBackend({ type: "load_session", sessionId: msg.sessionId });
         }
         break;
-      case "characters_storage_pushed":
+      case "characters_storage_pushed": {
         state.scopeStorage = msg.entries;
         state.diffModal?.setScopes(msg.entries.map((e) => ({
           scope: e.scope ?? characterScope(e.characterId),
@@ -9201,7 +9201,13 @@ Revert those edits to the character now, or leave them applied?`;
           liveCount: e.liveEditCount,
           totalCount: e.editCount
         })));
+        if (state.characterId !== null) {
+          const e = msg.entries.find((x) => (x.scope && x.scope.kind === "character" ? x.scope.id : x.characterId) === state.characterId);
+          editsCount.textContent = String(e ? e.liveEditCount : 0);
+          editsBadge.classList.toggle("has-edits", (e?.editCount ?? 0) > 0);
+        }
         break;
+      }
       case "frontend_rpc_request": {
         (async () => {
           try {
