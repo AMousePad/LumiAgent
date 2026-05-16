@@ -2016,9 +2016,14 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   // silently no-op into a missing reference and desync from the live bubble.
   const rebindCurrentAssistantMessage = (): void => {
     if (state.currentAssistantMessage || !state.streamingAssistant) return;
+    // A live handle proves a turn is in flight, so the message it backs is
+    // the last assistant message regardless of its status field. Binding
+    // only to status==="streaming" left token/tool events writing to the
+    // DOM handle but not the message model when the status had already been
+    // flipped, so the post-finalize static rerender drew an empty bubble.
     for (let i = state.messages.length - 1; i >= 0; i--) {
       const m = state.messages[i];
-      if (m && m.role === "assistant" && m.status === "streaming") {
+      if (m && m.role === "assistant") {
         state.currentAssistantMessage = m;
         return;
       }
@@ -2042,10 +2047,17 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   const finalizeAssistantTurn = (status: ChatAssistantMessage["status"]) => {
     hideLoading();
     const handle = state.streamingAssistant;
+    if (!handle) return;
+    // Recover the message pointer if it was cleared mid-stream. Bailing here
+    // used to leave the turn half-finalized: the handle's DOM had the streamed
+    // content but the message stayed status="streaming" with whatever blocks
+    // it had, and the next rerenderThread drew it from the (possibly empty)
+    // model instead of the live DOM, so the whole response vanished until a
+    // reload rebuilt it from the backend-persisted session.
+    rebindCurrentAssistantMessage();
     const msg = state.currentAssistantMessage;
-    if (!handle || !msg) return;
     handle.setStatus(status);
-    msg.status = status;
+    if (msg) msg.status = status;
     state.streamingAssistant = null;
     state.currentAssistantMessage = null;
   };
