@@ -27,13 +27,17 @@ import { parseExtensionPath, getAtPath, setAtPath } from "./_paths";
 const PERSONA_STRING_FIELDS = ["name", "title", "description"] as const;
 
 // Filing scope is derived from the leaf key prefix so it stays in one place
-// instead of being threaded through every ResolvedLeaf literal. Only the
-// persona surface is non-character today; everything else files under the
-// session's character.
-function scopeForLeafKey(key: string, ctx: ToolCtx): ScopeRef {
+// instead of being threaded through every ResolvedLeaf literal. persona /
+// chat / preset are always their own scope. wb / rx normally file under the
+// active character, but with no character selected they file under the world
+// book / regex script itself so the edit is still tracked and revertable.
+export function scopeForLeafKey(key: string, ctx: ToolCtx): ScopeRef {
   if (key.startsWith("persona/")) return { kind: "persona", id: key.split("/")[1]! };
   if (key.startsWith("chat/")) return { kind: "chat", id: key.split("/")[1]! };
   if (key.startsWith("preset/")) return { kind: "preset", id: key.split("/")[1]! };
+  if (ctx.characterId) return characterScope(ctx.characterId);
+  if (key.startsWith("wb/")) return { kind: "world_book", id: key.split("/")[1]! };
+  if (key.startsWith("rx/")) return { kind: "regex_script", id: key.split("/")[1]! };
   return characterScope(ctx.characterId);
 }
 
@@ -95,6 +99,7 @@ export async function resolveRead(ctx: ToolCtx, path: string): Promise<ResolvedL
   const head = parts[0]!;
 
   if (head === "char" || head === "character") {
+    if (!ctx.characterId) throw new PathError(path, "no character is selected in this session; char/ paths need an active character (wb/, rx/, persona/, chat/, preset/ paths work without one)");
     const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
     if (!c) throw new PathError(path, `character ${ctx.characterId} not found`);
     const sub = parts[1]!;
@@ -329,6 +334,7 @@ export async function resolveWrite(
     ctx.pushEdit({
       op: "edit", surface: "regex_script", surfaceId: leaf.surfaceId,
       surfaceLabel: leaf.surfaceLabel, field: leaf.field, before: leaf.value, after: nextValue,
+      scope: scopeForLeafKey(leaf.key, ctx),
     });
     return;
   }

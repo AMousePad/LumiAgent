@@ -18269,6 +18269,12 @@ function scopeForLeafKey(key, ctx) {
     return { kind: "chat", id: key.split("/")[1] };
   if (key.startsWith("preset/"))
     return { kind: "preset", id: key.split("/")[1] };
+  if (ctx.characterId)
+    return characterScope(ctx.characterId);
+  if (key.startsWith("wb/"))
+    return { kind: "world_book", id: key.split("/")[1] };
+  if (key.startsWith("rx/"))
+    return { kind: "regex_script", id: key.split("/")[1] };
   return characterScope(ctx.characterId);
 }
 function splitTopLevel(path) {
@@ -18280,6 +18286,8 @@ async function resolveRead(ctx, path) {
     throw new PathError(path, "expected at least <surface>/<...>");
   const head = parts[0];
   if (head === "char" || head === "character") {
+    if (!ctx.characterId)
+      throw new PathError(path, "no character is selected in this session; char/ paths need an active character (wb/, rx/, persona/, chat/, preset/ paths work without one)");
     const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
     if (!c)
       throw new PathError(path, `character ${ctx.characterId} not found`);
@@ -18543,7 +18551,8 @@ async function resolveWrite(ctx, leaf, nextValue) {
       surfaceLabel: leaf.surfaceLabel,
       field: leaf.field,
       before: leaf.value,
-      after: nextValue
+      after: nextValue,
+      scope: scopeForLeafKey(leaf.key, ctx)
     });
     return;
   }
@@ -20406,7 +20415,7 @@ Returns:
       additionalProperties: false
     },
     requiresRecentRead: gate2,
-    requiresCharacter: true,
+    requiresCharacter: false,
     execute: async (input, ctx) => {
       let replace = input.replace;
       if (replace === undefined && input.replace_handle) {
@@ -29150,7 +29159,7 @@ One tool, one path argument.`,
       required: ["path"],
       additionalProperties: false
     },
-    requiresCharacter: true,
+    requiresCharacter: false,
     execute: async (input, ctx) => {
       const path = input.path.trim();
       if (path === "rx" || path === "regex_scripts") {
@@ -29484,7 +29493,7 @@ Returns:
       additionalProperties: false
     },
     requiresRecentRead: gate4,
-    requiresCharacter: true,
+    requiresCharacter: false,
     execute: async (input, ctx) => {
       let next = input.new_content;
       if (next === undefined && input.new_content_handle) {
@@ -29655,7 +29664,7 @@ Returns:
       required: ["path", "value"],
       additionalProperties: false
     },
-    requiresCharacter: true,
+    requiresCharacter: false,
     execute: async (input, ctx) => {
       const path = input.path.trim();
       const value = input.value;
@@ -29704,7 +29713,8 @@ Returns:
         surfaceLabel: result.label,
         field: result.field,
         before: result.before,
-        after: result.after
+        after: result.after,
+        scope: scopeForLeafKey(path, ctx)
       });
       return {
         content: JSON.stringify({
@@ -30257,7 +30267,7 @@ Returns: a plain string body. Most of the time that's line-numbered text (\`   1
       required: ["path"],
       additionalProperties: false
     },
-    requiresCharacter: true,
+    requiresCharacter: false,
     execute: async (input, ctx) => {
       let leaf;
       try {
@@ -35083,7 +35093,7 @@ async function handleListCharactersStorage(userId) {
       };
     }));
     const entries = perChar.filter((e) => e !== null);
-    for (const kind of ["persona", "chat", "preset"]) {
+    for (const kind of ["persona", "chat", "preset", "world_book", "regex_script"]) {
       let names = [];
       try {
         names = await spindle.userStorage.list(`ledgers/${kind}/`, userId);
@@ -35104,7 +35114,7 @@ async function handleListCharactersStorage(userId) {
           if (st.exists)
             ledgerBytes = st.sizeBytes;
         } catch {}
-        const kindLabel = kind === "chat" ? "Chat" : kind === "preset" ? "Preset" : "Persona";
+        const kindLabel = kind === "chat" ? "Chat" : kind === "preset" ? "Preset" : kind === "world_book" ? "World book" : kind === "regex_script" ? "Regex script" : "Persona";
         let label = `${kindLabel} ${id.slice(0, 8)}`;
         if (kind === "persona") {
           try {

@@ -43,7 +43,8 @@ Returns:
     additionalProperties: false,
   },
   requiresRecentRead: gate,
-  requiresCharacter: true,
+  // Path-targeted; char/ loud-fails in resolveRead without a character.
+  requiresCharacter: false,
   execute: async (input, ctx) => {
     let next = input.new_content;
     if (next === undefined && input.new_content_handle) {

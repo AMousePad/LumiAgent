@@ -5,7 +5,7 @@ import type { ToolCtx } from "./_context";
 import type { EditRecord } from "../../types";
 import { isCharacterStringField, wbLabel } from "./_surfaces";
 import { parseExtensionPath, setAtPath } from "./_paths";
-import { ExtensionRefusedError, assertExtensionWriteAllowed } from "./_path_v2";
+import { ExtensionRefusedError, assertExtensionWriteAllowed, scopeForLeafKey } from "./_path_v2";
 
 const inputSchema = z.object({
   path: z.string().min(3).describe("Slash-separated path. Same grammar as `read` / `edit`."),
@@ -102,7 +102,8 @@ Returns:
     required: ["path", "value"],
     additionalProperties: false,
   },
-  requiresCharacter: true,
+  // Path-targeted; char/ paths fail loudly without a character, wb/rx work.
+  requiresCharacter: false,
   execute: async (input, ctx) => {
     const path = input.path.trim();
     const value = input.value;
@@ -148,6 +149,7 @@ Returns:
       field: result.field,
       before: result.before,
       after: result.after,
+      scope: scopeForLeafKey(path, ctx),
     } satisfies EditRecord);
 
     return {

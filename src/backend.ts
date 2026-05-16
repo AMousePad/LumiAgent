@@ -469,7 +469,7 @@ async function handleListCharactersStorage(userId: string): Promise<void> {
 
     // Non-character scopes have no entity list to iterate, so enumerate their
     // ledger directories directly. Empty ledgers are skipped like characters.
-    for (const kind of ["persona", "chat", "preset"] as const) {
+    for (const kind of ["persona", "chat", "preset", "world_book", "regex_script"] as const) {
       let names: string[] = [];
       try { names = await spindle.userStorage.list(`ledgers/${kind}/`, userId); } catch { /* no dir yet */ }
       for (const rel of names) {
@@ -485,7 +485,11 @@ async function handleListCharactersStorage(userId: string): Promise<void> {
           const st = await spindle.userStorage.stat(ledgerPath(scope), userId);
           if (st.exists) ledgerBytes = st.sizeBytes;
         } catch { /* cache only */ }
-        const kindLabel = kind === "chat" ? "Chat" : kind === "preset" ? "Preset" : "Persona";
+        const kindLabel = kind === "chat" ? "Chat"
+          : kind === "preset" ? "Preset"
+          : kind === "world_book" ? "World book"
+          : kind === "regex_script" ? "Regex script"
+          : "Persona";
         let label = `${kindLabel} ${id.slice(0, 8)}`;
         if (kind === "persona") {
           try { const p = await spindle.personas.get(id, userId); if (p) label = p.name; } catch { /* fall back to id */ }

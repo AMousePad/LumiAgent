@@ -234,7 +234,8 @@ One tool, one path argument.`,
     required: ["path"],
     additionalProperties: false,
   },
-  requiresCharacter: true,
+  // Path-targeted; char/ loud-fails in resolveRead without a character.
+  requiresCharacter: false,
   execute: async (input, ctx) => {
     const path = input.path.trim();
 

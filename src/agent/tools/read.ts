@@ -37,7 +37,9 @@ Returns: a plain string body. Most of the time that's line-numbered text (\`   1
     required: ["path"],
     additionalProperties: false,
   },
-  requiresCharacter: true,
+  // Path-targeted: wb/rx/persona/chat/preset resolve by entity id with no
+  // character. char/ paths loud-fail in resolveRead when none is selected.
+  requiresCharacter: false,
   execute: async (input, ctx) => {
     let leaf;
     try { leaf = await resolveRead(ctx, input.path); }
