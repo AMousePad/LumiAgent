@@ -735,7 +735,12 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         }
       },
       filesPanel: state.workspacePanel.root,
-    }, initialEditId !== undefined ? { initialEditId } : {});
+    }, {
+      ...(initialEditId !== undefined ? { initialEditId } : {}),
+      // No character in this chat: open straight to the Lumiverse tab,
+      // since the Characters tab would have nothing to show.
+      ...(state.characterId === null ? { initialTab: "lumiverse" as const } : {}),
+    });
   };
 
   // ChatVirtualizer renders only the messages currently in the viewport

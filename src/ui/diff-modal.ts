@@ -93,30 +93,25 @@ function groupBySurface(edits: readonly EditLogEntry[]): Map<EditSurface, EditLo
 
 function describeRecord(entry: EditLogEntry): { primary: string; secondary: string; statSummary: string } {
   const r = entry.record;
+  // Category (the surface type) leads; the specific name follows in parens.
+  const cat = SURFACE_LABELS[r.surface] ?? r.surface;
+  const named = r.surfaceLabel ? `${cat} (${r.surfaceLabel})` : cat;
   if (r.op === "create") {
-    return {
-      primary: `+ ${r.surfaceLabel}`,
-      secondary: `created (${r.surface})`,
-      statSummary: "created",
-    };
+    return { primary: `+ ${named}`, secondary: "created", statSummary: "created" };
   }
   if (r.op === "delete") {
-    return {
-      primary: `× ${r.surfaceLabel}`,
-      secondary: `deleted (${r.surface})`,
-      statSummary: "deleted",
-    };
+    return { primary: `× ${named}`, secondary: "deleted", statSummary: "deleted" };
   }
   const stats = computeDiffStats(r.before, r.after);
   const stat = `+${stats.added} -${stats.removed}`;
   return {
-    primary: r.surfaceLabel,
+    primary: named,
     secondary: r.field,
     statSummary: stat,
   };
 }
 
-export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, opts?: { initialEditId?: string | undefined }): DiffModalHandle {
+export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, opts?: { initialEditId?: string | undefined; initialTab?: WorkshopTab | undefined }): DiffModalHandle {
   const maxH = computeModalMaxHeight();
   const modal: SpindleModalHandle = ctx.ui.showModal({
     title: "Workshop",
@@ -127,7 +122,11 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
   root.classList.add("la-diff-modal-root");
   // showModal sizes to content (up to maxHeight); pin the body so the modal
   // is always full-size even with no edits, instead of shrinking to a strip.
-  root.style.minHeight = `${maxH}px`;
+  // Fixed height + clipped: the modal is always full-size (even empty) and
+  // the host never scrolls the whole body, so the change list and the diff
+  // pane scroll independently within it.
+  root.style.height = `${maxH}px`;
+  root.style.overflow = "hidden";
   let open = true;
   const handleClose = (): void => {
     if (!open) return;
@@ -141,7 +140,7 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
     deps.onClose?.();
   });
 
-  let activeTab: WorkshopTab = "characters";
+  let activeTab: WorkshopTab = opts?.initialTab ?? "characters";
   let scopes: readonly ScopeOption[] = deps.getScopes();
   // Remembered combo selection per scope tab so switching back restores it.
   const remembered: { characters: string | null; lumiverse: string | null } = { characters: null, lumiverse: null };
@@ -221,6 +220,13 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
   if (deps.filesPanel) filesView.appendChild(deps.filesPanel);
 
   root.append(tabs, editsView, filesView);
+
+  // Apply the initial active tab (may be Lumiverse for a no-character chat).
+  charsTabBtn.classList.toggle("is-active", activeTab === "characters");
+  lumiTabBtn.classList.toggle("is-active", activeTab === "lumiverse");
+  filesTabBtn.classList.toggle("is-active", activeTab === "files");
+  editsView.classList.toggle("is-active", activeTab !== "files");
+  filesView.classList.toggle("is-active", activeTab === "files");
 
   let currentEditId: string | null = opts?.initialEditId ?? null;
   let edits: readonly EditLogEntry[] = deps.getEdits();

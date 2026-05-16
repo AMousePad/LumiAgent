@@ -1375,6 +1375,10 @@ async function handleRevertEditsBulk(scope: ScopeRef, editIds: readonly string[]
       const r = structResults[i];
       if (r && r.status === "fulfilled") {
         bumpSession(s.sessionId);
+        // Mark reverted so the single purge at the end actually drops it;
+        // without this the spindle delete happened but the structural entry
+        // (and its scope row) lingered in the workshop.
+        s.reverted = true; s.revertedAt = now;
         removedIds.add(s.id);
         outcomes.push({ editId: s.id, outcome: { kind: "clean", editId: s.id } });
       } else {
@@ -1395,6 +1399,7 @@ async function handleRevertEditsBulk(scope: ScopeRef, editIds: readonly string[]
       const r = extResults[i];
       if (r && r.status === "fulfilled") {
         bumpSession(e.sessionId);
+        e.reverted = true; e.revertedAt = now;
         removedIds.add(e.id);
         outcomes.push({ editId: e.id, outcome: { kind: "clean", editId: e.id } });
       } else {

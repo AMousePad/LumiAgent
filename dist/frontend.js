@@ -6140,24 +6140,18 @@ function groupBySurface(edits) {
 }
 function describeRecord(entry) {
   const r = entry.record;
+  const cat = SURFACE_LABELS[r.surface] ?? r.surface;
+  const named = r.surfaceLabel ? `${cat} (${r.surfaceLabel})` : cat;
   if (r.op === "create") {
-    return {
-      primary: `+ ${r.surfaceLabel}`,
-      secondary: `created (${r.surface})`,
-      statSummary: "created"
-    };
+    return { primary: `+ ${named}`, secondary: "created", statSummary: "created" };
   }
   if (r.op === "delete") {
-    return {
-      primary: `× ${r.surfaceLabel}`,
-      secondary: `deleted (${r.surface})`,
-      statSummary: "deleted"
-    };
+    return { primary: `× ${named}`, secondary: "deleted", statSummary: "deleted" };
   }
   const stats = computeDiffStats(r.before, r.after);
   const stat = `+${stats.added} -${stats.removed}`;
   return {
-    primary: r.surfaceLabel,
+    primary: named,
     secondary: r.field,
     statSummary: stat
   };
@@ -6171,7 +6165,8 @@ function openDiffModal(ctx, deps, opts) {
   });
   const root = modal.root;
   root.classList.add("la-diff-modal-root");
-  root.style.minHeight = `${maxH}px`;
+  root.style.height = `${maxH}px`;
+  root.style.overflow = "hidden";
   let open = true;
   const handleClose = () => {
     if (!open)
@@ -6188,7 +6183,7 @@ function openDiffModal(ctx, deps, opts) {
     open = false;
     deps.onClose?.();
   });
-  let activeTab = "characters";
+  let activeTab = opts?.initialTab ?? "characters";
   let scopes = deps.getScopes();
   const remembered = { characters: null, lumiverse: null };
   const tabs = el4("div", "la-workshop-tabs");
@@ -6263,6 +6258,11 @@ function openDiffModal(ctx, deps, opts) {
   if (deps.filesPanel)
     filesView.appendChild(deps.filesPanel);
   root.append(tabs, editsView, filesView);
+  charsTabBtn.classList.toggle("is-active", activeTab === "characters");
+  lumiTabBtn.classList.toggle("is-active", activeTab === "lumiverse");
+  filesTabBtn.classList.toggle("is-active", activeTab === "files");
+  editsView.classList.toggle("is-active", activeTab !== "files");
+  filesView.classList.toggle("is-active", activeTab === "files");
   let currentEditId = opts?.initialEditId ?? null;
   let edits = deps.getEdits();
   let loading = false;
@@ -7640,7 +7640,10 @@ Force-revert anyway (this overwrites the external change)?`;
         }
       },
       filesPanel: state.workspacePanel.root
-    }, initialEditId !== undefined ? { initialEditId } : {});
+    }, {
+      ...initialEditId !== undefined ? { initialEditId } : {},
+      ...state.characterId === null ? { initialTab: "lumiverse" } : {}
+    });
   };
   let renderEditIndex = buildEditIndex(state.edits);
   const virtualizer = new ChatVirtualizer({

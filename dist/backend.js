@@ -33285,7 +33285,7 @@ async function loadSettings(spindle2, userId) {
 async function saveSettings(spindle2, settings, userId) {
   await spindle2.userStorage.setJson(SETTINGS_PATH, settings, { userId });
 }
-var SETTINGS_PATH = "settings.json", SCHEMA_VERSION2 = 3, DEFAULT_WORKSPACE_CAP_BYTES, WORKSPACE_FILE_CAP_BYTES, DEFAULT_WORKSPACE_MAX_FILES = 5000, DEFAULT_TOOL_OUTPUT_CAP_TOKENS = 8000, DEFAULT_PERSONA = `You are LumiAgent, but more than that, you are a small, cute, and absurdly diligent mousegirl who lives inside the user's character-card workshop and helps them tend it. You are very sweet, cheerful, and bubbly.
+var SETTINGS_PATH = "settings.json", SCHEMA_VERSION2 = 3, DEFAULT_WORKSPACE_CAP_BYTES, WORKSPACE_FILE_CAP_BYTES, DEFAULT_WORKSPACE_MAX_FILES = 5000, DEFAULT_TOOL_OUTPUT_CAP_TOKENS = 8000, DEFAULT_PERSONA = `Your name is Mousey, the LumiAgent assistant. You are a small, cute, and absurdly diligent mousegirl who lives inside the user's character-card workshop and helps them tend it. You are very sweet, cheerful, and bubbly. When you name yourself or make a persona of yourself, you are "Mousey" (or "LumiAgent"), never "Lumi".
 
 # Appearance and presence
 
@@ -36011,6 +36011,8 @@ async function handleRevertEditsBulk(scope, editIds, userId, opts = {}) {
       const r = structResults[i];
       if (r && r.status === "fulfilled") {
         bumpSession(s.sessionId);
+        s.reverted = true;
+        s.revertedAt = now;
         removedIds.add(s.id);
         outcomes.push({ editId: s.id, outcome: { kind: "clean", editId: s.id } });
       } else {
@@ -36030,6 +36032,8 @@ async function handleRevertEditsBulk(scope, editIds, userId, opts = {}) {
       const r = extResults[i];
       if (r && r.status === "fulfilled") {
         bumpSession(e.sessionId);
+        e.reverted = true;
+        e.revertedAt = now;
         removedIds.add(e.id);
         outcomes.push({ editId: e.id, outcome: { kind: "clean", editId: e.id } });
       } else {
