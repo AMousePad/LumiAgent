@@ -526,7 +526,7 @@ async function handleSquashCharacter(scope: ScopeRef, userId: string): Promise<v
       dropCache(scope, userId);
       ledgerCleared = true;
     } catch { /* nothing to clear */ }
-    send({ type: "character_squashed", characterId: scope.id, ledgerCleared }, userId);
+    send({ type: "scope_squashed", scope, ledgerCleared }, userId);
     await handleListCharactersStorage(userId);
   } catch (err) {
     log("warn", `squash_character ${scope.kind}:${scope.id} failed: ${(err as Error).message}`);
@@ -543,7 +543,7 @@ async function handleRevertCharacterAll(scope: ScopeRef, userId: string): Promis
     for (const s of ledger.structural) if (!s.reverted) liveIds.push(s.id);
     for (const e of ledger.externalEdits) if (!e.reverted) liveIds.push(e.id);
     if (liveIds.length === 0) {
-      send({ type: "edits_reverted_bulk", characterId: scope.id, outcomes: [] }, userId);
+      send({ type: "edits_reverted_bulk", scope, outcomes: [] }, userId);
       return;
     }
     await handleRevertEditsBulk(scope, liveIds, userId);
@@ -557,7 +557,7 @@ async function handleLoadCharacterWorkshop(scope: ScopeRef, userId: string): Pro
   // Scopes tab uses this to swap the Edits view to another scope's edits.
   try {
     const ledger = await loadLedger(spindle, scope, userId);
-    send({ type: "character_edits_pushed", characterId: scope.id, entries: entriesView(ledger) }, userId);
+    send({ type: "scope_edits_pushed", scope, entries: entriesView(ledger) }, userId);
   } catch (err) {
     log("warn", `load_character_workshop ${scope.kind}:${scope.id} failed: ${(err as Error).message}`);
   }
@@ -1259,14 +1259,14 @@ function renderSessionMarkdown(s: PersistedSession): { content: string; filename
 
 async function handleListCharacterEdits(scope: ScopeRef, userId: string): Promise<void> {
   const ledger = await loadLedger(spindle, scope, userId);
-  send({ type: "character_edits_pushed", characterId: scope.id, entries: entriesView(ledger) }, userId);
+  send({ type: "scope_edits_pushed", scope, entries: entriesView(ledger) }, userId);
 }
 
 async function handleRevertEdit(scope: ScopeRef, editId: string, force: boolean, userId: string): Promise<void> {
   const ledger = await loadLedger(spindle, scope, userId);
   const entry = findEntry(ledger, editId);
   if (!entry) {
-    send({ type: "edit_reverted", characterId: scope.id, editId, outcome: { kind: "failed", editId, error: "edit not found in ledger" } }, userId);
+    send({ type: "edit_reverted", scope, editId, outcome: { kind: "failed", editId, error: "edit not found in ledger" } }, userId);
     return;
   }
   // revertEditWithCheck mutates the ledger in place (marks reverted, replays,
@@ -1277,10 +1277,10 @@ async function handleRevertEdit(scope: ScopeRef, editId: string, force: boolean,
     const removedIds = new Set<string>([editId, ...(outcome.cascadedEditIds ?? [])]);
     await spliceReverted(spindle, entry.sessionId, removedIds, [buildRevertNote(entry)], userId);
   }
-  send({ type: "edit_reverted", characterId: scope.id, editId, outcome }, userId);
+  send({ type: "edit_reverted", scope, editId, outcome }, userId);
   // Push fresh workshop view (reverted entries no longer appear).
   if (outcome.kind === "clean") {
-    send({ type: "character_edits_pushed", characterId: scope.id, entries: entriesView(ledger) }, userId);
+    send({ type: "scope_edits_pushed", scope, entries: entriesView(ledger) }, userId);
     void handleListCharactersStorage(userId);
     void handleListSessions(undefined, userId);
   }
@@ -1426,9 +1426,9 @@ async function handleRevertEditsBulk(scope: ScopeRef, editIds: readonly string[]
   }
 
   // ───── 6. Single frontend event + fresh workshop view ─────
-  send({ type: "edits_reverted_bulk", characterId: scope.id, outcomes }, userId);
+  send({ type: "edits_reverted_bulk", scope, outcomes }, userId);
   if (removedIds.size > 0) {
-    send({ type: "character_edits_pushed", characterId: scope.id, entries: entriesView(ledger) }, userId);
+    send({ type: "scope_edits_pushed", scope, entries: entriesView(ledger) }, userId);
     // Batched callers (revert_all_characters) suppress so we don't fire one
     // full Characters-tab + Sessions-list refresh per character.
     if (!opts.suppressRefresh) {
@@ -1452,7 +1452,7 @@ async function handleRevertAllCharacters(scopes: readonly ScopeRef[], userId: st
       for (const s of ledger.structural) if (!s.reverted) liveIds.push(s.id);
       for (const e of ledger.externalEdits) if (!e.reverted) liveIds.push(e.id);
       if (liveIds.length === 0) {
-        send({ type: "edits_reverted_bulk", characterId: scope.id, outcomes: [] }, userId);
+        send({ type: "edits_reverted_bulk", scope, outcomes: [] }, userId);
         continue;
       }
       await handleRevertEditsBulk(scope, liveIds, userId, { suppressRefresh: true });
@@ -1803,7 +1803,7 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
               if (idsToMark.has(e.id) && !e.reverted) { e.reverted = true; e.revertedAt = Date.now(); }
             }
           }
-          send({ type: "edit_reverted", characterId: s.characterId, editId: ev.editId, outcome: ev.outcome }, userId);
+          send({ type: "edit_reverted", scope: characterScope(s.characterId), editId: ev.editId, outcome: ev.outcome }, userId);
           break;
         }
         case "edits_resynced": {
@@ -1812,7 +1812,7 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
           // Squash mutated the ledger; push the fresh view so the workshop
           // Edits tab reflects the consolidated entries.
           void loadLedger(spindle, characterScope(charId), userId)
-            .then((l) => send({ type: "character_edits_pushed", characterId: charId, entries: entriesView(l) }, userId))
+            .then((l) => send({ type: "scope_edits_pushed", scope: characterScope(charId), entries: entriesView(l) }, userId))
             .catch((e) => log("warn", `edits resync failed: ${(e as Error).message}`));
           break;
         }
@@ -1923,7 +1923,7 @@ async function autosquashAndNotify(
         if (mutated) send({ type: "session_truncated", sessionId: s.sessionId, messages: s.messages, edits: s.edits }, userId);
       }
     }
-    send({ type: "character_edits_pushed", characterId, entries: view }, userId);
+    send({ type: "scope_edits_pushed", scope: characterScope(characterId), entries: view }, userId);
     return mutated;
   } catch (err) {
     log("warn", `autosquash failed for ${characterId}/${assistantMessageId}: ${(err as Error).message}`);

@@ -296,13 +296,13 @@ export type BackendToFrontend =
   | { type: "session_markdown_ready"; sessionId: string; filename: string; content: string }
   | { type: "session_markdown_error"; sessionId: string; error: string }
   | { type: "session_reverted"; sessionId: string; entriesRestored: number; entriesFailed: number; scriptsRestored: number; scriptsFailed: number }
-  | { type: "character_edits_pushed"; characterId: string; entries: readonly EditLogEntry[] }
+  | { type: "scope_edits_pushed"; scope: ScopeRef; entries: readonly EditLogEntry[] }
   | { type: "chat_event"; sessionId: string; event: AgentEvent }
   | { type: "generation_done"; sessionId: string; turns: number }
   | { type: "generation_error"; sessionId: string; error: string }
   | { type: "generation_cancelled"; sessionId: string }
-  | { type: "edit_reverted"; characterId: string; editId: string; outcome: RevertOutcomeWire }
-  | { type: "edits_reverted_bulk"; characterId: string; outcomes: ReadonlyArray<{ editId: string; outcome: RevertOutcomeWire }> }
+  | { type: "edit_reverted"; scope: ScopeRef; editId: string; outcome: RevertOutcomeWire }
+  | { type: "edits_reverted_bulk"; scope: ScopeRef; outcomes: ReadonlyArray<{ editId: string; outcome: RevertOutcomeWire }> }
   | { type: "session_truncated"; sessionId: string; messages: readonly ChatMessage[]; edits: readonly EditLogEntry[] }
   | { type: "chats_pushed"; characterId: string; chats: readonly ChatSummary[]; pinnedChatId: string | null }
   | { type: "pinned_chat_set"; sessionId: string; chatId: string | null }
@@ -318,7 +318,7 @@ export type BackendToFrontend =
   | { type: "compaction_started"; sessionId: string }
   | { type: "compaction_completed"; sessionId: string; handoffPath: string; promptTokens: number; contextTokens: number }
   | { type: "characters_storage_pushed"; entries: readonly CharacterStorageEntry[]; workspaceUsedBytes: number; workspaceCapBytes: number }
-  | { type: "character_squashed"; characterId: string; ledgerCleared: boolean }
+  | { type: "scope_squashed"; scope: ScopeRef; ledgerCleared: boolean }
   | { type: "phoneline_pairings_pushed"; pairings: ReadonlyArray<{ identifier: string; displayName: string; allowed: boolean; decidedAt: number }> }
   | { type: "notify_missing_permissions"; missing: readonly string[]; purposes: Readonly<Record<string, string>> }
   | { type: "notify_bridge_status"; offline: boolean; missingPermissions: readonly string[]; missingFor?: string }

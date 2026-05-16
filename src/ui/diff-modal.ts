@@ -25,6 +25,14 @@ const DESKTOP_WIDTH_MIN = 720;
 const DESKTOP_MARGIN_PX = 80;
 const DESKTOP_HEIGHT_CAP = 1400;
 const DESKTOP_HEIGHT_MIN = 480;
+// The host renders its own title bar + close button and pads the modal body
+// (16px, negated by .la-diff-modal-root's -16px margin). Forcing root height
+// to the full height budget stacks our root ON TOP of that chrome, pushing
+// the modal past the viewport so the host overlay grows a scrollbar even
+// when the change list is empty. Reserve a conservative allowance so
+// chrome + root always fits inside the budget. Slightly under-filling is the
+// correct trade: no outer scrollbar beats a few px of extra height.
+const HOST_MODAL_CHROME_PX = 72;
 
 function computeModalWidth(): number {
   const vw = typeof window !== "undefined" && window.innerWidth ? window.innerWidth : 1180;
@@ -113,6 +121,7 @@ function describeRecord(entry: EditLogEntry): { primary: string; secondary: stri
 
 export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, opts?: { initialEditId?: string | undefined; initialTab?: WorkshopTab | undefined }): DiffModalHandle {
   const maxH = computeModalMaxHeight();
+  const rootH = Math.max(DESKTOP_HEIGHT_MIN, maxH - HOST_MODAL_CHROME_PX);
   const modal: SpindleModalHandle = ctx.ui.showModal({
     title: "Workshop",
     width: computeModalWidth(),
@@ -125,7 +134,7 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
   // Fixed height + clipped: the modal is always full-size (even empty) and
   // the host never scrolls the whole body, so the change list and the diff
   // pane scroll independently within it.
-  root.style.height = `${maxH}px`;
+  root.style.height = `${rootH}px`;
   root.style.overflow = "hidden";
   let open = true;
   const handleClose = (): void => {

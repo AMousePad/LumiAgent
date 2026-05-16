@@ -14,7 +14,7 @@ import type {
   ScopeRef,
   SessionSummaryWire,
 } from "../types";
-import { characterScope } from "../types";
+import { characterScope, scopeKeyString } from "../types";
 import { STYLES } from "./styles";
 import {
   type AssistantHandle,
@@ -79,7 +79,11 @@ interface UiState {
   connectionId: string | null;
   messages: ChatMessage[];
   edits: EditLogEntry[];
-  characterLedger: EditLogEntry[];
+  // Authoritative per-scope ledger snapshots, keyed by scopeKeyString. The
+  // backend is the only writer of truth: every scope_edits_pushed replaces
+  // one slot. The header badge and the workshop modal both read from here,
+  // so there is no second cache to reconcile.
+  scopeLedgers: Map<string, readonly EditLogEntry[]>;
   chatsForCharacter: ChatSummary[];
   pinnedChatId: string | null;
   settings: { persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody?: string; samplers?: Readonly<Record<string, number | null>>; jailbreak?: string; jailbreakPlacement?: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes?: number | null; workspaceCapDefaultBytes?: number; workspaceFileCapBytes?: number; toolOutputCapTokens?: number | null; toolOutputCapDefaultTokens?: number; cacheMode?: "off" | "system_only" | "full"; parallelToolCalls?: boolean } | null;
@@ -99,8 +103,8 @@ interface UiState {
   diffModal: DiffModalHandle | null;
   workspacePanel: WorkspacePanelHandle | null;
   scopeStorage: readonly CharacterStorageEntry[];
-  workshopFocusCharacterId: string | null;
-  workshopFocusCharacterName: string | null;
+  // View-only: which scope the workshop combo is focused on. Null = follow
+  // the active session's scope. Never an authority for the header badge.
   workshopFocusScope: ScopeRef | null;
   // Whether the streaming bubble currently shows the cycling thinking
   // indicator. The indicator itself lives inside the bubble; this flag just
@@ -150,7 +154,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     connectionId: null,
     messages: [],
     edits: [],
-    characterLedger: [],
+    scopeLedgers: new Map(),
     chatsForCharacter: [],
     pinnedChatId: null,
     settings: null,
@@ -169,8 +173,6 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     diffModal: null,
     workspacePanel: null,
     scopeStorage: [],
-    workshopFocusCharacterId: null,
-    workshopFocusCharacterName: null,
     workshopFocusScope: null,
     loading: false,
     editingMessageId: null,
@@ -531,24 +533,44 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     }
   };
 
-  // Ledger fallback: use the character ledger only when there's a character
-  // anchor for it. Without this gate, a session_loaded from a no-character
-  // session would surface the previously-loaded character's ledger.
-  const ledgerSource = (): readonly EditLogEntry[] => {
-    const hasAnchor = state.characterId !== null || state.workshopFocusCharacterId !== null;
-    if (hasAnchor && state.characterLedger.length > 0) return state.characterLedger;
-    return state.edits;
+  // The scope the active session points at. A no-character chat has no
+  // active scope, so its header badge is always 0 (Lumiverse-scope edits
+  // surface in the workshop, not the header).
+  const activeScope = (): ScopeRef | null =>
+    state.characterId !== null ? characterScope(state.characterId) : null;
+
+  // Pure projection of one authoritative snapshot. Never reconciles.
+  const scopeEntries = (scope: ScopeRef | null): readonly EditLogEntry[] =>
+    scope ? state.scopeLedgers.get(scopeKeyString(scope)) ?? [] : [];
+
+  // What the workshop modal shows: the combo-focused scope if the user
+  // picked one, otherwise the active session's scope.
+  const workshopScope = (): ScopeRef | null => state.workshopFocusScope ?? activeScope();
+
+  // Combo options for the workshop. scopeStorage only lists scopes that
+  // already have a ledger, so a freshly-selected diffless character would be
+  // absent and the combo would fall through to the first character that does
+  // have edits. Always surface the active character so opening the workshop
+  // lands on it (empty diff is the correct, ephemeral view).
+  const buildScopeOptions = (): ReadonlyArray<{ scope: ScopeRef; label: string; liveCount: number; totalCount: number }> => {
+    const opts = state.scopeStorage.map((e) => ({
+      scope: e.scope ?? characterScope(e.characterId),
+      label: e.label ?? e.characterName,
+      liveCount: e.liveEditCount,
+      totalCount: e.editCount,
+    }));
+    const active = activeScope();
+    if (active && !opts.some((o) => scopeKeyString(o.scope) === scopeKeyString(active))) {
+      opts.unshift({ scope: active, label: state.characterName ?? "Current character", liveCount: 0, totalCount: 0 });
+    }
+    return opts;
   };
 
   const updateSessionBar = () => {
-    const source = ledgerSource();
+    const source = scopeEntries(activeScope());
     const liveEdits = source.filter((e) => !e.reverted).length;
     editsCount.textContent = String(liveEdits);
-    if (liveEdits === 0 && source.length === 0) {
-      editsBadge.classList.remove("has-edits");
-    } else {
-      editsBadge.classList.add("has-edits");
-    }
+    editsBadge.classList.toggle("has-edits", source.length > 0);
   };
 
   const COMPACT_RING_CIRC = 94.2;
@@ -615,12 +637,15 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     updateCompactButton();
   };
 
-  // Reverts are permanent: the entry is removed from the ledger and from
-  // the session's edit mirror so the UI shouldn't keep it around either.
+  // Optimistic prune so the UI doesn't flash the reverted row before the
+  // backend's authoritative scope_edits_pushed arrives. The session mirror
+  // and every scope slot drop the id; the push then re-syncs the one scope.
   const spliceEntries = (ids: ReadonlySet<string>): void => {
     if (ids.size === 0) return;
     state.edits = state.edits.filter((e) => !ids.has(e.id));
-    state.characterLedger = state.characterLedger.filter((e) => !ids.has(e.id));
+    for (const [key, entries] of state.scopeLedgers) {
+      state.scopeLedgers.set(key, entries.filter((e) => !ids.has(e.id)));
+    }
   };
 
   const handleRevertOutcome = async (editId: string, outcome: RevertOutcomeWire): Promise<void> => {
@@ -635,7 +660,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       spliceEntries(removed);
       rerenderThread();
       updateSessionBar();
-      if (state.diffModal) state.diffModal.setEdits(state.characterLedger);
+      if (state.diffModal) state.diffModal.setEdits(scopeEntries(workshopScope()));
       return;
     }
     if (outcome.kind === "failed") {
@@ -671,7 +696,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
 
   const openDiffs = (initialEditId?: string) => {
     if (state.diffModal && state.diffModal.isOpen()) {
-      state.diffModal.setEdits(state.edits);
+      state.diffModal.setEdits(scopeEntries(workshopScope()));
       if (initialEditId) state.diffModal.focusEdit(initialEditId);
       return;
     }
@@ -682,25 +707,15 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       state.workspacePanel = mountWorkspacePanel({ ctx, sendBackend });
     }
     state.diffModal = openDiffModal(ctx, {
-      getEdits: () => ledgerSource(),
-      getScopes: () => state.scopeStorage.map((e) => ({
-        scope: e.scope ?? characterScope(e.characterId),
-        label: e.label ?? e.characterName,
-        liveCount: e.liveEditCount,
-        totalCount: e.editCount,
-      })),
-      getSelectedScope: () => state.workshopFocusScope
-        ?? (state.characterId ? characterScope(state.characterId) : null),
+      getEdits: () => scopeEntries(workshopScope()),
+      getScopes: () => buildScopeOptions(),
+      getSelectedScope: () => workshopScope(),
       onSelectScope: (scope) => {
         state.workshopFocusScope = scope;
-        state.workshopFocusCharacterId = scope.id;
-        const opt = state.scopeStorage.find((e) => (e.scope?.id ?? e.characterId) === scope.id);
-        state.workshopFocusCharacterName = opt?.label ?? opt?.characterName ?? null;
         sendBackend({ type: "load_character_workshop", characterId: scope.id, scope });
       },
       onRevert: async (editId) => {
-        const scope = state.workshopFocusScope
-          ?? (state.characterId ? characterScope(state.characterId) : null);
+        const scope = workshopScope();
         if (!scope) return;
         sendBackend({ type: "revert_edit", characterId: scope.id, editId, scope });
       },
@@ -725,14 +740,10 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       onScopesNeeded: () => sendBackend({ type: "list_characters_storage" }),
       onClose: () => {
         state.diffModal = null;
-        // Reset the focus override so reopening goes back to the active
-        // session's character.
-        if (state.workshopFocusCharacterId) {
-          state.workshopFocusScope = null;
-          state.workshopFocusCharacterId = null;
-          state.workshopFocusCharacterName = null;
-          if (state.characterId) sendBackend({ type: "list_character_edits", characterId: state.characterId });
-        }
+        // Drop the combo focus so reopening follows the active session's
+        // scope again. No refetch: the active scope's slot is already cached
+        // and the badge reads it directly.
+        state.workshopFocusScope = null;
       },
       filesPanel: state.workspacePanel.root,
     }, {
@@ -816,16 +827,16 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     updateComposer();
   };
 
+  // Per-message banners count edits this session attributed to a message,
+  // across every scope, so the session mirror is the right source.
   const liveEditsForAssistantMessage = (assistantMessageId: string): number => {
-    const source = ledgerSource();
-    return source.filter((e) => e.assistantMessageId === assistantMessageId && !e.reverted).length;
+    return state.edits.filter((e) => e.assistantMessageId === assistantMessageId && !e.reverted).length;
   };
   const liveEditsAfterUserMessage = (userMessageId: string): number => {
     const idx = state.messages.findIndex((m) => m.id === userMessageId && m.role === "user");
     if (idx < 0) return 0;
     const tailAssistantIds = new Set(state.messages.slice(idx + 1).filter((m) => m.role === "assistant").map((m) => m.id));
-    const source = ledgerSource();
-    return source.filter((e) => e.assistantMessageId !== undefined && tailAssistantIds.has(e.assistantMessageId) && !e.reverted).length;
+    return state.edits.filter((e) => e.assistantMessageId !== undefined && tailAssistantIds.has(e.assistantMessageId) && !e.reverted).length;
   };
   const promptEditsAction = async (opts: { liveEditCount: number; action: "edit" | "regenerate" | "delete" }): Promise<"keep" | "revert" | "cancel"> => {
     const verb = opts.action === "edit"
@@ -943,7 +954,6 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       persistUiPrefs();
     }
     state.characterId = id;
-    state.characterLedger = [];
     state.chatsForCharacter = [];
     state.pinnedChatId = null;
     state.autoPinNeeded = !!id;
@@ -2104,7 +2114,6 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       case "session_loaded":
         clearErrorBanners();
         state.sessionId = msg.sessionId;
-        if (state.characterId !== msg.characterId) state.characterLedger = [];
         state.characterId = msg.characterId;
         state.characterName = msg.characterName;
         state.messages = [...msg.messages];
@@ -2223,7 +2232,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         spliceEntries(removed);
         rerenderThread();
         updateSessionBar();
-        if (state.diffModal) state.diffModal.setEdits(state.characterLedger);
+        if (state.diffModal) state.diffModal.setEdits(scopeEntries(workshopScope()));
         const parts: string[] = [];
         if (okCount > 0) parts.push(`Reverted ${okCount} edit${okCount === 1 ? "" : "s"}`);
         if (cascadeCount > 0) parts.push(`+${cascadeCount} cascaded`);
@@ -2232,11 +2241,19 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         composerStatus.classList.toggle("is-error", failed > 0);
         break;
       }
-      case "character_edits_pushed":
-        state.characterLedger = [...msg.entries];
+      case "scope_edits_pushed": {
+        // Authoritative snapshot for exactly one scope. Replace its slot,
+        // refresh the badge, and only re-render the modal if it is currently
+        // showing this scope (a background push for another scope must not
+        // yank the view the user is looking at).
+        state.scopeLedgers.set(scopeKeyString(msg.scope), [...msg.entries]);
         updateSessionBar();
-        if (state.diffModal) state.diffModal.setEdits(state.characterLedger);
+        const shown = workshopScope();
+        if (state.diffModal && shown && scopeKeyString(shown) === scopeKeyString(msg.scope)) {
+          state.diffModal.setEdits(msg.entries);
+        }
         break;
+      }
       case "session_truncated":
         state.messages = [...msg.messages];
         state.edits = [...msg.edits];
@@ -2349,23 +2366,11 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         }
         break;
       case "characters_storage_pushed": {
+        // Scope list for the workshop combo only. The badge is NOT touched
+        // here: it is a pure projection of scopeLedgers, refreshed by the
+        // authoritative scope_edits_pushed the backend sends alongside this.
         state.scopeStorage = msg.entries;
-        state.diffModal?.setScopes(msg.entries.map((e) => ({
-          scope: e.scope ?? characterScope(e.characterId),
-          label: e.label ?? e.characterName,
-          liveCount: e.liveEditCount,
-          totalCount: e.editCount,
-        })));
-        // Authoritatively re-sync the header badge to the active character's
-        // live edit count. The backend fires this after every revert / forget
-        // / squash, so the counter self-heals regardless of which modal or
-        // path did the revert (the client-side splice can miss cases).
-        if (state.characterId !== null) {
-          const e = msg.entries.find((x) =>
-            (x.scope && x.scope.kind === "character" ? x.scope.id : x.characterId) === state.characterId);
-          editsCount.textContent = String(e ? e.liveEditCount : 0);
-          editsBadge.classList.toggle("has-edits", (e?.editCount ?? 0) > 0);
-        }
+        state.diffModal?.setScopes(buildScopeOptions());
         break;
       }
       case "frontend_rpc_request": {
@@ -2392,21 +2397,22 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         })();
         break;
       }
-      case "character_squashed":
-        // If we just squashed the focused character, drop the focus override
-        // and reload the active character's ledger so the Edits tab is sane.
-        if (state.workshopFocusCharacterId === msg.characterId) {
+      case "scope_squashed": {
+        // The scope's ledger was cleared. Drop its cached slot; if the combo
+        // was focused on it, fall back to the active scope.
+        const key = scopeKeyString(msg.scope);
+        state.scopeLedgers.set(key, []);
+        if (state.workshopFocusScope && scopeKeyString(state.workshopFocusScope) === key) {
           state.workshopFocusScope = null;
-          state.workshopFocusCharacterId = null;
-          state.workshopFocusCharacterName = null;
         }
-        if (state.characterId === msg.characterId) {
-          state.characterLedger = [];
+        if (activeScope() && scopeKeyString(activeScope()!) === key) {
           state.edits = state.edits.map((e) => ({ ...e, reverted: true }));
           rerenderThread();
-          updateSessionBar();
         }
+        updateSessionBar();
+        if (state.diffModal) state.diffModal.setEdits(scopeEntries(workshopScope()));
         break;
+      }
     }
   });
 
@@ -2423,7 +2429,6 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     if (state.characterId === active.characterId) return;
     state.characterId = active.characterId;
     charCombo.setValue(active.characterId, true);
-    state.characterLedger = [];
     updateSessionBar();
     updateComposer();
     sendBackend({ type: "list_character_edits", characterId: active.characterId });

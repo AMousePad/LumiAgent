@@ -6108,6 +6108,7 @@ var DESKTOP_WIDTH_MIN = 720;
 var DESKTOP_MARGIN_PX = 80;
 var DESKTOP_HEIGHT_CAP = 1400;
 var DESKTOP_HEIGHT_MIN = 480;
+var HOST_MODAL_CHROME_PX = 72;
 function computeModalWidth() {
   const vw = typeof window !== "undefined" && window.innerWidth ? window.innerWidth : 1180;
   return Math.max(DESKTOP_WIDTH_MIN, Math.min(DESKTOP_WIDTH_CAP, vw - DESKTOP_MARGIN_PX));
@@ -6158,6 +6159,7 @@ function describeRecord(entry) {
 }
 function openDiffModal(ctx, deps, opts) {
   const maxH = computeModalMaxHeight();
+  const rootH = Math.max(DESKTOP_HEIGHT_MIN, maxH - HOST_MODAL_CHROME_PX);
   const modal = ctx.ui.showModal({
     title: "Workshop",
     width: computeModalWidth(),
@@ -6165,7 +6167,7 @@ function openDiffModal(ctx, deps, opts) {
   });
   const root = modal.root;
   root.classList.add("la-diff-modal-root");
-  root.style.height = `${maxH}px`;
+  root.style.height = `${rootH}px`;
   root.style.overflow = "hidden";
   let open = true;
   const handleClose = () => {
@@ -7027,13 +7029,18 @@ function handleAgentEvent(ev, ctx) {
       }
       return;
     }
-    case "edit_logged":
+    case "edit_logged": {
       ctx.state.edits.push(ev.entry);
-      ctx.state.characterLedger.push(ev.entry);
+      const key = scopeKeyString(ev.entry.scope);
+      ctx.state.scopeLedgers.set(key, [...ctx.state.scopeLedgers.get(key) ?? [], ev.entry]);
       ctx.state.streamingAssistant?.attachEdits([ev.entry]);
-      ctx.state.diffModal?.setEdits(ctx.state.characterLedger);
+      const shown = ctx.state.workshopFocusScope ?? (ctx.state.characterId !== null ? characterScope(ctx.state.characterId) : null);
+      if (shown && scopeKeyString(shown) === key) {
+        ctx.state.diffModal?.setEdits(ctx.state.scopeLedgers.get(key) ?? []);
+      }
       ctx.updateSessionBar();
       return;
+    }
     case "turn_completed": {
       ctx.rebindCurrentAssistantMessage();
       const a = ctx.state.currentAssistantMessage;
@@ -7143,7 +7150,7 @@ function mountDrawer(ctx) {
     connectionId: null,
     messages: [],
     edits: [],
-    characterLedger: [],
+    scopeLedgers: new Map,
     chatsForCharacter: [],
     pinnedChatId: null,
     settings: null,
@@ -7162,8 +7169,6 @@ function mountDrawer(ctx) {
     diffModal: null,
     workspacePanel: null,
     scopeStorage: [],
-    workshopFocusCharacterId: null,
-    workshopFocusCharacterName: null,
     workshopFocusScope: null,
     loading: false,
     editingMessageId: null
@@ -7457,21 +7462,27 @@ function mountDrawer(ctx) {
         connCombo.setValue(def.id, true);
     }
   };
-  const ledgerSource = () => {
-    const hasAnchor = state.characterId !== null || state.workshopFocusCharacterId !== null;
-    if (hasAnchor && state.characterLedger.length > 0)
-      return state.characterLedger;
-    return state.edits;
+  const activeScope = () => state.characterId !== null ? characterScope(state.characterId) : null;
+  const scopeEntries = (scope) => scope ? state.scopeLedgers.get(scopeKeyString(scope)) ?? [] : [];
+  const workshopScope = () => state.workshopFocusScope ?? activeScope();
+  const buildScopeOptions = () => {
+    const opts = state.scopeStorage.map((e) => ({
+      scope: e.scope ?? characterScope(e.characterId),
+      label: e.label ?? e.characterName,
+      liveCount: e.liveEditCount,
+      totalCount: e.editCount
+    }));
+    const active = activeScope();
+    if (active && !opts.some((o) => scopeKeyString(o.scope) === scopeKeyString(active))) {
+      opts.unshift({ scope: active, label: state.characterName ?? "Current character", liveCount: 0, totalCount: 0 });
+    }
+    return opts;
   };
   const updateSessionBar = () => {
-    const source = ledgerSource();
+    const source = scopeEntries(activeScope());
     const liveEdits = source.filter((e) => !e.reverted).length;
     editsCount.textContent = String(liveEdits);
-    if (liveEdits === 0 && source.length === 0) {
-      editsBadge.classList.remove("has-edits");
-    } else {
-      editsBadge.classList.add("has-edits");
-    }
+    editsBadge.classList.toggle("has-edits", source.length > 0);
   };
   const COMPACT_RING_CIRC = 94.2;
   const COMPACT_AUTO_THRESHOLD = 0.84;
@@ -7536,7 +7547,9 @@ function mountDrawer(ctx) {
     if (ids.size === 0)
       return;
     state.edits = state.edits.filter((e) => !ids.has(e.id));
-    state.characterLedger = state.characterLedger.filter((e) => !ids.has(e.id));
+    for (const [key, entries] of state.scopeLedgers) {
+      state.scopeLedgers.set(key, entries.filter((e) => !ids.has(e.id)));
+    }
   };
   const handleRevertOutcome = async (editId, outcome) => {
     if (outcome.kind === "clean" || outcome.kind === "noop_already_reverted") {
@@ -7552,7 +7565,7 @@ function mountDrawer(ctx) {
       rerenderThread();
       updateSessionBar();
       if (state.diffModal)
-        state.diffModal.setEdits(state.characterLedger);
+        state.diffModal.setEdits(scopeEntries(workshopScope()));
       return;
     }
     if (outcome.kind === "failed") {
@@ -7583,7 +7596,7 @@ Force-revert anyway (this overwrites the external change)?`;
   };
   const openDiffs = (initialEditId) => {
     if (state.diffModal && state.diffModal.isOpen()) {
-      state.diffModal.setEdits(state.edits);
+      state.diffModal.setEdits(scopeEntries(workshopScope()));
       if (initialEditId)
         state.diffModal.focusEdit(initialEditId);
       return;
@@ -7593,23 +7606,15 @@ Force-revert anyway (this overwrites the external change)?`;
       state.workspacePanel = mountWorkspacePanel({ ctx, sendBackend });
     }
     state.diffModal = openDiffModal(ctx, {
-      getEdits: () => ledgerSource(),
-      getScopes: () => state.scopeStorage.map((e) => ({
-        scope: e.scope ?? characterScope(e.characterId),
-        label: e.label ?? e.characterName,
-        liveCount: e.liveEditCount,
-        totalCount: e.editCount
-      })),
-      getSelectedScope: () => state.workshopFocusScope ?? (state.characterId ? characterScope(state.characterId) : null),
+      getEdits: () => scopeEntries(workshopScope()),
+      getScopes: () => buildScopeOptions(),
+      getSelectedScope: () => workshopScope(),
       onSelectScope: (scope) => {
         state.workshopFocusScope = scope;
-        state.workshopFocusCharacterId = scope.id;
-        const opt = state.scopeStorage.find((e) => (e.scope?.id ?? e.characterId) === scope.id);
-        state.workshopFocusCharacterName = opt?.label ?? opt?.characterName ?? null;
         sendBackend({ type: "load_character_workshop", characterId: scope.id, scope });
       },
       onRevert: async (editId) => {
-        const scope = state.workshopFocusScope ?? (state.characterId ? characterScope(state.characterId) : null);
+        const scope = workshopScope();
         if (!scope)
           return;
         sendBackend({ type: "revert_edit", characterId: scope.id, editId, scope });
@@ -7637,13 +7642,7 @@ Force-revert anyway (this overwrites the external change)?`;
       onScopesNeeded: () => sendBackend({ type: "list_characters_storage" }),
       onClose: () => {
         state.diffModal = null;
-        if (state.workshopFocusCharacterId) {
-          state.workshopFocusScope = null;
-          state.workshopFocusCharacterId = null;
-          state.workshopFocusCharacterName = null;
-          if (state.characterId)
-            sendBackend({ type: "list_character_edits", characterId: state.characterId });
-        }
+        state.workshopFocusScope = null;
       },
       filesPanel: state.workspacePanel.root
     }, {
@@ -7703,16 +7702,14 @@ Force-revert anyway (this overwrites the external change)?`;
     updateComposer();
   };
   const liveEditsForAssistantMessage = (assistantMessageId) => {
-    const source = ledgerSource();
-    return source.filter((e) => e.assistantMessageId === assistantMessageId && !e.reverted).length;
+    return state.edits.filter((e) => e.assistantMessageId === assistantMessageId && !e.reverted).length;
   };
   const liveEditsAfterUserMessage = (userMessageId) => {
     const idx = state.messages.findIndex((m) => m.id === userMessageId && m.role === "user");
     if (idx < 0)
       return 0;
     const tailAssistantIds = new Set(state.messages.slice(idx + 1).filter((m) => m.role === "assistant").map((m) => m.id));
-    const source = ledgerSource();
-    return source.filter((e) => e.assistantMessageId !== undefined && tailAssistantIds.has(e.assistantMessageId) && !e.reverted).length;
+    return state.edits.filter((e) => e.assistantMessageId !== undefined && tailAssistantIds.has(e.assistantMessageId) && !e.reverted).length;
   };
   const promptEditsAction = async (opts) => {
     const verb = opts.action === "edit" ? "editing this message" : opts.action === "regenerate" ? "regenerating this response" : "deleting this message";
@@ -7825,7 +7822,6 @@ Revert those edits to the character now, or leave them applied?`;
       persistUiPrefs();
     }
     state.characterId = id;
-    state.characterLedger = [];
     state.chatsForCharacter = [];
     state.pinnedChatId = null;
     state.autoPinNeeded = !!id;
@@ -8947,8 +8943,6 @@ Revert those edits to the character now, or leave them applied?`;
       case "session_loaded":
         clearErrorBanners();
         state.sessionId = msg.sessionId;
-        if (state.characterId !== msg.characterId)
-          state.characterLedger = [];
         state.characterId = msg.characterId;
         state.characterName = msg.characterName;
         state.messages = [...msg.messages];
@@ -9066,7 +9060,7 @@ Revert those edits to the character now, or leave them applied?`;
         rerenderThread();
         updateSessionBar();
         if (state.diffModal)
-          state.diffModal.setEdits(state.characterLedger);
+          state.diffModal.setEdits(scopeEntries(workshopScope()));
         const parts = [];
         if (okCount > 0)
           parts.push(`Reverted ${okCount} edit${okCount === 1 ? "" : "s"}`);
@@ -9078,12 +9072,15 @@ Revert those edits to the character now, or leave them applied?`;
         composerStatus.classList.toggle("is-error", failed > 0);
         break;
       }
-      case "character_edits_pushed":
-        state.characterLedger = [...msg.entries];
+      case "scope_edits_pushed": {
+        state.scopeLedgers.set(scopeKeyString(msg.scope), [...msg.entries]);
         updateSessionBar();
-        if (state.diffModal)
-          state.diffModal.setEdits(state.characterLedger);
+        const shown = workshopScope();
+        if (state.diffModal && shown && scopeKeyString(shown) === scopeKeyString(msg.scope)) {
+          state.diffModal.setEdits(msg.entries);
+        }
         break;
+      }
       case "session_truncated":
         state.messages = [...msg.messages];
         state.edits = [...msg.edits];
@@ -9195,17 +9192,7 @@ Revert those edits to the character now, or leave them applied?`;
         break;
       case "characters_storage_pushed": {
         state.scopeStorage = msg.entries;
-        state.diffModal?.setScopes(msg.entries.map((e) => ({
-          scope: e.scope ?? characterScope(e.characterId),
-          label: e.label ?? e.characterName,
-          liveCount: e.liveEditCount,
-          totalCount: e.editCount
-        })));
-        if (state.characterId !== null) {
-          const e = msg.entries.find((x) => (x.scope && x.scope.kind === "character" ? x.scope.id : x.characterId) === state.characterId);
-          editsCount.textContent = String(e ? e.liveEditCount : 0);
-          editsBadge.classList.toggle("has-edits", (e?.editCount ?? 0) > 0);
-        }
+        state.diffModal?.setScopes(buildScopeOptions());
         break;
       }
       case "frontend_rpc_request": {
@@ -9229,19 +9216,21 @@ Revert those edits to the character now, or leave them applied?`;
         })();
         break;
       }
-      case "character_squashed":
-        if (state.workshopFocusCharacterId === msg.characterId) {
+      case "scope_squashed": {
+        const key = scopeKeyString(msg.scope);
+        state.scopeLedgers.set(key, []);
+        if (state.workshopFocusScope && scopeKeyString(state.workshopFocusScope) === key) {
           state.workshopFocusScope = null;
-          state.workshopFocusCharacterId = null;
-          state.workshopFocusCharacterName = null;
         }
-        if (state.characterId === msg.characterId) {
-          state.characterLedger = [];
+        if (activeScope() && scopeKeyString(activeScope()) === key) {
           state.edits = state.edits.map((e) => ({ ...e, reverted: true }));
           rerenderThread();
-          updateSessionBar();
         }
+        updateSessionBar();
+        if (state.diffModal)
+          state.diffModal.setEdits(scopeEntries(workshopScope()));
         break;
+      }
     }
   });
   render();
@@ -9256,7 +9245,6 @@ Revert those edits to the character now, or leave them applied?`;
       return;
     state.characterId = active.characterId;
     charCombo.setValue(active.characterId, true);
-    state.characterLedger = [];
     updateSessionBar();
     updateComposer();
     sendBackend({ type: "list_character_edits", characterId: active.characterId });

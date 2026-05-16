@@ -1,4 +1,5 @@
-import type { AgentEvent, AssistantBlock, ChatAssistantMessage, ChatMessage, EditLogEntry } from "../types";
+import type { AgentEvent, AssistantBlock, ChatAssistantMessage, ChatMessage, EditLogEntry, ScopeRef } from "../types";
+import { characterScope, scopeKeyString } from "../types";
 import type { AssistantHandle } from "./chat-thread";
 import type { DiffModalHandle } from "./diff-modal";
 
@@ -9,7 +10,9 @@ export interface AgentEventState {
   currentAssistantMessage: ChatAssistantMessage | null;
   messages: ChatMessage[];
   edits: EditLogEntry[];
-  characterLedger: EditLogEntry[];
+  scopeLedgers: Map<string, readonly EditLogEntry[]>;
+  workshopFocusScope: ScopeRef | null;
+  characterId: string | null;
   diffModal: DiffModalHandle | null;
 }
 
@@ -79,15 +82,21 @@ export function handleAgentEvent(ev: AgentEvent, ctx: AgentEventCtx): void {
       }
       return;
     }
-    case "edit_logged":
+    case "edit_logged": {
       ctx.state.edits.push(ev.entry);
-      // Mirror into the live character ledger so the workshop counter and
-      // open diff modal pick it up without a manual refresh.
-      ctx.state.characterLedger.push(ev.entry);
+      // File into the entry's own scope slot so the badge (active scope) and
+      // the modal (focused scope) both pick it up with no extra round-trip.
+      const key = scopeKeyString(ev.entry.scope);
+      ctx.state.scopeLedgers.set(key, [...(ctx.state.scopeLedgers.get(key) ?? []), ev.entry]);
       ctx.state.streamingAssistant?.attachEdits([ev.entry]);
-      ctx.state.diffModal?.setEdits(ctx.state.characterLedger);
+      const shown = ctx.state.workshopFocusScope
+        ?? (ctx.state.characterId !== null ? characterScope(ctx.state.characterId) : null);
+      if (shown && scopeKeyString(shown) === key) {
+        ctx.state.diffModal?.setEdits(ctx.state.scopeLedgers.get(key) ?? []);
+      }
       ctx.updateSessionBar();
       return;
+    }
     case "turn_completed": {
       ctx.rebindCurrentAssistantMessage();
       const a = ctx.state.currentAssistantMessage;
@@ -121,7 +130,7 @@ export function handleAgentEvent(ev: AgentEvent, ctx: AgentEventCtx): void {
     case "revert_logged":
     case "edits_resynced":
       // Server-driven path: the matching top-level BackendToFrontend events
-      // (edit_reverted, character_edits_pushed) handle the UI side. Nothing
+      // (edit_reverted, scope_edits_pushed) handle the UI side. Nothing
       // to do here.
       return;
   }

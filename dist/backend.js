@@ -35229,7 +35229,7 @@ async function handleSquashCharacter(scope, userId) {
       dropCache2(scope, userId);
       ledgerCleared = true;
     } catch {}
-    send({ type: "character_squashed", characterId: scope.id, ledgerCleared }, userId);
+    send({ type: "scope_squashed", scope, ledgerCleared }, userId);
     await handleListCharactersStorage(userId);
   } catch (err) {
     log("warn", `squash_character ${scope.kind}:${scope.id} failed: ${err.message}`);
@@ -35251,7 +35251,7 @@ async function handleRevertCharacterAll(scope, userId) {
       if (!e.reverted)
         liveIds.push(e.id);
     if (liveIds.length === 0) {
-      send({ type: "edits_reverted_bulk", characterId: scope.id, outcomes: [] }, userId);
+      send({ type: "edits_reverted_bulk", scope, outcomes: [] }, userId);
       return;
     }
     await handleRevertEditsBulk(scope, liveIds, userId);
@@ -35262,7 +35262,7 @@ async function handleRevertCharacterAll(scope, userId) {
 async function handleLoadCharacterWorkshop(scope, userId) {
   try {
     const ledger = await loadLedger(spindle, scope, userId);
-    send({ type: "character_edits_pushed", characterId: scope.id, entries: entriesView(ledger) }, userId);
+    send({ type: "scope_edits_pushed", scope, entries: entriesView(ledger) }, userId);
   } catch (err) {
     log("warn", `load_character_workshop ${scope.kind}:${scope.id} failed: ${err.message}`);
   }
@@ -35966,13 +35966,13 @@ function renderSessionMarkdown(s) {
 }
 async function handleListCharacterEdits(scope, userId) {
   const ledger = await loadLedger(spindle, scope, userId);
-  send({ type: "character_edits_pushed", characterId: scope.id, entries: entriesView(ledger) }, userId);
+  send({ type: "scope_edits_pushed", scope, entries: entriesView(ledger) }, userId);
 }
 async function handleRevertEdit(scope, editId, force, userId) {
   const ledger = await loadLedger(spindle, scope, userId);
   const entry = findEntry(ledger, editId);
   if (!entry) {
-    send({ type: "edit_reverted", characterId: scope.id, editId, outcome: { kind: "failed", editId, error: "edit not found in ledger" } }, userId);
+    send({ type: "edit_reverted", scope, editId, outcome: { kind: "failed", editId, error: "edit not found in ledger" } }, userId);
     return;
   }
   const outcome = await revertEditWithCheck(spindle, ledger, editId, scope.id, userId, force);
@@ -35980,9 +35980,9 @@ async function handleRevertEdit(scope, editId, force, userId) {
     const removedIds = new Set([editId, ...outcome.cascadedEditIds ?? []]);
     await spliceRevertedFromSession(spindle, entry.sessionId, removedIds, [buildRevertNote(entry)], userId);
   }
-  send({ type: "edit_reverted", characterId: scope.id, editId, outcome }, userId);
+  send({ type: "edit_reverted", scope, editId, outcome }, userId);
   if (outcome.kind === "clean") {
-    send({ type: "character_edits_pushed", characterId: scope.id, entries: entriesView(ledger) }, userId);
+    send({ type: "scope_edits_pushed", scope, entries: entriesView(ledger) }, userId);
     handleListCharactersStorage(userId);
     handleListSessions(undefined, userId);
   }
@@ -36121,9 +36121,9 @@ async function handleRevertEditsBulk(scope, editIds, userId, opts = {}) {
       return spliceRevertedFromSession(spindle, sid, removedIds, [note], userId);
     }));
   }
-  send({ type: "edits_reverted_bulk", characterId: scope.id, outcomes }, userId);
+  send({ type: "edits_reverted_bulk", scope, outcomes }, userId);
   if (removedIds.size > 0) {
-    send({ type: "character_edits_pushed", characterId: scope.id, entries: entriesView(ledger) }, userId);
+    send({ type: "scope_edits_pushed", scope, entries: entriesView(ledger) }, userId);
     if (!opts.suppressRefresh) {
       handleListCharactersStorage(userId);
       handleListSessions(undefined, userId);
@@ -36147,7 +36147,7 @@ async function handleRevertAllCharacters(scopes, userId) {
         if (!e.reverted)
           liveIds.push(e.id);
       if (liveIds.length === 0) {
-        send({ type: "edits_reverted_bulk", characterId: scope.id, outcomes: [] }, userId);
+        send({ type: "edits_reverted_bulk", scope, outcomes: [] }, userId);
         continue;
       }
       await handleRevertEditsBulk(scope, liveIds, userId, { suppressRefresh: true });
@@ -36527,14 +36527,14 @@ async function handleSendMessageInternal(s, userId, connectionIdOverride) {
               }
             }
           }
-          send({ type: "edit_reverted", characterId: s.characterId, editId: ev.editId, outcome: ev.outcome }, userId);
+          send({ type: "edit_reverted", scope: characterScope(s.characterId), editId: ev.editId, outcome: ev.outcome }, userId);
           break;
         }
         case "edits_resynced": {
           if (s.characterId === null)
             break;
           const charId = s.characterId;
-          loadLedger(spindle, characterScope(charId), userId).then((l) => send({ type: "character_edits_pushed", characterId: charId, entries: entriesView(l) }, userId)).catch((e) => log("warn", `edits resync failed: ${e.message}`));
+          loadLedger(spindle, characterScope(charId), userId).then((l) => send({ type: "scope_edits_pushed", scope: characterScope(charId), entries: entriesView(l) }, userId)).catch((e) => log("warn", `edits resync failed: ${e.message}`));
           break;
         }
         case "warning":
@@ -36636,7 +36636,7 @@ async function autosquashAndNotify(s, characterId, assistantMessageId, userId) {
           send({ type: "session_truncated", sessionId: s.sessionId, messages: s.messages, edits: s.edits }, userId);
       }
     }
-    send({ type: "character_edits_pushed", characterId, entries: view }, userId);
+    send({ type: "scope_edits_pushed", scope: characterScope(characterId), entries: view }, userId);
     return mutated;
   } catch (err) {
     log("warn", `autosquash failed for ${characterId}/${assistantMessageId}: ${err.message}`);
