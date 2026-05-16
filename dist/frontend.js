@@ -7236,8 +7236,8 @@ function mountDrawer(ctx) {
   emptyState.append(Object.assign(el7("h3"), { textContent: "What can I do?" }), Object.assign(el7("p"), { textContent: "Pick a character and ask me to translate, refactor, audit, add lorebook entries, or anything else. Every edit shows as a diff you can review and revert. Here are some examples:" }));
   const SUGGESTIONS = [
     {
-      label: "Translate this card",
-      send: "Translate this card to English (or another target if I name one). Run `survey_cjk` first to see where the source-language content lives; plan from what it reports, not memory. Cover greetings (first_mes + alternate_greetings) and UI surfaces (regex replace_string, trigger displays/values, bg-html, scriptstate_defaults). Skip find_regex patterns, anything already bilingual, and internal identifiers. For greetings, `rewrite` the whole message and keep tags / markers / capture groups byte-identical. Summarise findings and ask which surfaces to touch before writing."
+      label: "Translate this card to English",
+      send: "Translate this card to English. Run `survey_cjk` first to see where the source-language content lives; plan from what it reports, not memory. Cover greetings (first_mes + alternate_greetings), UI surfaces (regex find_string, replace_string, trigger displays/values, bg-html, scriptstate_defaults), and card System/Post-History instructions. Skip anything already bilingual and internal identifiers. For greetings, `rewrite` the message and be careful of strings that have regex matches, as you should ensure that the find_regex is translated along with the match. Avoid using mechanical translation methods as sub-string matching will kill your translation, always manually edit surfaces. Summarise findings and ask which surfaces to touch before writing."
     },
     {
       label: "Add/update a lorebook entry",
