@@ -33588,6 +33588,7 @@ function stampCacheControl(m) {
 }
 
 // src/agent/loop-detector.ts
+var NONDETERMINISTIC_TOOLS = new Set(["roll_dice", "random_pick"]);
 function sortKeys(value) {
   if (value === null || typeof value !== "object")
     return value;
@@ -33599,6 +33600,16 @@ function sortKeys(value) {
   }
   return sorted;
 }
+function normaliseInput(name, input) {
+  if (name !== "tool_search" || typeof input.query !== "string")
+    return input;
+  const q = input.query.trim();
+  const m = /^select:(.*)$/i.exec(q);
+  if (!m)
+    return { ...input, query: q.toLowerCase() };
+  const sorted = m[1].split(",").map((s) => s.trim()).filter((s) => s.length > 0).sort().join(",");
+  return { ...input, query: `select:${sorted}` };
+}
 
 class LoopDetector {
   maxRepeats;
@@ -33608,21 +33619,36 @@ class LoopDetector {
   constructor(config = {}) {
     this.maxRepeats = config.maxRepetitions ?? 3;
     const requested = config.loopDetectionWindow ?? 4;
-    this.windowSize = Math.max(requested, this.maxRepeats);
+    this.windowSize = Math.max(requested, this.maxRepeats * 2);
+  }
+  noteProgress() {
+    this.toolSignatures.length = 0;
+    this.textOutputs.length = 0;
   }
   recordToolCalls(blocks) {
-    if (blocks.length === 0)
+    const counted = blocks.filter((b) => !NONDETERMINISTIC_TOOLS.has(b.name));
+    if (counted.length === 0)
       return null;
-    const signature = this.computeToolSignature(blocks);
+    const signature = this.computeToolSignature(counted);
     this.push(this.toolSignatures, signature);
-    const count = this.consecutiveRepeats(this.toolSignatures);
-    if (count >= this.maxRepeats) {
-      const names = blocks.map((b) => b.name).join(", ");
+    const names = counted.map((b) => b.name).join(", ");
+    const consecutive = this.consecutiveRepeats(this.toolSignatures);
+    if (consecutive >= this.maxRepeats) {
       return {
         kind: "tool_repetition",
-        repetitions: count,
-        detail: `Tool call "${names}" with identical arguments has repeated ${count} times consecutively. The agent appears to be stuck.`
+        repetitions: consecutive,
+        detail: `Tool call "${names}" with identical arguments has repeated ${consecutive} times with no progress in between. The agent appears to be stuck.`
       };
+    }
+    if (this.toolSignatures.length >= this.windowSize) {
+      const windowed = this.windowFrequency(this.toolSignatures, signature);
+      if (windowed >= this.maxRepeats) {
+        return {
+          kind: "tool_repetition",
+          repetitions: windowed,
+          detail: `Tool call "${names}" with identical arguments has repeated ${windowed} times in ${this.toolSignatures.length} turns with no progress (interleaved with other unproductive calls). The agent appears to be stuck in a cycle.`
+        };
+      }
     }
     return null;
   }
@@ -33642,7 +33668,7 @@ class LoopDetector {
     return null;
   }
   computeToolSignature(blocks) {
-    const items = blocks.map((b) => ({ name: b.name, input: sortKeys(b.input) })).sort((a, b) => {
+    const items = blocks.map((b) => ({ name: b.name, input: sortKeys(normaliseInput(b.name, b.input)) })).sort((a, b) => {
       const cmp = a.name.localeCompare(b.name);
       if (cmp !== 0)
         return cmp;
@@ -33654,6 +33680,13 @@ class LoopDetector {
     buffer.push(entry);
     while (buffer.length > this.windowSize)
       buffer.shift();
+  }
+  windowFrequency(buffer, entry) {
+    let count = 0;
+    for (const s of buffer)
+      if (s === entry)
+        count++;
+    return count;
   }
   consecutiveRepeats(buffer) {
     if (buffer.length === 0)
@@ -34073,15 +34106,7 @@ async function* runAgent(input) {
         throw new Error("The model wrote tool syntax as text, but the markup couldn't be parsed into a usable call. " + "This connection may not actually support native tool calling, or the model's pseudo-XML is too malformed to recover. " + "Try a different connection (Anthropic / OpenAI / Google / Bedrock and most OpenRouter routes for those same models support native tool calls).");
       }
     }
-    if (toolCalls.length > 0) {
-      const loop = detector.recordToolCalls(toolCalls.map((tc) => ({ name: tc.name, input: tc.args })));
-      if (loop) {
-        conv.push(encodeAssistantTurn(content, toolCalls, reasoning));
-        yield { type: "warning", message: loop.detail };
-        yield { type: "paused_for_input", reason: "loop_detected", detail: loop.detail };
-        return;
-      }
-    } else if (content.trim().length > 0) {
+    if (toolCalls.length === 0 && content.trim().length > 0) {
       const loop = detector.recordText(content);
       if (loop) {
         conv.push(encodeAssistantTurn(content, toolCalls, reasoning));
@@ -34094,6 +34119,7 @@ async function* runAgent(input) {
       anyToolCallThisRun = true;
     const results = [];
     const newEdits = [];
+    let revertedThisTurn = false;
     const executeOne = async (tc) => {
       const buffer = { edits: [], reverts: [], resync: false };
       const fn = input.dispatch[tc.name];
@@ -34161,8 +34187,10 @@ async function* runAgent(input) {
       results.push({ call_id: oc.tc.call_id, name: oc.tc.name, content: oc.resultText, ...oc.isError ? { is_error: true } : {} });
       for (const e of editsForCall)
         yield { type: "edit_logged", entry: e };
-      for (const r of oc.buffer.reverts)
+      for (const r of oc.buffer.reverts) {
+        revertedThisTurn = true;
         yield { type: "revert_logged", editId: r.editId, outcome: r.outcome };
+      }
       if (oc.buffer.resync)
         yield { type: "edits_resynced" };
       yield {
@@ -34213,6 +34241,16 @@ async function* runAgent(input) {
     conv.push(encodeAssistantTurn(content, toolCalls, reasoning));
     if (results.length > 0)
       conv.push(encodeToolResults(results));
+    if (newEdits.length > 0 || revertedThisTurn || finishedSummary !== undefined) {
+      detector.noteProgress();
+    } else if (toolCalls.length > 0) {
+      const loop = detector.recordToolCalls(toolCalls.map((tc) => ({ name: tc.name, input: tc.args })));
+      if (loop) {
+        yield { type: "warning", message: loop.detail };
+        yield { type: "paused_for_input", reason: "loop_detected", detail: loop.detail };
+        return;
+      }
+    }
     const completedEvent = {
       type: "turn_completed",
       turn: turnNum,
@@ -34493,6 +34531,8 @@ Tool errors are prefixed with a bracketed code so you can pick the right recover
 - \`[INVALID_INPUT]\` \u2014 schema rejected your args. Recovery: read the description again, then re-emit with the corrected shape.
 
 Pattern-match on the code, not the prose. Prose changes; codes don't.
+
+Do not re-issue a tool call that just failed or got denied with the exact same arguments, and do not re-read or re-search something you already have the answer to. If a call didn't move you forward, change the approach or stop and tell the user what's blocking you, never repeat it verbatim hoping for a different result.
 
 # Tracking multi-step tasks
 

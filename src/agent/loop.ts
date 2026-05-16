@@ -481,15 +481,10 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
       }
     }
 
-    if (toolCalls.length > 0) {
-      const loop = detector.recordToolCalls(toolCalls.map((tc) => ({ name: tc.name, input: tc.args })));
-      if (loop) {
-        conv.push(encodeAssistantTurn(content, toolCalls, reasoning));
-        yield { type: "warning", message: loop.detail };
-        yield { type: "paused_for_input", reason: "loop_detected", detail: loop.detail };
-        return;
-      }
-    } else if (content.trim().length > 0) {
+    // Tool-call loop detection runs POST-dispatch (below) so it can see
+    // whether this turn made progress. Text-repetition has no dispatch, so
+    // it's evaluated here.
+    if (toolCalls.length === 0 && content.trim().length > 0) {
       const loop = detector.recordText(content);
       if (loop) {
         conv.push(encodeAssistantTurn(content, toolCalls, reasoning));
@@ -502,6 +497,7 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
     if (toolCalls.length > 0) anyToolCallThisRun = true;
     const results: ToolResult[] = [];
     const newEdits: EditLogEntry[] = [];
+    let revertedThisTurn = false;
 
     interface CallOutcome {
       readonly tc: ToolCall;
@@ -597,7 +593,7 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
       newEdits.push(...editsForCall);
       results.push({ call_id: oc.tc.call_id, name: oc.tc.name, content: oc.resultText, ...(oc.isError ? { is_error: true } : {}) });
       for (const e of editsForCall) yield { type: "edit_logged", entry: e };
-      for (const r of oc.buffer.reverts) yield { type: "revert_logged", editId: r.editId, outcome: r.outcome };
+      for (const r of oc.buffer.reverts) { revertedThisTurn = true; yield { type: "revert_logged", editId: r.editId, outcome: r.outcome }; }
       if (oc.buffer.resync) yield { type: "edits_resynced" };
       yield {
         type: "tool_finished",
@@ -654,6 +650,20 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
 
     conv.push(encodeAssistantTurn(content, toolCalls, reasoning));
     if (results.length > 0) conv.push(encodeToolResults(results));
+
+    // Loop detection with progress known. Any forward motion this turn clears
+    // the detector, so repetition that coexists with progress never fires.
+    // Only a run of strictly unproductive turns can accumulate to a flag.
+    if (newEdits.length > 0 || revertedThisTurn || finishedSummary !== undefined) {
+      detector.noteProgress();
+    } else if (toolCalls.length > 0) {
+      const loop = detector.recordToolCalls(toolCalls.map((tc) => ({ name: tc.name, input: tc.args })));
+      if (loop) {
+        yield { type: "warning", message: loop.detail };
+        yield { type: "paused_for_input", reason: "loop_detected", detail: loop.detail };
+        return;
+      }
+    }
 
     const completedEvent: AgentEvent = {
       type: "turn_completed",
