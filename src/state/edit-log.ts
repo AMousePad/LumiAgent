@@ -321,7 +321,7 @@ export async function revertEdit(
         }
         case "preset_block": {
           const [presetId, blockId] = r.surfaceId.split(":");
-          await spindle.presets.blocks.update(presetId!, blockId!, { [r.field]: r.before });
+          await spindle.presets.blocks.update(presetId!, blockId!, { [r.field]: r.before }, userId);
           return { success: true };
         }
         case "world_book": {
@@ -681,7 +681,7 @@ export async function writeFieldValue(
     }
     case "preset_block": {
       const [presetId, blockId] = surfaceId.split(":");
-      await spindle.presets.blocks.update(presetId!, blockId!, { [field]: value });
+      await spindle.presets.blocks.update(presetId!, blockId!, { [field]: value }, userId);
       return;
     }
     case "world_book": {

@@ -368,7 +368,7 @@ export async function resolveWrite(
   }
   if (leaf.surface === "preset_block") {
     const [presetId, blockId] = leaf.surfaceId.split(":");
-    await ctx.spindle.presets.blocks.update(presetId!, blockId!, { [leaf.field]: nextValue });
+    await ctx.spindle.presets.blocks.update(presetId!, blockId!, { [leaf.field]: nextValue }, ctx.userId);
     ctx.pushEdit({
       op: "edit", surface: "preset_block", surfaceId: leaf.surfaceId,
       surfaceLabel: leaf.surfaceLabel, field: leaf.field, before: leaf.value, after: nextValue,

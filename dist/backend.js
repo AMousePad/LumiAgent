@@ -2216,7 +2216,7 @@ async function revertEdit(spindle2, entry, characterId, userId) {
         }
         case "preset_block": {
           const [presetId, blockId] = r.surfaceId.split(":");
-          await spindle2.presets.blocks.update(presetId, blockId, { [r.field]: r.before });
+          await spindle2.presets.blocks.update(presetId, blockId, { [r.field]: r.before }, userId);
           return { success: true };
         }
         case "world_book": {
@@ -2560,7 +2560,7 @@ async function writeFieldValue(spindle2, surface, surfaceId, field, value, chara
     }
     case "preset_block": {
       const [presetId, blockId] = surfaceId.split(":");
-      await spindle2.presets.blocks.update(presetId, blockId, { [field]: value });
+      await spindle2.presets.blocks.update(presetId, blockId, { [field]: value }, userId);
       return;
     }
     case "world_book": {
@@ -18757,7 +18757,7 @@ async function resolveWrite(ctx, leaf, nextValue) {
   }
   if (leaf.surface === "preset_block") {
     const [presetId, blockId] = leaf.surfaceId.split(":");
-    await ctx.spindle.presets.blocks.update(presetId, blockId, { [leaf.field]: nextValue });
+    await ctx.spindle.presets.blocks.update(presetId, blockId, { [leaf.field]: nextValue }, ctx.userId);
     ctx.pushEdit({
       op: "edit",
       surface: "preset_block",
