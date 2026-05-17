@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import { scopeForLeafKey } from "./_path_v2";
 import { wbLabel } from "./_surfaces";
 import type { WorldBookEntryUpdateDTO } from "lumiverse-spindle-types";
 
@@ -15,7 +16,8 @@ export const updateWorldBookEntryTool = defineTool({
 Usage:
 - Path-based \`edit\` / \`rewrite\` only address \`wb/<id>/content\` and \`wb/<id>/comment\`. Metadata goes through here: \`key\` array, \`keysecondary\`, \`priority\`, \`disabled\`, \`constant\`, \`position\`, \`depth\`, \`role\`, \`selective\`, \`selectiveLogic\`.
 - Pass only the fields to change in \`patch\`.
-- For content edits prefer \`edit\` / \`rewrite\`.`,
+- For content edits prefer \`edit\` / \`rewrite\`.
+- Works in a no-character session (operates by \`entry_id\`), like \`edit\` / \`rewrite\` / \`set\` on \`wb/\`.`,
   inputSchema,
   jsonSchema: {
     type: "object",
@@ -25,7 +27,9 @@ Usage:
     },
     required: ["entry_id", "patch"],
   },
-  requiresCharacter: true,
+  // Operates purely by entry_id; consistent with the wb/ path tools, which
+  // are all requiresCharacter:false.
+  requiresCharacter: false,
   execute: async (input, ctx) => {
     const id = input.entry_id;
     const patch = input.patch as WorldBookEntryUpdateDTO;
@@ -38,7 +42,7 @@ Usage:
       const beforeStr = typeof prev === "string" ? prev : JSON.stringify(prev);
       const afterStr = typeof v === "string" ? v : JSON.stringify(v);
       if (beforeStr === afterStr) continue;
-      ctx.pushEdit({ op: "edit", surface: "world_book_entry", surfaceId: id, surfaceLabel: label, field: k, before: beforeStr, after: afterStr });
+      ctx.pushEdit({ op: "edit", surface: "world_book_entry", surfaceId: id, surfaceLabel: label, field: k, before: beforeStr, after: afterStr, scope: scopeForLeafKey(`wb/${id}`, ctx) });
     }
     return { content: `OK. Updated world book entry ${updated.id} fields: ${Object.keys(patch).join(", ")}` };
   },

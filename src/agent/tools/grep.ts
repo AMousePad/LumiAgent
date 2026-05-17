@@ -78,7 +78,7 @@ function grepLeaf(
 
 export const grepTool = defineTool({
   name: "grep",
-  description: `Search every editable surface of the character with a regex.
+  description: `Search every editable string surface of the active character (its fields, \`char/extensions/*\`, character-scoped regex, and attached world books) with a regex. Does NOT walk \`persona/\` \`chat/\` \`preset/\` (use \`read\` / \`list\` / \`grep_chat_messages\` for those).
 
 Returns:
 - \`pattern\`, \`flags\`, \`max_matches\`, \`max_hits_per_line\` — echoes of the request, for verification.
@@ -95,7 +95,7 @@ Budgets and truncation:
 - When the cap is hit, the result includes \`truncated_at\`: the leaf path, the last line scanned in that leaf, the leaf's total line count, and the count of leaves left entirely unscanned. Re-run with a tighter pattern, narrower include_paths, or read the remaining range of the partially-scanned leaf directly.
 
 Scoping:
-- include_paths / exclude_paths use the same path grammar as \`read\`. e.g. \`include_paths: ['rx/']\` to search only regex scripts; \`exclude_paths: ['char/first_mes', 'char/alternate_greetings']\` to skip prose fields.`,
+- include_paths / exclude_paths filter the character-surface walk by path prefix: \`char/\`, \`rx/\`, \`wb/\`, \`char/extensions/...\`. e.g. \`include_paths: ['rx/']\` to search only regex scripts; \`exclude_paths: ['char/first_mes', 'char/alternate_greetings']\` to skip prose fields. \`persona/\` \`chat/\` \`preset/\` prefixes match nothing here (not walked).`,
   inputSchema,
   jsonSchema: {
     type: "object",

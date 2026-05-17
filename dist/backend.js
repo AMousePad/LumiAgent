@@ -2086,6 +2086,9 @@ function decodeScalar(field, s) {
     return s;
   }
 }
+function personaScalarUpdate(field, decoded) {
+  return { [field]: decoded == null ? "" : String(decoded) };
+}
 function worldBookCreateFromDTO(b) {
   const out = { name: b.name };
   if (b.description)
@@ -2222,6 +2225,10 @@ async function revertEdit(spindle2, entry, characterId, userId) {
         }
         case "preset": {
           await spindle2.presets.update(r.surfaceId, { [r.field]: decodeScalar(r.field, r.before) }, userId);
+          return { success: true };
+        }
+        case "persona": {
+          await spindle2.personas.update(r.surfaceId, personaScalarUpdate(r.field, decodeScalar(r.field, r.before)), userId);
           return { success: true };
         }
         case "extension": {
@@ -2420,6 +2427,12 @@ async function readLiveValue(spindle2, entry, characterId, userId) {
         return null;
       return encodeScalar(r.field, p[r.field]);
     }
+    case "persona": {
+      const p = await spindle2.personas.get(r.surfaceId, userId);
+      if (!p)
+        return null;
+      return encodeScalar(r.field, p[r.field]);
+    }
     default:
       return null;
   }
@@ -2556,6 +2569,10 @@ async function writeFieldValue(spindle2, surface, surfaceId, field, value, chara
     }
     case "preset": {
       await spindle2.presets.update(surfaceId, { [field]: decodeScalar(field, value) }, userId);
+      return;
+    }
+    case "persona": {
+      await spindle2.personas.update(surfaceId, personaScalarUpdate(field, decodeScalar(field, value)), userId);
       return;
     }
     default:
@@ -18738,6 +18755,21 @@ async function resolveWrite(ctx, leaf, nextValue) {
     });
     return;
   }
+  if (leaf.surface === "preset_block") {
+    const [presetId, blockId] = leaf.surfaceId.split(":");
+    await ctx.spindle.presets.blocks.update(presetId, blockId, { [leaf.field]: nextValue });
+    ctx.pushEdit({
+      op: "edit",
+      surface: "preset_block",
+      surfaceId: leaf.surfaceId,
+      surfaceLabel: leaf.surfaceLabel,
+      field: leaf.field,
+      before: leaf.value,
+      after: nextValue,
+      scope: scopeForLeafKey(leaf.key, ctx)
+    });
+    return;
+  }
 }
 async function assertExtensionWriteAllowed(ctx, extPath) {
   const { checkExtensionWrite: checkExtensionWrite2 } = await Promise.resolve().then(() => (init_gate(), exports_gate));
@@ -28864,7 +28896,7 @@ var init_grep = __esm(() => {
   }).strict();
   grepTool = defineTool({
     name: "grep",
-    description: `Search every editable surface of the character with a regex.
+    description: `Search every editable string surface of the active character (its fields, \`char/extensions/*\`, character-scoped regex, and attached world books) with a regex. Does NOT walk \`persona/\` \`chat/\` \`preset/\` (use \`read\` / \`list\` / \`grep_chat_messages\` for those).
 
 Returns:
 - \`pattern\`, \`flags\`, \`max_matches\`, \`max_hits_per_line\` \u2014 echoes of the request, for verification.
@@ -28881,7 +28913,7 @@ Budgets and truncation:
 - When the cap is hit, the result includes \`truncated_at\`: the leaf path, the last line scanned in that leaf, the leaf's total line count, and the count of leaves left entirely unscanned. Re-run with a tighter pattern, narrower include_paths, or read the remaining range of the partially-scanned leaf directly.
 
 Scoping:
-- include_paths / exclude_paths use the same path grammar as \`read\`. e.g. \`include_paths: ['rx/']\` to search only regex scripts; \`exclude_paths: ['char/first_mes', 'char/alternate_greetings']\` to skip prose fields.`,
+- include_paths / exclude_paths filter the character-surface walk by path prefix: \`char/\`, \`rx/\`, \`wb/\`, \`char/extensions/...\`. e.g. \`include_paths: ['rx/']\` to search only regex scripts; \`exclude_paths: ['char/first_mes', 'char/alternate_greetings']\` to skip prose fields. \`persona/\` \`chat/\` \`preset/\` prefixes match nothing here (not walked).`,
     inputSchema: inputSchema27,
     jsonSchema: {
       type: "object",
@@ -29332,7 +29364,9 @@ var init_inspect = __esm(() => {
 
 Leaf (string-valued) paths return char/line/CJK/peek plus a \`diagnostics\` block:
   char/<field>, char/alternate_greetings/<idx>, char/extensions/<dotted>,
-  rx/<id>/find_regex, rx/<id>/replace_string, wb/<id>/content, wb/<id>/comment
+  rx/<id>/find_regex, rx/<id>/replace_string, wb/<id>/content, wb/<id>/comment,
+  persona/<id>/<name|title|description>, persona/<id>/wb/<entryId>/<content|comment>,
+  chat/<chatId>/msg/<msgId>/content, preset/<presetId>/block/<blockId>/<content|name>
 
   diagnostics covers the encoding state that causes silent find/replace failures:
     hangul: { nfc_runs, nfd_runs }            NFD Hangul (jamo) doesn't match NFC find strings byte-exact
@@ -29564,6 +29598,50 @@ async function listExtensions(ctx, subPath, maxEntries, maxDepth) {
   visit(root, "", 0);
   return out;
 }
+async function listPersonas(ctx, maxEntries) {
+  const out = [];
+  let offset = 0;
+  while (out.length < maxEntries) {
+    const r = await ctx.spindle.personas.list({ limit: 200, offset, userId: ctx.userId });
+    for (const p of r.data) {
+      if (out.length >= maxEntries)
+        break;
+      out.push({ path: `persona/${p.id}`, type: "persona", label: p.name, size: p.description?.length ?? 0 });
+    }
+    if (r.data.length === 0 || offset + r.data.length >= r.total)
+      break;
+    offset += r.data.length;
+  }
+  return out;
+}
+async function listPresets(ctx, maxEntries) {
+  const out = [];
+  let offset = 0;
+  while (out.length < maxEntries) {
+    const r = await ctx.spindle.presets.list({ limit: 200, offset, userId: ctx.userId });
+    for (const p of r.data) {
+      if (out.length >= maxEntries)
+        break;
+      out.push({ path: `preset/${p.id}`, type: "preset", label: p.name });
+    }
+    if (r.data.length === 0 || offset + r.data.length >= r.total)
+      break;
+    offset += r.data.length;
+  }
+  return out;
+}
+async function listPresetBlocks(ctx, presetId, maxEntries) {
+  const blocks = await ctx.spindle.presets.blocks.list(presetId, ctx.userId);
+  return blocks.slice(0, maxEntries).map((b) => {
+    const content = b.content;
+    return {
+      path: `preset/${presetId}/block/${b.id}`,
+      type: "preset_block",
+      label: b.name || "block",
+      size: typeof content === "string" ? content.length : 0
+    };
+  });
+}
 var inputSchema31, listTool;
 var init_list = __esm(() => {
   init_zod();
@@ -29571,7 +29649,7 @@ var init_list = __esm(() => {
   init__surfaces();
   init__path_v2();
   inputSchema31 = exports_external.object({
-    path: exports_external.string().describe("Container path. Empty / 'char' for the character overview. 'rx' for regex scripts. 'wb' for world books. 'wb/<bookId>' for entries in a book. 'char/alternate_greetings' for all greetings. 'char/extensions[/dotted]' for an extensions subtree."),
+    path: exports_external.string().describe("Container path. Empty / 'char' for the character overview. 'rx' for regex scripts. 'wb' for world books. 'wb/<bookId>' for entries in a book. 'char/alternate_greetings' for all greetings. 'char/extensions[/dotted]' for an extensions subtree. 'persona' for all personas. 'preset' for all presets. 'preset/<presetId>' for a preset's blocks."),
     max_entries: exports_external.number().int().positive().max(2000).optional().describe("Max items returned. Default 200."),
     max_depth: exports_external.number().int().positive().max(10).optional().describe("Recursion depth (only used for extensions traversal). Default 4."),
     include_unattached: exports_external.boolean().optional().describe("Only meaningful for path='wb': also list world books the user owns but hasn't attached to this character. Each row carries an `attached` flag. Use when picking a destination for a new world_book_entry.")
@@ -29588,6 +29666,11 @@ Path forms:
 - 'rx'                               all character-scoped regex scripts
 - 'wb'                               all attached world books
 - 'wb/<bookId>'                      all entries in a world book
+- 'persona'                          all of the user's personas (works without an active character)
+- 'preset'                           all prompt presets (works without an active character)
+- 'preset/<presetId>'                all prompt blocks in a preset
+
+\`char/\`, \`rx\`, \`wb\` need an active character; \`persona\` / \`preset\` do not.
 
 Each returned row carries:
 - \`path\`     \u2014 pass straight to \`read\` / \`inspect\` / \`edit\`.
@@ -29608,12 +29691,16 @@ Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole
       required: ["path"],
       additionalProperties: false
     },
-    requiresCharacter: true,
+    requiresCharacter: false,
     execute: async (input, ctx) => {
       const maxEntries = input.max_entries ?? 200;
       const maxDepth = input.max_depth ?? 4;
       const path = input.path.trim();
       try {
+        const personaOrPreset = path === "persona" || path === "personas" || path === "preset" || path === "presets" || path.startsWith("preset/");
+        if (!personaOrPreset && !ctx.characterId) {
+          return { content: "Error: [PATH_NOT_FOUND] no character selected. 'char/...', 'rx', 'wb' need an active character; 'persona' and 'preset' work without one.", isError: true };
+        }
         let entries;
         if (path === "" || path === "char" || path === "character") {
           entries = await listCharacterRoot(ctx, maxEntries);
@@ -29633,8 +29720,17 @@ Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole
         } else if (path.startsWith("char/extensions/") || path.startsWith("extensions/")) {
           const sub = path.replace(/^(char\/)?extensions\//, "");
           entries = await listExtensions(ctx, sub, maxEntries, maxDepth);
+        } else if (path === "persona" || path === "personas") {
+          entries = await listPersonas(ctx, maxEntries);
+        } else if (path === "preset" || path === "presets") {
+          entries = await listPresets(ctx, maxEntries);
+        } else if (path.startsWith("preset/")) {
+          const presetId = path.split("/")[1] ?? "";
+          if (!presetId)
+            return { content: "Error: preset/<presetId> requires a preset id", isError: true };
+          entries = await listPresetBlocks(ctx, presetId, maxEntries);
         } else {
-          return { content: `Error: unknown list path '${path}'. Try: '', 'char/alternate_greetings', 'rx', 'wb', 'wb/<id>', 'char/extensions[/dotted]'.`, isError: true };
+          return { content: `Error: unknown list path '${path}'. Try: '', 'char/alternate_greetings', 'rx', 'wb', 'wb/<id>', 'char/extensions[/dotted]', 'persona', 'preset', 'preset/<id>'.`, isError: true };
         }
         return { content: JSON.stringify({ path, count: entries.length, entries }, null, 2) };
       } catch (err) {
@@ -29837,12 +29933,41 @@ async function setPresetField(ctx, presetId, field, value) {
   await ctx.spindle.presets.update(presetId, { [field]: value }, ctx.userId);
   return { before: stringify(before), after: stringify(value), label: p.name, surface: "preset", surfaceId: presetId, field };
 }
+async function setPersonaAttachedWorldBook(ctx, personaId, field, value) {
+  if (field !== "attached_world_book_id") {
+    return `[PATH_NOT_FOUND] persona/${personaId}/${field} is not settable via \`set\`. Only attached_world_book_id. For name / title / description use \`edit\` or \`rewrite\` on persona/${personaId}/<field>.`;
+  }
+  const p = await ctx.spindle.personas.get(personaId, ctx.userId);
+  if (!p)
+    return `persona ${personaId} not found`;
+  let nextId;
+  if (value === null || value === undefined || value === "") {
+    nextId = null;
+  } else if (typeof value === "string") {
+    const wb = await ctx.spindle.world_books.get(value, ctx.userId).catch(() => null);
+    if (!wb)
+      return `[PATH_NOT_FOUND] world book '${value}' not found. Pass an existing world_book id to attach, or null to detach.`;
+    nextId = value;
+  } else {
+    return `[INVALID_VALUE_TYPE] attached_world_book_id expects a world_book id string or null, got ${typeof value}`;
+  }
+  await ctx.spindle.personas.update(personaId, { attached_world_book_id: nextId ?? "" }, ctx.userId);
+  return {
+    before: encodeScalar(field, p.attached_world_book_id ?? null),
+    after: encodeScalar(field, nextId),
+    label: p.name,
+    surface: "persona",
+    surfaceId: personaId,
+    field
+  };
+}
 var inputSchema33, setTool;
 var init_set = __esm(() => {
   init_zod();
   init__framework();
   init__surfaces();
   init__path_v2();
+  init_edit_log();
   inputSchema33 = exports_external.object({
     path: exports_external.string().min(3).describe("Slash-separated path. Same grammar as `read` / `edit`."),
     value: exports_external.unknown().describe("The new value. Any JSON-encodable type (string, number, boolean, array, object, null). Wholesale replacement at the path.")
@@ -29855,6 +29980,7 @@ var init_set = __esm(() => {
 - Changing a number (priority, position, sort_order, depth)
 - Replacing an array / object value (e.g. extensions.lumirealm.payload.scriptstate_defaults)
 - Setting a typed value at an extension path that isn't a string
+- Attaching / changing a persona's world book: \`set({path:"persona/<personaId>/attached_world_book_id", value:"<worldBookId>"})\`; \`value:null\` detaches
 
 Path grammar matches \`read\` / \`edit\` / \`rewrite\`. The value field accepts any JSON-encodable type. For string-leaf paths, set is a wholesale alternative to \`rewrite\` (no read-gate, so use only when you don't need to anchor against current content).
 
@@ -29918,6 +30044,11 @@ Returns:
         if (parts.length !== 2)
           return { content: "Error: expected preset/<presetId>/<field>. For block content/name use edit/rewrite on preset/<id>/block/<bid>/<field>.", isError: true };
         result = await setPresetField(ctx, parts[0], parts[1], value);
+      } else if (path.startsWith("persona/")) {
+        const parts = path.split("/").slice(1);
+        if (parts.length !== 2)
+          return { content: "Error: expected persona/<personaId>/attached_world_book_id. Persona world-book entries and name/title/description use edit/rewrite, not set.", isError: true };
+        result = await setPersonaAttachedWorldBook(ctx, parts[0], parts[1], value);
       } else {
         return { content: `Error: unknown set path '${path}'. See \`read\` tool for grammar.`, isError: true };
       }
@@ -30469,6 +30600,10 @@ Path grammar:
   rx/<scriptId>/replace_string          regex script body
   wb/<entryId>/content                  lorebook entry body
   wb/<entryId>/comment                  lorebook entry label
+  persona/<id>/<name|title|description>  a user persona field
+  persona/<id>/wb/<entryId>/<content|comment>  persona world-book entry
+  chat/<chatId>/msg/<msgId>/content     one chat message
+  preset/<presetId>/block/<blockId>/<content|name>  prompt-preset block
 
 Records the path as 'recently read' so a subsequent \`edit\` on the same path passes the read-gate.
 
@@ -31902,6 +32037,7 @@ var inputSchema59, updateRegexScriptTool;
 var init_update_regex_script = __esm(() => {
   init_zod();
   init__framework();
+  init__path_v2();
   inputSchema59 = exports_external.object({
     script_id: exports_external.string().min(1),
     patch: exports_external.record(exports_external.string(), exports_external.unknown())
@@ -31912,7 +32048,8 @@ var init_update_regex_script = __esm(() => {
 
 Usage:
 - Path-based \`edit\` / \`rewrite\` only address \`rx/<id>/find_regex\` and \`rx/<id>/replace_string\`. Metadata goes through here: \`name\`, \`flags\`, \`disabled\`, \`placement\`, \`target\`, \`sort_order\`, \`description\`, \`folder\`.
-- Pass only the fields to change in \`patch\`.`,
+- Pass only the fields to change in \`patch\`.
+- Works in a no-character session (operates by \`script_id\`), like \`edit\` / \`rewrite\` / \`set\` on \`rx/\`.`,
     inputSchema: inputSchema59,
     jsonSchema: {
       type: "object",
@@ -31922,7 +32059,7 @@ Usage:
       },
       required: ["script_id", "patch"]
     },
-    requiresCharacter: true,
+    requiresCharacter: false,
     execute: async (input, ctx) => {
       const id = input.script_id;
       const patch = input.patch;
@@ -31936,7 +32073,7 @@ Usage:
         const afterStr = typeof v === "string" ? v : JSON.stringify(v);
         if (beforeStr === afterStr)
           continue;
-        ctx.pushEdit({ op: "edit", surface: "regex_script", surfaceId: id, surfaceLabel: before.name, field: k, before: beforeStr, after: afterStr });
+        ctx.pushEdit({ op: "edit", surface: "regex_script", surfaceId: id, surfaceLabel: before.name, field: k, before: beforeStr, after: afterStr, scope: scopeForLeafKey(`rx/${id}`, ctx) });
       }
       return { content: `OK. Updated regex script ${updated.id} ("${updated.name}") fields: ${Object.keys(patch).join(", ")}` };
     }
@@ -31948,6 +32085,7 @@ var inputSchema60, updateWorldBookEntryTool;
 var init_update_world_book_entry = __esm(() => {
   init_zod();
   init__framework();
+  init__path_v2();
   init__surfaces();
   inputSchema60 = exports_external.object({
     entry_id: exports_external.string().min(1),
@@ -31960,7 +32098,8 @@ var init_update_world_book_entry = __esm(() => {
 Usage:
 - Path-based \`edit\` / \`rewrite\` only address \`wb/<id>/content\` and \`wb/<id>/comment\`. Metadata goes through here: \`key\` array, \`keysecondary\`, \`priority\`, \`disabled\`, \`constant\`, \`position\`, \`depth\`, \`role\`, \`selective\`, \`selectiveLogic\`.
 - Pass only the fields to change in \`patch\`.
-- For content edits prefer \`edit\` / \`rewrite\`.`,
+- For content edits prefer \`edit\` / \`rewrite\`.
+- Works in a no-character session (operates by \`entry_id\`), like \`edit\` / \`rewrite\` / \`set\` on \`wb/\`.`,
     inputSchema: inputSchema60,
     jsonSchema: {
       type: "object",
@@ -31970,7 +32109,7 @@ Usage:
       },
       required: ["entry_id", "patch"]
     },
-    requiresCharacter: true,
+    requiresCharacter: false,
     execute: async (input, ctx) => {
       const id = input.entry_id;
       const patch = input.patch;
@@ -31985,7 +32124,7 @@ Usage:
         const afterStr = typeof v === "string" ? v : JSON.stringify(v);
         if (beforeStr === afterStr)
           continue;
-        ctx.pushEdit({ op: "edit", surface: "world_book_entry", surfaceId: id, surfaceLabel: label, field: k, before: beforeStr, after: afterStr });
+        ctx.pushEdit({ op: "edit", surface: "world_book_entry", surfaceId: id, surfaceLabel: label, field: k, before: beforeStr, after: afterStr, scope: scopeForLeafKey(`wb/${id}`, ctx) });
       }
       return { content: `OK. Updated world book entry ${updated.id} fields: ${Object.keys(patch).join(", ")}` };
     }
@@ -32662,6 +32801,7 @@ var inputSchema77, readPersonaTool;
 var init_read_persona = __esm(() => {
   init_zod();
   init__framework();
+  init__gates();
   inputSchema77 = exports_external.object({
     persona_id: exports_external.string().optional(),
     which: exports_external.enum(["active", "default"]).optional()
@@ -32670,7 +32810,7 @@ var init_read_persona = __esm(() => {
   });
   readPersonaTool = defineTool({
     name: "read_persona",
-    description: "Read a single persona's full content. Pass `persona_id` for a specific one, or `which: 'active'` for the currently-selected persona / `which: 'default'` for the user's default. Returns full description plus all metadata. The persona's description text gets injected into the prompt as {{user}} / {{persona}}.",
+    description: "Read a single persona's full content. Pass `persona_id` for a specific one, or `which: 'active'` for the currently-selected persona / `which: 'default'` for the user's default. Returns full description plus all metadata. The persona's description text gets injected into the prompt as {{user}} / {{persona}}. Records the persona's name / title / description as recently read so a subsequent `edit` / `rewrite` on `persona/<id>/<field>` passes the read-gate.",
     inputSchema: inputSchema77,
     jsonSchema: {
       type: "object",
@@ -32692,6 +32832,11 @@ var init_read_persona = __esm(() => {
         }
         if (!persona)
           return { content: JSON.stringify({ found: false, query: input }) };
+        for (const f of ["name", "title", "description"]) {
+          const v = persona[f];
+          if (typeof v === "string")
+            markReadWithHash(ctx, `persona/${persona.id}/${f}`, v);
+        }
         const out = JSON.stringify(persona, null, 2);
         return { content: await spillOrReturn(ctx, out, `read_persona(${persona.id})`) };
       } catch (err) {
@@ -32716,6 +32861,8 @@ var init_read_persona_world_book = __esm(() => {
 Usage:
 - Personas can carry their own world book separate from the character's.
 - Use \`list({path: "wb/<id>"})\` on the returned id to enumerate entries.
+- To attach / change / detach the persona's world book itself: \`set({path: "persona/<personaId>/attached_world_book_id", value: "<worldBookId>"})\` (\`null\` detaches).
+- This returns metadata only, not entry bodies, so it does NOT satisfy the edit gate. To edit an entry, \`read({path: "persona/<personaId>/wb/<entryId>/content"})\` first (that read records the gate), then \`edit\` / \`rewrite\` the same path.
 - Returns null if the persona has no attached WB.`,
     inputSchema: inputSchema78,
     jsonSchema: {
@@ -34589,7 +34736,7 @@ Path grammar (forward slashes; first segment names the surface):
 - \`char/extensions/<dotted>\` \u2014 any string leaf under \`character.extensions.*\`. Dotted with brackets, e.g. \`<extId>.<group>.<item>[0].code\`
 - \`rx/<scriptId>/find_regex\` or \`rx/<scriptId>/replace_string\` \u2014 regex script
 - \`wb/<entryId>/content\` or \`wb/<entryId>/comment\` \u2014 lorebook entry
-- \`persona/<id>/<name|title|description>\`, \`persona/<id>/wb/<entryId>/<content|comment>\` \u2014 a user persona
+- \`persona/<id>/<name|title|description>\`, \`persona/<id>/wb/<entryId>/<content|comment>\`, \`persona/<id>/attached_world_book_id\` (\`set\`-only: an id attaches/changes the persona world book, \`null\` detaches) \u2014 a user persona
 - \`chat/<chatId>/msg/<msgId>/content\` \u2014 one chat message
 - \`preset/<presetId>/block/<blockId>/<content|name>\` \u2014 a prompt-preset block
 
@@ -34764,6 +34911,7 @@ Tool errors are prefixed with a bracketed code so you can pick the right recover
 - \`[INVALID_VALUE_TYPE]\` \u2014 \`set\` received a value of the wrong type for the target path (e.g. non-string for an alternate_greeting). Recovery: cast / restructure the value.
 - \`[OUT_OF_RANGE]\` \u2014 array index off the end (alternate_greetings, etc.). Recovery: \`list\` / \`inspect\` the array first to learn its length.
 - \`[DRAFT_HANDLE_EXPIRED]\` \u2014 \`replace_handle\` / \`new_content_handle\` references a draft the tmp store has evicted. Recovery: re-emit the literal payload.
+- \`[REFUSED_BY_EXTENSION]\` \u2014 a phone-line extension (e.g. LumiRealm) refused a read/write at this path because it's a derived/mirror/UI-owned surface. The error text carries the extension's redirect to the correct authoring surface. Recovery: do exactly what the redirect says, don't retry the same path.
 - \`[SPINDLE_ERROR]\` \u2014 host-side write/read failure (not your bug). Recovery: retry once; if it persists, tell the user.
 - \`[INVALID_INPUT]\` \u2014 schema rejected your args. Recovery: read the description again, then re-emit with the corrected shape.
 
@@ -34933,7 +35081,7 @@ function subscribeToMissingChanges(handler) {
 }
 // spindle.json
 var spindle_default = {
-  version: "0.4.1",
+  version: "0.4.2",
   name: "LumiAgent",
   identifier: "lumiagent",
   author: "amousepad",

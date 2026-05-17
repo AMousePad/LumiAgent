@@ -22,6 +22,10 @@ Path grammar:
   rx/<scriptId>/replace_string          regex script body
   wb/<entryId>/content                  lorebook entry body
   wb/<entryId>/comment                  lorebook entry label
+  persona/<id>/<name|title|description>  a user persona field
+  persona/<id>/wb/<entryId>/<content|comment>  persona world-book entry
+  chat/<chatId>/msg/<msgId>/content     one chat message
+  preset/<presetId>/block/<blockId>/<content|name>  prompt-preset block
 
 Records the path as 'recently read' so a subsequent \`edit\` on the same path passes the read-gate.
 

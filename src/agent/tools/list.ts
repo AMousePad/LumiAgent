@@ -6,7 +6,7 @@ import { wbLabel } from "./_surfaces";
 import { ExtensionRefusedError } from "./_path_v2";
 
 const inputSchema = z.object({
-  path: z.string().describe("Container path. Empty / 'char' for the character overview. 'rx' for regex scripts. 'wb' for world books. 'wb/<bookId>' for entries in a book. 'char/alternate_greetings' for all greetings. 'char/extensions[/dotted]' for an extensions subtree."),
+  path: z.string().describe("Container path. Empty / 'char' for the character overview. 'rx' for regex scripts. 'wb' for world books. 'wb/<bookId>' for entries in a book. 'char/alternate_greetings' for all greetings. 'char/extensions[/dotted]' for an extensions subtree. 'persona' for all personas. 'preset' for all presets. 'preset/<presetId>' for a preset's blocks."),
   max_entries: z.number().int().positive().max(2000).optional().describe("Max items returned. Default 200."),
   max_depth: z.number().int().positive().max(10).optional().describe("Recursion depth (only used for extensions traversal). Default 4."),
   include_unattached: z.boolean().optional().describe("Only meaningful for path='wb': also list world books the user owns but hasn't attached to this character. Each row carries an `attached` flag. Use when picking a destination for a new world_book_entry."),
@@ -164,6 +164,49 @@ async function listExtensions(ctx: ToolCtx, subPath: string, maxEntries: number,
   return out;
 }
 
+async function listPersonas(ctx: ToolCtx, maxEntries: number): Promise<ListEntry[]> {
+  const out: ListEntry[] = [];
+  let offset = 0;
+  while (out.length < maxEntries) {
+    const r = await ctx.spindle.personas.list({ limit: 200, offset, userId: ctx.userId });
+    for (const p of r.data) {
+      if (out.length >= maxEntries) break;
+      out.push({ path: `persona/${p.id}`, type: "persona", label: p.name, size: p.description?.length ?? 0 });
+    }
+    if (r.data.length === 0 || offset + r.data.length >= r.total) break;
+    offset += r.data.length;
+  }
+  return out;
+}
+
+async function listPresets(ctx: ToolCtx, maxEntries: number): Promise<ListEntry[]> {
+  const out: ListEntry[] = [];
+  let offset = 0;
+  while (out.length < maxEntries) {
+    const r = await ctx.spindle.presets.list({ limit: 200, offset, userId: ctx.userId });
+    for (const p of r.data) {
+      if (out.length >= maxEntries) break;
+      out.push({ path: `preset/${p.id}`, type: "preset", label: p.name });
+    }
+    if (r.data.length === 0 || offset + r.data.length >= r.total) break;
+    offset += r.data.length;
+  }
+  return out;
+}
+
+async function listPresetBlocks(ctx: ToolCtx, presetId: string, maxEntries: number): Promise<ListEntry[]> {
+  const blocks = await ctx.spindle.presets.blocks.list(presetId, ctx.userId);
+  return blocks.slice(0, maxEntries).map((b) => {
+    const content = (b as unknown as Record<string, unknown>).content;
+    return {
+      path: `preset/${presetId}/block/${b.id}`,
+      type: "preset_block",
+      label: b.name || "block",
+      size: typeof content === "string" ? content.length : 0,
+    };
+  });
+}
+
 export const listTool = defineTool({
   name: "list",
   description: `Directory-style listing for any structural path.
@@ -176,6 +219,11 @@ Path forms:
 - 'rx'                               all character-scoped regex scripts
 - 'wb'                               all attached world books
 - 'wb/<bookId>'                      all entries in a world book
+- 'persona'                          all of the user's personas (works without an active character)
+- 'preset'                           all prompt presets (works without an active character)
+- 'preset/<presetId>'                all prompt blocks in a preset
+
+\`char/\`, \`rx\`, \`wb\` need an active character; \`persona\` / \`preset\` do not.
 
 Each returned row carries:
 - \`path\`     — pass straight to \`read\` / \`inspect\` / \`edit\`.
@@ -196,12 +244,19 @@ Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole
     required: ["path"],
     additionalProperties: false,
   },
-  requiresCharacter: true,
+  // Path-targeted: persona / preset containers resolve without a character;
+  // char/ rx/ wb/ branches loud-fail below when none is selected.
+  requiresCharacter: false,
   execute: async (input, ctx) => {
     const maxEntries = input.max_entries ?? 200;
     const maxDepth = input.max_depth ?? 4;
     const path = input.path.trim();
     try {
+      const personaOrPreset = path === "persona" || path === "personas"
+        || path === "preset" || path === "presets" || path.startsWith("preset/");
+      if (!personaOrPreset && !ctx.characterId) {
+        return { content: "Error: [PATH_NOT_FOUND] no character selected. 'char/...', 'rx', 'wb' need an active character; 'persona' and 'preset' work without one.", isError: true };
+      }
       let entries: ListEntry[];
       if (path === "" || path === "char" || path === "character") {
         entries = await listCharacterRoot(ctx, maxEntries);
@@ -220,8 +275,16 @@ Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole
       } else if (path.startsWith("char/extensions/") || path.startsWith("extensions/")) {
         const sub = path.replace(/^(char\/)?extensions\//, "");
         entries = await listExtensions(ctx, sub, maxEntries, maxDepth);
+      } else if (path === "persona" || path === "personas") {
+        entries = await listPersonas(ctx, maxEntries);
+      } else if (path === "preset" || path === "presets") {
+        entries = await listPresets(ctx, maxEntries);
+      } else if (path.startsWith("preset/")) {
+        const presetId = path.split("/")[1] ?? "";
+        if (!presetId) return { content: "Error: preset/<presetId> requires a preset id", isError: true };
+        entries = await listPresetBlocks(ctx, presetId, maxEntries);
       } else {
-        return { content: `Error: unknown list path '${path}'. Try: '', 'char/alternate_greetings', 'rx', 'wb', 'wb/<id>', 'char/extensions[/dotted]'.`, isError: true };
+        return { content: `Error: unknown list path '${path}'. Try: '', 'char/alternate_greetings', 'rx', 'wb', 'wb/<id>', 'char/extensions[/dotted]', 'persona', 'preset', 'preset/<id>'.`, isError: true };
       }
       return { content: JSON.stringify({ path, count: entries.length, entries }, null, 2) };
     } catch (err) {

@@ -1,11 +1,12 @@
 import { z } from "zod";
-import type { CharacterUpdateDTO, RegexScriptUpdateDTO, WorldBookEntryUpdateDTO, WorldBookUpdateDTO, UserPresetUpdateDTO } from "lumiverse-spindle-types";
+import type { CharacterUpdateDTO, RegexScriptUpdateDTO, WorldBookEntryUpdateDTO, WorldBookUpdateDTO, UserPresetUpdateDTO, PersonaUpdateDTO } from "lumiverse-spindle-types";
 import { defineTool } from "./_framework";
 import type { ToolCtx } from "./_context";
 import type { EditRecord } from "../../types";
 import { isCharacterStringField, wbLabel } from "./_surfaces";
 import { parseExtensionPath, setAtPath } from "./_paths";
 import { ExtensionRefusedError, assertExtensionWriteAllowed, scopeForLeafKey } from "./_path_v2";
+import { encodeScalar } from "../../state/edit-log";
 
 const inputSchema = z.object({
   path: z.string().min(3).describe("Slash-separated path. Same grammar as `read` / `edit`."),
@@ -89,6 +90,34 @@ async function setPresetField(ctx: ToolCtx, presetId: string, field: string, val
   return { before: stringify(before), after: stringify(value), label: p.name, surface: "preset", surfaceId: presetId, field };
 }
 
+async function setPersonaAttachedWorldBook(ctx: ToolCtx, personaId: string, field: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string } | string> {
+  if (field !== "attached_world_book_id") {
+    return `[PATH_NOT_FOUND] persona/${personaId}/${field} is not settable via \`set\`. Only attached_world_book_id. For name / title / description use \`edit\` or \`rewrite\` on persona/${personaId}/<field>.`;
+  }
+  const p = await ctx.spindle.personas.get(personaId, ctx.userId);
+  if (!p) return `persona ${personaId} not found`;
+  let nextId: string | null;
+  if (value === null || value === undefined || value === "") {
+    nextId = null;
+  } else if (typeof value === "string") {
+    const wb = await ctx.spindle.world_books.get(value, ctx.userId).catch(() => null);
+    if (!wb) return `[PATH_NOT_FOUND] world book '${value}' not found. Pass an existing world_book id to attach, or null to detach.`;
+    nextId = value;
+  } else {
+    return `[INVALID_VALUE_TYPE] attached_world_book_id expects a world_book id string or null, got ${typeof value}`;
+  }
+  // "" detaches host-side (PersonaUpdateDTO is string | undefined, host does `|| null`).
+  await ctx.spindle.personas.update(personaId, { attached_world_book_id: nextId ?? "" } as PersonaUpdateDTO, ctx.userId);
+  return {
+    before: encodeScalar(field, p.attached_world_book_id ?? null),
+    after: encodeScalar(field, nextId),
+    label: p.name,
+    surface: "persona",
+    surfaceId: personaId,
+    field,
+  };
+}
+
 export const setTool = defineTool({
   name: "set",
   description: `Wholesale write of any JSON value at a path. Use for structural changes the read/edit/rewrite trio can't make:
@@ -97,6 +126,7 @@ export const setTool = defineTool({
 - Changing a number (priority, position, sort_order, depth)
 - Replacing an array / object value (e.g. extensions.lumirealm.payload.scriptstate_defaults)
 - Setting a typed value at an extension path that isn't a string
+- Attaching / changing a persona's world book: \`set({path:"persona/<personaId>/attached_world_book_id", value:"<worldBookId>"})\`; \`value:null\` detaches
 
 Path grammar matches \`read\` / \`edit\` / \`rewrite\`. The value field accepts any JSON-encodable type. For string-leaf paths, set is a wholesale alternative to \`rewrite\` (no read-gate, so use only when you don't need to anchor against current content).
 
@@ -155,6 +185,10 @@ Returns:
       const parts = path.split("/").slice(1);
       if (parts.length !== 2) return { content: "Error: expected preset/<presetId>/<field>. For block content/name use edit/rewrite on preset/<id>/block/<bid>/<field>.", isError: true };
       result = await setPresetField(ctx, parts[0]!, parts[1]!, value);
+    } else if (path.startsWith("persona/")) {
+      const parts = path.split("/").slice(1);
+      if (parts.length !== 2) return { content: "Error: expected persona/<personaId>/attached_world_book_id. Persona world-book entries and name/title/description use edit/rewrite, not set.", isError: true };
+      result = await setPersonaAttachedWorldBook(ctx, parts[0]!, parts[1]!, value);
     } else {
       return { content: `Error: unknown set path '${path}'. See \`read\` tool for grammar.`, isError: true };
     }

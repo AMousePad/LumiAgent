@@ -366,6 +366,16 @@ export async function resolveWrite(
     });
     return;
   }
+  if (leaf.surface === "preset_block") {
+    const [presetId, blockId] = leaf.surfaceId.split(":");
+    await ctx.spindle.presets.blocks.update(presetId!, blockId!, { [leaf.field]: nextValue });
+    ctx.pushEdit({
+      op: "edit", surface: "preset_block", surfaceId: leaf.surfaceId,
+      surfaceLabel: leaf.surfaceLabel, field: leaf.field, before: leaf.value, after: nextValue,
+      scope: scopeForLeafKey(leaf.key, ctx),
+    });
+    return;
+  }
 }
 
 // Phone-line read/write access gates. Routes the extension's first path

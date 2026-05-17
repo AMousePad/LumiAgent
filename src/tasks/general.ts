@@ -109,7 +109,7 @@ Path grammar (forward slashes; first segment names the surface):
 - \`char/extensions/<dotted>\` — any string leaf under \`character.extensions.*\`. Dotted with brackets, e.g. \`<extId>.<group>.<item>[0].code\`
 - \`rx/<scriptId>/find_regex\` or \`rx/<scriptId>/replace_string\` — regex script
 - \`wb/<entryId>/content\` or \`wb/<entryId>/comment\` — lorebook entry
-- \`persona/<id>/<name|title|description>\`, \`persona/<id>/wb/<entryId>/<content|comment>\` — a user persona
+- \`persona/<id>/<name|title|description>\`, \`persona/<id>/wb/<entryId>/<content|comment>\`, \`persona/<id>/attached_world_book_id\` (\`set\`-only: an id attaches/changes the persona world book, \`null\` detaches) — a user persona
 - \`chat/<chatId>/msg/<msgId>/content\` — one chat message
 - \`preset/<presetId>/block/<blockId>/<content|name>\` — a prompt-preset block
 
@@ -284,6 +284,7 @@ Tool errors are prefixed with a bracketed code so you can pick the right recover
 - \`[INVALID_VALUE_TYPE]\` — \`set\` received a value of the wrong type for the target path (e.g. non-string for an alternate_greeting). Recovery: cast / restructure the value.
 - \`[OUT_OF_RANGE]\` — array index off the end (alternate_greetings, etc.). Recovery: \`list\` / \`inspect\` the array first to learn its length.
 - \`[DRAFT_HANDLE_EXPIRED]\` — \`replace_handle\` / \`new_content_handle\` references a draft the tmp store has evicted. Recovery: re-emit the literal payload.
+- \`[REFUSED_BY_EXTENSION]\` — a phone-line extension (e.g. LumiRealm) refused a read/write at this path because it's a derived/mirror/UI-owned surface. The error text carries the extension's redirect to the correct authoring surface. Recovery: do exactly what the redirect says, don't retry the same path.
 - \`[SPINDLE_ERROR]\` — host-side write/read failure (not your bug). Recovery: retry once; if it persists, tell the user.
 - \`[INVALID_INPUT]\` — schema rejected your args. Recovery: read the description again, then re-emit with the corrected shape.
 

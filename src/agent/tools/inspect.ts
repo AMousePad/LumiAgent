@@ -209,7 +209,9 @@ export const inspectTool = defineTool({
 
 Leaf (string-valued) paths return char/line/CJK/peek plus a \`diagnostics\` block:
   char/<field>, char/alternate_greetings/<idx>, char/extensions/<dotted>,
-  rx/<id>/find_regex, rx/<id>/replace_string, wb/<id>/content, wb/<id>/comment
+  rx/<id>/find_regex, rx/<id>/replace_string, wb/<id>/content, wb/<id>/comment,
+  persona/<id>/<name|title|description>, persona/<id>/wb/<entryId>/<content|comment>,
+  chat/<chatId>/msg/<msgId>/content, preset/<presetId>/block/<blockId>/<content|name>
 
   diagnostics covers the encoding state that causes silent find/replace failures:
     hangul: { nfc_runs, nfd_runs }            NFD Hangul (jamo) doesn't match NFC find strings byte-exact

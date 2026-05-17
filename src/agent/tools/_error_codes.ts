@@ -13,6 +13,7 @@ export const ErrorCode = {
   DRAFT_HANDLE_EXPIRED: "DRAFT_HANDLE_EXPIRED",
   SPINDLE_ERROR: "SPINDLE_ERROR",
   INVALID_INPUT: "INVALID_INPUT",
+  REFUSED_BY_EXTENSION: "REFUSED_BY_EXTENSION",
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import { scopeForLeafKey } from "./_path_v2";
 import type { RegexScriptUpdateDTO } from "lumiverse-spindle-types";
 
 const inputSchema = z.object({
@@ -13,7 +14,8 @@ export const updateRegexScriptTool = defineTool({
 
 Usage:
 - Path-based \`edit\` / \`rewrite\` only address \`rx/<id>/find_regex\` and \`rx/<id>/replace_string\`. Metadata goes through here: \`name\`, \`flags\`, \`disabled\`, \`placement\`, \`target\`, \`sort_order\`, \`description\`, \`folder\`.
-- Pass only the fields to change in \`patch\`.`,
+- Pass only the fields to change in \`patch\`.
+- Works in a no-character session (operates by \`script_id\`), like \`edit\` / \`rewrite\` / \`set\` on \`rx/\`.`,
   inputSchema,
   jsonSchema: {
     type: "object",
@@ -23,7 +25,9 @@ Usage:
     },
     required: ["script_id", "patch"],
   },
-  requiresCharacter: true,
+  // Operates purely by script_id; consistent with the rx/ path tools, which
+  // are all requiresCharacter:false.
+  requiresCharacter: false,
   execute: async (input, ctx) => {
     const id = input.script_id;
     const patch = input.patch as RegexScriptUpdateDTO;
@@ -35,7 +39,7 @@ Usage:
       const beforeStr = typeof prev === "string" ? prev : JSON.stringify(prev);
       const afterStr = typeof v === "string" ? v : JSON.stringify(v);
       if (beforeStr === afterStr) continue;
-      ctx.pushEdit({ op: "edit", surface: "regex_script", surfaceId: id, surfaceLabel: before.name, field: k, before: beforeStr, after: afterStr });
+      ctx.pushEdit({ op: "edit", surface: "regex_script", surfaceId: id, surfaceLabel: before.name, field: k, before: beforeStr, after: afterStr, scope: scopeForLeafKey(`rx/${id}`, ctx) });
     }
     return { content: `OK. Updated regex script ${updated.id} ("${updated.name}") fields: ${Object.keys(patch).join(", ")}` };
   },

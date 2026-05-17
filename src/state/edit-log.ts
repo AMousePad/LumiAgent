@@ -180,14 +180,18 @@ function regexCreateFromDTO(r: RegexScriptDTO): RegexScriptCreateDTO {
 // JSON so object / array values survive a revert losslessly.
 const SCALAR_STRING_FIELDS: ReadonlySet<string> = new Set(["name", "description", "provider", "engine"]);
 
-function encodeScalar(field: string, v: unknown): string {
+export function encodeScalar(field: string, v: unknown): string {
   if (SCALAR_STRING_FIELDS.has(field) && typeof v === "string") return v;
   return JSON.stringify(v ?? null);
 }
 
-function decodeScalar(field: string, s: string): unknown {
+export function decodeScalar(field: string, s: string): unknown {
   if (SCALAR_STRING_FIELDS.has(field)) return s;
   try { return JSON.parse(s); } catch { return s; }
+}
+
+function personaScalarUpdate(field: string, decoded: unknown): PersonaUpdateDTO {
+  return { [field]: decoded == null ? "" : String(decoded) } as PersonaUpdateDTO;
 }
 
 function worldBookCreateFromDTO(b: WorldBookDTO): WorldBookCreateDTO {
@@ -326,6 +330,10 @@ export async function revertEdit(
         }
         case "preset": {
           await spindle.presets.update(r.surfaceId, { [r.field]: decodeScalar(r.field, r.before) } as UserPresetUpdateDTO, userId);
+          return { success: true };
+        }
+        case "persona": {
+          await spindle.personas.update(r.surfaceId, personaScalarUpdate(r.field, decodeScalar(r.field, r.before)), userId);
           return { success: true };
         }
         case "extension": {
@@ -516,6 +524,11 @@ export async function readLiveValue(
       if (!p) return null;
       return encodeScalar(r.field, (p as unknown as Record<string, unknown>)[r.field]);
     }
+    case "persona": {
+      const p = await spindle.personas.get(r.surfaceId, userId);
+      if (!p) return null;
+      return encodeScalar(r.field, (p as unknown as Record<string, unknown>)[r.field]);
+    }
     default:
       return null;
   }
@@ -677,6 +690,10 @@ export async function writeFieldValue(
     }
     case "preset": {
       await spindle.presets.update(surfaceId, { [field]: decodeScalar(field, value) } as UserPresetUpdateDTO, userId);
+      return;
+    }
+    case "persona": {
+      await spindle.personas.update(surfaceId, personaScalarUpdate(field, decodeScalar(field, value)), userId);
       return;
     }
     default:
