@@ -50,14 +50,33 @@ function computeModalMaxHeight(): number {
 export interface ScopeOption {
   readonly scope: ScopeRef;
   readonly label: string;
-  readonly liveCount: number;
-  readonly totalCount: number;
+  // Reverted commits are purged, so live === total: a single count.
+  readonly changeCount: number;
+  // Character scopes only (for the Characters selector sublabel).
+  readonly chatCount?: number;
+  readonly msgCount?: number;
+  // world_book scopes only: the persona that attaches this book, so it
+  // bundles under that persona in the Lumiverse selector.
+  readonly attachedToPersona?: { readonly id: string; readonly name: string };
 }
 
 type WorkshopTab = "characters" | "lumiverse" | "files";
 
 function isLumiverseKind(k: ScopeRef["kind"]): boolean {
   return k !== "character";
+}
+
+// Category header shown in the grouped Lumiverse selector, plus a stable
+// ordering so groups stay contiguous and consistent.
+const LUMI_CATEGORY: Partial<Record<ScopeRef["kind"], string>> = {
+  persona: "Personas",
+  preset: "Presets",
+  world_book: "Lorebooks",
+  regex_script: "Regex scripts",
+  chat: "Chats",
+};
+function lumiCategory(k: ScopeRef["kind"]): string {
+  return LUMI_CATEGORY[k] ?? k;
 }
 
 export interface DiffModalDeps {
@@ -207,11 +226,11 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
 
   revertAllBtn.addEventListener("click", () => {
     const o = selectedOption();
-    if (o && o.liveCount > 0) deps.onRevertAll(o.scope);
+    if (o && o.changeCount > 0) deps.onRevertAll(o.scope);
   });
   forgetBtn.addEventListener("click", () => {
     const o = selectedOption();
-    if (o && o.totalCount > 0) deps.onForget(o.scope);
+    if (o && o.changeCount > 0) deps.onForget(o.scope);
   });
 
   combo.onChange((id) => {
@@ -254,11 +273,51 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
   const syncCombo = (): void => {
     const wantLumi = activeTab === "lumiverse";
     const opts2 = scopes.filter((s) => isLumiverseKind(s.scope.kind) === wantLumi);
-    combo.setItems(opts2.map((s) => ({
-      id: scopeKeyString(s.scope),
-      label: s.label,
-      sublabel: `${s.liveCount} live / ${s.totalCount} total`,
-    })));
+    if (wantLumi) {
+      // Classify each scope into a category. A world_book that a persona
+      // attaches is bundled into the Personas group, sorted right after its
+      // owning persona, so the persona's lorebook isn't a stray Lorebooks row.
+      const CAT_RANK: Record<string, number> = { Personas: 0, Presets: 1, Lorebooks: 2, "Regex scripts": 3, Chats: 4 };
+      type Cls = { cat: string; ownerKey: string; sub: number; display: string };
+      const classify = (s: ScopeOption): Cls => {
+        if (s.scope.kind === "persona") {
+          return { cat: "Personas", ownerKey: `${s.label} ${s.scope.id}`, sub: 0, display: s.label };
+        }
+        if (s.scope.kind === "world_book" && s.attachedToPersona) {
+          const o = s.attachedToPersona;
+          return { cat: "Personas", ownerKey: `${o.name} ${o.id}`, sub: 1, display: `${o.name} ↳ ${s.label}` };
+        }
+        const cat = lumiCategory(s.scope.kind);
+        return { cat, ownerKey: s.label, sub: 0, display: s.label };
+      };
+      const decorated = opts2.map((s) => ({ s, c: classify(s) }));
+      decorated.sort((a, b) => {
+        const cr = (CAT_RANK[a.c.cat] ?? 99) - (CAT_RANK[b.c.cat] ?? 99);
+        if (cr !== 0) return cr;
+        if (a.c.ownerKey !== b.c.ownerKey) return a.c.ownerKey.localeCompare(b.c.ownerKey);
+        if (a.c.sub !== b.c.sub) return a.c.sub - b.c.sub;
+        return a.c.display.localeCompare(b.c.display);
+      });
+      // Disambiguate identical display strings within a category (e.g. several
+      // distinct personas all named "Mousey") with a short id suffix.
+      const dispCount = new Map<string, number>();
+      for (const { c } of decorated) dispCount.set(`${c.cat} ${c.display}`, (dispCount.get(`${c.cat} ${c.display}`) ?? 0) + 1);
+      combo.setItems(decorated.map(({ s, c }) => {
+        const dup = (dispCount.get(`${c.cat} ${c.display}`) ?? 0) > 1;
+        return {
+          id: scopeKeyString(s.scope),
+          label: dup ? `${c.display} · ${s.scope.id.slice(0, 8)}` : c.display,
+          sublabel: `${c.cat} · ${s.changeCount} changes`,
+          group: c.cat,
+        };
+      }));
+    } else {
+      combo.setItems(opts2.map((s) => ({
+        id: scopeKeyString(s.scope),
+        label: s.label,
+        sublabel: `${s.chatCount ?? 0} chats · ${s.msgCount ?? 0} msgs · ${s.changeCount} changes`,
+      })));
+    }
     const tabKey = wantLumi ? "lumiverse" : "characters";
     let want = remembered[tabKey];
     if (!want || !opts2.some((s) => scopeKeyString(s.scope) === want)) {
@@ -293,10 +352,10 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
 
   const refresh = (): void => {
     const liveCount = edits.filter((e) => !e.reverted).length;
-    stats.textContent = `· ${liveCount} live / ${edits.length} total`;
+    stats.textContent = `· ${liveCount} changes`;
     const o = selectedOption();
-    revertAllBtn.disabled = !o || o.liveCount === 0;
-    forgetBtn.disabled = !o || o.totalCount === 0;
+    revertAllBtn.disabled = !o || o.changeCount === 0;
+    forgetBtn.disabled = !o || o.changeCount === 0;
     renderTree();
     renderPane();
   };

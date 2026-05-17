@@ -229,6 +229,7 @@ export interface CharacterSummary {
   readonly avatar_path?: string | undefined;
   readonly world_book_ids: readonly string[];
   readonly regex_script_count: number;
+  readonly chat_count: number;
 }
 
 export interface ConnectionSummary {
@@ -304,7 +305,7 @@ export type FrontendToBackend =
   | { type: "list_chats"; characterId: string; sessionId?: string | undefined }
   | { type: "set_pinned_chat"; sessionId: string; chatId: string | null }
   | { type: "get_settings" }
-  | { type: "update_settings"; persona: string; systemPromptOverride: string | null; samplers: Readonly<Record<string, number | null>>; jailbreak: string; jailbreakPlacement: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes: number | null; toolOutputCapTokens: number | null; cacheMode?: "off" | "system_only" | "full"; parallelToolCalls?: boolean; tpmLimit?: number | null }
+  | { type: "update_settings"; persona: string; systemPromptOverride: string | null; samplers: Readonly<Record<string, number | null>>; jailbreak: string; jailbreakPlacement: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes: number | null; toolOutputCapTokens: number | null; cacheMode?: "off" | "system_only" | "full"; parallelToolCalls?: boolean; tpmLimit?: number | null; debugLogging?: boolean }
   | { type: "get_ui_prefs" }
   | { type: "update_ui_prefs"; connectionId: string | null; lastSessionId: string | null }
   | { type: "ws_list"; path: string }
@@ -350,7 +351,7 @@ export type BackendToFrontend =
   | { type: "session_truncated"; sessionId: string; messages: readonly ChatMessage[]; edits: readonly EditLogEntry[] }
   | { type: "chats_pushed"; characterId: string; chats: readonly ChatSummary[]; pinnedChatId: string | null }
   | { type: "pinned_chat_set"; sessionId: string; chatId: string | null }
-  | { type: "settings_pushed"; persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody: string; samplers: Readonly<Record<string, number | null>>; jailbreak: string; jailbreakPlacement: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes: number | null; workspaceCapDefaultBytes: number; workspaceFileCapBytes: number; toolOutputCapTokens: number | null; toolOutputCapDefaultTokens: number; cacheMode: "off" | "system_only" | "full"; parallelToolCalls: boolean; tpmLimit: number | null }
+  | { type: "settings_pushed"; persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody: string; samplers: Readonly<Record<string, number | null>>; jailbreak: string; jailbreakPlacement: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes: number | null; workspaceCapDefaultBytes: number; workspaceFileCapBytes: number; toolOutputCapTokens: number | null; toolOutputCapDefaultTokens: number; cacheMode: "off" | "system_only" | "full"; parallelToolCalls: boolean; tpmLimit: number | null; debugLogging: boolean }
   | { type: "ui_prefs_pushed"; connectionId: string | null; lastSessionId: string | null }
   | { type: "ws_listed"; path: string; entries: readonly WorkspaceEntry[] }
   | { type: "ws_text_pushed"; path: string; content: string; sizeBytes: number }
@@ -379,6 +380,14 @@ export interface CharacterStorageEntry {
   // in which case characterId/characterName carry the identity (back-compat).
   readonly scope?: ScopeRef;
   readonly label?: string;
+  // Character scopes only: chats for the character and total messages across
+  // all of them. Absent for non-character scopes and the synthetic active row.
+  readonly chatCount?: number;
+  readonly msgCount?: number;
+  // world_book scopes only: set when the book is a persona's
+  // attached_world_book_id, so the selector bundles it under that persona
+  // instead of a standalone Lorebooks entry.
+  readonly attachedToPersona?: { readonly id: string; readonly name: string };
 }
 
 export interface WorkspaceEntry {

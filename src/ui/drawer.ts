@@ -87,7 +87,7 @@ interface UiState {
   scopeLedgers: Map<string, readonly EditLogEntry[]>;
   chatsForCharacter: ChatSummary[];
   pinnedChatId: string | null;
-  settings: { persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody?: string; samplers?: Readonly<Record<string, number | null>>; jailbreak?: string; jailbreakPlacement?: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes?: number | null; workspaceCapDefaultBytes?: number; workspaceFileCapBytes?: number; toolOutputCapTokens?: number | null; toolOutputCapDefaultTokens?: number; cacheMode?: "off" | "system_only" | "full"; parallelToolCalls?: boolean; tpmLimit?: number | null } | null;
+  settings: { persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody?: string; samplers?: Readonly<Record<string, number | null>>; jailbreak?: string; jailbreakPlacement?: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes?: number | null; workspaceCapDefaultBytes?: number; workspaceFileCapBytes?: number; toolOutputCapTokens?: number | null; toolOutputCapDefaultTokens?: number; cacheMode?: "off" | "system_only" | "full"; parallelToolCalls?: boolean; tpmLimit?: number | null; debugLogging?: boolean } | null;
   pendingPinChatId: string | null;
   // Single-shot, reset after consume so a later list_chats won't re-pin after the user explicitly unpinned.
   autoPinNeeded: boolean;
@@ -509,8 +509,8 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         noneItem,
         ...state.characters.map((c) => ({
           id: c.id,
-          label: c.name,
-          sublabel: `${c.world_book_ids.length} WB · ${c.regex_script_count} regex`,
+          label: c.id === state.characterId ? `${c.name} (Active)` : c.name,
+          sublabel: `${c.chat_count} chats · ${c.world_book_ids.length} WB · ${c.regex_script_count} regex`,
         })),
       ]);
     }
@@ -569,25 +569,39 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   // absent and the combo would fall through to the first character that does
   // have edits. Always surface the active character so opening the workshop
   // lands on it (empty diff is the correct, ephemeral view).
-  const buildScopeOptions = (): ReadonlyArray<{ scope: ScopeRef; label: string; liveCount: number; totalCount: number }> => {
+  const buildScopeOptions = (): ReadonlyArray<{ scope: ScopeRef; label: string; changeCount: number; chatCount?: number; msgCount?: number; attachedToPersona?: { id: string; name: string } }> => {
     const opts = state.scopeStorage.map((e) => ({
       scope: e.scope ?? characterScope(e.characterId),
       label: e.label ?? e.characterName,
-      liveCount: e.liveEditCount,
-      totalCount: e.editCount,
+      // Reverted commits are purged, so editCount is the live change count.
+      changeCount: e.editCount,
+      ...(e.chatCount !== undefined ? { chatCount: e.chatCount } : {}),
+      ...(e.msgCount !== undefined ? { msgCount: e.msgCount } : {}),
+      ...(e.attachedToPersona ? { attachedToPersona: e.attachedToPersona } : {}),
     }));
     const active = activeScope();
     if (active && !opts.some((o) => scopeKeyString(o.scope) === scopeKeyString(active))) {
-      opts.unshift({ scope: active, label: state.characterName ?? "Current character", liveCount: 0, totalCount: 0 });
+      opts.unshift({ scope: active, label: state.characterName ?? "Current character", changeCount: 0 });
     }
     return opts;
   };
 
   const updateSessionBar = () => {
-    const source = scopeEntries(activeScope());
-    const liveEdits = source.filter((e) => !e.reverted).length;
-    editsCount.textContent = String(liveEdits);
-    editsBadge.classList.toggle("has-edits", source.length > 0);
+    const scope = activeScope();
+    if (scope) {
+      const source = scopeEntries(scope);
+      const liveEdits = source.filter((e) => !e.reverted).length;
+      editsCount.textContent = String(liveEdits);
+      editsBadge.classList.toggle("has-edits", source.length > 0);
+      return;
+    }
+    // No-character session: there is no active scope, so the badge reflects
+    // Lumiverse-scope changes (persona / preset / world_book / regex / chat),
+    // summed from the scope storage list (non-character entries carry `scope`).
+    let total = 0;
+    for (const e of state.scopeStorage) if (e.scope && e.scope.kind !== "character") total += e.liveEditCount;
+    editsCount.textContent = String(total);
+    editsBadge.classList.toggle("has-edits", total > 0);
   };
 
   const COMPACT_RING_CIRC = 94.2;
@@ -1042,6 +1056,8 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     state.chatsForCharacter = [];
     state.pinnedChatId = null;
     state.autoPinNeeded = !!id;
+    // Refresh the picker so the "(Active)" marker tracks the new selection.
+    renderCharOptions();
     setChatPinned(false);
     if (switchingAway) rerenderThread();
     updateComposer();
@@ -1496,6 +1512,15 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     wrap.appendChild(parallelToolsRow);
     wrap.appendChild(el("div", "la-settings-hint", "Leave ON for Anthropic, OpenAI, Google, most OpenRouter routes. Turn OFF for providers that error on parallel tool emission."));
 
+    const debugLogRow = el("div", "la-settings-row");
+    debugLogRow.append(el("label", "la-settings-row-label", "Debug logging"));
+    const debugLogInput = document.createElement("input");
+    debugLogInput.type = "checkbox";
+    debugLogInput.className = "la-checkbox";
+    debugLogRow.appendChild(debugLogInput);
+    wrap.appendChild(debugLogRow);
+    wrap.appendChild(el("div", "la-settings-hint", "OFF by default. When ON, verbose backend diagnostics (send_message, loop turns, llm stream, phone-line) are written to the host log. Warnings and errors always log."));
+
     wrap.appendChild(el("hr", "la-settings-divider"));
 
     wrap.appendChild(el("label", "la-settings-label", "Extension pairings"));
@@ -1595,6 +1620,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       toolCapInput.value = s.toolOutputCapTokens ? String(s.toolOutputCapTokens) : "";
       cacheModeSelect.value = s.cacheMode ?? "full";
       parallelToolsInput.checked = s.parallelToolCalls ?? true;
+      debugLogInput.checked = s.debugLogging ?? false;
       tpmInput.value = s.tpmLimit ? String(s.tpmLimit) : "";
       renderSamplers();
     };
@@ -1737,6 +1763,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         cacheMode: newCacheMode,
         parallelToolCalls: parallelToolsInput.checked,
         tpmLimit: parsePosInt(tpmInput.value),
+        debugLogging: debugLogInput.checked,
       };
       const key = JSON.stringify(payload);
       if (key === lastCommitted) return;
@@ -1765,7 +1792,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     for (const inp of [personaArea, promptArea, jbArea, wsCapInput, toolCapInput, tpmInput]) {
       inp.addEventListener("blur", () => commit());
     }
-    for (const inp of [jbPlacement, cacheModeSelect, parallelToolsInput]) {
+    for (const inp of [jbPlacement, cacheModeSelect, parallelToolsInput, debugLogInput]) {
       inp.addEventListener("change", () => commit());
     }
 
@@ -2268,6 +2295,8 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         state.edits = [...msg.edits];
         if (msg.characterId === null) charCombo.setValue(NO_CHARACTER_SENTINEL, true);
         else if (state.characters.some((c) => c.id === msg.characterId)) charCombo.setValue(msg.characterId, true);
+        // Refresh picker labels so "(Active)" tracks the loaded session's char.
+        renderCharOptions();
         render();
         // Default to the latest message on every session open. The
         // virtualizer's sticky-bottom check would otherwise compare against
@@ -2281,6 +2310,11 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         if (msg.characterId !== null) {
           sendBackend({ type: "list_character_edits", characterId: msg.characterId });
           sendBackend({ type: "list_chats", characterId: msg.characterId, sessionId: msg.sessionId });
+        } else {
+          // No-character session: the header badge counts Lumiverse-scope
+          // changes, sourced from the scope storage list. Fetch it so the
+          // badge is populated without opening the workshop.
+          sendBackend({ type: "list_characters_storage" });
         }
         break;
       case "session_status":
@@ -2339,6 +2373,9 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         finalizeAssistantTurn("complete");
         rerenderThread();
         updateComposer();
+        // No-character turn may have produced Lumiverse-scope edits; refresh
+        // the scope storage so the header badge reflects them.
+        if (state.characterId === null) sendBackend({ type: "list_characters_storage" });
         break;
       case "generation_cancelled":
         if (state.reattachedGeneration && msg.sessionId === state.sessionId) {
@@ -2483,6 +2520,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
           cacheMode: msg.cacheMode,
           parallelToolCalls: msg.parallelToolCalls,
           tpmLimit: msg.tpmLimit,
+          debugLogging: msg.debugLogging,
         };
         for (const h of settingsListeners.handlers) h();
         break;
@@ -2551,6 +2589,9 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         // authoritative scope_edits_pushed the backend sends alongside this.
         state.scopeStorage = msg.entries;
         state.diffModal?.setScopes(buildScopeOptions());
+        // No-character badge is derived from scopeStorage, so refresh it when
+        // the list lands. (With a character it reads scopeLedgers; harmless.)
+        updateSessionBar();
         break;
       }
       case "frontend_rpc_request": {

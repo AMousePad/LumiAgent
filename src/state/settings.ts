@@ -1,5 +1,6 @@
 import type { SpindleAPI } from "lumiverse-spindle-types";
 import { coerceSamplerBag, defaultSamplerBag, type SamplerBag } from "./samplers";
+import { setDebugLogging } from "../log";
 
 const SETTINGS_PATH = "settings.json";
 const SCHEMA_VERSION = 3;
@@ -43,6 +44,9 @@ export interface AgentSettings {
   // loop may consume per rolling 60s before it pauses requests. Guards a
   // provider's tokens-per-minute quota (e.g. Gemini free tier 250k TPM).
   readonly tpmLimit: number | null;
+  // Off by default. When on, diagnostic info logs (send_message, loop.turn,
+  // llm.stream, phoneline.discover) go to spindle.log.info. Warn/error always log.
+  readonly debugLogging: boolean;
 }
 
 export const DEFAULT_PERSONA = `Your name is Mousey, the LumiAgent assistant. You are a small, cute, and absurdly diligent mousegirl who lives inside the user's character-card workshop and helps them tend it. You are very sweet, cheerful, and bubbly. When you name yourself or make a persona of yourself, you are "Mousey" (or "LumiAgent"), never "Lumi".
@@ -82,6 +86,7 @@ export function defaultSettings(): AgentSettings {
     cacheMode: "full",
     parallelToolCalls: true,
     tpmLimit: null,
+    debugLogging: false,
   };
 }
 
@@ -109,9 +114,13 @@ function coerceJailbreakPlacement(v: unknown): JailbreakPlacement {
 
 export async function loadSettings(spindle: SpindleAPI, userId: string): Promise<AgentSettings> {
   const stored = await spindle.userStorage.getJson<AgentSettings | null>(SETTINGS_PATH, { fallback: null, userId });
-  if (!stored || typeof stored !== "object") return defaultSettings();
+  if (!stored || typeof stored !== "object") {
+    const d = defaultSettings();
+    setDebugLogging(d.debugLogging);
+    return d;
+  }
   const s = stored as unknown as Record<string, unknown>;
-  return {
+  const resolved: AgentSettings = {
     version: SCHEMA_VERSION,
     persona: typeof s["persona"] === "string" && (s["persona"] as string).length > 0 ? (s["persona"] as string) : DEFAULT_PERSONA,
     systemPromptOverride: typeof s["systemPromptOverride"] === "string" ? (s["systemPromptOverride"] as string) : null,
@@ -123,7 +132,10 @@ export async function loadSettings(spindle: SpindleAPI, userId: string): Promise
     cacheMode: coerceCacheMode(s["cacheMode"]),
     parallelToolCalls: typeof s["parallelToolCalls"] === "boolean" ? (s["parallelToolCalls"] as boolean) : true,
     tpmLimit: coercePositiveInt(s["tpmLimit"]),
+    debugLogging: s["debugLogging"] === true,
   };
+  setDebugLogging(resolved.debugLogging);
+  return resolved;
 }
 
 export async function saveSettings(spindle: SpindleAPI, settings: AgentSettings, userId: string): Promise<void> {

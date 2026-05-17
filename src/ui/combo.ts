@@ -2,6 +2,10 @@ export interface ComboItem {
   readonly id: string;
   readonly label: string;
   readonly sublabel?: string;
+  // Optional category header. Consecutive items sharing a group render under a
+  // single non-selectable header row. Caller must pre-sort so groups are
+  // contiguous.
+  readonly group?: string;
 }
 
 export interface ComboHandle {
@@ -65,6 +69,10 @@ export function mountCombo(root: HTMLElement): ComboHandle {
   root.append(trigger, pop);
 
   let filtered: ComboItem[] = [];
+  // Selectable row elements aligned 1:1 with `filtered`. Group headers are
+  // separate non-interactive nodes, so list.children is NOT index-aligned to
+  // filtered; keyboard nav and scroll go through this array instead.
+  let rowEls: HTMLElement[] = [];
 
   const renderList = (): void => {
     const q = search.value.trim();
@@ -78,13 +86,19 @@ export function mountCombo(root: HTMLElement): ComboHandle {
         .map((x) => x.it);
     }
     list.innerHTML = "";
+    rowEls = [];
     if (filtered.length === 0) {
       list.appendChild(el("div", "la-combo-empty", q ? "No matches" : "No items"));
       activeIndex = -1;
       return;
     }
+    let lastGroup: string | undefined;
     for (let i = 0; i < filtered.length; i++) {
       const item = filtered[i]!;
+      if (item.group !== undefined && item.group !== lastGroup) {
+        list.appendChild(el("div", "la-combo-group", item.group));
+        lastGroup = item.group;
+      }
       const row = el("button", `la-combo-item ${item.id === value ? "is-selected" : ""} ${i === activeIndex ? "is-active" : ""}`) as HTMLButtonElement;
       row.type = "button";
       row.dataset["id"] = item.id;
@@ -94,18 +108,19 @@ export function mountCombo(root: HTMLElement): ComboHandle {
         const sub = el("div", "la-combo-item-sub", item.sublabel);
         row.appendChild(sub);
       }
+      const idx = i;
       row.addEventListener("mousedown", (ev) => { ev.preventDefault(); select(item.id); });
-      row.addEventListener("mouseenter", () => { activeIndex = i; updateActive(); });
+      row.addEventListener("mouseenter", () => { activeIndex = idx; updateActive(); });
       list.appendChild(row);
+      rowEls.push(row);
     }
   };
 
   const updateActive = (): void => {
-    for (let i = 0; i < list.children.length; i++) {
-      const child = list.children[i] as HTMLElement;
-      child.classList.toggle("is-active", i === activeIndex);
+    for (let i = 0; i < rowEls.length; i++) {
+      rowEls[i]!.classList.toggle("is-active", i === activeIndex);
     }
-    const activeEl = list.children[activeIndex] as HTMLElement | undefined;
+    const activeEl = rowEls[activeIndex];
     if (activeEl) activeEl.scrollIntoView({ block: "nearest" });
   };
 

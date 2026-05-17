@@ -15,6 +15,7 @@ import { runLlmStream } from "./llm";
 import { withRollingCacheBreakpoint } from "./cache-control";
 import { LoopDetector } from "./loop-detector";
 import { newEditEntry } from "../state/edit-log";
+import { dlog } from "../log";
 import { characterScope } from "../types";
 import { writeTmp } from "../state/tmp-store";
 import { isReadOnlyTool, maxResultSizeCharsFor, RecentReadsCache, type ToolCtx, type ToolFn } from "./tools";
@@ -406,7 +407,7 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
       throw new Error(`LLM call failed: ${(err as Error).message}`);
     }
 
-    input.spindle.log.info(
+    dlog(input.spindle,
       `loop.turn ${turnNum} response: finish_reason=${finishReason || "<empty>"} ` +
       `content_chars=${content.length} tool_calls=${toolCalls.length}` +
       `[${toolCalls.map((t) => t.name).join(",") || "<none>"}] ` +

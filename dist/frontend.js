@@ -873,6 +873,8 @@ ${LOADERS_CSS}
 .la-combo-item-label { line-height: 1.3; }
 .la-combo-item-sub { color: var(--lumiverse-text-muted); font-size: 11px; margin-top: 2px; }
 .la-combo-empty { padding: 10px; font-size: 12px; color: var(--lumiverse-text-muted); }
+.la-combo-group { padding: 8px 10px 3px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--lumiverse-text-muted); }
+.la-combo-group:first-child { padding-top: 2px; }
 
 /* Workshop button: icon-shaped, count rendered as a corner badge. */
 .la-changes-btn { position: relative; }
@@ -5918,6 +5920,7 @@ function mountCombo(root) {
   pop.append(search, list);
   root.append(trigger, pop);
   let filtered = [];
+  let rowEls = [];
   const renderList = () => {
     const q = search.value.trim();
     if (q.length === 0) {
@@ -5926,13 +5929,19 @@ function mountCombo(root) {
       filtered = items.map((it) => ({ it, score: Math.max(fuzzyScore(q, it.label), it.sublabel ? fuzzyScore(q, it.sublabel) / 2 : 0) })).filter((x) => x.score > 0).sort((a, b) => b.score - a.score).map((x) => x.it);
     }
     list.innerHTML = "";
+    rowEls = [];
     if (filtered.length === 0) {
       list.appendChild(el3("div", "la-combo-empty", q ? "No matches" : "No items"));
       activeIndex = -1;
       return;
     }
+    let lastGroup;
     for (let i = 0;i < filtered.length; i++) {
       const item = filtered[i];
+      if (item.group !== undefined && item.group !== lastGroup) {
+        list.appendChild(el3("div", "la-combo-group", item.group));
+        lastGroup = item.group;
+      }
       const row = el3("button", `la-combo-item ${item.id === value ? "is-selected" : ""} ${i === activeIndex ? "is-active" : ""}`);
       row.type = "button";
       row.dataset["id"] = item.id;
@@ -5942,23 +5951,24 @@ function mountCombo(root) {
         const sub = el3("div", "la-combo-item-sub", item.sublabel);
         row.appendChild(sub);
       }
+      const idx = i;
       row.addEventListener("mousedown", (ev) => {
         ev.preventDefault();
         select(item.id);
       });
       row.addEventListener("mouseenter", () => {
-        activeIndex = i;
+        activeIndex = idx;
         updateActive();
       });
       list.appendChild(row);
+      rowEls.push(row);
     }
   };
   const updateActive = () => {
-    for (let i = 0;i < list.children.length; i++) {
-      const child = list.children[i];
-      child.classList.toggle("is-active", i === activeIndex);
+    for (let i = 0;i < rowEls.length; i++) {
+      rowEls[i].classList.toggle("is-active", i === activeIndex);
     }
-    const activeEl = list.children[activeIndex];
+    const activeEl = rowEls[activeIndex];
     if (activeEl)
       activeEl.scrollIntoView({ block: "nearest" });
   };
@@ -6109,6 +6119,16 @@ function computeModalMaxHeight() {
 function isLumiverseKind(k) {
   return k !== "character";
 }
+var LUMI_CATEGORY = {
+  persona: "Personas",
+  preset: "Presets",
+  world_book: "Lorebooks",
+  regex_script: "Regex scripts",
+  chat: "Chats"
+};
+function lumiCategory(k) {
+  return LUMI_CATEGORY[k] ?? k;
+}
 function el4(tag, cls, text) {
   const e = document.createElement(tag);
   if (cls)
@@ -6227,12 +6247,12 @@ function openDiffModal(ctx, deps, opts) {
   };
   revertAllBtn.addEventListener("click", () => {
     const o = selectedOption();
-    if (o && o.liveCount > 0)
+    if (o && o.changeCount > 0)
       deps.onRevertAll(o.scope);
   });
   forgetBtn.addEventListener("click", () => {
     const o = selectedOption();
-    if (o && o.totalCount > 0)
+    if (o && o.changeCount > 0)
       deps.onForget(o.scope);
   });
   combo.onChange((id) => {
@@ -6261,11 +6281,49 @@ function openDiffModal(ctx, deps, opts) {
   const syncCombo = () => {
     const wantLumi = activeTab === "lumiverse";
     const opts2 = scopes.filter((s) => isLumiverseKind(s.scope.kind) === wantLumi);
-    combo.setItems(opts2.map((s) => ({
-      id: scopeKeyString(s.scope),
-      label: s.label,
-      sublabel: `${s.liveCount} live / ${s.totalCount} total`
-    })));
+    if (wantLumi) {
+      const CAT_RANK = { Personas: 0, Presets: 1, Lorebooks: 2, "Regex scripts": 3, Chats: 4 };
+      const classify = (s) => {
+        if (s.scope.kind === "persona") {
+          return { cat: "Personas", ownerKey: `${s.label}\x00${s.scope.id}`, sub: 0, display: s.label };
+        }
+        if (s.scope.kind === "world_book" && s.attachedToPersona) {
+          const o = s.attachedToPersona;
+          return { cat: "Personas", ownerKey: `${o.name}\x00${o.id}`, sub: 1, display: `${o.name} ↳ ${s.label}` };
+        }
+        const cat = lumiCategory(s.scope.kind);
+        return { cat, ownerKey: s.label, sub: 0, display: s.label };
+      };
+      const decorated = opts2.map((s) => ({ s, c: classify(s) }));
+      decorated.sort((a, b) => {
+        const cr = (CAT_RANK[a.c.cat] ?? 99) - (CAT_RANK[b.c.cat] ?? 99);
+        if (cr !== 0)
+          return cr;
+        if (a.c.ownerKey !== b.c.ownerKey)
+          return a.c.ownerKey.localeCompare(b.c.ownerKey);
+        if (a.c.sub !== b.c.sub)
+          return a.c.sub - b.c.sub;
+        return a.c.display.localeCompare(b.c.display);
+      });
+      const dispCount = new Map;
+      for (const { c } of decorated)
+        dispCount.set(`${c.cat}\x00${c.display}`, (dispCount.get(`${c.cat}\x00${c.display}`) ?? 0) + 1);
+      combo.setItems(decorated.map(({ s, c }) => {
+        const dup = (dispCount.get(`${c.cat}\x00${c.display}`) ?? 0) > 1;
+        return {
+          id: scopeKeyString(s.scope),
+          label: dup ? `${c.display} · ${s.scope.id.slice(0, 8)}` : c.display,
+          sublabel: `${c.cat} · ${s.changeCount} changes`,
+          group: c.cat
+        };
+      }));
+    } else {
+      combo.setItems(opts2.map((s) => ({
+        id: scopeKeyString(s.scope),
+        label: s.label,
+        sublabel: `${s.chatCount ?? 0} chats · ${s.msgCount ?? 0} msgs · ${s.changeCount} changes`
+      })));
+    }
     const tabKey = wantLumi ? "lumiverse" : "characters";
     let want = remembered[tabKey];
     if (!want || !opts2.some((s) => scopeKeyString(s.scope) === want)) {
@@ -6291,10 +6349,10 @@ function openDiffModal(ctx, deps, opts) {
   };
   const refresh = () => {
     const liveCount = edits.filter((e) => !e.reverted).length;
-    stats.textContent = `· ${liveCount} live / ${edits.length} total`;
+    stats.textContent = `· ${liveCount} changes`;
     const o = selectedOption();
-    revertAllBtn.disabled = !o || o.liveCount === 0;
-    forgetBtn.disabled = !o || o.totalCount === 0;
+    revertAllBtn.disabled = !o || o.changeCount === 0;
+    forgetBtn.disabled = !o || o.changeCount === 0;
     renderTree();
     renderPane();
   };
@@ -7421,8 +7479,8 @@ function mountDrawer(ctx) {
         noneItem,
         ...state.characters.map((c) => ({
           id: c.id,
-          label: c.name,
-          sublabel: `${c.world_book_ids.length} WB · ${c.regex_script_count} regex`
+          label: c.id === state.characterId ? `${c.name} (Active)` : c.name,
+          sublabel: `${c.chat_count} chats · ${c.world_book_ids.length} WB · ${c.regex_script_count} regex`
         }))
       ]);
     }
@@ -7462,20 +7520,32 @@ function mountDrawer(ctx) {
     const opts = state.scopeStorage.map((e) => ({
       scope: e.scope ?? characterScope(e.characterId),
       label: e.label ?? e.characterName,
-      liveCount: e.liveEditCount,
-      totalCount: e.editCount
+      changeCount: e.editCount,
+      ...e.chatCount !== undefined ? { chatCount: e.chatCount } : {},
+      ...e.msgCount !== undefined ? { msgCount: e.msgCount } : {},
+      ...e.attachedToPersona ? { attachedToPersona: e.attachedToPersona } : {}
     }));
     const active = activeScope();
     if (active && !opts.some((o) => scopeKeyString(o.scope) === scopeKeyString(active))) {
-      opts.unshift({ scope: active, label: state.characterName ?? "Current character", liveCount: 0, totalCount: 0 });
+      opts.unshift({ scope: active, label: state.characterName ?? "Current character", changeCount: 0 });
     }
     return opts;
   };
   const updateSessionBar = () => {
-    const source = scopeEntries(activeScope());
-    const liveEdits = source.filter((e) => !e.reverted).length;
-    editsCount.textContent = String(liveEdits);
-    editsBadge.classList.toggle("has-edits", source.length > 0);
+    const scope = activeScope();
+    if (scope) {
+      const source = scopeEntries(scope);
+      const liveEdits = source.filter((e) => !e.reverted).length;
+      editsCount.textContent = String(liveEdits);
+      editsBadge.classList.toggle("has-edits", source.length > 0);
+      return;
+    }
+    let total = 0;
+    for (const e of state.scopeStorage)
+      if (e.scope && e.scope.kind !== "character")
+        total += e.liveEditCount;
+    editsCount.textContent = String(total);
+    editsBadge.classList.toggle("has-edits", total > 0);
   };
   const COMPACT_RING_CIRC = 94.2;
   const COMPACT_AUTO_THRESHOLD = 0.84;
@@ -7859,6 +7929,7 @@ Revert those edits to the character now, or leave them applied?`;
     state.chatsForCharacter = [];
     state.pinnedChatId = null;
     state.autoPinNeeded = !!id;
+    renderCharOptions();
     setChatPinned(false);
     if (switchingAway)
       rerenderThread();
@@ -8261,6 +8332,14 @@ Revert those edits to the character now, or leave them applied?`;
     parallelToolsRow.appendChild(parallelToolsInput);
     wrap.appendChild(parallelToolsRow);
     wrap.appendChild(el7("div", "la-settings-hint", "Leave ON for Anthropic, OpenAI, Google, most OpenRouter routes. Turn OFF for providers that error on parallel tool emission."));
+    const debugLogRow = el7("div", "la-settings-row");
+    debugLogRow.append(el7("label", "la-settings-row-label", "Debug logging"));
+    const debugLogInput = document.createElement("input");
+    debugLogInput.type = "checkbox";
+    debugLogInput.className = "la-checkbox";
+    debugLogRow.appendChild(debugLogInput);
+    wrap.appendChild(debugLogRow);
+    wrap.appendChild(el7("div", "la-settings-hint", "OFF by default. When ON, verbose backend diagnostics (send_message, loop turns, llm stream, phone-line) are written to the host log. Warnings and errors always log."));
     wrap.appendChild(el7("hr", "la-settings-divider"));
     wrap.appendChild(el7("label", "la-settings-label", "Extension pairings"));
     wrap.appendChild(el7("div", "la-settings-hint", "Other extensions that can communicate with LumiAgent."));
@@ -8358,6 +8437,7 @@ Revert those edits to the character now, or leave them applied?`;
       toolCapInput.value = s.toolOutputCapTokens ? String(s.toolOutputCapTokens) : "";
       cacheModeSelect.value = s.cacheMode ?? "full";
       parallelToolsInput.checked = s.parallelToolCalls ?? true;
+      debugLogInput.checked = s.debugLogging ?? false;
       tpmInput.value = s.tpmLimit ? String(s.tpmLimit) : "";
       renderSamplers();
     };
@@ -8519,7 +8599,8 @@ Revert those edits to the character now, or leave them applied?`;
         toolOutputCapTokens: parsePosInt(toolCapInput.value),
         cacheMode: newCacheMode,
         parallelToolCalls: parallelToolsInput.checked,
-        tpmLimit: parsePosInt(tpmInput.value)
+        tpmLimit: parsePosInt(tpmInput.value),
+        debugLogging: debugLogInput.checked
       };
       const key = JSON.stringify(payload);
       if (key === lastCommitted)
@@ -8556,7 +8637,7 @@ Revert those edits to the character now, or leave them applied?`;
     for (const inp of [personaArea, promptArea, jbArea, wsCapInput, toolCapInput, tpmInput]) {
       inp.addEventListener("blur", () => commit());
     }
-    for (const inp of [jbPlacement, cacheModeSelect, parallelToolsInput]) {
+    for (const inp of [jbPlacement, cacheModeSelect, parallelToolsInput, debugLogInput]) {
       inp.addEventListener("change", () => commit());
     }
     handle.root.appendChild(wrap);
@@ -9026,6 +9107,7 @@ Revert those edits to the character now, or leave them applied?`;
           charCombo.setValue(NO_CHARACTER_SENTINEL, true);
         else if (state.characters.some((c) => c.id === msg.characterId))
           charCombo.setValue(msg.characterId, true);
+        renderCharOptions();
         render();
         virtualizer.scrollToBottom();
         persistUiPrefs();
@@ -9034,6 +9116,8 @@ Revert those edits to the character now, or leave them applied?`;
         if (msg.characterId !== null) {
           sendBackend({ type: "list_character_edits", characterId: msg.characterId });
           sendBackend({ type: "list_chats", characterId: msg.characterId, sessionId: msg.sessionId });
+        } else {
+          sendBackend({ type: "list_characters_storage" });
         }
         break;
       case "session_status":
@@ -9090,6 +9174,8 @@ Revert those edits to the character now, or leave them applied?`;
         finalizeAssistantTurn("complete");
         rerenderThread();
         updateComposer();
+        if (state.characterId === null)
+          sendBackend({ type: "list_characters_storage" });
         break;
       case "generation_cancelled":
         if (state.reattachedGeneration && msg.sessionId === state.sessionId) {
@@ -9235,7 +9321,8 @@ Revert those edits to the character now, or leave them applied?`;
           toolOutputCapDefaultTokens: msg.toolOutputCapDefaultTokens,
           cacheMode: msg.cacheMode,
           parallelToolCalls: msg.parallelToolCalls,
-          tpmLimit: msg.tpmLimit
+          tpmLimit: msg.tpmLimit,
+          debugLogging: msg.debugLogging
         };
         for (const h of settingsListeners.handlers)
           h();
@@ -9295,6 +9382,7 @@ Revert those edits to the character now, or leave them applied?`;
       case "characters_storage_pushed": {
         state.scopeStorage = msg.entries;
         state.diffModal?.setScopes(buildScopeOptions());
+        updateSessionBar();
         break;
       }
       case "frontend_rpc_request": {

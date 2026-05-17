@@ -15,6 +15,22 @@ var __export = (target, all) => {
 };
 var __esm = (fn, res) => () => (fn && (res = fn(fn = 0)), res);
 
+// src/log.ts
+function setDebugLogging(v) {
+  debugEnabled = v;
+}
+function isDebugLogging() {
+  return debugEnabled;
+}
+function dlog(spindle2, msg) {
+  if (!debugEnabled)
+    return;
+  try {
+    spindle2.log.info(msg);
+  } catch {}
+}
+var debugEnabled = false;
+
 // src/types.ts
 function characterScope(id) {
   return { kind: "character", id };
@@ -17772,21 +17788,15 @@ function normaliseManifest(raw) {
 async function discoverProviders(spindle2, userId) {
   const cached2 = cache.get(userId);
   if (cached2) {
-    try {
-      spindle2.log.info(`phoneline.discover: cache hit for user=${userId} providers=${cached2.length}`);
-    } catch {}
+    dlog(spindle2, `phoneline.discover: cache hit for user=${userId} providers=${cached2.length}`);
     return cached2;
   }
   const inflight = pending.get(userId);
   if (inflight) {
-    try {
-      spindle2.log.info(`phoneline.discover: joining in-flight discover for user=${userId}`);
-    } catch {}
+    dlog(spindle2, `phoneline.discover: joining in-flight discover for user=${userId}`);
     return inflight;
   }
-  try {
-    spindle2.log.info(`phoneline.discover: fresh discover for user=${userId} (no cache)`);
-  } catch {}
+  dlog(spindle2, `phoneline.discover: fresh discover for user=${userId} (no cache)`);
   const p = (async () => {
     const found = [];
     for (const entry of KNOWN_PHONELINES) {
@@ -17794,9 +17804,7 @@ async function discoverProviders(spindle2, userId) {
       try {
         rawManifest = await dialDescribe(spindle2, entry.identifier);
         lastDialFailure.set(dialKey(userId, entry.identifier), null);
-        try {
-          spindle2.log.info(`phoneline.discover: ${entry.identifier} dialDescribe ok`);
-        } catch {}
+        dlog(spindle2, `phoneline.discover: ${entry.identifier} dialDescribe ok`);
       } catch (err) {
         const msg = err.message;
         const parsed = parseInheritanceError(msg);
@@ -17824,16 +17832,12 @@ async function discoverProviders(spindle2, userId) {
         extension: { ...manifest.extension, id: entry.identifier, name: entry.name }
       };
       const decision = await recordAutoApprovedPairing(spindle2, userId, trusted);
-      try {
-        spindle2.log.info(`phoneline.discover: ${entry.identifier} auto-approved hash=${decision.manifestHash.slice(0, 12)}`);
-      } catch {}
+      dlog(spindle2, `phoneline.discover: ${entry.identifier} auto-approved hash=${decision.manifestHash.slice(0, 12)}`);
       found.push({ id: entry.identifier, manifest: trusted });
     }
     cache.set(userId, found);
     pending.delete(userId);
-    try {
-      spindle2.log.info(`phoneline.discover: complete user=${userId} providers=[${found.map((p2) => p2.id).join(",")}]`);
-    } catch {}
+    dlog(spindle2, `phoneline.discover: complete user=${userId} providers=[${found.map((p2) => p2.id).join(",")}]`);
     return found;
   })();
   pending.set(userId, p);
@@ -33599,7 +33603,8 @@ function defaultSettings() {
     toolOutputCapTokens: null,
     cacheMode: "full",
     parallelToolCalls: true,
-    tpmLimit: null
+    tpmLimit: null,
+    debugLogging: false
   };
 }
 function coerceCacheMode(v) {
@@ -33621,10 +33626,13 @@ function coerceJailbreakPlacement(v) {
 }
 async function loadSettings(spindle2, userId) {
   const stored = await spindle2.userStorage.getJson(SETTINGS_PATH, { fallback: null, userId });
-  if (!stored || typeof stored !== "object")
-    return defaultSettings();
+  if (!stored || typeof stored !== "object") {
+    const d = defaultSettings();
+    setDebugLogging(d.debugLogging);
+    return d;
+  }
   const s = stored;
-  return {
+  const resolved = {
     version: SCHEMA_VERSION2,
     persona: typeof s["persona"] === "string" && s["persona"].length > 0 ? s["persona"] : DEFAULT_PERSONA,
     systemPromptOverride: typeof s["systemPromptOverride"] === "string" ? s["systemPromptOverride"] : null,
@@ -33635,8 +33643,11 @@ async function loadSettings(spindle2, userId) {
     toolOutputCapTokens: coercePositiveInt(s["toolOutputCapTokens"]),
     cacheMode: coerceCacheMode(s["cacheMode"]),
     parallelToolCalls: typeof s["parallelToolCalls"] === "boolean" ? s["parallelToolCalls"] : true,
-    tpmLimit: coercePositiveInt(s["tpmLimit"])
+    tpmLimit: coercePositiveInt(s["tpmLimit"]),
+    debugLogging: s["debugLogging"] === true
   };
+  setDebugLogging(resolved.debugLogging);
+  return resolved;
 }
 async function saveSettings(spindle2, settings, userId) {
   await spindle2.userStorage.setJson(SETTINGS_PATH, settings, { userId });
@@ -33808,7 +33819,7 @@ async function* runLlmStream(spindle2, input) {
     } else if (chunk.type === "done") {
       sawDone = true;
       const toolNames = (chunk.tool_calls ?? []).map((t) => t.name).join(",") || "<none>";
-      spindle2.log.info(`llm.stream done: finish_reason=${chunk.finish_reason} content_chars=${chunk.content.length} ` + `tool_calls=${chunk.tool_calls?.length ?? 0}[${toolNames}] ` + `reasoning_chars_terminal=${chunk.reasoning?.length ?? 0} ` + `reasoning_chars_streamed=${reasoningChars}(${reasoningChunks} chunks) ` + `token_chars_streamed=${tokenChars}(${tokenChunks} chunks) ` + `usage=${chunk.usage ? `p${chunk.usage.prompt_tokens}/c${chunk.usage.completion_tokens}/t${chunk.usage.total_tokens}` : "<none>"}`);
+      dlog(spindle2, `llm.stream done: finish_reason=${chunk.finish_reason} content_chars=${chunk.content.length} ` + `tool_calls=${chunk.tool_calls?.length ?? 0}[${toolNames}] ` + `reasoning_chars_terminal=${chunk.reasoning?.length ?? 0} ` + `reasoning_chars_streamed=${reasoningChars}(${reasoningChunks} chunks) ` + `token_chars_streamed=${tokenChars}(${tokenChunks} chunks) ` + `usage=${chunk.usage ? `p${chunk.usage.prompt_tokens}/c${chunk.usage.completion_tokens}/t${chunk.usage.total_tokens}` : "<none>"}`);
       const response = {
         content: chunk.content,
         finish_reason: chunk.finish_reason,
@@ -34394,7 +34405,7 @@ async function* runAgent(input) {
       input.spindle.log.error(`loop.turn ${turnNum} LLM stream threw: ${err.message} ` + `(streamed reasoning_chars=${streamedReasoningChars} token_chars=${streamedTokenChars} saw_done=${sawDoneEvent})`);
       throw new Error(`LLM call failed: ${err.message}`);
     }
-    input.spindle.log.info(`loop.turn ${turnNum} response: finish_reason=${finishReason || "<empty>"} ` + `content_chars=${content.length} tool_calls=${toolCalls.length}` + `[${toolCalls.map((t) => t.name).join(",") || "<none>"}] ` + `reasoning_terminal_chars=${reasoning?.length ?? 0} reasoning_streamed_chars=${streamedReasoningChars} ` + `token_streamed_chars=${streamedTokenChars} saw_done=${sawDoneEvent} ` + `usage=${usage ? `p${usage.prompt}/c${usage.completion}/t${usage.total}${usage.estimated ? "(est)" : ""}` : "<none>"} ` + `conv_msgs=${conv.length}`);
+    dlog(input.spindle, `loop.turn ${turnNum} response: finish_reason=${finishReason || "<empty>"} ` + `content_chars=${content.length} tool_calls=${toolCalls.length}` + `[${toolCalls.map((t) => t.name).join(",") || "<none>"}] ` + `reasoning_terminal_chars=${reasoning?.length ?? 0} reasoning_streamed_chars=${streamedReasoningChars} ` + `token_streamed_chars=${streamedTokenChars} saw_done=${sawDoneEvent} ` + `usage=${usage ? `p${usage.prompt}/c${usage.completion}/t${usage.total}${usage.estimated ? "(est)" : ""}` : "<none>"} ` + `conv_msgs=${conv.length}`);
     if (usage === undefined) {
       try {
         usage = await estimateUsage(input.spindle, input.userId, withRollingCacheBreakpoint(conv, input.cacheMode ?? "full"), content, reasoning, input.tokenizerModelId);
@@ -35285,9 +35296,10 @@ function resolveFrontendRpc(rpcId, fromUserId, result, error51) {
     pending2.resolve(result);
 }
 function log(level, msg) {
-  if (level === "info")
-    spindle.log.info(msg);
-  else if (level === "warn")
+  if (level === "info") {
+    if (isDebugLogging())
+      spindle.log.info(msg);
+  } else if (level === "warn")
     spindle.log.warn(msg);
   else
     spindle.log.error(msg);
@@ -35295,19 +35307,23 @@ function log(level, msg) {
 function makeId(prefix) {
   return `${prefix}_${crypto.randomUUID()}`;
 }
-function characterToSummary(c, regexCount) {
+function characterToSummary(c, regexCount, chatCount) {
   return {
     id: c.id,
     name: c.name,
     world_book_ids: c.world_book_ids,
-    regex_script_count: regexCount
+    regex_script_count: regexCount,
+    chat_count: chatCount
   };
 }
 async function handleListCharacters(userId) {
   const res = await spindle.characters.list({ limit: 1000, userId });
   const summaries = await Promise.all(res.data.map(async (c) => {
-    const rxs = await spindle.regex_scripts.list({ scope: "character", scopeId: c.id, userId, limit: 1 });
-    return characterToSummary(c, rxs.total);
+    const [rxs, chats] = await Promise.all([
+      spindle.regex_scripts.list({ scope: "character", scopeId: c.id, userId, limit: 1 }),
+      spindle.chats.list({ characterId: c.id, userId, limit: 1 })
+    ]);
+    return characterToSummary(c, rxs.total, chats.total);
   }));
   send({ type: "characters_pushed", characters: summaries }, userId);
 }
@@ -35492,7 +35508,8 @@ async function handleGetSettings(userId) {
     toolOutputCapDefaultTokens: DEFAULT_TOOL_OUTPUT_CAP_TOKENS,
     cacheMode: settings.cacheMode,
     parallelToolCalls: settings.parallelToolCalls,
-    tpmLimit: settings.tpmLimit
+    tpmLimit: settings.tpmLimit,
+    debugLogging: settings.debugLogging
   }, userId);
 }
 async function resolveCapsForUser(userId) {
@@ -35540,7 +35557,7 @@ function buildSamplerParams(samplers, parallelToolCalls, provider) {
   base["parallel_tool_calls"] = parallelToolCalls;
   return base;
 }
-async function handleUpdateSettings(persona, systemPromptOverride, samplers, jailbreak, jailbreakPlacement, workspaceCapBytes, toolOutputCapTokens, cacheMode, parallelToolCalls, tpmLimit, userId) {
+async function handleUpdateSettings(persona, systemPromptOverride, samplers, jailbreak, jailbreakPlacement, workspaceCapBytes, toolOutputCapTokens, cacheMode, parallelToolCalls, tpmLimit, debugLogging, userId) {
   await saveSettings(spindle, {
     version: 3,
     persona: persona.length > 0 ? persona : DEFAULT_PERSONA,
@@ -35552,7 +35569,8 @@ async function handleUpdateSettings(persona, systemPromptOverride, samplers, jai
     toolOutputCapTokens,
     cacheMode,
     parallelToolCalls,
-    tpmLimit
+    tpmLimit,
+    debugLogging
   }, userId);
   await handleGetSettings(userId);
 }
@@ -35580,15 +35598,46 @@ async function handleListCharactersStorage(userId) {
         if (s.exists)
           ledgerBytes = s.sizeBytes;
       } catch {}
+      let chatCount = 0;
+      let msgCount = 0;
+      try {
+        const chats = await spindle.chats.list({ characterId: c.id, userId, limit: 500 });
+        chatCount = chats.total;
+        const counts = await Promise.all(chats.data.map(async (ch) => {
+          try {
+            return (await spindle.chat.getMessages(ch.id)).length;
+          } catch {
+            return 0;
+          }
+        }));
+        msgCount = counts.reduce((a, b) => a + b, 0);
+      } catch {}
       return {
         characterId: c.id,
         characterName: c.name,
         editCount: view.length,
         liveEditCount: view.filter((e) => !e.reverted).length,
-        ledgerBytes
+        ledgerBytes,
+        chatCount,
+        msgCount
       };
     }));
     const entries = perChar.filter((e) => e !== null);
+    const wbToPersona = new Map;
+    try {
+      let off = 0;
+      for (;; ) {
+        const pr = await spindle.personas.list({ limit: 200, offset: off, userId });
+        for (const p of pr.data) {
+          if (typeof p.attached_world_book_id === "string" && p.attached_world_book_id.length > 0) {
+            wbToPersona.set(p.attached_world_book_id, { id: p.id, name: p.name });
+          }
+        }
+        if (pr.data.length === 0 || off + pr.data.length >= pr.total)
+          break;
+        off += pr.data.length;
+      }
+    } catch {}
     for (const kind of ["persona", "chat", "preset", "world_book", "regex_script"]) {
       let names = [];
       try {
@@ -35631,6 +35680,7 @@ async function handleListCharactersStorage(userId) {
               label = wb.name;
           } catch {}
         }
+        const owner = kind === "world_book" ? wbToPersona.get(id) : undefined;
         entries.push({
           characterId: id,
           characterName: label,
@@ -35638,7 +35688,8 @@ async function handleListCharactersStorage(userId) {
           scope,
           editCount: view.length,
           liveEditCount: view.filter((e) => !e.reverted).length,
-          ledgerBytes
+          ledgerBytes,
+          ...owner ? { attachedToPersona: owner } : {}
         });
       }
     }
@@ -37270,7 +37321,7 @@ spindle.onFrontendMessage(async (raw, userId) => {
         await handleGetSettings(userId);
         return;
       case "update_settings":
-        await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.cacheMode ?? "full", msg.parallelToolCalls ?? true, msg.tpmLimit ?? null, userId);
+        await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.cacheMode ?? "full", msg.parallelToolCalls ?? true, msg.tpmLimit ?? null, msg.debugLogging ?? false, userId);
         return;
       case "get_ui_prefs":
         await handleGetUiPrefs(userId);

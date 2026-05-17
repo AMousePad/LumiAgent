@@ -2,6 +2,7 @@ import type { SpindleAPI } from "lumiverse-spindle-types";
 import type { SurfaceDescriptor, SurfaceManifest } from "./protocol";
 import { dialDescribe } from "./transport";
 import { recordAutoApprovedPairing } from "./consent";
+import { dlog } from "../log";
 
 // Recognised phone-line extensions. Both fields are pinned: identifier is the
 // host-attested channel namespace, name MUST match the extension's describe
@@ -114,15 +115,15 @@ export async function discoverProviders(
 ): Promise<CachedProvider[]> {
   const cached = cache.get(userId);
   if (cached) {
-    try { spindle.log.info(`phoneline.discover: cache hit for user=${userId} providers=${cached.length}`); } catch {}
+    dlog(spindle, `phoneline.discover: cache hit for user=${userId} providers=${cached.length}`);
     return cached;
   }
   const inflight = pending.get(userId);
   if (inflight) {
-    try { spindle.log.info(`phoneline.discover: joining in-flight discover for user=${userId}`); } catch {}
+    dlog(spindle, `phoneline.discover: joining in-flight discover for user=${userId}`);
     return inflight;
   }
-  try { spindle.log.info(`phoneline.discover: fresh discover for user=${userId} (no cache)`); } catch {}
+  dlog(spindle, `phoneline.discover: fresh discover for user=${userId} (no cache)`);
   const p = (async () => {
     const found: CachedProvider[] = [];
     for (const entry of KNOWN_PHONELINES) {
@@ -130,7 +131,7 @@ export async function discoverProviders(
       try {
         rawManifest = await dialDescribe(spindle, entry.identifier);
         lastDialFailure.set(dialKey(userId, entry.identifier), null);
-        try { spindle.log.info(`phoneline.discover: ${entry.identifier} dialDescribe ok`); } catch {}
+        dlog(spindle, `phoneline.discover: ${entry.identifier} dialDescribe ok`);
       } catch (err) {
         const msg = (err as Error).message;
         const parsed = parseInheritanceError(msg);
@@ -161,12 +162,12 @@ export async function discoverProviders(
       // any dial reaches us. promptFn is retained on the signature for
       // backward compatibility with existing callers; it's no longer invoked.
       const decision = await recordAutoApprovedPairing(spindle, userId, trusted);
-      try { spindle.log.info(`phoneline.discover: ${entry.identifier} auto-approved hash=${decision.manifestHash.slice(0, 12)}`); } catch {}
+      dlog(spindle, `phoneline.discover: ${entry.identifier} auto-approved hash=${decision.manifestHash.slice(0, 12)}`);
       found.push({ id: entry.identifier, manifest: trusted });
     }
     cache.set(userId, found);
     pending.delete(userId);
-    try { spindle.log.info(`phoneline.discover: complete user=${userId} providers=[${found.map((p) => p.id).join(",")}]`); } catch {}
+    dlog(spindle, `phoneline.discover: complete user=${userId} providers=[${found.map((p) => p.id).join(",")}]`);
     return found;
   })();
   pending.set(userId, p);

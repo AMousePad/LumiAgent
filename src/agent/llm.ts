@@ -1,5 +1,6 @@
 import type { SpindleAPI, StreamChunkDTO } from "lumiverse-spindle-types";
 import type { LlmMessage, ToolCall, ToolSchema } from "../types";
+import { dlog } from "../log";
 
 export interface LlmCallInput {
   readonly messages: readonly LlmMessage[];
@@ -63,7 +64,7 @@ export async function* runLlmStream(
     } else if (chunk.type === "done") {
       sawDone = true;
       const toolNames = (chunk.tool_calls ?? []).map((t) => t.name).join(",") || "<none>";
-      spindle.log.info(
+      dlog(spindle,
         `llm.stream done: finish_reason=${chunk.finish_reason} content_chars=${chunk.content.length} ` +
         `tool_calls=${chunk.tool_calls?.length ?? 0}[${toolNames}] ` +
         `reasoning_chars_terminal=${chunk.reasoning?.length ?? 0} ` +

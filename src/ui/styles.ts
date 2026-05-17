@@ -163,6 +163,8 @@ ${LOADERS_CSS}
 .la-combo-item-label { line-height: 1.3; }
 .la-combo-item-sub { color: var(--lumiverse-text-muted); font-size: 11px; margin-top: 2px; }
 .la-combo-empty { padding: 10px; font-size: 12px; color: var(--lumiverse-text-muted); }
+.la-combo-group { padding: 8px 10px 3px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--lumiverse-text-muted); }
+.la-combo-group:first-child { padding-top: 2px; }
 
 /* Workshop button: icon-shaped, count rendered as a corner badge. */
 .la-changes-btn { position: relative; }

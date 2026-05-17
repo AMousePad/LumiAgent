@@ -23,6 +23,7 @@ import { buildGeneralSystemPrompt } from "./tasks/general";
 import { revertEditWithCheck, revertEdit, writeFieldValue } from "./state/edit-log";
 import { appendEntries, entriesView, findEntry, loadLedger, ledgerPath, persistLedgerNow, purgeAllRevertedInMemory, squashMessage } from "./state/ledger";
 import { characterScope } from "./types";
+import { isDebugLogging } from "./log";
 import { applySinglePatch, sha256 as patchSha256 } from "./state/patch-stack";
 import { type AgentSettings, DEFAULT_PERSONA, loadSettings, saveSettings, resolveWorkspaceCap, resolveToolOutputCapTokens, WORKSPACE_FILE_CAP_BYTES, DEFAULT_WORKSPACE_MAX_FILES, DEFAULT_TOOL_OUTPUT_CAP_TOKENS } from "./state/settings";
 import { loadUiPrefs, saveUiPrefs } from "./state/ui-prefs";
@@ -172,7 +173,7 @@ function resolveFrontendRpc(rpcId: string, fromUserId: string, result: unknown, 
 }
 
 function log(level: "info" | "warn" | "error", msg: string): void {
-  if (level === "info") spindle.log.info(msg);
+  if (level === "info") { if (isDebugLogging()) spindle.log.info(msg); }
   else if (level === "warn") spindle.log.warn(msg);
   else spindle.log.error(msg);
 }
@@ -185,12 +186,13 @@ function makeId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID()}`;
 }
 
-function characterToSummary(c: CharacterDTO, regexCount: number): CharacterSummary {
+function characterToSummary(c: CharacterDTO, regexCount: number, chatCount: number): CharacterSummary {
   return {
     id: c.id,
     name: c.name,
     world_book_ids: c.world_book_ids,
     regex_script_count: regexCount,
+    chat_count: chatCount,
   };
 }
 
@@ -198,8 +200,12 @@ async function handleListCharacters(userId: string): Promise<void> {
   const res = await spindle.characters.list({ limit: 1000, userId });
   const summaries: CharacterSummary[] = await Promise.all(
     res.data.map(async (c) => {
-      const rxs = await spindle.regex_scripts.list({ scope: "character", scopeId: c.id, userId, limit: 1 });
-      return characterToSummary(c, rxs.total);
+      // limit:1 — only the `total` is needed, not the rows.
+      const [rxs, chats] = await Promise.all([
+        spindle.regex_scripts.list({ scope: "character", scopeId: c.id, userId, limit: 1 }),
+        spindle.chats.list({ characterId: c.id, userId, limit: 1 }),
+      ]);
+      return characterToSummary(c, rxs.total, chats.total);
     }),
   );
   send({ type: "characters_pushed", characters: summaries }, userId);
@@ -401,6 +407,7 @@ async function handleGetSettings(userId: string): Promise<void> {
     cacheMode: settings.cacheMode,
     parallelToolCalls: settings.parallelToolCalls,
     tpmLimit: settings.tpmLimit,
+    debugLogging: settings.debugLogging,
   }, userId);
 }
 
@@ -468,6 +475,7 @@ async function handleUpdateSettings(
   cacheMode: "off" | "system_only" | "full",
   parallelToolCalls: boolean,
   tpmLimit: number | null,
+  debugLogging: boolean,
   userId: string,
 ): Promise<void> {
   await saveSettings(spindle, {
@@ -482,6 +490,7 @@ async function handleUpdateSettings(
     cacheMode,
     parallelToolCalls,
     tpmLimit,
+    debugLogging,
   }, userId);
   await handleGetSettings(userId);
 }
@@ -514,15 +523,47 @@ async function handleListCharactersStorage(userId: string): Promise<void> {
         const s = await spindle.userStorage.stat(ledgerPath(characterScope(c.id)), userId);
         if (s.exists) ledgerBytes = s.sizeBytes;
       } catch { /* missing on disk, cache only */ }
+      // Chat + total-message counts for the workshop Characters selector.
+      // Bounded to characters that already have a ledger. Per-chat message
+      // fetch is best-effort: a failed chat contributes 0, never aborts.
+      let chatCount = 0;
+      let msgCount = 0;
+      try {
+        const chats = await spindle.chats.list({ characterId: c.id, userId, limit: 500 });
+        chatCount = chats.total;
+        const counts = await Promise.all(chats.data.map(async (ch) => {
+          try { return (await spindle.chat.getMessages(ch.id)).length; } catch { return 0; }
+        }));
+        msgCount = counts.reduce((a, b) => a + b, 0);
+      } catch { /* chats permission may be absent; leave 0 */ }
       return {
         characterId: c.id,
         characterName: c.name,
         editCount: view.length,
         liveEditCount: view.filter((e) => !e.reverted).length,
         ledgerBytes,
+        chatCount,
+        msgCount,
       };
     }));
     const entries: CharacterStorageEntry[] = perChar.filter((e): e is NonNullable<typeof e> => e !== null);
+
+    // world_book id -> the persona that attaches it. Persona-owned lorebooks
+    // bundle under the persona in the selector instead of standing alone.
+    const wbToPersona = new Map<string, { id: string; name: string }>();
+    try {
+      let off = 0;
+      for (;;) {
+        const pr = await spindle.personas.list({ limit: 200, offset: off, userId });
+        for (const p of pr.data) {
+          if (typeof p.attached_world_book_id === "string" && p.attached_world_book_id.length > 0) {
+            wbToPersona.set(p.attached_world_book_id, { id: p.id, name: p.name });
+          }
+        }
+        if (pr.data.length === 0 || off + pr.data.length >= pr.total) break;
+        off += pr.data.length;
+      }
+    } catch { /* personas permission may be absent */ }
 
     // Non-character scopes have no entity list to iterate, so enumerate their
     // ledger directories directly. Empty ledgers are skipped like characters.
@@ -555,11 +596,13 @@ async function handleListCharactersStorage(userId: string): Promise<void> {
         } else if (kind === "world_book") {
           try { const wb = await spindle.world_books.get(id, userId); if (wb) label = wb.name; } catch { /* fall back to id */ }
         }
+        const owner = kind === "world_book" ? wbToPersona.get(id) : undefined;
         entries.push({
           characterId: id, characterName: label, label, scope,
           editCount: view.length,
           liveEditCount: view.filter((e) => !e.reverted).length,
           ledgerBytes,
+          ...(owner ? { attachedToPersona: owner } : {}),
         });
       }
     }
@@ -2165,7 +2208,7 @@ spindle.onFrontendMessage(async (raw: unknown, userId: string) => {
       case "list_chats": await handleListChats(msg.characterId, msg.sessionId, userId); return;
       case "set_pinned_chat": await handleSetPinnedChat(msg.sessionId, msg.chatId, userId); return;
       case "get_settings": await handleGetSettings(userId); return;
-      case "update_settings": await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.cacheMode ?? "full", msg.parallelToolCalls ?? true, msg.tpmLimit ?? null, userId); return;
+      case "update_settings": await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.cacheMode ?? "full", msg.parallelToolCalls ?? true, msg.tpmLimit ?? null, msg.debugLogging ?? false, userId); return;
       case "get_ui_prefs": await handleGetUiPrefs(userId); return;
       case "update_ui_prefs": await handleUpdateUiPrefs(msg.connectionId, msg.lastSessionId, userId); return;
       case "compact_session": void compactSession(msg.sessionId, userId, "manual"); return;
