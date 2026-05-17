@@ -10,7 +10,7 @@ import type { ToolCtx, ToolFn } from "../agent/tools";
 
 export const CUSTOM_TOOLS_DIR = "workspace/custom_tools";
 export const CUSTOM_TOOLS_INDEX = `${CUSTOM_TOOLS_DIR}/tools.md`;
-export const CUSTOM_TOOLS_MAX_STEPS = 50;
+export const CUSTOM_TOOLS_MAX_STEPS = 400;
 export const CUSTOM_TOOLS_MAX_DEPTH = 4;
 export const CUSTOM_TOOLS_TIMEOUT_MS = 60_000;
 

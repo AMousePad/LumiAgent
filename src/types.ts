@@ -251,6 +251,24 @@ export interface ChatSummary {
 
 export type PausedReason = "no_tool_calls" | "loop_detected" | "max_turns" | "max_tokens";
 
+export type SessionPhase = "idle" | "generating" | "compacting";
+
+// Backend-authoritative view of a session's generation state. The frontend
+// renders the composer button and switch locks purely from this, never from
+// inferred local flags, so a reload mid-generation stays correct.
+export interface SessionStatusWire {
+  readonly sessionId: string;
+  readonly phase: SessionPhase;
+  readonly lastMessageRole: "user" | "assistant" | null;
+  readonly lastAssistantStatus: "streaming" | "complete" | "cancelled" | "errored" | null;
+  // Last message is an assistant message with no usable content (no
+  // non-whitespace text and no tool calls). The recover-send target.
+  readonly lastAssistantEmpty: boolean;
+  readonly lastAssistantId: string | null;
+  readonly promptTokens: number;
+  readonly contextTokens: number;
+}
+
 export type AgentEvent =
   | { type: "turn_started"; turn: number; assistantMessageId: string }
   | { type: "llm_token"; token: string }
@@ -286,7 +304,7 @@ export type FrontendToBackend =
   | { type: "list_chats"; characterId: string; sessionId?: string | undefined }
   | { type: "set_pinned_chat"; sessionId: string; chatId: string | null }
   | { type: "get_settings" }
-  | { type: "update_settings"; persona: string; systemPromptOverride: string | null; samplers: Readonly<Record<string, number | null>>; jailbreak: string; jailbreakPlacement: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes: number | null; toolOutputCapTokens: number | null; cacheMode?: "off" | "system_only" | "full"; parallelToolCalls?: boolean }
+  | { type: "update_settings"; persona: string; systemPromptOverride: string | null; samplers: Readonly<Record<string, number | null>>; jailbreak: string; jailbreakPlacement: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes: number | null; toolOutputCapTokens: number | null; cacheMode?: "off" | "system_only" | "full"; parallelToolCalls?: boolean; tpmLimit?: number | null }
   | { type: "get_ui_prefs" }
   | { type: "update_ui_prefs"; connectionId: string | null; lastSessionId: string | null }
   | { type: "ws_list"; path: string }
@@ -316,7 +334,8 @@ export type BackendToFrontend =
   | { type: "connections_pushed"; connections: readonly ConnectionSummary[] }
   | { type: "sessions_pushed"; sessions: readonly SessionSummaryWire[] }
   | { type: "session_started"; sessionId: string; characterId: string | null; characterName: string; createdAt: number }
-  | { type: "session_loaded"; sessionId: string; characterId: string | null; characterName: string; createdAt: number; messages: readonly ChatMessage[]; edits: readonly EditLogEntry[] }
+  | { type: "session_loaded"; sessionId: string; characterId: string | null; characterName: string; createdAt: number; messages: readonly ChatMessage[]; edits: readonly EditLogEntry[]; status: SessionStatusWire }
+  | { type: "session_status"; status: SessionStatusWire }
   | { type: "session_deleted"; sessionId: string }
   | { type: "session_markdown_ready"; sessionId: string; filename: string; content: string }
   | { type: "session_markdown_error"; sessionId: string; error: string }
@@ -331,7 +350,7 @@ export type BackendToFrontend =
   | { type: "session_truncated"; sessionId: string; messages: readonly ChatMessage[]; edits: readonly EditLogEntry[] }
   | { type: "chats_pushed"; characterId: string; chats: readonly ChatSummary[]; pinnedChatId: string | null }
   | { type: "pinned_chat_set"; sessionId: string; chatId: string | null }
-  | { type: "settings_pushed"; persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody: string; samplers: Readonly<Record<string, number | null>>; jailbreak: string; jailbreakPlacement: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes: number | null; workspaceCapDefaultBytes: number; workspaceFileCapBytes: number; toolOutputCapTokens: number | null; toolOutputCapDefaultTokens: number; cacheMode: "off" | "system_only" | "full"; parallelToolCalls: boolean }
+  | { type: "settings_pushed"; persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody: string; samplers: Readonly<Record<string, number | null>>; jailbreak: string; jailbreakPlacement: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes: number | null; workspaceCapDefaultBytes: number; workspaceFileCapBytes: number; toolOutputCapTokens: number | null; toolOutputCapDefaultTokens: number; cacheMode: "off" | "system_only" | "full"; parallelToolCalls: boolean; tpmLimit: number | null }
   | { type: "ui_prefs_pushed"; connectionId: string | null; lastSessionId: string | null }
   | { type: "ws_listed"; path: string; entries: readonly WorkspaceEntry[] }
   | { type: "ws_text_pushed"; path: string; content: string; sizeBytes: number }

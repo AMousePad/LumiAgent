@@ -19969,7 +19969,7 @@ async function runCustomTool(ctx, manifest, argsIn, opts) {
   }
   return lastResult;
 }
-var CUSTOM_TOOLS_DIR = "workspace/custom_tools", CUSTOM_TOOLS_INDEX, CUSTOM_TOOLS_MAX_STEPS = 50, CUSTOM_TOOLS_MAX_DEPTH = 4, CUSTOM_TOOLS_TIMEOUT_MS = 60000, REF_BODY, TEMPLATE_RE, WHOLE_RE;
+var CUSTOM_TOOLS_DIR = "workspace/custom_tools", CUSTOM_TOOLS_INDEX, CUSTOM_TOOLS_MAX_STEPS = 400, CUSTOM_TOOLS_MAX_DEPTH = 4, CUSTOM_TOOLS_TIMEOUT_MS = 60000, REF_BODY, TEMPLATE_RE, WHOLE_RE;
 var init_custom_tools = __esm(() => {
   CUSTOM_TOOLS_INDEX = `${CUSTOM_TOOLS_DIR}/tools.md`;
   REF_BODY = /\$?[A-Za-z_][\w$]*(?:\.[A-Za-z_][\w$]*|\[\d+\])*/.source;
@@ -20078,7 +20078,7 @@ Return rules:
 - No \`return\`, any \`save_as\`s \u2192 object of all saved bindings.
 - No \`return\`, no \`save_as\` \u2192 just the final step's parsed result.
 
-Budget: 50 steps / depth 4 / 60s wall-clock.
+Budget: 400 steps / depth 4 / 60s wall-clock.
 
 (The \`name\` form runs a saved recipe; default to inline \`steps\` for any one-off chain or fan-out.)`,
     inputSchema: inputSchema12,
@@ -33451,7 +33451,8 @@ function defaultSettings() {
     workspaceCapBytes: null,
     toolOutputCapTokens: null,
     cacheMode: "full",
-    parallelToolCalls: true
+    parallelToolCalls: true,
+    tpmLimit: null
   };
 }
 function coerceCacheMode(v) {
@@ -33486,7 +33487,8 @@ async function loadSettings(spindle2, userId) {
     workspaceCapBytes: coercePositiveInt(s["workspaceCapBytes"]),
     toolOutputCapTokens: coercePositiveInt(s["toolOutputCapTokens"]),
     cacheMode: coerceCacheMode(s["cacheMode"]),
-    parallelToolCalls: typeof s["parallelToolCalls"] === "boolean" ? s["parallelToolCalls"] : true
+    parallelToolCalls: typeof s["parallelToolCalls"] === "boolean" ? s["parallelToolCalls"] : true,
+    tpmLimit: coercePositiveInt(s["tpmLimit"])
   };
 }
 async function saveSettings(spindle2, settings, userId) {
@@ -34010,6 +34012,38 @@ async function estimateUsage(spindle2, userId, conv, content, reasoning, modelId
 }
 var DEFAULT_CONTEXT_TOKENS = 400000;
 var DEFAULT_MAX_TURNS = 40;
+var TPM_WINDOW_MS = 60000;
+var tpmWindows = new Map;
+function pruneTpm(userId) {
+  const arr = tpmWindows.get(userId) ?? [];
+  const cutoff = Date.now() - TPM_WINDOW_MS;
+  while (arr.length > 0 && arr[0].ts < cutoff)
+    arr.shift();
+  tpmWindows.set(userId, arr);
+  return arr;
+}
+function recordTpm(userId, tokens) {
+  if (tokens <= 0)
+    return;
+  pruneTpm(userId).push({ ts: Date.now(), tokens });
+}
+function sleep(ms, signal) {
+  return new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(t);
+      resolve();
+    };
+    const t = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
 var TEXT_TOOL_TAG_NAMES = "(?:invoke|tool_use|tool_call|function_call|function_calls|parameter)";
 var PAIRED_TAG_RX = new RegExp(`<\\s*${TEXT_TOOL_TAG_NAMES}\\b[\\s\\S]*?<\\/\\s*${TEXT_TOOL_TAG_NAMES}\\s*>`, "gi");
 var ORPHAN_OPEN_RX = new RegExp(`<\\s*${TEXT_TOOL_TAG_NAMES}\\b[^>]*>`, "gi");
@@ -34146,6 +34180,24 @@ async function* runAgent(input) {
     const turnNum = startingTurn + i;
     if (signal.aborted)
       return;
+    const tpmLimit = input.tpmLimit ?? null;
+    if (tpmLimit !== null && tpmLimit > 0) {
+      while (!signal.aborted) {
+        const win = pruneTpm(input.userId);
+        const used = win.reduce((a, e) => a + e.tokens, 0);
+        if (used < tpmLimit)
+          break;
+        const oldest = win[0];
+        const waitMs = oldest === undefined ? TPM_WINDOW_MS : Math.min(TPM_WINDOW_MS, Math.max(1000, oldest.ts + TPM_WINDOW_MS - Date.now()));
+        yield {
+          type: "warning",
+          message: `TPM limit reached: ~${used} tokens used in the last minute (limit ${tpmLimit}). Pausing ${Math.ceil(waitMs / 1000)}s to stay under the rate limit.`
+        };
+        await sleep(waitMs, signal);
+      }
+      if (signal.aborted)
+        return;
+    }
     yield { type: "turn_started", turn: turnNum, assistantMessageId: input.assistantMessageId };
     let content = "";
     let toolCalls = [];
@@ -34201,6 +34253,8 @@ async function* runAgent(input) {
         usage = await estimateUsage(input.spindle, input.userId, withRollingCacheBreakpoint(conv, input.cacheMode ?? "full"), content, reasoning, input.tokenizerModelId);
       } catch {}
     }
+    if (usage !== undefined)
+      recordTpm(input.userId, usage.total);
     if (turnNum === startingTurn + 1 && content.trim().length === 0 && toolCalls.length === 0) {
       const lastUser = [...conv].reverse().find((m) => m.role === "user");
       const lastUserPreview = typeof lastUser?.content === "string" ? lastUser.content.slice(0, 200) : JSON.stringify(lastUser?.content ?? null).slice(0, 200);
@@ -34682,7 +34736,7 @@ Return rules:
 
 When to use: any time you'd take a value FROM a tool result and put it INTO another tool's args (chain), or call several tools to gather data you'll synthesise (fan-out). Picking from a list, reading a path you just discovered, feeding a grep hit into a read, threading a tmp_handle through tmp_grep then tmp_read, inventorying a card. Default to this over per-step LLM round trips.
 
-Budget: 50 steps / depth 4 / 60s wall-clock.
+Budget: 400 steps / depth 4 / 60s wall-clock.
 
 # Compaction (HANDOFF.md)
 
@@ -35004,6 +35058,46 @@ async function loadSessionWithPending(sessionId, userId) {
     return p;
   return loadSession(spindle, sessionId, userId);
 }
+var compactingSessions = new Set;
+function assistantHasNoContent(m) {
+  for (const b of m.blocks) {
+    if (b.type === "tool")
+      return false;
+    if (b.type === "text" && b.content.trim().length > 0)
+      return false;
+  }
+  return true;
+}
+function computeSessionStatus(s, userId, contextTokens) {
+  const key = scopedKey(userId, s.sessionId);
+  const phase = compactingSessions.has(key) ? "compacting" : activeSessions.has(key) ? "generating" : "idle";
+  const last = s.messages[s.messages.length - 1];
+  let lastAssistant = null;
+  if (last && last.role === "assistant")
+    lastAssistant = last;
+  return {
+    sessionId: s.sessionId,
+    phase,
+    lastMessageRole: last ? last.role : null,
+    lastAssistantStatus: lastAssistant ? lastAssistant.status : null,
+    lastAssistantEmpty: lastAssistant !== null && assistantHasNoContent(lastAssistant),
+    lastAssistantId: lastAssistant ? lastAssistant.id : null,
+    promptTokens: s.lastPromptTokens ?? 0,
+    contextTokens
+  };
+}
+async function pushSessionStatus(sessionId, userId) {
+  try {
+    const s = await loadSessionWithPending(sessionId, userId);
+    if (!s)
+      return;
+    const settings = await loadSettings(spindle, userId);
+    const contextTokens = resolveContextTokens(settings.samplers);
+    send({ type: "session_status", status: computeSessionStatus(s, userId, contextTokens) }, userId);
+  } catch (err) {
+    log("warn", `pushSessionStatus ${sessionId} failed: ${err.message}`);
+  }
+}
 var DEFAULT_MAX_TURNS_PER_MESSAGE = 80;
 function send(msg, userId) {
   spindle.sendToFrontend(msg, userId);
@@ -35249,7 +35343,8 @@ async function handleGetSettings(userId) {
     toolOutputCapTokens: settings.toolOutputCapTokens,
     toolOutputCapDefaultTokens: DEFAULT_TOOL_OUTPUT_CAP_TOKENS,
     cacheMode: settings.cacheMode,
-    parallelToolCalls: settings.parallelToolCalls
+    parallelToolCalls: settings.parallelToolCalls,
+    tpmLimit: settings.tpmLimit
   }, userId);
 }
 async function resolveCapsForUser(userId) {
@@ -35297,7 +35392,7 @@ function buildSamplerParams(samplers, parallelToolCalls, provider) {
   base["parallel_tool_calls"] = parallelToolCalls;
   return base;
 }
-async function handleUpdateSettings(persona, systemPromptOverride, samplers, jailbreak, jailbreakPlacement, workspaceCapBytes, toolOutputCapTokens, cacheMode, parallelToolCalls, userId) {
+async function handleUpdateSettings(persona, systemPromptOverride, samplers, jailbreak, jailbreakPlacement, workspaceCapBytes, toolOutputCapTokens, cacheMode, parallelToolCalls, tpmLimit, userId) {
   await saveSettings(spindle, {
     version: 3,
     persona: persona.length > 0 ? persona : DEFAULT_PERSONA,
@@ -35308,7 +35403,8 @@ async function handleUpdateSettings(persona, systemPromptOverride, samplers, jai
     workspaceCapBytes,
     toolOutputCapTokens,
     cacheMode,
-    parallelToolCalls
+    parallelToolCalls,
+    tpmLimit
   }, userId);
   await handleGetSettings(userId);
 }
@@ -35524,7 +35620,9 @@ async function compactSession(sessionId, userId, trigger) {
   const contextTokens = resolveContextTokens(settings.samplers);
   const maxHandoffChars = Math.floor(contextTokens * 0.15) * 3;
   const ac = new AbortController;
+  compactingSessions.add(scopedKey(userId, sessionId));
   activeSessions.set(scopedKey(userId, sessionId), ac);
+  pushSessionStatus(sessionId, userId);
   try {
     const systemMsg = await buildSessionSystemMessage(c, s, settings, userId);
     const compactPrompt = buildCompactionInstruction(maxHandoffChars);
@@ -35559,6 +35657,7 @@ async function compactSession(sessionId, userId, trigger) {
       maxTurns: 8,
       startingTurn: 0,
       cacheMode: settings.cacheMode,
+      tpmLimit: settings.tpmLimit,
       signal: ac.signal
     })) {
       send({ type: "chat_event", sessionId, event: ev }, userId);
@@ -35621,10 +35720,20 @@ async function compactSession(sessionId, userId, trigger) {
     send({ type: "compaction_completed", sessionId, handoffPath: HANDOFF_PATH, promptTokens: 0, contextTokens }, userId);
     emitContextUsage(s, contextTokens, userId);
   } catch (err) {
-    log("error", `compactSession ${sessionId} failed: ${err.message}`);
-    send({ type: "ws_error", error: `Compaction failed: ${err.message}` }, userId);
+    if (ac.signal.aborted) {
+      log("info", `compactSession ${sessionId} cancelled by user`);
+      try {
+        await saveSession(spindle, s, userId);
+      } catch {}
+      send({ type: "compaction_completed", sessionId, handoffPath: HANDOFF_PATH, promptTokens: s.lastPromptTokens ?? 0, contextTokens }, userId);
+    } else {
+      log("error", `compactSession ${sessionId} failed: ${err.message}`);
+      send({ type: "ws_error", error: `Compaction failed: ${err.message}` }, userId);
+    }
   } finally {
     activeSessions.delete(scopedKey(userId, sessionId));
+    compactingSessions.delete(scopedKey(userId, sessionId));
+    pushSessionStatus(sessionId, userId);
   }
 }
 function guessMimeType(path2) {
@@ -35960,6 +36069,7 @@ async function handleLoadSession(sessionId, userId) {
     send({ type: "session_deleted", sessionId }, userId);
     return;
   }
+  const settings = await loadSettings(spindle, userId);
   send({
     type: "session_loaded",
     sessionId: s.sessionId,
@@ -35967,7 +36077,8 @@ async function handleLoadSession(sessionId, userId) {
     characterName: s.characterName,
     createdAt: s.createdAt,
     messages: s.messages,
-    edits: s.edits
+    edits: s.edits,
+    status: computeSessionStatus(s, userId, resolveContextTokens(settings.samplers))
   }, userId);
 }
 async function handleStartSession(sessionId, characterId, connectionId, userId) {
@@ -36613,6 +36724,7 @@ async function handleSendMessageInternal(s, userId, connectionIdOverride) {
   }
   const ac = new AbortController;
   activeSessions.set(scopedKey(userId, s.sessionId), ac);
+  pushSessionStatus(s.sessionId, userId);
   const settings = await loadSettings(spindle, userId);
   const systemMsg = await buildSessionSystemMessage(c, s, settings, userId);
   const conv = [systemMsg, ...s.llmHistory];
@@ -36651,6 +36763,7 @@ async function handleSendMessageInternal(s, userId, connectionIdOverride) {
       maxTurns: DEFAULT_MAX_TURNS_PER_MESSAGE,
       startingTurn: lastTurn,
       cacheMode: settings.cacheMode,
+      tpmLimit: settings.tpmLimit,
       signal: ac.signal,
       callFrontend: (op, args, timeoutMs) => callFrontend(userId, op, args, timeoutMs)
     })) {
@@ -36775,6 +36888,7 @@ async function handleSendMessageInternal(s, userId, connectionIdOverride) {
       compactSession(s.sessionId, userId, "auto");
     }
   }
+  pushSessionStatus(s.sessionId, userId);
   handleListSessions(undefined, userId);
 }
 async function autosquashAndNotify(s, characterId, assistantMessageId, userId) {
@@ -37008,7 +37122,7 @@ spindle.onFrontendMessage(async (raw, userId) => {
         await handleGetSettings(userId);
         return;
       case "update_settings":
-        await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.cacheMode ?? "full", msg.parallelToolCalls ?? true, userId);
+        await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.cacheMode ?? "full", msg.parallelToolCalls ?? true, msg.tpmLimit ?? null, userId);
         return;
       case "get_ui_prefs":
         await handleGetUiPrefs(userId);

@@ -12,6 +12,7 @@ import type {
   FrontendToBackend,
   RevertOutcomeWire,
   ScopeRef,
+  SessionStatusWire,
   SessionSummaryWire,
 } from "../types";
 import { characterScope, scopeKeyString } from "../types";
@@ -86,10 +87,20 @@ interface UiState {
   scopeLedgers: Map<string, readonly EditLogEntry[]>;
   chatsForCharacter: ChatSummary[];
   pinnedChatId: string | null;
-  settings: { persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody?: string; samplers?: Readonly<Record<string, number | null>>; jailbreak?: string; jailbreakPlacement?: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes?: number | null; workspaceCapDefaultBytes?: number; workspaceFileCapBytes?: number; toolOutputCapTokens?: number | null; toolOutputCapDefaultTokens?: number; cacheMode?: "off" | "system_only" | "full"; parallelToolCalls?: boolean } | null;
+  settings: { persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody?: string; samplers?: Readonly<Record<string, number | null>>; jailbreak?: string; jailbreakPlacement?: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes?: number | null; workspaceCapDefaultBytes?: number; workspaceFileCapBytes?: number; toolOutputCapTokens?: number | null; toolOutputCapDefaultTokens?: number; cacheMode?: "off" | "system_only" | "full"; parallelToolCalls?: boolean; tpmLimit?: number | null } | null;
   pendingPinChatId: string | null;
   // Single-shot, reset after consume so a later list_chats won't re-pin after the user explicitly unpinned.
   autoPinNeeded: boolean;
+  // Backend-authoritative session status. isGenerating / compacting are
+  // derived from this on every push/load, never inferred locally. Null until
+  // the first session_loaded / session_status arrives.
+  sessionStatus: SessionStatusWire | null;
+  // True when this client loaded into a generation it never tracked from
+  // turn_started (a refresh mid-stream). The backend doesn't replay the
+  // in-flight turn, so live events would build an incoherent partial bubble;
+  // we suppress them and reload the authoritative session on the terminal
+  // event instead.
+  reattachedGeneration: boolean;
   isGenerating: boolean;
   startingSession: boolean;
   compacting: boolean;
@@ -160,6 +171,8 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     settings: null,
     pendingPinChatId: null,
     autoPinNeeded: false,
+    sessionStatus: null,
+    reattachedGeneration: false,
     isGenerating: false,
     startingSession: false,
     compacting: false,
@@ -267,7 +280,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   const SUGGESTIONS: ReadonlyArray<{ label: string; send: string }> = [
     {
       label: "Translate this card to English",
-      send: "Translate this card to English. Run `survey_cjk` first to see where the source-language content lives; plan from what it reports, not memory. Cover greetings (first_mes + alternate_greetings), UI surfaces (regex find_string, replace_string, trigger displays/values, bg-html, scriptstate_defaults), and card System/Post-History instructions. Skip anything already bilingual and internal identifiers. For greetings, `rewrite` the message and be careful of strings that have regex matches, as you should ensure that the find_regex is translated along with the match. Avoid using mechanical translation methods as sub-string matching will kill your translation, always manually edit surfaces. Summarise findings and ask which surfaces to touch before writing."
+      send: "Translate this card to English. Run `survey_cjk` first to see where the source-language content lives; plan from what it reports, not memory. Cover greetings (first_mes + alternate_greetings), UI surfaces (regex replace_string, trigger displays/values, bg-html, scriptstate_defaults), and card System/Post-History instructions. Skip anything already bilingual and internal identifiers. For greetings, `rewrite` the message and be careful of strings that have regex matches. Avoid using mechanical translation methods as sub-string matching will kill your translation, always manually edit surfaces -- unfortunately, there is no easy way to do this, you must inspect every surface and write to it. Ensure you read the full trigger scripts/lua, and find regex surfaces, and default variables before you touch anything, as those contain sensitive string semantics. Avoid touching any regex_find strings and their occurances in the rest of the card. Summarise findings and ask which surfaces to touch before writing. At each stage, please check in with the user to get them to test whether the card surfaces still work as expected, or if anything is broken."
     },
     {
       label: "Add/update a lorebook entry",
@@ -502,6 +515,9 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       ]);
     }
     charCombo.setValue(state.characterId ?? NO_CHARACTER_SENTINEL, true);
+    // Re-list responses can land mid-generation; reassert the busy lock so a
+    // refresh never silently re-enables character switching.
+    updateLocks();
   };
 
   const renderConnOptions = () => {
@@ -531,6 +547,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       const def = state.connections.find((c) => c.is_default);
       if (def) connCombo.setValue(def.id, true);
     }
+    updateLocks();
   };
 
   // The scope the active session points at. A no-character chat has no
@@ -609,32 +626,100 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     sendBackend({ type: "compact_session", sessionId: state.sessionId });
   });
 
+  // What a Send click does, derived from the backend-authoritative status
+  // (with a local-message fallback only for the pre-first-status window of a
+  // brand-new session). The click handler dispatches on this; it never
+  // recomputes the decision.
+  let sendMode: "new" | "continue" | "recover" | "disabled" = "disabled";
+
+  // Lock the surfaces that mutate the session the agent is using. Anything
+  // other than an idle session means a generation or compaction is live.
+  const updateLocks = () => {
+    const busy = state.isGenerating || state.startingSession || state.compacting;
+    charCombo.setDisabled(busy);
+    chatPinBtn.disabled = busy;
+    // connCombo is also disabled when there are no connections; don't
+    // re-enable it here in that case.
+    if (state.connections.length > 0) connCombo.setDisabled(busy);
+  };
+
+  const setComposerStatus = (text: string) => {
+    // Never stomp a sticky error (e.g. the start_session timeout notice).
+    // doSend clears is-error before a fresh attempt.
+    if (composerStatus.classList.contains("is-error")) return;
+    composerStatus.textContent = text;
+  };
+
   const updateComposer = () => {
-    if (state.isGenerating || state.startingSession) {
+    const busy = state.isGenerating || state.startingSession || state.compacting;
+    if (busy) {
       sendBtn.style.display = "none";
       cancelBtn.style.display = "";
+      // Can't abort before the backend has acknowledged the session.
+      cancelBtn.disabled = state.startingSession;
       textarea.disabled = false;
-      composerStatus.textContent = state.startingSession ? "starting session..." : "agent is working...";
-      composerStatus.classList.remove("is-error");
+      setComposerStatus(
+        state.startingSession ? "starting session..."
+        : state.compacting ? "compacting context..."
+        : "agent is working...",
+      );
+      sendMode = "disabled";
     } else {
       sendBtn.style.display = "";
       cancelBtn.style.display = "none";
       textarea.disabled = false;
-      if (state.sessionId) {
-        composerStatus.textContent = "";
+
+      const st = state.sessionStatus;
+      const statusFresh = !!st && st.sessionId === state.sessionId;
+      const hasText = textarea.value.trim().length > 0;
+      const recoverable = statusFresh && st!.phase === "idle"
+        && st!.lastAssistantStatus === "errored" && st!.lastAssistantEmpty
+        && st!.lastAssistantId !== null;
+      // Authoritative last-role; fall back to the local mirror only before the
+      // first status arrives (typing into a brand-new unsent session).
+      const lastRole = statusFresh
+        ? st!.lastMessageRole
+        : (state.messages[state.messages.length - 1]?.role ?? null);
+
+      if (hasText) {
+        // Typed text always sends: new session, new user turn, or a follow-up
+        // after a completed assistant message.
+        sendMode = "new";
+        setComposerStatus(state.sessionId ? "" : "Type a message and press Send. A new session will start automatically.");
+      } else if (recoverable) {
+        sendMode = "recover";
+        setComposerStatus("Last response failed empty. Press Send to retry it.");
+      } else if (lastRole === "user" && !!state.sessionId) {
+        sendMode = "continue";
+        setComposerStatus("");
       } else {
-        composerStatus.textContent = "Type a message and press Send. A new session will start automatically.";
+        // Assistant message last (completed/cancelled), or empty thread with
+        // no text: nothing to send.
+        sendMode = "disabled";
+        setComposerStatus(state.sessionId ? "" : "Type a message and press Send. A new session will start automatically.");
       }
+      sendBtn.disabled = sendMode === "disabled";
     }
-    // Empty textarea behaviour:
-    //   - last message was a user message → button enabled, click resumes that turn
-    //   - last message was an assistant message (or empty thread) → button greyed
-    const hasText = textarea.value.trim().length > 0;
-    const last = state.messages[state.messages.length - 1];
-    const canContinue = !hasText && !!last && last.role === "user";
-    const sendDisabled = state.startingSession || (!hasText && !canContinue);
-    sendBtn.disabled = sendDisabled;
+    updateLocks();
     updateCompactButton();
+  };
+
+  // The single point where backend-authoritative status becomes UI state.
+  // Every session_loaded / session_status flows through here so a reload mid
+  // generation reconstructs the button, locks, and ring correctly.
+  const applyStatus = (st: SessionStatusWire): void => {
+    if (st.sessionId !== state.sessionId) return;
+    state.sessionStatus = st;
+    state.isGenerating = st.phase === "generating";
+    state.compacting = st.phase === "compacting";
+    if (st.phase !== "idle") {
+      state.startingSession = false;
+      clearStartTimeout();
+    }
+    state.contextPromptTokens = st.promptTokens;
+    if (st.contextTokens > 0) state.contextTokens = st.contextTokens;
+    updateComposer();
+    updateSessionBar();
   };
 
   // Optimistic prune so the UI doesn't flash the reverted row before the
@@ -1008,6 +1093,12 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     state.streamingAssistant = null;
     state.pendingMessage = null;
     state.pendingMessageId = null;
+    // A fresh pending session gets no status / context_usage push from the
+    // backend (nothing generates yet), so reset the context-derived UI here
+    // or the compaction wheel keeps showing the previous session's usage.
+    state.contextPromptTokens = 0;
+    state.sessionStatus = null;
+    state.reattachedGeneration = false;
     state.startingSession = true;
     render();
     sendBackend(withConnection({
@@ -1367,6 +1458,18 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     toolCapRow.appendChild(toolCapInput);
     wrap.appendChild(toolCapRow);
 
+    const tpmRow = el("div", "la-settings-row");
+    tpmRow.append(el("label", "la-settings-row-label", "TPM limit (tk/min)"));
+    const tpmInput = document.createElement("input");
+    tpmInput.type = "number";
+    tpmInput.className = "la-slider-input";
+    tpmInput.min = "1";
+    tpmInput.step = "1";
+    tpmInput.placeholder = "off";
+    tpmRow.appendChild(tpmInput);
+    wrap.appendChild(tpmRow);
+    wrap.appendChild(el("div", "la-settings-hint", "Pauses requests when prompt+completion tokens in the last 60s would exceed this. Set to your provider's tokens-per-minute quota (e.g. 250000 for Gemini free tier). Empty = no throttle."));
+
     wrap.appendChild(el("hr", "la-settings-divider"));
 
     wrap.appendChild(el("label", "la-settings-label", "Prompt caching"));
@@ -1492,6 +1595,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       toolCapInput.value = s.toolOutputCapTokens ? String(s.toolOutputCapTokens) : "";
       cacheModeSelect.value = s.cacheMode ?? "full";
       parallelToolsInput.checked = s.parallelToolCalls ?? true;
+      tpmInput.value = s.tpmLimit ? String(s.tpmLimit) : "";
       renderSamplers();
     };
 
@@ -1632,6 +1736,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         toolOutputCapTokens: parsePosInt(toolCapInput.value),
         cacheMode: newCacheMode,
         parallelToolCalls: parallelToolsInput.checked,
+        tpmLimit: parsePosInt(tpmInput.value),
       };
       const key = JSON.stringify(payload);
       if (key === lastCommitted) return;
@@ -1657,7 +1762,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     promptResetBtn.addEventListener("click", () => { if (state.settings?.defaultSystemPromptBody) { promptArea.value = state.settings.defaultSystemPromptBody; commit(); } });
     samplersResetBtn.addEventListener("click", () => { resetAllSamplers(); commit(); });
 
-    for (const inp of [personaArea, promptArea, jbArea, wsCapInput, toolCapInput]) {
+    for (const inp of [personaArea, promptArea, jbArea, wsCapInput, toolCapInput, tpmInput]) {
       inp.addEventListener("blur", () => commit());
     }
     for (const inp of [jbPlacement, cacheModeSelect, parallelToolsInput]) {
@@ -1856,6 +1961,9 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       userMessageId: messageId,
       content: text,
     }));
+    // This client is tracking the generation from its start, so the live
+    // stream is coherent: never treat it as a reattach.
+    state.reattachedGeneration = false;
     state.isGenerating = true;
     updateComposer();
   };
@@ -1869,23 +1977,43 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
 
   const doSend = (): void => {
     const text = textarea.value.trim();
-    if (state.isGenerating || state.startingSession) return;
+    if (state.isGenerating || state.startingSession || state.compacting) return;
 
-    // Empty send: resume the existing turn if the last message is the user's
-    // own (the agent hasn't replied yet). Bail silently otherwise — the
-    // button should already be greyed out via updateComposer in that case.
+    // Empty send: the action is whatever sendMode resolved to in
+    // updateComposer (authoritative-status driven). Never recompute here.
     if (text.length === 0) {
-      const last = state.messages[state.messages.length - 1];
-      const canContinue = !!last && last.role === "user" && !!state.sessionId;
-      if (!canContinue) return;
-      composerStatus.classList.remove("is-error");
-      sendBackend(withConnection({
-        type: "continue_session",
-        sessionId: state.sessionId!,
-      }));
-      state.isGenerating = true;
-      updateComposer();
-      return;
+      if (sendMode === "recover") {
+        const targetId = state.sessionStatus?.lastAssistantId;
+        if (!targetId || !state.sessionId) return;
+        composerStatus.classList.remove("is-error");
+        // Drop the empty errored bubble locally so it doesn't linger; the
+        // backend regenerate truncates from the preceding user message and
+        // re-runs, replacing it.
+        state.messages = state.messages.filter((m) => m.id !== targetId);
+        rerenderThread();
+        sendBackend(withConnection({
+          type: "regenerate_assistant_message",
+          sessionId: state.sessionId,
+          assistantMessageId: targetId,
+          editsAction: "keep",
+        }));
+        state.reattachedGeneration = false;
+        state.isGenerating = true;
+        updateComposer();
+        return;
+      }
+      if (sendMode === "continue" && state.sessionId) {
+        composerStatus.classList.remove("is-error");
+        sendBackend(withConnection({
+          type: "continue_session",
+          sessionId: state.sessionId,
+        }));
+        state.reattachedGeneration = false;
+        state.isGenerating = true;
+        updateComposer();
+        return;
+      }
+      return; // disabled: nothing to send
     }
 
     textarea.value = "";
@@ -1901,6 +2029,8 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     state.sessionId = sessionId;
     state.messages = [];
     state.edits = [];
+    state.contextPromptTokens = 0;
+    state.sessionStatus = null;
     state.startingSession = true;
     rerenderThread();
     const userMsg = appendUserMessage(text);
@@ -2125,6 +2255,12 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         break;
       case "session_loaded":
         clearErrorBanners();
+        // Loading a session is a clean boundary. A sticky composer error from
+        // a prior failed start would otherwise suppress setComposerStatus for
+        // the freshly loaded session (the is-error guard never lifts on its
+        // own across a session switch).
+        composerStatus.classList.remove("is-error");
+        composerStatus.textContent = "";
         state.sessionId = msg.sessionId;
         state.characterId = msg.characterId;
         state.characterName = msg.characterName;
@@ -2138,10 +2274,17 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         // the prior session's scrollTop.
         virtualizer.scrollToBottom();
         persistUiPrefs();
+        applyStatus(msg.status);
+        // Loaded into a live generation we never tracked from turn_started.
+        // Suppress its partial live stream; reload on the terminal event.
+        state.reattachedGeneration = msg.status.phase === "generating";
         if (msg.characterId !== null) {
           sendBackend({ type: "list_character_edits", characterId: msg.characterId });
           sendBackend({ type: "list_chats", characterId: msg.characterId, sessionId: msg.sessionId });
         }
+        break;
+      case "session_status":
+        applyStatus(msg.status);
         break;
       case "session_deleted":
         if (state.sessionId === msg.sessionId) {
@@ -2178,21 +2321,45 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         if (state.diffModal) state.diffModal.setEdits(state.edits);
         break;
       case "chat_event":
+        // While reattached to a generation we didn't track from its start,
+        // the live stream is missing everything before the refresh. Rendering
+        // it would build an incoherent partial bubble and fight the
+        // authoritative reload on the terminal event. Drop it.
+        if (state.reattachedGeneration) break;
         handleAgentEvent(msg.event, agentEventCtx);
         break;
       case "generation_done":
+        if (state.reattachedGeneration && msg.sessionId === state.sessionId) {
+          state.reattachedGeneration = false;
+          state.isGenerating = false;
+          sendBackend({ type: "load_session", sessionId: msg.sessionId });
+          break;
+        }
         state.isGenerating = false;
         finalizeAssistantTurn("complete");
         rerenderThread();
         updateComposer();
         break;
       case "generation_cancelled":
+        if (state.reattachedGeneration && msg.sessionId === state.sessionId) {
+          state.reattachedGeneration = false;
+          state.isGenerating = false;
+          sendBackend({ type: "load_session", sessionId: msg.sessionId });
+          break;
+        }
         state.isGenerating = false;
         finalizeAssistantTurn("cancelled");
         rerenderThread();
         updateComposer();
         break;
       case "generation_error":
+        if (state.reattachedGeneration && msg.sessionId === state.sessionId) {
+          state.reattachedGeneration = false;
+          state.isGenerating = false;
+          clearStartTimeout();
+          sendBackend({ type: "load_session", sessionId: msg.sessionId });
+          break;
+        }
         clearStartTimeout();
         state.isGenerating = false;
         state.startingSession = false;
@@ -2315,6 +2482,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
           toolOutputCapDefaultTokens: msg.toolOutputCapDefaultTokens,
           cacheMode: msg.cacheMode,
           parallelToolCalls: msg.parallelToolCalls,
+          tpmLimit: msg.tpmLimit,
         };
         for (const h of settingsListeners.handlers) h();
         break;

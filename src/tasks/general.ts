@@ -256,7 +256,7 @@ Return rules:
 
 When to use: any time you'd take a value FROM a tool result and put it INTO another tool's args (chain), or call several tools to gather data you'll synthesise (fan-out). Picking from a list, reading a path you just discovered, feeding a grep hit into a read, threading a tmp_handle through tmp_grep then tmp_read, inventorying a card. Default to this over per-step LLM round trips.
 
-Budget: 50 steps / depth 4 / 60s wall-clock.
+Budget: 400 steps / depth 4 / 60s wall-clock.
 
 # Compaction (HANDOFF.md)
 

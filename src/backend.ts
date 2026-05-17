@@ -14,6 +14,7 @@ import type {
   RevertOutcomeWire,
   ScopeRef,
   CharacterStorageEntry,
+  SessionStatusWire,
 } from "./types";
 import { runAgent } from "./agent/loop";
 import { listDeferredToolNames, makeDeferredToolSchemaMap, makeInitialToolSchemas, makeToolDispatch, toolRequiresCharacter } from "./agent/tools";
@@ -68,6 +69,59 @@ async function loadSessionWithPending(sessionId: string, userId: string): Promis
   const p = pendingSessions.get(scopedKey(userId, sessionId));
   if (p) return p;
   return loadSession(spindle, sessionId, userId);
+}
+
+// Sessions whose generation is a compaction run (also registered in
+// activeSessions for the shared abort path). Lets the status resolver label
+// the phase distinctly so the UI shows "compacting" rather than "generating".
+const compactingSessions = new Set<string>();
+
+// An assistant message carries no usable content when it has no
+// non-whitespace text and no tool calls. reasoning-only / warning-only /
+// empty all qualify. This is the recover-send target after an errored turn.
+function assistantHasNoContent(m: ChatAssistantMessage): boolean {
+  for (const b of m.blocks) {
+    if (b.type === "tool") return false;
+    if (b.type === "text" && b.content.trim().length > 0) return false;
+  }
+  return true;
+}
+
+function computeSessionStatus(s: PersistedSession, userId: string, contextTokens: number): SessionStatusWire {
+  const key = scopedKey(userId, s.sessionId);
+  // generating = an AbortController is registered (a live runAgent). A merely
+  // pending session (staged by start_session, no send yet) is NOT generating.
+  const phase: SessionStatusWire["phase"] = compactingSessions.has(key)
+    ? "compacting"
+    : activeSessions.has(key) ? "generating" : "idle";
+  const last = s.messages[s.messages.length - 1];
+  let lastAssistant: ChatAssistantMessage | null = null;
+  if (last && last.role === "assistant") lastAssistant = last;
+  return {
+    sessionId: s.sessionId,
+    phase,
+    lastMessageRole: last ? last.role : null,
+    lastAssistantStatus: lastAssistant ? lastAssistant.status : null,
+    lastAssistantEmpty: lastAssistant !== null && assistantHasNoContent(lastAssistant),
+    lastAssistantId: lastAssistant ? lastAssistant.id : null,
+    promptTokens: s.lastPromptTokens ?? 0,
+    contextTokens,
+  };
+}
+
+// Every caller is `void`ed (fire-and-forget on a lifecycle edge). A storage
+// hiccup must not become an unhandled rejection or silently strand the UI on
+// stale status, so swallow and log: the next transition pushes again.
+async function pushSessionStatus(sessionId: string, userId: string): Promise<void> {
+  try {
+    const s = await loadSessionWithPending(sessionId, userId);
+    if (!s) return;
+    const settings = await loadSettings(spindle, userId);
+    const contextTokens = resolveContextTokens(settings.samplers);
+    send({ type: "session_status", status: computeSessionStatus(s, userId, contextTokens) }, userId);
+  } catch (err) {
+    log("warn", `pushSessionStatus ${sessionId} failed: ${(err as Error).message}`);
+  }
 }
 
 const DEFAULT_MAX_TURNS_PER_MESSAGE = 80;
@@ -346,6 +400,7 @@ async function handleGetSettings(userId: string): Promise<void> {
     toolOutputCapDefaultTokens: DEFAULT_TOOL_OUTPUT_CAP_TOKENS,
     cacheMode: settings.cacheMode,
     parallelToolCalls: settings.parallelToolCalls,
+    tpmLimit: settings.tpmLimit,
   }, userId);
 }
 
@@ -412,6 +467,7 @@ async function handleUpdateSettings(
   toolOutputCapTokens: number | null,
   cacheMode: "off" | "system_only" | "full",
   parallelToolCalls: boolean,
+  tpmLimit: number | null,
   userId: string,
 ): Promise<void> {
   await saveSettings(spindle, {
@@ -425,6 +481,7 @@ async function handleUpdateSettings(
     toolOutputCapTokens,
     cacheMode,
     parallelToolCalls,
+    tpmLimit,
   }, userId);
   await handleGetSettings(userId);
 }
@@ -642,7 +699,9 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
   const maxHandoffChars = Math.floor(contextTokens * 0.15) * 3;
 
   const ac = new AbortController();
+  compactingSessions.add(scopedKey(userId, sessionId));
   activeSessions.set(scopedKey(userId, sessionId), ac);
+  void pushSessionStatus(sessionId, userId);
 
   try {
     const systemMsg = await buildSessionSystemMessage(c, s, settings, userId);
@@ -670,7 +729,7 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
       ...(settings.samplers.contextSize !== null ? { contextTokens: settings.samplers.contextSize } : {}),
       toolOutputCapTokens: resolveToolOutputCapTokens(settings),
       tokenizerModelId: await resolveModelForConnection(s.connectionId, userId),
-      maxTurns: 8, startingTurn: 0, cacheMode: settings.cacheMode, signal: ac.signal,
+      maxTurns: 8, startingTurn: 0, cacheMode: settings.cacheMode, tpmLimit: settings.tpmLimit, signal: ac.signal,
     })) {
       send({ type: "chat_event", sessionId, event: ev }, userId);
       switch (ev.type) {
@@ -727,10 +786,21 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
     send({ type: "compaction_completed", sessionId, handoffPath: HANDOFF_PATH, promptTokens: 0, contextTokens }, userId);
     emitContextUsage(s, contextTokens, userId);
   } catch (err) {
-    log("error", `compactSession ${sessionId} failed: ${(err as Error).message}`);
-    send({ type: "ws_error", error: `Compaction failed: ${(err as Error).message}` }, userId);
+    // User-initiated stop aborts the compaction AC. That surfaces here as a
+    // thrown abort; treat it as a clean cancel, not a failure toast. The
+    // partial assistant bubble stays as the persisted last message.
+    if (ac.signal.aborted) {
+      log("info", `compactSession ${sessionId} cancelled by user`);
+      try { await saveSession(spindle, s, userId); } catch { /* best-effort */ }
+      send({ type: "compaction_completed", sessionId, handoffPath: HANDOFF_PATH, promptTokens: s.lastPromptTokens ?? 0, contextTokens }, userId);
+    } else {
+      log("error", `compactSession ${sessionId} failed: ${(err as Error).message}`);
+      send({ type: "ws_error", error: `Compaction failed: ${(err as Error).message}` }, userId);
+    }
   } finally {
     activeSessions.delete(scopedKey(userId, sessionId));
+    compactingSessions.delete(scopedKey(userId, sessionId));
+    void pushSessionStatus(sessionId, userId);
   }
 }
 
@@ -1050,6 +1120,7 @@ async function handleLoadSession(sessionId: string, userId: string): Promise<voi
     send({ type: "session_deleted", sessionId }, userId);
     return;
   }
+  const settings = await loadSettings(spindle, userId);
   send({
     type: "session_loaded",
     sessionId: s.sessionId,
@@ -1058,6 +1129,7 @@ async function handleLoadSession(sessionId: string, userId: string): Promise<voi
     createdAt: s.createdAt,
     messages: s.messages,
     edits: s.edits,
+    status: computeSessionStatus(s, userId, resolveContextTokens(settings.samplers)),
   }, userId);
 }
 
@@ -1716,6 +1788,7 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
   }
   const ac = new AbortController();
   activeSessions.set(scopedKey(userId, s.sessionId), ac);
+  void pushSessionStatus(s.sessionId, userId);
 
   const settings = await loadSettings(spindle, userId);
   const systemMsg = await buildSessionSystemMessage(c, s, settings, userId);
@@ -1749,7 +1822,7 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
       toolOutputCapTokens: resolveToolOutputCapTokens(settings),
       tokenizerModelId: await resolveModelForConnection(s.connectionId, userId),
       maxTurns: DEFAULT_MAX_TURNS_PER_MESSAGE, startingTurn: lastTurn,
-      cacheMode: settings.cacheMode, signal: ac.signal,
+      cacheMode: settings.cacheMode, tpmLimit: settings.tpmLimit, signal: ac.signal,
       callFrontend: (op, args, timeoutMs) => callFrontend(userId, op, args, timeoutMs),
     })) {
       send({ type: "chat_event", sessionId: s.sessionId, event: ev }, userId);
@@ -1870,6 +1943,7 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
       void compactSession(s.sessionId, userId, "auto");
     }
   }
+  void pushSessionStatus(s.sessionId, userId);
   void handleListSessions(undefined, userId);
 }
 
@@ -2091,7 +2165,7 @@ spindle.onFrontendMessage(async (raw: unknown, userId: string) => {
       case "list_chats": await handleListChats(msg.characterId, msg.sessionId, userId); return;
       case "set_pinned_chat": await handleSetPinnedChat(msg.sessionId, msg.chatId, userId); return;
       case "get_settings": await handleGetSettings(userId); return;
-      case "update_settings": await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.cacheMode ?? "full", msg.parallelToolCalls ?? true, userId); return;
+      case "update_settings": await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.cacheMode ?? "full", msg.parallelToolCalls ?? true, msg.tpmLimit ?? null, userId); return;
       case "get_ui_prefs": await handleGetUiPrefs(userId); return;
       case "update_ui_prefs": await handleUpdateUiPrefs(msg.connectionId, msg.lastSessionId, userId); return;
       case "compact_session": void compactSession(msg.sessionId, userId, "manual"); return;

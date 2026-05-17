@@ -7145,6 +7145,8 @@ function mountDrawer(ctx) {
     settings: null,
     pendingPinChatId: null,
     autoPinNeeded: false,
+    sessionStatus: null,
+    reattachedGeneration: false,
     isGenerating: false,
     startingSession: false,
     compacting: false,
@@ -7237,7 +7239,7 @@ function mountDrawer(ctx) {
   const SUGGESTIONS = [
     {
       label: "Translate this card to English",
-      send: "Translate this card to English. Run `survey_cjk` first to see where the source-language content lives; plan from what it reports, not memory. Cover greetings (first_mes + alternate_greetings), UI surfaces (regex find_string, replace_string, trigger displays/values, bg-html, scriptstate_defaults), and card System/Post-History instructions. Skip anything already bilingual and internal identifiers. For greetings, `rewrite` the message and be careful of strings that have regex matches, as you should ensure that the find_regex is translated along with the match. Avoid using mechanical translation methods as sub-string matching will kill your translation, always manually edit surfaces. Summarise findings and ask which surfaces to touch before writing."
+      send: "Translate this card to English. Run `survey_cjk` first to see where the source-language content lives; plan from what it reports, not memory. Cover greetings (first_mes + alternate_greetings), UI surfaces (regex replace_string, trigger displays/values, bg-html, scriptstate_defaults), and card System/Post-History instructions. Skip anything already bilingual and internal identifiers. For greetings, `rewrite` the message and be careful of strings that have regex matches. Avoid using mechanical translation methods as sub-string matching will kill your translation, always manually edit surfaces -- unfortunately, there is no easy way to do this, you must inspect every surface and write to it. Ensure you read the full trigger scripts/lua, and find regex surfaces, and default variables before you touch anything, as those contain sensitive string semantics. Avoid touching any regex_find strings and their occurances in the rest of the card. Summarise findings and ask which surfaces to touch before writing. At each stage, please check in with the user to get them to test whether the card surfaces still work as expected, or if anything is broken."
     },
     {
       label: "Add/update a lorebook entry",
@@ -7425,6 +7427,7 @@ function mountDrawer(ctx) {
       ]);
     }
     charCombo.setValue(state.characterId ?? NO_CHARACTER_SENTINEL, true);
+    updateLocks();
   };
   const renderConnOptions = () => {
     const cur = connCombo.getValue();
@@ -7450,6 +7453,7 @@ function mountDrawer(ctx) {
       if (def)
         connCombo.setValue(def.id, true);
     }
+    updateLocks();
   };
   const activeScope = () => state.characterId !== null ? characterScope(state.characterId) : null;
   const scopeEntries = (scope) => scope ? state.scopeLedgers.get(scopeKeyString(scope)) ?? [] : [];
@@ -7508,29 +7512,70 @@ function mountDrawer(ctx) {
     updateCompactButton();
     sendBackend({ type: "compact_session", sessionId: state.sessionId });
   });
+  let sendMode = "disabled";
+  const updateLocks = () => {
+    const busy = state.isGenerating || state.startingSession || state.compacting;
+    charCombo.setDisabled(busy);
+    chatPinBtn.disabled = busy;
+    if (state.connections.length > 0)
+      connCombo.setDisabled(busy);
+  };
+  const setComposerStatus = (text) => {
+    if (composerStatus.classList.contains("is-error"))
+      return;
+    composerStatus.textContent = text;
+  };
   const updateComposer = () => {
-    if (state.isGenerating || state.startingSession) {
+    const busy = state.isGenerating || state.startingSession || state.compacting;
+    if (busy) {
       sendBtn.style.display = "none";
       cancelBtn.style.display = "";
+      cancelBtn.disabled = state.startingSession;
       textarea.disabled = false;
-      composerStatus.textContent = state.startingSession ? "starting session..." : "agent is working...";
-      composerStatus.classList.remove("is-error");
+      setComposerStatus(state.startingSession ? "starting session..." : state.compacting ? "compacting context..." : "agent is working...");
+      sendMode = "disabled";
     } else {
       sendBtn.style.display = "";
       cancelBtn.style.display = "none";
       textarea.disabled = false;
-      if (state.sessionId) {
-        composerStatus.textContent = "";
+      const st = state.sessionStatus;
+      const statusFresh = !!st && st.sessionId === state.sessionId;
+      const hasText = textarea.value.trim().length > 0;
+      const recoverable = statusFresh && st.phase === "idle" && st.lastAssistantStatus === "errored" && st.lastAssistantEmpty && st.lastAssistantId !== null;
+      const lastRole = statusFresh ? st.lastMessageRole : state.messages[state.messages.length - 1]?.role ?? null;
+      if (hasText) {
+        sendMode = "new";
+        setComposerStatus(state.sessionId ? "" : "Type a message and press Send. A new session will start automatically.");
+      } else if (recoverable) {
+        sendMode = "recover";
+        setComposerStatus("Last response failed empty. Press Send to retry it.");
+      } else if (lastRole === "user" && !!state.sessionId) {
+        sendMode = "continue";
+        setComposerStatus("");
       } else {
-        composerStatus.textContent = "Type a message and press Send. A new session will start automatically.";
+        sendMode = "disabled";
+        setComposerStatus(state.sessionId ? "" : "Type a message and press Send. A new session will start automatically.");
       }
+      sendBtn.disabled = sendMode === "disabled";
     }
-    const hasText = textarea.value.trim().length > 0;
-    const last = state.messages[state.messages.length - 1];
-    const canContinue = !hasText && !!last && last.role === "user";
-    const sendDisabled = state.startingSession || !hasText && !canContinue;
-    sendBtn.disabled = sendDisabled;
+    updateLocks();
     updateCompactButton();
+  };
+  const applyStatus = (st) => {
+    if (st.sessionId !== state.sessionId)
+      return;
+    state.sessionStatus = st;
+    state.isGenerating = st.phase === "generating";
+    state.compacting = st.phase === "compacting";
+    if (st.phase !== "idle") {
+      state.startingSession = false;
+      clearStartTimeout();
+    }
+    state.contextPromptTokens = st.promptTokens;
+    if (st.contextTokens > 0)
+      state.contextTokens = st.contextTokens;
+    updateComposer();
+    updateSessionBar();
   };
   const spliceEntries = (ids) => {
     if (ids.size === 0)
@@ -7852,6 +7897,9 @@ Revert those edits to the character now, or leave them applied?`;
     state.streamingAssistant = null;
     state.pendingMessage = null;
     state.pendingMessageId = null;
+    state.contextPromptTokens = 0;
+    state.sessionStatus = null;
+    state.reattachedGeneration = false;
     state.startingSession = true;
     render();
     sendBackend(withConnection({
@@ -8179,6 +8227,17 @@ Revert those edits to the character now, or leave them applied?`;
     toolCapInput.step = "1";
     toolCapRow.appendChild(toolCapInput);
     wrap.appendChild(toolCapRow);
+    const tpmRow = el7("div", "la-settings-row");
+    tpmRow.append(el7("label", "la-settings-row-label", "TPM limit (tk/min)"));
+    const tpmInput = document.createElement("input");
+    tpmInput.type = "number";
+    tpmInput.className = "la-slider-input";
+    tpmInput.min = "1";
+    tpmInput.step = "1";
+    tpmInput.placeholder = "off";
+    tpmRow.appendChild(tpmInput);
+    wrap.appendChild(tpmRow);
+    wrap.appendChild(el7("div", "la-settings-hint", "Pauses requests when prompt+completion tokens in the last 60s would exceed this. Set to your provider's tokens-per-minute quota (e.g. 250000 for Gemini free tier). Empty = no throttle."));
     wrap.appendChild(el7("hr", "la-settings-divider"));
     wrap.appendChild(el7("label", "la-settings-label", "Prompt caching"));
     wrap.appendChild(el7("div", "la-settings-hint", "Anthropic-only. OpenAI, Gemini, DeepSeek, and other providers cache the prompt prefix automatically upstream regardless of this setting."));
@@ -8299,6 +8358,7 @@ Revert those edits to the character now, or leave them applied?`;
       toolCapInput.value = s.toolOutputCapTokens ? String(s.toolOutputCapTokens) : "";
       cacheModeSelect.value = s.cacheMode ?? "full";
       parallelToolsInput.checked = s.parallelToolCalls ?? true;
+      tpmInput.value = s.tpmLimit ? String(s.tpmLimit) : "";
       renderSamplers();
     };
     const resetAllSamplers = () => {
@@ -8458,7 +8518,8 @@ Revert those edits to the character now, or leave them applied?`;
         workspaceCapBytes: parseCapMb(wsCapInput.value),
         toolOutputCapTokens: parsePosInt(toolCapInput.value),
         cacheMode: newCacheMode,
-        parallelToolCalls: parallelToolsInput.checked
+        parallelToolCalls: parallelToolsInput.checked,
+        tpmLimit: parsePosInt(tpmInput.value)
       };
       const key = JSON.stringify(payload);
       if (key === lastCommitted)
@@ -8492,7 +8553,7 @@ Revert those edits to the character now, or leave them applied?`;
       resetAllSamplers();
       commit();
     });
-    for (const inp of [personaArea, promptArea, jbArea, wsCapInput, toolCapInput]) {
+    for (const inp of [personaArea, promptArea, jbArea, wsCapInput, toolCapInput, tpmInput]) {
       inp.addEventListener("blur", () => commit());
     }
     for (const inp of [jbPlacement, cacheModeSelect, parallelToolsInput]) {
@@ -8698,6 +8759,7 @@ Revert those edits to the character now, or leave them applied?`;
       userMessageId: messageId,
       content: text
     }));
+    state.reattachedGeneration = false;
     state.isGenerating = true;
     updateComposer();
   };
@@ -8709,20 +8771,38 @@ Revert those edits to the character now, or leave them applied?`;
   };
   const doSend = () => {
     const text = textarea.value.trim();
-    if (state.isGenerating || state.startingSession)
+    if (state.isGenerating || state.startingSession || state.compacting)
       return;
     if (text.length === 0) {
-      const last = state.messages[state.messages.length - 1];
-      const canContinue = !!last && last.role === "user" && !!state.sessionId;
-      if (!canContinue)
+      if (sendMode === "recover") {
+        const targetId = state.sessionStatus?.lastAssistantId;
+        if (!targetId || !state.sessionId)
+          return;
+        composerStatus.classList.remove("is-error");
+        state.messages = state.messages.filter((m) => m.id !== targetId);
+        rerenderThread();
+        sendBackend(withConnection({
+          type: "regenerate_assistant_message",
+          sessionId: state.sessionId,
+          assistantMessageId: targetId,
+          editsAction: "keep"
+        }));
+        state.reattachedGeneration = false;
+        state.isGenerating = true;
+        updateComposer();
         return;
-      composerStatus.classList.remove("is-error");
-      sendBackend(withConnection({
-        type: "continue_session",
-        sessionId: state.sessionId
-      }));
-      state.isGenerating = true;
-      updateComposer();
+      }
+      if (sendMode === "continue" && state.sessionId) {
+        composerStatus.classList.remove("is-error");
+        sendBackend(withConnection({
+          type: "continue_session",
+          sessionId: state.sessionId
+        }));
+        state.reattachedGeneration = false;
+        state.isGenerating = true;
+        updateComposer();
+        return;
+      }
       return;
     }
     textarea.value = "";
@@ -8736,6 +8816,8 @@ Revert those edits to the character now, or leave them applied?`;
     state.sessionId = sessionId;
     state.messages = [];
     state.edits = [];
+    state.contextPromptTokens = 0;
+    state.sessionStatus = null;
     state.startingSession = true;
     rerenderThread();
     const userMsg = appendUserMessage(text);
@@ -8933,6 +9015,8 @@ Revert those edits to the character now, or leave them applied?`;
         break;
       case "session_loaded":
         clearErrorBanners();
+        composerStatus.classList.remove("is-error");
+        composerStatus.textContent = "";
         state.sessionId = msg.sessionId;
         state.characterId = msg.characterId;
         state.characterName = msg.characterName;
@@ -8945,10 +9029,15 @@ Revert those edits to the character now, or leave them applied?`;
         render();
         virtualizer.scrollToBottom();
         persistUiPrefs();
+        applyStatus(msg.status);
+        state.reattachedGeneration = msg.status.phase === "generating";
         if (msg.characterId !== null) {
           sendBackend({ type: "list_character_edits", characterId: msg.characterId });
           sendBackend({ type: "list_chats", characterId: msg.characterId, sessionId: msg.sessionId });
         }
+        break;
+      case "session_status":
+        applyStatus(msg.status);
         break;
       case "session_deleted":
         if (state.sessionId === msg.sessionId) {
@@ -8986,21 +9075,42 @@ Revert those edits to the character now, or leave them applied?`;
           state.diffModal.setEdits(state.edits);
         break;
       case "chat_event":
+        if (state.reattachedGeneration)
+          break;
         handleAgentEvent(msg.event, agentEventCtx);
         break;
       case "generation_done":
+        if (state.reattachedGeneration && msg.sessionId === state.sessionId) {
+          state.reattachedGeneration = false;
+          state.isGenerating = false;
+          sendBackend({ type: "load_session", sessionId: msg.sessionId });
+          break;
+        }
         state.isGenerating = false;
         finalizeAssistantTurn("complete");
         rerenderThread();
         updateComposer();
         break;
       case "generation_cancelled":
+        if (state.reattachedGeneration && msg.sessionId === state.sessionId) {
+          state.reattachedGeneration = false;
+          state.isGenerating = false;
+          sendBackend({ type: "load_session", sessionId: msg.sessionId });
+          break;
+        }
         state.isGenerating = false;
         finalizeAssistantTurn("cancelled");
         rerenderThread();
         updateComposer();
         break;
       case "generation_error":
+        if (state.reattachedGeneration && msg.sessionId === state.sessionId) {
+          state.reattachedGeneration = false;
+          state.isGenerating = false;
+          clearStartTimeout();
+          sendBackend({ type: "load_session", sessionId: msg.sessionId });
+          break;
+        }
         clearStartTimeout();
         state.isGenerating = false;
         state.startingSession = false;
@@ -9124,7 +9234,8 @@ Revert those edits to the character now, or leave them applied?`;
           toolOutputCapTokens: msg.toolOutputCapTokens,
           toolOutputCapDefaultTokens: msg.toolOutputCapDefaultTokens,
           cacheMode: msg.cacheMode,
-          parallelToolCalls: msg.parallelToolCalls
+          parallelToolCalls: msg.parallelToolCalls,
+          tpmLimit: msg.tpmLimit
         };
         for (const h of settingsListeners.handlers)
           h();

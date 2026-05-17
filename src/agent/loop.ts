@@ -89,6 +89,9 @@ export interface RunAgentInput {
   readonly toolOutputCapTokens?: number | null | undefined;
   readonly tokenizerModelId?: string | undefined;
   readonly cacheMode?: "off" | "system_only" | "full" | undefined;
+  // Max tokens (prompt + completion) per rolling 60s before the loop pauses
+  // requests. null/0 = no throttle. Resolved from AgentSettings.tpmLimit.
+  readonly tpmLimit?: number | null | undefined;
   // Optional backend->frontend RPC. Backend wires this so tools running in
   // the sandbox can request browser-only work (e.g. Chrome Translator API).
   readonly callFrontend?: (op: string, args: unknown, timeoutMs?: number) => Promise<unknown>;
@@ -131,6 +134,36 @@ async function estimateUsage(
 const DEFAULT_CONTEXT_TOKENS = 400_000;
 
 const DEFAULT_MAX_TURNS = 40;
+
+const TPM_WINDOW_MS = 60_000;
+
+// Per-user rolling token window. Module scope so it spans every request a user
+// makes within the worker's lifetime (the tool loop, regenerate, compaction,
+// back-to-back messages), not just one runAgent call. A worker restart resets
+// it, which only over-permits for one window.
+const tpmWindows = new Map<string, { ts: number; tokens: number }[]>();
+
+function pruneTpm(userId: string): { ts: number; tokens: number }[] {
+  const arr = tpmWindows.get(userId) ?? [];
+  const cutoff = Date.now() - TPM_WINDOW_MS;
+  while (arr.length > 0 && arr[0]!.ts < cutoff) arr.shift();
+  tpmWindows.set(userId, arr);
+  return arr;
+}
+
+function recordTpm(userId: string, tokens: number): void {
+  if (tokens <= 0) return;
+  pruneTpm(userId).push({ ts: Date.now(), tokens });
+}
+
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve) => {
+    if (signal.aborted) { resolve(); return; }
+    const onAbort = (): void => { clearTimeout(t); resolve(); };
+    const t = setTimeout(() => { signal.removeEventListener("abort", onAbort); resolve(); }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
 
 // Remove text-form tool-call markup (e.g. <tool_use>, <invoke>, <function_call>,
 // <tool_call>, <function_calls>, <parameter>) that the model sometimes
@@ -293,6 +326,25 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
     const turnNum = startingTurn + i;
     if (signal.aborted) return;
 
+    const tpmLimit = input.tpmLimit ?? null;
+    if (tpmLimit !== null && tpmLimit > 0) {
+      while (!signal.aborted) {
+        const win = pruneTpm(input.userId);
+        const used = win.reduce((a, e) => a + e.tokens, 0);
+        if (used < tpmLimit) break;
+        const oldest = win[0];
+        const waitMs = oldest === undefined
+          ? TPM_WINDOW_MS
+          : Math.min(TPM_WINDOW_MS, Math.max(1_000, oldest.ts + TPM_WINDOW_MS - Date.now()));
+        yield {
+          type: "warning",
+          message: `TPM limit reached: ~${used} tokens used in the last minute (limit ${tpmLimit}). Pausing ${Math.ceil(waitMs / 1000)}s to stay under the rate limit.`,
+        };
+        await sleep(waitMs, signal);
+      }
+      if (signal.aborted) return;
+    }
+
     yield { type: "turn_started", turn: turnNum, assistantMessageId: input.assistantMessageId };
 
     let content = "";
@@ -369,6 +421,8 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
         usage = await estimateUsage(input.spindle, input.userId, withRollingCacheBreakpoint(conv, input.cacheMode ?? "full"), content, reasoning, input.tokenizerModelId);
       } catch { /* keep undefined: UI just hides the strip */ }
     }
+
+    if (usage !== undefined) recordTpm(input.userId, usage.total);
 
     if (turnNum === startingTurn + 1 && content.trim().length === 0 && toolCalls.length === 0) {
       const lastUser = [...conv].reverse().find((m) => m.role === "user");

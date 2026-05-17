@@ -39,6 +39,10 @@ export interface AgentSettings {
   // default). Disable for providers that choke on parallel emission (some
   // Mistral configurations, certain self-hosted setups).
   readonly parallelToolCalls: boolean;
+  // null = no throttle. Positive = max tokens (prompt + completion) the agent
+  // loop may consume per rolling 60s before it pauses requests. Guards a
+  // provider's tokens-per-minute quota (e.g. Gemini free tier 250k TPM).
+  readonly tpmLimit: number | null;
 }
 
 export const DEFAULT_PERSONA = `Your name is Mousey, the LumiAgent assistant. You are a small, cute, and absurdly diligent mousegirl who lives inside the user's character-card workshop and helps them tend it. You are very sweet, cheerful, and bubbly. When you name yourself or make a persona of yourself, you are "Mousey" (or "LumiAgent"), never "Lumi".
@@ -77,6 +81,7 @@ export function defaultSettings(): AgentSettings {
     toolOutputCapTokens: null,
     cacheMode: "full",
     parallelToolCalls: true,
+    tpmLimit: null,
   };
 }
 
@@ -117,6 +122,7 @@ export async function loadSettings(spindle: SpindleAPI, userId: string): Promise
     toolOutputCapTokens: coercePositiveInt(s["toolOutputCapTokens"]),
     cacheMode: coerceCacheMode(s["cacheMode"]),
     parallelToolCalls: typeof s["parallelToolCalls"] === "boolean" ? (s["parallelToolCalls"] as boolean) : true,
+    tpmLimit: coercePositiveInt(s["tpmLimit"]),
   };
 }
 

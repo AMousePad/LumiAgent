@@ -69,7 +69,7 @@ Return rules:
 - No \`return\`, any \`save_as\`s → object of all saved bindings.
 - No \`return\`, no \`save_as\` → just the final step's parsed result.
 
-Budget: 50 steps / depth 4 / 60s wall-clock.
+Budget: 400 steps / depth 4 / 60s wall-clock.
 
 (The \`name\` form runs a saved recipe; default to inline \`steps\` for any one-off chain or fan-out.)`,
   inputSchema,
