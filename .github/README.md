@@ -5,7 +5,7 @@
 <img src="image/banner.png" alt="LumiAgent" width="640"/>
 
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Lumiverse](https://img.shields.io/badge/Lumiverse-0.9.7%2B-blueviolet)](https://github.com/prolix-oc/Lumiverse)
+[![Lumiverse](https://img.shields.io/badge/Lumiverse-1.0.0%2B-blueviolet)](https://github.com/prolix-oc/Lumiverse)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?logo=typescript)](https://www.typescriptlang.org/)
 [![Bun](https://img.shields.io/badge/Bun-bundle-fbf0df?logo=bun)](https://bun.sh)
 
@@ -41,7 +41,7 @@
 
 ## Installation
 
-LumiAgent installs as a Lumiverse extension. Lumiverse must be at version **0.9.7 or later (STAGING BRANCH).**
+LumiAgent installs as a Lumiverse extension. Lumiverse must be at version **0.9.9 or later (STAGING BRANCH).**
 
 1. Open your Lumiverse instance.
 2. Go to the **Sidebar → Scroll Down → Extensions Tab** and add:
