@@ -300,6 +300,7 @@ export type FrontendToBackend =
   | { type: "revert_session"; sessionId: string }
   | { type: "edit_user_message"; sessionId: string; messageId: string; newContent: string; editsAction: "keep" | "revert"; connectionId?: string | undefined }
   | { type: "regenerate_assistant_message"; sessionId: string; assistantMessageId: string; editsAction: "keep" | "revert"; connectionId?: string | undefined }
+  | { type: "fork_session"; sourceSessionId: string; messageId: string }
   | { type: "delete_message"; sessionId: string; messageId: string; editsAction: "keep" | "revert" }
   | { type: "free_tool_result"; sessionId: string; callId: string }
   | { type: "list_chats"; characterId: string; sessionId?: string | undefined }
@@ -335,7 +336,8 @@ export type BackendToFrontend =
   | { type: "connections_pushed"; connections: readonly ConnectionSummary[] }
   | { type: "sessions_pushed"; sessions: readonly SessionSummaryWire[] }
   | { type: "session_started"; sessionId: string; characterId: string | null; characterName: string; createdAt: number }
-  | { type: "session_loaded"; sessionId: string; characterId: string | null; characterName: string; createdAt: number; messages: readonly ChatMessage[]; edits: readonly EditLogEntry[]; status: SessionStatusWire }
+  | { type: "session_loaded"; sessionId: string; characterId: string | null; characterName: string; createdAt: number; messages: readonly ChatMessage[]; edits: readonly EditLogEntry[]; status: SessionStatusWire; compactedAt?: number }
+  | { type: "session_forked"; sourceSessionId: string; newSessionId: string; messageId: string }
   | { type: "session_status"; status: SessionStatusWire }
   | { type: "session_deleted"; sessionId: string }
   | { type: "session_markdown_ready"; sessionId: string; filename: string; content: string }

@@ -165,6 +165,20 @@ ${LOADERS_CSS}
 .la-combo-empty { padding: 10px; font-size: 12px; color: var(--lumiverse-text-muted); }
 .la-combo-group { padding: 8px 10px 3px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--lumiverse-text-muted); }
 .la-combo-group:first-child { padding-top: 2px; }
+.la-pre-compaction { opacity: 0.55; }
+.la-pre-compaction .la-msg-bubble { filter: grayscale(0.4); }
+.la-pre-compaction .la-tool-free-btn { display: none !important; }
+.la-toast {
+  position: fixed; left: 50%; bottom: 28px;
+  transform: translateX(-50%) translateY(16px);
+  background: var(--lumiverse-bg-elevated, #2a2a2a); color: var(--lumiverse-text);
+  padding: 10px 18px; border-radius: var(--lumiverse-radius-md, 8px);
+  font-size: 13px; box-shadow: 0 6px 20px rgba(0,0,0,0.35);
+  opacity: 0; pointer-events: none;
+  transition: opacity 220ms ease, transform 220ms ease;
+  z-index: 9999; max-width: 380px;
+}
+.la-toast.is-visible { opacity: 1; transform: translateX(-50%) translateY(0); }
 
 /* Workshop button: icon-shaped, count rendered as a corner badge. */
 .la-changes-btn { position: relative; }

@@ -8,7 +8,7 @@ import type {
 } from "../types";
 import { renderMarkdown } from "./markdown";
 import { renderInlineFieldDiff, renderUnifiedDiff, computeDiffStats, isShortField } from "./diff";
-import { ICON_EDIT, ICON_RETRY, ICON_TRASH } from "./icons";
+import { ICON_EDIT, ICON_RETRY, ICON_TRASH, ICON_FORK } from "./icons";
 import { mountLoading, type LoadingHandle } from "./loading";
 
 const MAX_ARGS_PREVIEW = 80;
@@ -29,6 +29,13 @@ export interface ChatThreadDeps {
   // Fires on inline edit entry and exit. Drawer uses it to preserve the
   // edited bubble across rerenders.
   onEditingChange?(messageId: string | null): void;
+  // Fork the current session at this message into a new session. The user
+  // stays in the current chat; the fork lives independently.
+  onForkMessage?(messageId: string): void;
+  // True when a message's ts predates the session's compaction boundary, so
+  // its model-level actions (edit/regen/delete/free) would silently undo
+  // compaction. UI renders such messages greyed and read-only.
+  isPreCompaction?(messageTs: number): boolean;
 }
 
 export interface AssistantHandle {
@@ -409,12 +416,29 @@ function buildEditsCard(parentMsg: HTMLElement, deps: ChatThreadDeps): {
 }
 
 export function renderUserMessage(msg: ChatUserMessage, deps?: ChatThreadDeps): HTMLElement {
-  const wrap = el("div", "la-msg la-msg-user");
+  const isPre = deps?.isPreCompaction?.(msg.ts) ?? false;
+  const wrap = el("div", `la-msg la-msg-user${isPre ? " la-pre-compaction" : ""}`);
   const bubble = el("div", "la-msg-bubble");
   bubble.textContent = msg.content;
   wrap.appendChild(bubble);
 
-  if (deps?.onEditUserMessage || deps?.onDeleteMessage) {
+  // Pre-compaction: model-level actions would silently undo the compaction.
+  // Show only the fork button (always safe; creates a new session).
+  if (isPre) {
+    if (deps?.onForkMessage) {
+      const actions = el("div", "la-msg-actions");
+      const forkBtn = el("button", "la-msg-action-btn la-msg-action-btn-icon") as HTMLButtonElement;
+      forkBtn.innerHTML = ICON_FORK;
+      forkBtn.setAttribute("aria-label", "Fork into new session");
+      forkBtn.title = "Fork from here into a new session";
+      forkBtn.addEventListener("click", () => deps.onForkMessage!(msg.id));
+      actions.appendChild(forkBtn);
+      wrap.appendChild(actions);
+    }
+    return wrap;
+  }
+
+  if (deps?.onEditUserMessage || deps?.onDeleteMessage || deps?.onForkMessage) {
     const actions = el("div", "la-msg-actions");
     if (deps?.onEditUserMessage) {
       const editBtn = el("button", "la-msg-action-btn la-msg-action-btn-icon") as HTMLButtonElement;
@@ -439,6 +463,14 @@ export function renderUserMessage(msg: ChatUserMessage, deps?: ChatThreadDeps): 
         }
       });
       actions.appendChild(editBtn);
+    }
+    if (deps?.onForkMessage) {
+      const forkBtn = el("button", "la-msg-action-btn la-msg-action-btn-icon") as HTMLButtonElement;
+      forkBtn.innerHTML = ICON_FORK;
+      forkBtn.setAttribute("aria-label", "Fork into new session");
+      forkBtn.title = "Fork from here into a new session";
+      forkBtn.addEventListener("click", () => deps.onForkMessage!(msg.id));
+      actions.appendChild(forkBtn);
     }
     if (deps?.onDeleteMessage) {
       const delBtn = el("button", "la-msg-action-btn la-msg-action-btn-icon la-msg-action-btn-danger") as HTMLButtonElement;
@@ -516,7 +548,8 @@ export function buildEditIndex(edits: readonly EditLogEntry[]): EditIndex {
 export function renderStaticAssistant(msg: ChatAssistantMessage, deps: ChatThreadDeps, allEdits: EditIndex | readonly EditLogEntry[]): HTMLElement {
   const lookup = (id: string): EditLogEntry | undefined =>
     allEdits instanceof Map ? allEdits.get(id) : (allEdits as readonly EditLogEntry[]).find((e) => e.id === id);
-  const wrap = el("div", "la-msg la-msg-assistant");
+  const isPre = deps.isPreCompaction?.(msg.ts) ?? false;
+  const wrap = el("div", `la-msg la-msg-assistant${isPre ? " la-pre-compaction" : ""}`);
   const bubble = el("div", "la-msg-bubble");
   const collected: EditLogEntry[] = [];
 
@@ -571,7 +604,20 @@ export function renderStaticAssistant(msg: ChatAssistantMessage, deps: ChatThrea
   wrap.appendChild(bubble);
 
   const canShowActions = msg.status === "complete" || msg.status === "cancelled" || msg.status === "errored";
-  if (canShowActions && (deps.onRegenerateAssistant || deps.onDeleteMessage)) {
+  if (isPre && canShowActions && deps.onForkMessage) {
+    // Pre-compaction assistant message: regen / delete would silently undo
+    // compaction. Fork is always safe (creates a new session).
+    const actions = el("div", "la-msg-actions la-msg-actions-right");
+    const forkBtn = el("button", "la-msg-action-btn la-msg-action-btn-icon") as HTMLButtonElement;
+    forkBtn.innerHTML = ICON_FORK;
+    forkBtn.setAttribute("aria-label", "Fork into new session");
+    forkBtn.title = "Fork from here into a new session";
+    forkBtn.addEventListener("click", () => deps.onForkMessage!(msg.id));
+    actions.appendChild(forkBtn);
+    wrap.appendChild(actions);
+    return wrap;
+  }
+  if (canShowActions && (deps.onRegenerateAssistant || deps.onDeleteMessage || deps.onForkMessage)) {
     const actions = el("div", "la-msg-actions la-msg-actions-right");
     if (deps.onRegenerateAssistant) {
       const regenBtn = el("button", "la-msg-action-btn la-msg-action-btn-icon") as HTMLButtonElement;
@@ -589,6 +635,14 @@ export function renderStaticAssistant(msg: ChatAssistantMessage, deps: ChatThrea
         await deps.onRegenerateAssistant!(msg.id, action);
       });
       actions.appendChild(regenBtn);
+    }
+    if (deps.onForkMessage) {
+      const forkBtn = el("button", "la-msg-action-btn la-msg-action-btn-icon") as HTMLButtonElement;
+      forkBtn.innerHTML = ICON_FORK;
+      forkBtn.setAttribute("aria-label", "Fork into new session");
+      forkBtn.title = "Fork from here into a new session";
+      forkBtn.addEventListener("click", () => deps.onForkMessage!(msg.id));
+      actions.appendChild(forkBtn);
     }
     if (deps.onDeleteMessage) {
       const delBtn = el("button", "la-msg-action-btn la-msg-action-btn-icon la-msg-action-btn-danger") as HTMLButtonElement;

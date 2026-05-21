@@ -854,6 +854,9 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
     await saveSession(spindle, s, userId);
     send({ type: "compaction_completed", sessionId, handoffPath: HANDOFF_PATH, promptTokens: 0, contextTokens }, userId);
     emitContextUsage(s, contextTokens, userId);
+    // Push a fresh session view so the frontend learns the new compactedAt
+    // and renders the appended boundary marker without a manual reload.
+    void handleLoadSession(sessionId, userId);
   } catch (err) {
     // User-initiated stop aborts the compaction AC. That surfaces here as a
     // thrown abort; treat it as a clean cancel, not a failure toast. The
@@ -1199,6 +1202,7 @@ async function handleLoadSession(sessionId: string, userId: string): Promise<voi
     messages: s.messages,
     edits: s.edits,
     status: computeSessionStatus(s, userId, resolveContextTokens(settings.samplers)),
+    ...(s.compactedAt !== undefined ? { compactedAt: s.compactedAt } : {}),
   }, userId);
 }
 
@@ -1743,11 +1747,12 @@ async function handleFreeToolResult(sessionId: string, callId: string, userId: s
 
   let foundBlock = false;
   let toolName = "tool";
+  let ownerTs = 0;
   for (const m of s.messages) {
     if (m.role !== "assistant") continue;
     for (const b of m.blocks) {
       if (b.type === "tool" && b.call_id === callId) {
-        b.freed = true;
+        ownerTs = m.ts;
         toolName = b.name;
         foundBlock = true;
       }
@@ -1756,6 +1761,20 @@ async function handleFreeToolResult(sessionId: string, callId: string, userId: s
   if (!foundBlock) {
     send({ type: "generation_error", sessionId, error: `tool call ${callId} not found in this session` }, userId);
     return;
+  }
+  // Freeing a pre-compaction tool result is meaningless (that history was
+  // already collapsed out of llmHistory) and would still mutate s.messages
+  // for no benefit. Refuse rather than silently no-op.
+  if (s.compactedAt !== undefined && ownerTs < s.compactedAt) {
+    send({ type: "generation_error", sessionId, error: "This tool result is before the compaction point and is read-only." }, userId);
+    return;
+  }
+  // Re-walk to mark blocks freed only now that the gate has passed.
+  for (const m of s.messages) {
+    if (m.role !== "assistant") continue;
+    for (const b of m.blocks) {
+      if (b.type === "tool" && b.call_id === callId) b.freed = true;
+    }
   }
 
   for (let i = 0; i < s.llmHistory.length; i++) {
@@ -1791,6 +1810,12 @@ async function handleEditUserMessage(sessionId: string, messageId: string, newCo
   if (!s) { send({ type: "generation_error", sessionId, error: "session not found" }, userId); return; }
   const idx = s.messages.findIndex((m) => m.id === messageId && m.role === "user");
   if (idx < 0) { send({ type: "generation_error", sessionId, error: "user message not found" }, userId); return; }
+  // Editing a pre-compaction message would call rebuildLlmHistory over the
+  // full s.messages and silently undo the compaction collapse. Reject loud.
+  if (s.compactedAt !== undefined && s.messages[idx]!.ts < s.compactedAt) {
+    send({ type: "generation_error", sessionId, error: "This message is before the compaction point and is read-only. Fork from here into a new session if you want to branch from it." }, userId);
+    return;
+  }
 
   // Collect edits made in messages STRICTLY AFTER the edited user message.
   const tailMessageIds = new Set(s.messages.slice(idx + 1).filter((m) => m.role === "assistant").map((m) => m.id));
@@ -1820,6 +1845,10 @@ async function handleRegenerateAssistant(sessionId: string, assistantMessageId: 
   if (!s) { send({ type: "generation_error", sessionId, error: "session not found" }, userId); return; }
   const idx = s.messages.findIndex((m) => m.id === assistantMessageId && m.role === "assistant");
   if (idx < 0) { send({ type: "generation_error", sessionId, error: "assistant message not found" }, userId); return; }
+  if (s.compactedAt !== undefined && s.messages[idx]!.ts < s.compactedAt) {
+    send({ type: "generation_error", sessionId, error: "This message is before the compaction point and is read-only. Fork from here into a new session if you want to branch from it." }, userId);
+    return;
+  }
   // Find the preceding user message so we can refuse cleanly if there isn't one.
   // The truncation below drops everything from `idx` onward, leaving the user
   // message in place at the end of llmHistory for the canonical loop to pick up.
@@ -1840,6 +1869,41 @@ async function handleRegenerateAssistant(sessionId: string, assistantMessageId: 
   send({ type: "session_truncated", sessionId, messages: s.messages, edits: s.edits }, userId);
 
   void handleSendMessageInternal(s, userId, connectionId);
+}
+
+async function handleForkSession(sourceSessionId: string, messageId: string, userId: string): Promise<void> {
+  const s = await loadSession(spindle, sourceSessionId, userId);
+  if (!s) { send({ type: "generation_error", sessionId: sourceSessionId, error: "session not found" }, userId); return; }
+  const idx = s.messages.findIndex((m) => m.id === messageId);
+  if (idx < 0) { send({ type: "generation_error", sessionId: sourceSessionId, error: "message not found in session" }, userId); return; }
+  // Clone messages up to and including the breakpoint; deep-copy so the new
+  // session's mutations cannot leak back to the source.
+  const sliced = s.messages.slice(0, idx + 1).map((m) => structuredClone(m));
+  const slicedAssistantIds = new Set(sliced.filter((m) => m.role === "assistant").map((m) => m.id));
+  const newId = makeId("sess");
+  // The source session is not touched: its llmHistory, compactedAt, and the
+  // prompt-cache prefix bytes all remain. The fork's first request will
+  // share the prefix bytes with the source up to the breakpoint, so the
+  // provider cache may still hit for the fork even though it is a new session.
+  const fork: PersistedSession = {
+    version: s.version,
+    sessionId: newId,
+    characterId: s.characterId,
+    characterName: s.characterName,
+    connectionId: s.connectionId,
+    createdAt: Date.now(),
+    lastActivityAt: Date.now(),
+    messages: sliced,
+    llmHistory: rebuildLlmHistory(sliced),
+    edits: s.edits
+      .filter((e) => e.assistantMessageId === undefined || slicedAssistantIds.has(e.assistantMessageId))
+      .map((e) => ({ ...e })),
+    ...(s.pinnedChatId !== undefined ? { pinnedChatId: s.pinnedChatId } : {}),
+  };
+  await saveSession(spindle, fork, userId);
+  send({ type: "session_forked", sourceSessionId, newSessionId: newId, messageId }, userId);
+  // Refresh the sessions list so the new fork appears in the menu.
+  void handleListSessions(undefined, userId);
 }
 
 // Canonical generation loop. Callers must ensure s.llmHistory already ends
@@ -2229,6 +2293,7 @@ spindle.onFrontendMessage(async (raw: unknown, userId: string) => {
       case "revert_session": await handleRevertSession(msg.sessionId, userId); return;
       case "edit_user_message": void handleEditUserMessage(msg.sessionId, msg.messageId, msg.newContent, msg.editsAction, msg.connectionId, userId); return;
       case "regenerate_assistant_message": void handleRegenerateAssistant(msg.sessionId, msg.assistantMessageId, msg.editsAction, msg.connectionId, userId); return;
+      case "fork_session": void handleForkSession(msg.sourceSessionId, msg.messageId, userId); return;
       case "delete_message": void handleDeleteMessage(msg.sessionId, msg.messageId, msg.editsAction, userId); return;
       case "free_tool_result": void handleFreeToolResult(msg.sessionId, msg.callId, userId); return;
       case "list_chats": await handleListChats(msg.characterId, msg.sessionId, userId); return;

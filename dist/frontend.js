@@ -875,6 +875,20 @@ ${LOADERS_CSS}
 .la-combo-empty { padding: 10px; font-size: 12px; color: var(--lumiverse-text-muted); }
 .la-combo-group { padding: 8px 10px 3px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--lumiverse-text-muted); }
 .la-combo-group:first-child { padding-top: 2px; }
+.la-pre-compaction { opacity: 0.55; }
+.la-pre-compaction .la-msg-bubble { filter: grayscale(0.4); }
+.la-pre-compaction .la-tool-free-btn { display: none !important; }
+.la-toast {
+  position: fixed; left: 50%; bottom: 28px;
+  transform: translateX(-50%) translateY(16px);
+  background: var(--lumiverse-bg-elevated, #2a2a2a); color: var(--lumiverse-text);
+  padding: 10px 18px; border-radius: var(--lumiverse-radius-md, 8px);
+  font-size: 13px; box-shadow: 0 6px 20px rgba(0,0,0,0.35);
+  opacity: 0; pointer-events: none;
+  transition: opacity 220ms ease, transform 220ms ease;
+  z-index: 9999; max-width: 380px;
+}
+.la-toast.is-visible { opacity: 1; transform: translateX(-50%) translateY(0); }
 
 /* Workshop button: icon-shaped, count rendered as a corner badge. */
 .la-changes-btn { position: relative; }
@@ -3802,6 +3816,7 @@ var STROKE = `stroke="currentColor" stroke-width="2" stroke-linecap="round" stro
 var ICON_RETRY = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M21 3V8M21 8H16M21 8L18 5.29168C16.4077 3.86656 14.3051 3 12 3C7.02944 3 3 7.02944 3 12C3 16.9706 7.02944 21 12 21C16.2832 21 19.8675 18.008 20.777 14" ${STROKE}/></svg>`;
 var ICON_EDIT = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M20 16v4a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4" ${STROKE}/><polygon points="12.5 15.8 22 6.2 17.8 2 8.3 11.5 8 16 12.5 15.8" ${STROKE}/></svg>`;
 var ICON_TRASH = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14M10 11v6M14 11v6" ${STROKE}/></svg>`;
+var ICON_FORK = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v2a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9"/><path d="M12 12v3"/></svg>`;
 var ICON_DOWNLOAD = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
 var ICON_PIN = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>`;
 var ICON_PIN_OFF = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="M12 17v5"/><path d="M15 9.34V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H7.89"/><path d="m2 2 20 20"/><path d="M9 9v1.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h11"/></svg>`;
@@ -4391,11 +4406,25 @@ function buildEditsCard(parentMsg, deps) {
   return { card, add: append, rebuild, count: () => entries.length };
 }
 function renderUserMessage(msg, deps) {
-  const wrap = el2("div", "la-msg la-msg-user");
+  const isPre = deps?.isPreCompaction?.(msg.ts) ?? false;
+  const wrap = el2("div", `la-msg la-msg-user${isPre ? " la-pre-compaction" : ""}`);
   const bubble = el2("div", "la-msg-bubble");
   bubble.textContent = msg.content;
   wrap.appendChild(bubble);
-  if (deps?.onEditUserMessage || deps?.onDeleteMessage) {
+  if (isPre) {
+    if (deps?.onForkMessage) {
+      const actions = el2("div", "la-msg-actions");
+      const forkBtn = el2("button", "la-msg-action-btn la-msg-action-btn-icon");
+      forkBtn.innerHTML = ICON_FORK;
+      forkBtn.setAttribute("aria-label", "Fork into new session");
+      forkBtn.title = "Fork from here into a new session";
+      forkBtn.addEventListener("click", () => deps.onForkMessage(msg.id));
+      actions.appendChild(forkBtn);
+      wrap.appendChild(actions);
+    }
+    return wrap;
+  }
+  if (deps?.onEditUserMessage || deps?.onDeleteMessage || deps?.onForkMessage) {
     const actions = el2("div", "la-msg-actions");
     if (deps?.onEditUserMessage) {
       const editBtn = el2("button", "la-msg-action-btn la-msg-action-btn-icon");
@@ -4422,6 +4451,14 @@ function renderUserMessage(msg, deps) {
         }
       });
       actions.appendChild(editBtn);
+    }
+    if (deps?.onForkMessage) {
+      const forkBtn = el2("button", "la-msg-action-btn la-msg-action-btn-icon");
+      forkBtn.innerHTML = ICON_FORK;
+      forkBtn.setAttribute("aria-label", "Fork into new session");
+      forkBtn.title = "Fork from here into a new session";
+      forkBtn.addEventListener("click", () => deps.onForkMessage(msg.id));
+      actions.appendChild(forkBtn);
     }
     if (deps?.onDeleteMessage) {
       const delBtn = el2("button", "la-msg-action-btn la-msg-action-btn-icon la-msg-action-btn-danger");
@@ -4498,7 +4535,8 @@ function buildEditIndex(edits) {
 }
 function renderStaticAssistant(msg, deps, allEdits) {
   const lookup = (id) => allEdits instanceof Map ? allEdits.get(id) : allEdits.find((e) => e.id === id);
-  const wrap = el2("div", "la-msg la-msg-assistant");
+  const isPre = deps.isPreCompaction?.(msg.ts) ?? false;
+  const wrap = el2("div", `la-msg la-msg-assistant${isPre ? " la-pre-compaction" : ""}`);
   const bubble = el2("div", "la-msg-bubble");
   const collected = [];
   for (const block of msg.blocks) {
@@ -4552,7 +4590,18 @@ function renderStaticAssistant(msg, deps, allEdits) {
   }
   wrap.appendChild(bubble);
   const canShowActions = msg.status === "complete" || msg.status === "cancelled" || msg.status === "errored";
-  if (canShowActions && (deps.onRegenerateAssistant || deps.onDeleteMessage)) {
+  if (isPre && canShowActions && deps.onForkMessage) {
+    const actions = el2("div", "la-msg-actions la-msg-actions-right");
+    const forkBtn = el2("button", "la-msg-action-btn la-msg-action-btn-icon");
+    forkBtn.innerHTML = ICON_FORK;
+    forkBtn.setAttribute("aria-label", "Fork into new session");
+    forkBtn.title = "Fork from here into a new session";
+    forkBtn.addEventListener("click", () => deps.onForkMessage(msg.id));
+    actions.appendChild(forkBtn);
+    wrap.appendChild(actions);
+    return wrap;
+  }
+  if (canShowActions && (deps.onRegenerateAssistant || deps.onDeleteMessage || deps.onForkMessage)) {
     const actions = el2("div", "la-msg-actions la-msg-actions-right");
     if (deps.onRegenerateAssistant) {
       const regenBtn = el2("button", "la-msg-action-btn la-msg-action-btn-icon");
@@ -4571,6 +4620,14 @@ function renderStaticAssistant(msg, deps, allEdits) {
         await deps.onRegenerateAssistant(msg.id, action);
       });
       actions.appendChild(regenBtn);
+    }
+    if (deps.onForkMessage) {
+      const forkBtn = el2("button", "la-msg-action-btn la-msg-action-btn-icon");
+      forkBtn.innerHTML = ICON_FORK;
+      forkBtn.setAttribute("aria-label", "Fork into new session");
+      forkBtn.title = "Fork from here into a new session";
+      forkBtn.addEventListener("click", () => deps.onForkMessage(msg.id));
+      actions.appendChild(forkBtn);
     }
     if (deps.onDeleteMessage) {
       const delBtn = el2("button", "la-msg-action-btn la-msg-action-btn-icon la-msg-action-btn-danger");
@@ -7163,6 +7220,17 @@ function resolveDisplayName() {
 function makeId(prefix) {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
+function showToast(text, durationMs = 4000) {
+  const t = document.createElement("div");
+  t.className = "la-toast";
+  t.textContent = text;
+  document.body.appendChild(t);
+  requestAnimationFrame(() => t.classList.add("is-visible"));
+  setTimeout(() => {
+    t.classList.remove("is-visible");
+    setTimeout(() => t.remove(), 300);
+  }, durationMs);
+}
 function el7(tag, cls, text) {
   const e = document.createElement(tag);
   if (cls)
@@ -7208,6 +7276,7 @@ function mountDrawer(ctx) {
     isGenerating: false,
     startingSession: false,
     compacting: false,
+    compactedAt: null,
     contextPromptTokens: 0,
     contextTokens: 128000,
     pendingMessage: null,
@@ -7910,7 +7979,13 @@ Revert those edits to the character now, or leave them applied?`;
       },
       promptEditsAction,
       liveEditsForAssistantMessage,
-      liveEditsAfterUserMessage
+      liveEditsAfterUserMessage,
+      onForkMessage: (messageId) => {
+        if (!state.sessionId)
+          return;
+        sendBackend({ type: "fork_session", sourceSessionId: state.sessionId, messageId });
+      },
+      isPreCompaction: (messageTs) => state.compactedAt !== null && messageTs < state.compactedAt
     };
   }
   charCombo.onChange((rawId) => {
@@ -9070,6 +9145,7 @@ Revert those edits to the character now, or leave them applied?`;
         state.characterId = msg.characterId;
         state.characterName = msg.characterName;
         state.startingSession = false;
+        state.compactedAt = null;
         persistUiPrefs();
         if (msg.characterId !== null)
           sendBackend({ type: "list_character_edits", characterId: msg.characterId });
@@ -9103,6 +9179,7 @@ Revert those edits to the character now, or leave them applied?`;
         state.characterName = msg.characterName;
         state.messages = [...msg.messages];
         state.edits = [...msg.edits];
+        state.compactedAt = msg.compactedAt ?? null;
         if (msg.characterId === null)
           charCombo.setValue(NO_CHARACTER_SENTINEL, true);
         else if (state.characters.some((c) => c.id === msg.characterId))
@@ -9123,6 +9200,11 @@ Revert those edits to the character now, or leave them applied?`;
       case "session_status":
         applyStatus(msg.status);
         break;
+      case "session_forked": {
+        showToast("Forked into a new session. Open Sessions to switch to it.");
+        sendBackend({ type: "list_sessions" });
+        break;
+      }
       case "session_deleted":
         if (state.sessionId === msg.sessionId) {
           state.sessionId = null;

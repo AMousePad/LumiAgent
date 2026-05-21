@@ -104,6 +104,9 @@ interface UiState {
   isGenerating: boolean;
   startingSession: boolean;
   compacting: boolean;
+  // Set when the current session has a successful compaction boundary. Messages
+  // with ts < compactedAt are pre-compaction (read-only, greyed).
+  compactedAt: number | null;
   contextPromptTokens: number;
   contextTokens: number;
   pendingMessage: string | null;
@@ -128,6 +131,18 @@ interface UiState {
 
 function makeId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function showToast(text: string, durationMs = 4000): void {
+  const t = document.createElement("div");
+  t.className = "la-toast";
+  t.textContent = text;
+  document.body.appendChild(t);
+  requestAnimationFrame(() => t.classList.add("is-visible"));
+  setTimeout(() => {
+    t.classList.remove("is-visible");
+    setTimeout(() => t.remove(), 300);
+  }, durationMs);
 }
 
 function el(tag: string, cls?: string, text?: string): HTMLElement {
@@ -176,6 +191,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     isGenerating: false,
     startingSession: false,
     compacting: false,
+    compactedAt: null,
     contextPromptTokens: 0,
     contextTokens: 128_000,
     pendingMessage: null,
@@ -1032,6 +1048,11 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       promptEditsAction,
       liveEditsForAssistantMessage,
       liveEditsAfterUserMessage,
+      onForkMessage: (messageId: string) => {
+        if (!state.sessionId) return;
+        sendBackend({ type: "fork_session", sourceSessionId: state.sessionId, messageId });
+      },
+      isPreCompaction: (messageTs: number) => state.compactedAt !== null && messageTs < state.compactedAt,
     };
   }
 
@@ -2252,6 +2273,8 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         state.characterId = msg.characterId;
         state.characterName = msg.characterName;
         state.startingSession = false;
+        // Fresh session: no compaction yet.
+        state.compactedAt = null;
         persistUiPrefs();
         if (msg.characterId !== null) sendBackend({ type: "list_character_edits", characterId: msg.characterId });
         // Flush a queued pin (from the chat picker auto-start flow).
@@ -2293,6 +2316,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         state.characterName = msg.characterName;
         state.messages = [...msg.messages];
         state.edits = [...msg.edits];
+        state.compactedAt = msg.compactedAt ?? null;
         if (msg.characterId === null) charCombo.setValue(NO_CHARACTER_SENTINEL, true);
         else if (state.characters.some((c) => c.id === msg.characterId)) charCombo.setValue(msg.characterId, true);
         // Refresh picker labels so "(Active)" tracks the loaded session's char.
@@ -2320,6 +2344,15 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       case "session_status":
         applyStatus(msg.status);
         break;
+      case "session_forked": {
+        // The user stays in the current chat. The fork lives in a separate
+        // session; surface a toast so they know it landed and can open it
+        // via the Sessions menu. Critically we do NOT load the fork or touch
+        // the current session's llmHistory/cache here.
+        showToast("Forked into a new session. Open Sessions to switch to it.");
+        sendBackend({ type: "list_sessions" });
+        break;
+      }
       case "session_deleted":
         if (state.sessionId === msg.sessionId) {
           state.sessionId = null;

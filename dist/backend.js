@@ -20751,7 +20751,7 @@ var init_finish = __esm(() => {
 });
 
 // src/generated/lumiverse-docs.ts
-var LUMIVERSE_DOCS_VERSION = "2cdb900e5dd6fa60", LUMIVERSE_DOCS;
+var LUMIVERSE_DOCS_VERSION = "fb2eb43a2d26e9be", LUMIVERSE_DOCS;
 var init_lumiverse_docs = __esm(() => {
   LUMIVERSE_DOCS = {
     "characters/alternate-fields.md": `# Alternate Fields & Avatars\r
@@ -24780,7 +24780,9 @@ The start scripts accept flags to control behavior:\r
     | \`--setup\` | Run the setup wizard |\r
     | \`--reset-password\` | Reset the owner account password |\r
     | \`-m\`, \`--migrate-st\` | Run the [SillyTavern migration](#migrating-from-sillytavern) tool |\r
-    | \`--no-runner\` | Start without the visual terminal runner |\r
+    | \`--no-runner\` | Start without the runner (disables Operator Panel update/restart/branch-switch controls) |\r
+    | \`--upgrade-bun\` | Upgrade Bun to the latest stable release, then continue |\r
+    | \`--upgrade-bun-canary\` | Upgrade Bun to the latest canary build, then continue |\r
 \r
 === "Windows (\`start.ps1\`)"\r
 \r
@@ -24794,7 +24796,9 @@ The start scripts accept flags to control behavior:\r
     | \`-Mode setup\` | Run the setup wizard |\r
     | \`-Mode reset-password\` | Reset the owner account password |\r
     | \`-MigrateST\` or \`-m\` | Run the SillyTavern migration tool |\r
-    | \`-NoRunner\` | Start without the visual runner |\r
+    | \`-NoRunner\` | Start without the runner (disables Operator Panel update/restart/branch-switch controls) |\r
+    | \`-UpgradeBun\` | Upgrade Bun to the latest stable release, then continue |\r
+    | \`-UpgradeBunCanary\` | Upgrade Bun to the latest canary build, then continue |\r
 \r
 ---\r
 \r
@@ -24939,22 +24943,30 @@ API keys and account passwords are stored encrypted in the \`data/\` directory r
 \r
 ## Updating\r
 \r
-=== "Visual Runner"\r
+The easiest way to update Lumiverse is from the **Operator Panel** in the running app \u2014 no terminal interaction needed.\r
 \r
-    If you're using the visual terminal runner (the default), press **U** twice to trigger an update. The runner pulls the latest code, reinstalls dependencies, and restarts automatically.\r
+### From the Operator Panel (recommended)\r
+\r
+1. Open **Settings \u2192 Operator Panel**.\r
+2. Click **Check for Updates**. The panel reports how many commits behind you are and previews the latest commit message.\r
+3. If an update is available, click **Apply Update**. Lumiverse pulls the latest code, reinstalls dependencies, rebuilds the frontend, and restarts the server. Your browser reconnects automatically when the new build is ready.\r
+\r
+The runner that the start scripts launch is what carries out the update on your behalf. It needs to be attached for the Operator Panel buttons to work \u2014 the panel shows **Runner IPC: Connected** when it is. If the badge reads _Unavailable_ (e.g. you launched with \`--no-runner\` / \`-NoRunner\`, or restarted the backend outside the runner), use the command-line flow below instead.\r
+\r
+### From the Command Line\r
 \r
 === "macOS / Linux"\r
 \r
     \`\`\`bash\r
     git pull\r
-    ./start.sh\r
+    ./start.sh --build\r
     \`\`\`\r
 \r
 === "Windows"\r
 \r
     \`\`\`powershell\r
     git pull\r
-    .\\start.ps1\r
+    .\\start.ps1 -Build\r
     \`\`\`\r
 \r
 === "Docker"\r
@@ -24963,6 +24975,8 @@ API keys and account passwords are stored encrypted in the \`data/\` directory r
     docker-compose pull\r
     docker-compose up -d\r
     \`\`\`\r
+\r
+The \`--build\` / \`-Build\` flag rebuilds the frontend before launching \u2014 important on a fresh pull because the precompiled assets won't match the new source.\r
 \r
 Database migrations run automatically on startup \u2014 your data is preserved across updates.\r
 \r
@@ -24981,7 +24995,7 @@ You can move between branches at any time. Your \`data/\` folder is unaffected.\
 \r
 ### From the Operator Panel (recommended)\r
 \r
-If you're running Lumiverse with the visual terminal runner (the default for the start scripts), you can switch branches without leaving the app:\r
+If you launched Lumiverse with one of the start scripts, the runner is attached by default and you can switch branches without leaving the app:\r
 \r
 1. Open **Settings \u2192 Operator Panel**.\r
 2. Look at the **Branch** card \u2014 it shows the branch you're on (\`main\` or \`staging\`).\r
@@ -36610,7 +36624,7 @@ function subscribeToMissingChanges(handler) {
 }
 // spindle.json
 var spindle_default = {
-  version: "0.4.4",
+  version: "0.4.5",
   name: "LumiAgent",
   identifier: "lumiagent",
   author: "amousepad",
@@ -37457,6 +37471,7 @@ async function compactSession(sessionId, userId, trigger) {
     await saveSession(spindle, s, userId);
     send({ type: "compaction_completed", sessionId, handoffPath: HANDOFF_PATH, promptTokens: 0, contextTokens }, userId);
     emitContextUsage(s, contextTokens, userId);
+    handleLoadSession(sessionId, userId);
   } catch (err) {
     if (ac.signal.aborted) {
       log("info", `compactSession ${sessionId} cancelled by user`);
@@ -37816,7 +37831,8 @@ async function handleLoadSession(sessionId, userId) {
     createdAt: s.createdAt,
     messages: s.messages,
     edits: s.edits,
-    status: computeSessionStatus(s, userId, resolveContextTokens(settings.samplers))
+    status: computeSessionStatus(s, userId, resolveContextTokens(settings.samplers)),
+    ...s.compactedAt !== undefined ? { compactedAt: s.compactedAt } : {}
   }, userId);
 }
 async function handleStartSession(sessionId, characterId, connectionId, userId) {
@@ -38333,12 +38349,13 @@ async function handleFreeToolResult(sessionId, callId, userId) {
   }
   let foundBlock = false;
   let toolName = "tool";
+  let ownerTs = 0;
   for (const m of s.messages) {
     if (m.role !== "assistant")
       continue;
     for (const b of m.blocks) {
       if (b.type === "tool" && b.call_id === callId) {
-        b.freed = true;
+        ownerTs = m.ts;
         toolName = b.name;
         foundBlock = true;
       }
@@ -38347,6 +38364,18 @@ async function handleFreeToolResult(sessionId, callId, userId) {
   if (!foundBlock) {
     send({ type: "generation_error", sessionId, error: `tool call ${callId} not found in this session` }, userId);
     return;
+  }
+  if (s.compactedAt !== undefined && ownerTs < s.compactedAt) {
+    send({ type: "generation_error", sessionId, error: "This tool result is before the compaction point and is read-only." }, userId);
+    return;
+  }
+  for (const m of s.messages) {
+    if (m.role !== "assistant")
+      continue;
+    for (const b of m.blocks) {
+      if (b.type === "tool" && b.call_id === callId)
+        b.freed = true;
+    }
   }
   for (let i = 0;i < s.llmHistory.length; i++) {
     const m = s.llmHistory[i];
@@ -38389,6 +38418,10 @@ async function handleEditUserMessage(sessionId, messageId, newContent, editsActi
     send({ type: "generation_error", sessionId, error: "user message not found" }, userId);
     return;
   }
+  if (s.compactedAt !== undefined && s.messages[idx].ts < s.compactedAt) {
+    send({ type: "generation_error", sessionId, error: "This message is before the compaction point and is read-only. Fork from here into a new session if you want to branch from it." }, userId);
+    return;
+  }
   const tailMessageIds = new Set(s.messages.slice(idx + 1).filter((m) => m.role === "assistant").map((m) => m.id));
   const editsToReview = s.edits.filter((e) => e.assistantMessageId !== undefined && tailMessageIds.has(e.assistantMessageId) && !e.reverted);
   if (editsAction === "revert" && editsToReview.length > 0 && s.characterId !== null) {
@@ -38421,6 +38454,10 @@ async function handleRegenerateAssistant(sessionId, assistantMessageId, editsAct
     send({ type: "generation_error", sessionId, error: "assistant message not found" }, userId);
     return;
   }
+  if (s.compactedAt !== undefined && s.messages[idx].ts < s.compactedAt) {
+    send({ type: "generation_error", sessionId, error: "This message is before the compaction point and is read-only. Fork from here into a new session if you want to branch from it." }, userId);
+    return;
+  }
   let userIdx = -1;
   for (let i = idx - 1;i >= 0; i--) {
     if (s.messages[i].role === "user") {
@@ -38447,6 +38484,37 @@ async function handleRegenerateAssistant(sessionId, assistantMessageId, editsAct
   await saveSession(spindle, s, userId);
   send({ type: "session_truncated", sessionId, messages: s.messages, edits: s.edits }, userId);
   handleSendMessageInternal(s, userId, connectionId);
+}
+async function handleForkSession(sourceSessionId, messageId, userId) {
+  const s = await loadSession(spindle, sourceSessionId, userId);
+  if (!s) {
+    send({ type: "generation_error", sessionId: sourceSessionId, error: "session not found" }, userId);
+    return;
+  }
+  const idx = s.messages.findIndex((m) => m.id === messageId);
+  if (idx < 0) {
+    send({ type: "generation_error", sessionId: sourceSessionId, error: "message not found in session" }, userId);
+    return;
+  }
+  const sliced = s.messages.slice(0, idx + 1).map((m) => structuredClone(m));
+  const slicedAssistantIds = new Set(sliced.filter((m) => m.role === "assistant").map((m) => m.id));
+  const newId = makeId("sess");
+  const fork = {
+    version: s.version,
+    sessionId: newId,
+    characterId: s.characterId,
+    characterName: s.characterName,
+    connectionId: s.connectionId,
+    createdAt: Date.now(),
+    lastActivityAt: Date.now(),
+    messages: sliced,
+    llmHistory: rebuildLlmHistory(sliced),
+    edits: s.edits.filter((e) => e.assistantMessageId === undefined || slicedAssistantIds.has(e.assistantMessageId)).map((e) => ({ ...e })),
+    ...s.pinnedChatId !== undefined ? { pinnedChatId: s.pinnedChatId } : {}
+  };
+  await saveSession(spindle, fork, userId);
+  send({ type: "session_forked", sourceSessionId, newSessionId: newId, messageId }, userId);
+  handleListSessions(undefined, userId);
 }
 async function handleSendMessageInternal(s, userId, connectionIdOverride) {
   if (connectionIdOverride && s.connectionId !== connectionIdOverride) {
@@ -38843,6 +38911,9 @@ spindle.onFrontendMessage(async (raw, userId) => {
         return;
       case "regenerate_assistant_message":
         handleRegenerateAssistant(msg.sessionId, msg.assistantMessageId, msg.editsAction, msg.connectionId, userId);
+        return;
+      case "fork_session":
+        handleForkSession(msg.sourceSessionId, msg.messageId, userId);
         return;
       case "delete_message":
         handleDeleteMessage(msg.sessionId, msg.messageId, msg.editsAction, userId);
