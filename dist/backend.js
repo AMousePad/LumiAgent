@@ -14109,7 +14109,7 @@ function finalize(ctx, schema) {
     result.$schema = "http://json-schema.org/draft-07/schema#";
   } else if (ctx.target === "draft-04") {
     result.$schema = "http://json-schema.org/draft-04/schema#";
-  } else if (ctx.target === "openapi-3.0") {} else {}
+  } else if (ctx.target === "openapi-3.0") {}
   if (ctx.external?.uri) {
     const id = ctx.external.registry.get(schema)?.id;
     if (!id)
@@ -14370,7 +14370,7 @@ var formatMap, stringProcessor = (schema, ctx, _json, _params) => {
     if (val === undefined) {
       if (ctx.unrepresentable === "throw") {
         throw new Error("Literal `undefined` cannot be represented in JSON Schema");
-      } else {}
+      }
     } else if (typeof val === "bigint") {
       if (ctx.unrepresentable === "throw") {
         throw new Error("BigInt literals cannot be represented in JSON Schema");
@@ -20751,7 +20751,7 @@ var init_finish = __esm(() => {
 });
 
 // src/generated/lumiverse-docs.ts
-var LUMIVERSE_DOCS_VERSION = "c01e49c24ccbd65c", LUMIVERSE_DOCS;
+var LUMIVERSE_DOCS_VERSION = "16a461eb294d37f3", LUMIVERSE_DOCS;
 var init_lumiverse_docs = __esm(() => {
   LUMIVERSE_DOCS = {
     "characters/alternate-fields.md": `# Alternate Fields & Avatars\r
@@ -22723,6 +22723,34 @@ A member can have multiple tools. During deliberation, all assigned tools are ru
 \r
 ---\r
 \r
+## Historical Deliberations\r
+\r
+Each assigned member/tool pair can retain a small number of prior successful deliberations for the same chat. This lets a council member build on threads it previously planted, such as long-term plot plans, relationship beats, unresolved warnings, or recurring worldbuilding ideas.\r
+\r
+To enable it:\r
+\r
+1. Open the **Council** panel\r
+2. Expand a council member\r
+3. Assign one or more tools\r
+4. Under the assigned tool list, set **Historical deliberations retained** above \`0\`\r
+\r
+The number is per member and per tool:\r
+\r
+| Value | Behavior |\r
+|-------|----------|\r
+| \`0\` | Do not retain history for this member/tool assignment |\r
+| \`1\` | Include only the last successful deliberation from this member/tool |\r
+| \`2-10\` | Include up to that many prior successful deliberations |\r
+\r
+Historical deliberations are chat-scoped. They do not carry across different chats, and they are matched to the exact council member plus tool assignment.\r
+\r
+When history is enabled, Lumiverse sends it as a clearly labeled **historical baseline only** block. The prompt explicitly tells the model that prior deliberations are not a template, not binding instructions, and do not override current chat history, active world info, or the latest user message.\r
+\r
+!!! note "Successful tool outputs only"\r
+    Failed tool runs are not stored. If a tool is removed from a member or its retention is set back to \`0\`, old retained entries for that assignment are pruned the next time council history is updated.\r
+\r
+---\r
+\r
 ## Tool Results\r
 \r
 Tool results are available in the prompt through macros:\r
@@ -22807,6 +22835,7 @@ Each council member is based on a **Lumia item** from an installed pack.\r
 |---------|-------------|\r
 | **Role** | A label for this member's function (e.g., "Story Architect," "Dialogue Coach") |\r
 | **Tools** | Which council tools this member can use |\r
+| **Historical deliberations retained** | Optional per-tool count of prior successful deliberations to remember in this chat |\r
 | **Chance** | Probability (0-100) this member participates in each deliberation |\r
 \r
 ### Chance\r
@@ -22849,6 +22878,28 @@ You can add multiple council members, each with different Lumia personas and too
 - **World Builder** \u2014 Uses scene and description tools\r
 \r
 Each member brings their own perspective based on their Lumia's personality and assigned tools.\r
+\r
+---\r
+\r
+## Enabling Historical Deliberations\r
+\r
+Historical deliberations give a council member continuity across turns. Use them when a member/tool should remember plans it has already proposed, warnings it has raised, or story threads it is intentionally developing in the background.\r
+\r
+To enable historical deliberations for a member:\r
+\r
+1. Open the **Council** panel\r
+2. Expand the council member\r
+3. Assign the tool that should keep continuity\r
+4. Set that tool's **Historical deliberations retained** value above \`0\`\r
+\r
+The setting is per member/tool assignment. For example, you can retain \`3\` prior **Suggest Direction** outputs for a Story Architect while leaving that same member's **Voice Concern** history disabled.\r
+\r
+Historical entries are included in two places:\r
+\r
+- The sidecar council tool sees prior outputs from the same member/tool before writing its next deliberation.\r
+- The main model receives a separate historical-baseline block alongside the current \`{{lumiaCouncilDeliberation}}\` output.\r
+\r
+Lumiverse labels historical deliberations as continuity context only. They are not treated as a required template and should not override current chat history, active world info, or the latest user message.\r
 \r
 ---\r
 \r
@@ -35092,7 +35143,7 @@ function subscribeToMissingChanges(handler) {
 }
 // spindle.json
 var spindle_default = {
-  version: "0.4.2",
+  version: "0.4.4",
   name: "LumiAgent",
   identifier: "lumiagent",
   author: "amousepad",
@@ -35123,6 +35174,10 @@ var spindle_default = {
     "images",
     "generation_parameters",
     "macro_interceptor"
+  ],
+  requested_capabilities: [
+    "dynamic_code_execution",
+    "base64_decode"
   ],
   entry_backend: "dist/backend.js",
   entry_frontend: "dist/frontend.js",
