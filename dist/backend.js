@@ -20751,7 +20751,7 @@ var init_finish = __esm(() => {
 });
 
 // src/generated/lumiverse-docs.ts
-var LUMIVERSE_DOCS_VERSION = "16a461eb294d37f3", LUMIVERSE_DOCS;
+var LUMIVERSE_DOCS_VERSION = "2cdb900e5dd6fa60", LUMIVERSE_DOCS;
 var init_lumiverse_docs = __esm(() => {
   LUMIVERSE_DOCS = {
     "characters/alternate-fields.md": `# Alternate Fields & Avatars\r
@@ -22248,11 +22248,11 @@ Speech-to-Text (STT) lets you dictate a chat message from the input bar instead 
 \r
 ## Setting Up STT\r
 \r
-Open **Settings > Voice > Speech-to-Text** and choose a provider.\r
+Open **Settings \u2192 Voice & Speech \u2192 Speech-to-Text** and choose a provider.\r
 \r
 | Provider | Best For | Notes |\r
 |----------|----------|-------|\r
-| **Web Speech API** | Fast browser-native dictation | Availability depends on your browser. Chrome and Edge usually work best. |\r
+| **Web Speech API** | Fast browser-native dictation | Availability depends on your browser. Chrome and Edge usually work best. The option is greyed out (with "Unavailable") when your browser doesn't support it. |\r
 | **STT Connection** | Whisper and OpenAI-compatible transcription models | Requires an STT connection with an API key and transcription model. |\r
 \r
 For an STT connection:\r
@@ -22261,10 +22261,24 @@ For an STT connection:\r
 2. Go to **STT Connections**\r
 3. Click **New STT Connection**\r
 4. Enter a name, API key, and transcription model such as \`gpt-4o-transcribe\`, \`whisper-1\`, or your provider's equivalent\r
-5. Return to **Settings > Voice** and select that connection\r
+5. Return to **Settings \u2192 Voice & Speech** and select that connection\r
 \r
 !!! tip "OpenAI-compatible endpoints"\r
     STT connections use OpenAI-compatible \`/audio/transcriptions\` APIs. Leave **API URL** empty for OpenAI, or enter your proxy/self-hosted endpoint if it implements that route.\r
+\r
+---\r
+\r
+## Voice & Speech Panel Options\r
+\r
+The Speech-to-Text section of **Voice & Speech** has several toggles that affect how dictation behaves:\r
+\r
+| Setting | What it does |\r
+|---------|--------------|\r
+| **Language** | Recognition language. Eleven locales are built in: English (US/UK), Japanese, Mandarin (Simplified), Spanish, French, German, Italian, Brazilian Portuguese, Korean, and Russian. For STT-connection providers, Lumiverse also normalizes the locale to the ISO country code Whisper expects. |\r
+| **Continuous recognition** | When on, recognition keeps running across silences instead of stopping at the first pause. Useful for long dictation sessions; pair with the **auto-submit** option below if you want hands-free finishing. |\r
+| **Show interim results** | Displays partial transcriptions in the input bar as you speak. Web Speech only \u2014 Whisper-style connections only return the final transcript. |\r
+| **Auto-submit after silence** | Decides the recording is finished after a sustained pause and either dispatches it (Web Speech) or sends it for transcription (STT connections). See [Auto-Submit After Silence](#auto-submit-after-silence) below. |\r
+| **Show mic button in input bar** | Toggles the microphone shortcut shown next to the message input. Turn it off if you only use the keyboard. |\r
 \r
 ---\r
 \r
@@ -22428,6 +22442,141 @@ Every chat stores:\r
 - World Info activation state (sticky/cooldown counters)\r
 - Loom summary data\r
 `,
+    "chatting/text-to-speech.md": `# Text-to-Speech\r
+\r
+Lumiverse can speak assistant replies aloud using a configurable text-to-speech connection. You can play any message manually, or have new replies auto-play as they finish generating.\r
+\r
+---\r
+\r
+## Setting Up TTS\r
+\r
+1. Open the **Connections** drawer.\r
+2. Switch to **TTS Connections** and click **New TTS Connection**.\r
+3. Pick a **Provider** (see below).\r
+4. Enter the **API URL** (only needed for self-hosted endpoints; leave blank for the provider default) and any required **API Key**.\r
+5. Choose a **Model** and **Voice**. Use the refresh button on each field to fetch live lists where the provider supports it.\r
+6. Optionally adjust provider-specific parameters (stability, style, output format, \u2026).\r
+7. Save, then click **Test** to confirm the connection.\r
+\r
+Once a connection exists, open **Settings \u2192 Voice & Speech**, turn on **Enable text-to-speech**, and select your connection from the dropdown.\r
+\r
+---\r
+\r
+## Providers\r
+\r
+### OpenAI TTS\r
+\r
+- **API key:** Required.\r
+- **Default URL:** \`https://api.openai.com/v1\`. Override to use a proxy.\r
+- **Voices:** Built-in (Alloy, Ash, Ballad, Cedar, Coral, Echo, Fable, Marin, Nova, Onyx, Sage, Shimmer, Verse).\r
+- **Models:** Fetched live from your account.\r
+- **Parameters:** \`speed\` (0.25 \u2013 4.0) and \`instructions\` (style guidance, e.g. _"Speak warmly with a slight British accent"_ \u2014 only honored by \`gpt-4o-mini-tts\`).\r
+- **Streaming:** Supported. Lumiverse buffers the stream and plays it as a single clip.\r
+- **Output formats:** MP3, Opus, AAC, FLAC, WAV, PCM (default: MP3).\r
+\r
+### ElevenLabs\r
+\r
+- **API key:** Required (sent as \`xi-api-key\`).\r
+- **Default URL:** \`https://api.elevenlabs.io\`.\r
+- **Voices:** Fetched live from your ElevenLabs account, including any custom voices you've created.\r
+- **Models:** Eleven v3 (Most Expressive), Eleven Multilingual v2, Eleven Flash v2.5 (Low Latency).\r
+- **Parameters:**\r
+\r
+    | Field | Default | Range |\r
+    |-------|---------|-------|\r
+    | \`stability\` | 0.5 | 0 \u2013 1. Higher = more consistent, lower = more expressive. |\r
+    | \`similarity_boost\` | 0.75 | 0 \u2013 1. How closely the synth matches the original voice clone. |\r
+    | \`style\` | 0 | 0 \u2013 1. Amplifies voice style; available in Advanced. |\r
+    | \`speed\` | 1.0 | 0.7 \u2013 1.2 (ElevenLabs caps narrower than OpenAI). |\r
+    | \`use_speaker_boost\` | On | Enhances clarity. |\r
+    | \`language_code\` | (auto) | Force a language code (\`en\`, \`ja\`, \`de\`, \u2026) or leave blank for auto-detect. |\r
+    | \`output_format\` | \`mp3_44100_128\` | Wide list including MP3 22\u2013192 kbps, PCM 16\u201344 kHz, and \xB5-law 8 kHz. |\r
+\r
+- **Streaming:** Supported.\r
+\r
+### Kokoro TTS (self-hosted)\r
+\r
+- **API key:** Not required \u2014 Kokoro is a local server.\r
+- **Default URL:** \`http://localhost:8880/v1\`. Point at wherever you've run Kokoro-FastAPI (or any compatible server).\r
+- **Voices:** Built-in catalog of 50+ voices across American/British English, Japanese, Mandarin, Spanish, French, Hindi, Italian, and Brazilian Portuguese. Voice IDs use a \`language+gender\` prefix (\`af_\` American Female, \`bm_\` British Male, \`jf_\` Japanese Female, etc.).\r
+- **Models:** Static \u2014 Kokoro ships a single model id (\`kokoro\`).\r
+- **Parameters:** \`speed\` (0.5 \u2013 2.0).\r
+- **Streaming:** Supported.\r
+- **Output formats:** MP3, Opus, WAV, FLAC.\r
+\r
+!!! tip "Kokoro is OpenAI-compatible"\r
+    Kokoro inherits Lumiverse's OpenAI-compatible TTS plumbing, so any other OpenAI-compatible TTS server you have running can be reached by creating a Kokoro connection and pointing the API URL at it.\r
+\r
+---\r
+\r
+## Playing Audio\r
+\r
+### Auto-play\r
+\r
+In **Settings \u2192 Voice & Speech**, enable **Auto-play responses** to speak every new assistant reply as soon as generation finishes. Auto-play respects whatever **Speech detection** rules you've configured (see below) \u2014 segments marked as _Skip_ are filtered out before synthesis.\r
+\r
+### Manual playback\r
+\r
+When a message is on screen, use the speaker control on the bubble to play (or stop) that message at any time. The **Test** button in Voice settings synthesizes a short sample using your current connection, speed, and volume \u2014 useful when tuning a voice without sending a real message.\r
+\r
+### Speed & Volume\r
+\r
+| Setting | Default | Range |\r
+|---------|---------|-------|\r
+| **Speed** | 1.0\xD7 | 0.5 \u2013 2.0\xD7 (in 0.1 steps) |\r
+| **Volume** | 100% | 0 \u2013 100% (in 5% steps) |\r
+\r
+Speed and volume apply on top of any provider-side speed parameter \u2014 they control the audio element after playback starts.\r
+\r
+---\r
+\r
+## Speech Detection Rules\r
+\r
+Roleplay messages mix dialogue, narration, and inner thoughts. Speech Detection lets you decide what to do with each segment when synthesizing. Lumiverse parses messages into segments by formatting:\r
+\r
+- \`"quoted text"\` \u2192 **Quoted**\r
+- \`*asterisked text*\` \u2192 **Asterisked**\r
+- Everything else \u2192 **Undecorated**\r
+\r
+Each segment type has its own playback rule under **Voice & Speech \u2192 Speech Detection**.\r
+\r
+| Segment | Choices | Default | When to use it |\r
+|---------|---------|---------|----------------|\r
+| **Asterisked** | _Skip (Thought)_ \xB7 _Read as Narration_ | Skip | Skip if you write \`*\` as inner thoughts. Switch to Narration if your style uses asterisks for stage directions. |\r
+| **Quoted** | _Read as Speech_ \xB7 _Read as Narration_ \xB7 _Skip_ | Speech | Default keeps dialogue voiced; switch to Skip if you only want narration spoken. |\r
+| **Undecorated** | _Read as Narration_ \xB7 _Read as Speech_ \xB7 _Skip_ | Narration | Use Speech mode for chat-style messages without quotation marks. Use Skip if you only want explicitly quoted dialogue voiced. |\r
+\r
+The segments tagged _Skip_ are dropped before the request hits the provider, which keeps you from paying for tokens you'd never hear.\r
+\r
+!!! tip "Mismatched delimiters fall back gracefully"\r
+    An unmatched \`*\` or \`"\` is treated as plain text rather than swallowing the rest of the message. You can mix styles freely without breaking detection.\r
+\r
+---\r
+\r
+## Tips\r
+\r
+!!! tip "Use Flash v2.5 for auto-play"\r
+    On ElevenLabs, the Multilingual v2 model is the most accurate but slow enough that auto-play feels laggy on short replies. Flash v2.5 trades some expressiveness for near-instant synthesis \u2014 well worth it for chat-style use.\r
+\r
+!!! tip "Kokoro doubles as your free local fallback"\r
+    Running Kokoro locally costs nothing per request and ships dozens of voices. If you stream TTS for hours of chat, point auto-play at Kokoro and reserve cloud providers for manual playback of important scenes.\r
+\r
+!!! warning "Browser audio focus rules apply"\r
+    Some browsers block audio until the user has interacted with the page. If auto-play silently does nothing right after a hard reload, click anywhere in the chat once and try again.\r
+\r
+---\r
+\r
+## Troubleshooting\r
+\r
+| Problem | What to try |\r
+|---------|-------------|\r
+| **Test button is disabled** | Pick a TTS connection in **Voice & Speech** first. |\r
+| **"TTS error 401" on test** | API key is missing or invalid for that provider's connection. |\r
+| **Auto-play fires but no sound** | Volume slider is at 0%, the OS is muted, or the browser has tab audio blocked. |\r
+| **Kokoro returns 5xx** | The local server is unreachable \u2014 confirm the API URL and that the container is running. |\r
+| **ElevenLabs voices list is empty** | Your account has no voices visible \u2014 open the ElevenLabs dashboard, ensure at least one voice is enabled, then click the refresh button on the Voice field. |\r
+| **OpenAI \`instructions\` field is ignored** | Only \`gpt-4o-mini-tts\` honors style instructions. Switch models or remove the field. |\r
+`,
     "connections/index.md": `# Connections\r
 \r
 A **connection** links Lumiverse to an AI provider. It specifies which provider, model, and API key to use for generation. You need at least one connection to chat.\r
@@ -22447,11 +22596,11 @@ A **connection** links Lumiverse to an AI provider. It specifies which provider,
 ## Quick Links\r
 \r
 - [Setting Up a Connection](setting-up.md) \u2014 Step-by-step guide\r
-- [Supported Providers](providers.md) \u2014 Full list of 19 supported providers\r
+- [Supported Providers](providers.md) \u2014 Full list of 21 supported providers\r
 `,
     "connections/providers.md": `# Supported Providers\r
 \r
-Lumiverse supports 19 AI providers out of the box. Each provider has its own model catalog, API format, and capabilities.\r
+Lumiverse supports 21 AI providers out of the box. Each provider has its own model catalog, API format, and capabilities.\r
 \r
 ---\r
 \r
@@ -22460,9 +22609,10 @@ Lumiverse supports 19 AI providers out of the box. Each provider has its own mod
 | Provider | API Key Required | Notes |\r
 |----------|:---:|-------|\r
 | **OpenAI** | Yes | GPT-5.x, o-series, and more |\r
-| **Anthropic** | Yes | Claude Opus, Sonnet, Haiku |\r
+| **Anthropic** | Yes | Claude Opus, Sonnet, Haiku \u2014 includes Lumiverse-side prompt caching support |\r
 | **Google** | Yes | Gemini Pro, Gemini Flash, and more |\r
-| **OpenRouter** | Yes | Aggregator \u2014 access many models through one API key |\r
+| **Google Vertex AI** | Service account JSON | Enterprise Gemini access through Vertex. Paste the service account JSON into the API Key field; pick a region in the metadata. |\r
+| **OpenRouter** | Yes (or OAuth) | Aggregator \u2014 access hundreds of models through one key. Supports OAuth sign-in and provider plugins. |\r
 | **DeepSeek** | Yes | DeepSeek models with reasoning |\r
 | **xAI** | Yes | Grok models |\r
 | **Mistral** | Yes | Mistral and Mixtral models |\r
@@ -22473,10 +22623,11 @@ Lumiverse supports 19 AI providers out of the box. Each provider has its own mod
 | **Fireworks** | Yes | Fast inference for open models |\r
 | **ElectronHub** | Yes | Model aggregator |\r
 | **SiliconFlow** | Yes | Chinese and international models |\r
-| **NanoGPT** | Yes | Pay-per-token aggregator |\r
+| **NanoGPT** | Yes | Pay-per-token aggregator (shows subscription usage in the connection card) |\r
+| **Infermatic** | Yes | TotalGPT \u2014 uncensored open-weights hosting (\`https://api.totalgpt.ai/v1\`) |\r
 | **Chutes** | Yes | Model hosting platform |\r
-| **Z.AI** | Yes | Z.AI models |\r
-| **Pollinations** | No | Free, no API key required |\r
+| **Z.AI** | Yes | Standard and Coding Plan endpoints |\r
+| **Pollinations** | No | Free text models, no API key required |\r
 | **Custom** | Varies | Any OpenAI-compatible API endpoint |\r
 \r
 ---\r
@@ -22515,10 +22666,93 @@ To use a custom provider:\r
 \r
 **OpenRouter** is a popular choice because it gives you access to hundreds of models from many providers through a single API key:\r
 \r
-1. Get an API key from [openrouter.ai](https://openrouter.ai)\r
-2. Create a connection with provider set to **OpenRouter**\r
-3. Set your API key\r
-4. Use the **Models** button to browse available models\r
+1. Get an API key from [openrouter.ai](https://openrouter.ai), **or** click **Sign in with OpenRouter** on the connection form to do a PKCE OAuth flow that auto-fills the key.\r
+2. Create a connection with provider set to **OpenRouter**.\r
+3. Use the **Models** button to browse available models.\r
+\r
+The OpenRouter connection form has two extra sections beyond the basics:\r
+\r
+| Section | What it does |\r
+|---------|--------------|\r
+| **Routing** | Override OpenRouter's defaults \u2014 sort order (cheapest / fastest / lowest latency), provider allow/deny lists, quantization filters, and a data-collection mode (Allow / Deny). Useful when you want privacy-first routing or a specific upstream. |\r
+| **Plugins** | Toggle OpenRouter-side features for this connection: **Web Search** (provider-side search augmentation, distinct from [Lumiverse Web Search](../settings/web-search.md)), **Response Healing** (auto-fixes malformed JSON on non-streaming responses), and **Context Compression** (middle-out compression when prompts exceed the model's limit). |\r
+\r
+The connection card also shows your live OpenRouter **credit balance** \u2014 handy as a usage gauge.\r
+\r
+---\r
+\r
+## Anthropic Prompt Caching\r
+\r
+Anthropic connections expose a per-connection **prompt caching** panel. Caching lets Anthropic reuse identical request prefixes between calls \u2014 you pay a small write cost on the cached call and get cheaper, faster reads on every subsequent call until the cache expires.\r
+\r
+### Settings\r
+\r
+| Field | What it does |\r
+|-------|--------------|\r
+| **Enable Prompt Caching** | Master switch. When off, every request hits Anthropic without \`cache_control\`. |\r
+| **Prompt Cache TTL** | How long Anthropic should hold the cached prefix. \`5 minutes\` is the default (cheapest writes). \`1 hour\` keeps the cache alive across slower follow-up flows but costs more on the first write. |\r
+| **Use Automatic Caching** | Lets Anthropic place the cache breakpoint at the last eligible block automatically. Recommended for most setups. |\r
+| **Cache Tools** | Explicit breakpoint that caches your tool/function definitions. Worth turning on when you ship a large tool catalogue that's stable across calls. |\r
+| **Cache System Prompt** | Explicit breakpoint on the system message. Best when your preset's system block is long and rarely changes mid-chat. |\r
+| **Cache Conversation Prefix** | Explicit breakpoint on the conversation history up to the last user turn. Useful for long chats where the history grows but the bulk of it stays identical between calls. |\r
+\r
+Automatic and explicit breakpoints can be combined. If you enable caching without ticking any breakpoint, Lumiverse falls back to automatic mode so the toggle never produces an empty \`cache_control\`.\r
+\r
+### When to Use Each Pattern\r
+\r
+| Pattern | Best for |\r
+|---------|----------|\r
+| **Automatic only** (default) | Normal chat. Anthropic picks the optimal breakpoint for you and you don't have to reason about it. |\r
+| **Automatic + Cache System Prompt** | Roleplay with a large preset / character card that's stable across the chat. Cuts repeated charges for the system block. |\r
+| **Cache Tools + System + Messages** | Long agentic flows with tools where the entire prefix is reused for many short user turns. Maximises hit rate at the cost of more cache writes. |\r
+| **5m TTL** | Active chat where messages arrive at least every few minutes. |\r
+| **1h TTL** | Slower interactive use, or chats where you pause for long stretches between turns. Higher first-write cost is amortized across more reads. |\r
+\r
+The connection card shows a compact summary (e.g. \`Cache 5m \u2022 auto + system\`) so you can verify the active configuration at a glance.\r
+\r
+!!! tip "Caching pairs nicely with reasoning binds"\r
+    A heavy reasoning model with prompt caching enabled keeps deep thinking affordable. Bind your high-reasoning Claude profile to the connection (see [Binding Reasoning Settings](setting-up.md#binding-reasoning-settings)) and turn on at least **Cache System Prompt** so the prefix isn't re-paid every reasoning hop.\r
+\r
+!!! warning "Caching only helps when the prefix is byte-identical"\r
+    A single character difference in the cached portion invalidates the cache. Macros that change on every call (timestamps, random values, etc.) will undermine system-prompt caching \u2014 keep volatile content out of cached blocks.\r
+\r
+---\r
+\r
+## Z.AI Coding Plan\r
+\r
+Z.AI ships two API URLs that share the same authentication but route to different upstreams:\r
+\r
+| Endpoint | Path | Used for |\r
+|----------|------|----------|\r
+| **General** (default) | \`https://api.z.ai/api/paas/v4\` | Pay-as-you-go API access tied to your Z.AI account. |\r
+| **Coding Plan** | \`https://api.z.ai/api/coding/paas/v4\` | Subscription Coding Plan keys (Z.AI's flat-rate plan for IDE/agent use). |\r
+\r
+On a Z.AI connection, toggle **Use Coding Plan Endpoint** to route through \`/api/coding/paas/v4\`. Leave it off for normal API keys. Lumiverse rewrites the base URL accordingly \u2014 you don't have to edit the API URL field by hand.\r
+\r
+Z.AI does not expose an OpenAI-compatible \`/models\` endpoint, so Lumiverse ships a built-in model list (\`glm-5.1\`, \`glm-5-turbo\`, \`glm-5\`, \`glm-4.7\` family, \`glm-4.6\`, \`glm-4.5\` family, \`glm-4-32b-0414-128k\`) and validates your key by sending a minimal \`chat/completions\` request rather than a model list call. This is what keeps Coding Plan keys working \u2014 they 404 the model list endpoint but accept chat requests fine.\r
+\r
+!!! tip "Coding Plan keys reject /models"\r
+    If you see "model list failed" errors on a freshly-saved Z.AI connection, you probably forgot to enable **Use Coding Plan Endpoint** \u2014 Lumiverse's chat-completion validation already handles this, but third-party tools that hit \`/models\` directly will fail.\r
+\r
+---\r
+\r
+## Google Vertex AI\r
+\r
+Vertex AI is Google's enterprise Gemini endpoint. Lumiverse authenticates with a **service account JSON** rather than an API key.\r
+\r
+1. Create a service account in your GCP project with the **Vertex AI User** role and download the JSON key.\r
+2. Create a connection with provider set to **Google Vertex AI**.\r
+3. Paste the **entire service account JSON** into the API Key field.\r
+4. Pick a **Region** (e.g. \`us-central1\`, \`europe-west4\`) in the Vertex metadata section, or leave it on \`global\` for the global endpoint.\r
+5. Use the **Models** button to populate the model list from your project.\r
+\r
+Because Vertex routes by project + region, the API URL is derived automatically from your service account and region selection \u2014 there's nothing to fill in there yourself.\r
+\r
+---\r
+\r
+## NanoGPT Usage\r
+\r
+NanoGPT connections show a **subscription usage** card directly on the connection profile, similar to the credits readout on OpenRouter. Use it to watch your remaining quota without leaving Lumiverse.\r
 \r
 ---\r
 \r
@@ -22627,6 +22861,19 @@ Switch between connections by setting a different one as **default**, or select 
 \r
 ---\r
 \r
+## Binding Reasoning Settings\r
+\r
+Reasoning-capable models (Claude with extended thinking, OpenAI o-series, DeepSeek R1, Gemini thinking models) often want different reasoning depth on different connections \u2014 heavy thinking for your hero model, light thinking for a sidecar.\r
+\r
+Each connection form has a **Bind reasoning settings** toggle. Turn it on, configure the reasoning options the way you want them for this connection, and Lumiverse stores a snapshot on the connection's metadata. Whenever you switch to that connection, the bound reasoning settings are restored automatically \u2014 even if your global reasoning settings were set differently.\r
+\r
+Bindings are per-connection and survive across sessions. Switching to a connection with no binding leaves your current reasoning settings unchanged, so you don't lose tuning work on connections that aren't bound.\r
+\r
+!!! tip "Bind a sidecar to low reasoning"\r
+    Sidecar tasks (scene parsing, expression detection, council tools) usually don't need deep thinking. Bind your sidecar connection to a minimal reasoning level and your main connection to whatever you prefer for prose \u2014 Lumiverse switches automatically as features call the right connection.\r
+\r
+---\r
+\r
 ## Sidecar Connection\r
 \r
 Some features (expression detection, council tools, image gen scene analysis) use a separate **sidecar connection** \u2014 a lightweight model for background tasks. Configure the sidecar in **Settings > Advanced** or in the **Sidecar Settings** section.\r
@@ -22647,7 +22894,7 @@ Council tools are specialized analysis functions that members can run during del
 \r
 ## Built-In Tools\r
 \r
-Lumiverse ships with **16 built-in tools** across 5 categories.\r
+Lumiverse ships with **17 built-in tools** across 5 categories.\r
 \r
 ### Story Direction (6 tools)\r
 \r
@@ -22675,12 +22922,13 @@ Lumiverse ships with **16 built-in tools** across 5 categories.\r
 | \`pov_enforcer\` | **POV Enforcer** | Enforces point-of-view consistency and narrative perspective continuity based on active POV rules |\r
 | \`flame_kindler\` | **Flame Kindler** | Analyzes relationships between characters and guides their logical progression based on established history and character details |\r
 \r
-### Context (2 tools)\r
+### Context (3 tools)\r
 \r
 | Tool | Display Name | What It Does |\r
 |------|-------------|-------------|\r
 | \`historical_accuracy\` | **Historical Accuracy** | Checks the roleplay's direction against real historical facts, events, and canon to ensure accuracy |\r
 | \`style_adherence\` | **Narrative Style Adherence** | Analyzes the story for adherence to the selected narrative style and enforces stylistic consistency |\r
+| \`web_search\` | **Web Search** | Runs a real-world web search via your configured SearXNG instance and returns a condensed context block from the top pages. Requires [Web Search](../settings/web-search.md) to be enabled. |\r
 \r
 ### Content (3 tools)\r
 \r
@@ -22691,7 +22939,7 @@ Lumiverse ships with **16 built-in tools** across 5 categories.\r
 | \`detect_expression\` | **Expression Detector** | Analyzes scene sentiment and selects the character's facial expression from configured [expression](../characters/expressions.md) labels |\r
 \r
 !!! note "Gated tools"\r
-    **Scene Generator** and **Expression Detector** only appear when the relevant feature is configured. Expression Detector requires the character to have expressions set up. Scene Generator requires an image generation connection.\r
+    **Scene Generator**, **Expression Detector**, and **Web Search** only appear when the relevant feature is configured. Expression Detector requires the character to have expressions set up. Scene Generator requires an image generation connection. Web Search requires [Web Search](../settings/web-search.md) to be enabled with an API URL.\r
 \r
 ---\r
 \r
@@ -23280,11 +23528,423 @@ If you have image generation enabled, AI-generated scene images can serve as dyn
 !!! tip "Match the theme"\r
     Pair your wallpaper with a matching theme. A cozy firelit image pairs well with warm accent colors; a starfield pairs with cool blues.\r
 `,
+    "data-portability/api-keys-and-tickets.md": `# API Keys & Decryption Tickets\r
+\r
+By default, exports **do not** include API keys or any other content from your \`secrets\` table \u2014 those stay encrypted at rest on the source server. If you want a true 1:1 restore (no need to paste keys back in), enable the **Include API keys** option. This produces two files: the archive and a separate **decryption ticket** that holds the AES key.\r
+\r
+---\r
+\r
+## What's Protected\r
+\r
+The \`secrets\` table holds every credential Lumiverse encrypts at rest:\r
+\r
+- LLM connection API keys\r
+- Image-generation, TTS, and STT API keys\r
+- Embedding-provider API keys\r
+- The web-search API key\r
+- MCP server headers and environment variables (often hold tokens)\r
+- Anything a Spindle extension has written to its secure enclave storage\r
+\r
+All of the above are bundled when you opt into the secrets flow. Connection profile metadata (provider, URL, model) still travels even without the ticket \u2014 only the key value itself is gated behind the ticket.\r
+\r
+---\r
+\r
+## Exporting With Keys\r
+\r
+1. Open **Settings \u2192 Data Portability**\r
+2. In the export card, tick **Include API keys & secrets (downloads a separate decryption ticket)**\r
+3. Read the warning that appears, then click **Download archive**\r
+4. Your browser downloads **two files in sequence**:\r
+\r
+   | File | Contents |\r
+   |------|----------|\r
+   | \`lumiverse-{user}-{timestamp}.ticket.json\` | A ~700-byte JSON file with the AES-256 key that decrypts the secrets |\r
+   | \`lumiverse-{user}-{timestamp}.lvbak\` | The archive itself, including a \`secrets/encrypted.ndjson\` blob |\r
+\r
+   They share the same \`HHMMSS\` so they sort next to each other in any directory listing.\r
+\r
+5. **Save the ticket somewhere different from the archive.** A password manager is ideal. Anyone who holds *both* files can decrypt your keys.\r
+\r
+If a secret on the source instance can't be decrypted (legacy data, identity-key drift), it's silently dropped from the export and surfaced in a yellow warning under the export button: *"N secrets could not be decrypted on this server and were excluded from the archive. Affected keys: \u2026"*. The ticket only binds to the secrets that actually made it in, so the import-side binding check passes cleanly.\r
+\r
+---\r
+\r
+## Importing With a Ticket\r
+\r
+1. Upload the archive as usual via **Import an archive**\r
+2. After upload + verify, if the archive carries encrypted secrets the import **pauses** in \`Waiting for decryption ticket\u2026\`\r
+3. You see a prompt: *"This archive carries N encrypted secrets. Upload your ticket file to restore them."*\r
+4. Pick the matching \`.ticket.json\` file\r
+5. The server validates the ticket, decrypts each secret, and re-encrypts every value under your local instance's identity key before storing it\r
+\r
+If you can't find the ticket, click **Skip API keys** \u2014 the import continues and you re-enter the keys manually in **Settings \u2192 Connections** afterwards.\r
+\r
+### Reuse Is Allowed\r
+\r
+Tickets never expire. You can restore the same backup multiple times \u2014 onto a fresh install, a backup machine, a staging server, after a disaster \u2014 and the ticket keeps working. The server records every use; on the second and subsequent uses you see:\r
+\r
+> Heads up: this ticket has been used 2 times (last used 2026-05-21 14:30:52). Proceeding will overwrite any matching API keys on this account.\r
+\r
+This is purely advisory. The import proceeds.\r
+\r
+---\r
+\r
+## The Cryptography In Plain English\r
+\r
+| Step | What Happens |\r
+|------|--------------|\r
+| Export prepare | Server generates a random 256-bit AES key (the "secret master key"). |\r
+| Export prepare | Server also computes a SHA-256 binding hash over the archive ID + algorithm + sorted secret-key list, and embeds it in the ticket. |\r
+| Export archive stream | Server reads each secret with its local identity key, re-encrypts it with the master key using AES-256-GCM (fresh IV per record), and writes the result into the archive. |\r
+| Export archive stream | Master key is wiped from memory the moment the archive download completes. |\r
+| Import upload | Archive is verified (ZIP magic + manifest parse). |\r
+| Import ticket submit | Server re-computes the binding hash from the archive and compares \u2014 mismatch means the archive was tampered with or the ticket is from a different export. |\r
+| Import secrets phase | Each secret is decrypted with the ticket's master key, then immediately re-encrypted with this instance's identity key. Plaintext never touches disk and never leaves the import job's stack frame. |\r
+\r
+---\r
+\r
+## Threat Model\r
+\r
+What this protects against \u2014 and what it doesn't:\r
+\r
+| Scenario | Result |\r
+|----------|--------|\r
+| Archive stolen alone | Secrets blob is AES-256-GCM. Computationally infeasible to brute-force. |\r
+| Ticket stolen alone | Without the matching archive, the AES key decrypts nothing. |\r
+| Both stolen together | Attacker can decrypt. **Defended operationally**: you keep them in different places. |\r
+| Archive tampered after export | Ticket binding hash no longer matches; import rejects with a \`binding_mismatch\` error. |\r
+| Ticket tampered (e.g. swapped archive ID) | Import rejects with \`archive_mismatch\`. |\r
+| Different archive's ticket used | Import rejects \u2014 ticket archiveId doesn't match the archive manifest. |\r
+| Bit-flipped ciphertext inside the archive | AES-GCM auth tag fails; that individual secret is skipped during import. |\r
+\r
+What it **cannot** protect:\r
+\r
+- **A compromised target instance.** If the machine running the import is owned, the decrypted secrets land in its \`secrets\` table where any local admin could read them.\r
+- **Offline brute force when both files are stolen.** The AES key is *the* key; anyone with both files and standard tooling can decrypt outside Lumiverse. There's no extra password layer.\r
+- **Compromise of the source instance.** If someone already has root on the server that made the archive, they already had your secrets \u2014 the ticket flow doesn't change that.\r
+\r
+---\r
+\r
+## Tips & Caveats\r
+\r
+!!! tip "Use a password manager for the ticket"\r
+    The ticket is ~700 bytes of JSON. Most password managers let you attach a small file or paste the JSON as a secure note. That's the cleanest way to keep it durable and separate from the archive.\r
+\r
+!!! tip "Restore on a per-key basis"\r
+    There's no way to selectively restore just *some* secrets from a ticket \u2014 it's all or nothing per import. If you want different secrets per instance, run the export with **Include API keys** unchecked and re-enter the specific keys by hand on each target.\r
+\r
+!!! warning "If you lose the ticket, the keys in the archive are gone"\r
+    There is no backdoor. Without the ticket's AES key, the encrypted secrets blob is just random bytes. The archive itself is still useful \u2014 everything else (characters, chats, presets, etc.) imports normally \u2014 you just won't get keys back.\r
+\r
+!!! warning "Re-issuing a ticket means re-exporting"\r
+    Each export has a unique ticket. You can't "regenerate" a ticket for an existing archive \u2014 you'd run a fresh export, which produces a new archive with its own paired ticket.\r
+`,
+    "data-portability/exporting.md": `# Exporting Your Data\r
+\r
+Bundle your entire account into a single \`.lvbak\` archive you can download, archive, or move to another Lumiverse instance.\r
+\r
+---\r
+\r
+## Quick Export (No API Keys)\r
+\r
+1. Open **Settings \u2192 Data Portability**\r
+2. In the **Export your data** card, decide whether to **Include vector embeddings**\r
+3. Click **Download archive**\r
+\r
+Your browser saves a file named \`lumiverse-{your-username}-{YYYY-MM-DD}-{HHMMSS}.lvbak\` \u2014 the timestamp makes successive backups sort chronologically.\r
+\r
+The archive streams directly to your downloads folder while the server is still producing it; you never wait for the whole file to be assembled first. Progress is shown in the panel: \`Exporting messages\u2026\`, \`Bundling files\u2026\`, etc.\r
+\r
+---\r
+\r
+## Choosing What to Include\r
+\r
+### Vector Embeddings\r
+\r
+| Choice | Effect |\r
+|--------|--------|\r
+| **On** (default) | Archive bundles a per-user slice of the LanceDB vector store. On import, if the target instance has the **same embedding provider + model + dimension**, vectors restore instantly. Mismatches fall back to re-vectorization. |\r
+| **Off** | Smaller archive. On import, every chunk is marked for re-vectorization and gets re-embedded in the background once an embedding provider is configured. |\r
+\r
+Most archives are 100\u2013500 MB without vectors. Adding vectors typically doubles that.\r
+\r
+### API Keys & Secrets\r
+\r
+This is a separate workflow with its own decryption-ticket file. See [API Keys & Tickets](api-keys-and-tickets.md) for the full details.\r
+\r
+If you don't check this box, **no encrypted secrets travel** \u2014 you'll re-enter API keys after importing.\r
+\r
+---\r
+\r
+## What the Archive Contains\r
+\r
+Inside the \`.lvbak\` (it's a ZIP file \u2014 you can open it with any zip utility to inspect it):\r
+\r
+\`\`\`\r
+manifest.json              Producer + version + embedding config + archive id\r
+database/                  One NDJSON per user-owned table\r
+files/\r
+  images/                  Original uploaded images\r
+  thumbnails/              Pre-generated 300px and 700px WebP thumbnails\r
+  avatars/                 Character + persona avatar files\r
+  databank/                Databank documents (PDFs, txt, md, etc.)\r
+  theme-assets/            Theme bundle files (fonts, images, CSS)\r
+  notification-sounds/     Your custom completion sound\r
+lancedb/                   Vector embeddings (only when "Include vectors" was on)\r
+secrets/                   Encrypted API keys (only with the ticket flow)\r
+manifest-stats.json        Trailing row counts and skipped-file report\r
+\`\`\`\r
+\r
+Thumbnails are included **as-is**, so character galleries appear instantly on the target instance instead of waiting for Sharp to regenerate them.\r
+\r
+---\r
+\r
+## Streaming and Performance\r
+\r
+The export streams from disk straight into your download. The server never holds the full archive in memory, so even multi-gigabyte exports (10k+ messages, large galleries, vectors) finish without bogging down your other Lumiverse activity.\r
+\r
+If you're going through nginx / NPMPlus / a reverse proxy and downloads feel slow (~30\u201340 Mbps when your line is much faster), the proxy is most likely buffering the response. See the [troubleshooting note](#slow-downloads-through-a-reverse-proxy) below.\r
+\r
+### Slow Downloads Through a Reverse Proxy\r
+\r
+Lumiverse sets the \`X-Accel-Buffering: no\` header on export responses, which nginx-family proxies honor automatically. If your proxy ignores it (custom config, very old version), add this to the proxy host's Advanced tab:\r
+\r
+\`\`\`nginx\r
+proxy_buffering off;\r
+proxy_request_buffering off;\r
+proxy_max_temp_file_size 0;\r
+proxy_http_version 1.1;\r
+proxy_set_header Connection "";\r
+proxy_set_header Accept-Encoding "";\r
+gzip off;\r
+proxy_read_timeout 600s;\r
+proxy_send_timeout 600s;\r
+client_max_body_size 0;\r
+\`\`\`\r
+\r
+---\r
+\r
+## Tips & Caveats\r
+\r
+!!! tip "Re-exports are cheap"\r
+    Each export generates a fresh archive with its own UUID. There's no penalty for running an export weekly \u2014 old archives stay valid forever and can be restored alongside newer ones (the importer's merge policy handles overlap gracefully).\r
+\r
+!!! tip "Use the timestamp to find recent backups"\r
+    Filenames include \`YYYY-MM-DD-HHMMSS\` so \`ls -lt\` (or a Finder sort by name) lines them up chronologically.\r
+\r
+!!! warning "Same-account re-imports replace nothing"\r
+    The import side merges by ID and skips conflicts. Restoring a backup into the **same** account doesn't roll the account back to that snapshot \u2014 it adds back anything you've deleted since, but doesn't undo edits to surviving rows. For a true rollback, restore into a fresh account.\r
+\r
+!!! warning "Some secrets may be skipped"\r
+    If a row in your \`secrets\` table can't be decrypted (legacy data, identity-key drift, manual inserts), the export panel shows a yellow "secrets could not be decrypted" notice with the affected key names. The export completes; the affected secrets are simply omitted.\r
+`,
+    "data-portability/importing.md": `# Importing an Archive\r
+\r
+Restore a \`.lvbak\` archive into your current Lumiverse account. The importer is **non-destructive** \u2014 your existing data is preserved, and only new content from the archive is added.\r
+\r
+---\r
+\r
+## Quick Import\r
+\r
+1. Open **Settings \u2192 Data Portability**\r
+2. In the **Import an archive** card, click the file picker and select your \`.lvbak\`\r
+3. Click **Upload & import**\r
+\r
+You'll see live progress as the import runs:\r
+\r
+\`\`\`\r
+Uploading\u2026 73%\r
+Verifying archive\u2026\r
+Archive extracted, applying rows\u2026\r
+Applying messages (4218)\u2026\r
+Restoring files\u2026 312/418\r
+Vectors restored for chat_chunks\r
+Import complete\r
+\`\`\`\r
+\r
+When it finishes, a summary table shows how many rows were imported, merged, or skipped for each table.\r
+\r
+---\r
+\r
+## How Conflicts Are Resolved\r
+\r
+Lumiverse uses UUIDs for every row, so archive IDs are globally unique. The import policy is **"merge by ID; skip if exists"**:\r
+\r
+| Situation | Outcome |\r
+|-----------|---------|\r
+| Row in archive has an ID not present in your account | **Inserted** |\r
+| Row in archive has the same ID as an existing row | **Skipped** \u2014 your version is preserved |\r
+| Settings key (e.g. \`imageGeneration\`) exists on both sides | **Deep-merged** \u2014 your top-level choices win; nested arrays (like preset libraries) are unioned by ID |\r
+| File on disk already exists with the same name | **Skipped** \u2014 your file is preserved |\r
+\r
+This means re-importing the same archive is safe: nothing duplicates, nothing is overwritten.\r
+\r
+!!! info "Why merge instead of replace?"\r
+    Replace-style imports destroy any data you've created on the target since the archive was made. Merge keeps both \u2014 you get back what was missing without losing what's new.\r
+\r
+---\r
+\r
+## What Happens During Import\r
+\r
+The import runs as a background job. You can keep using Lumiverse while it runs, but **don't close the tab** until you see the completion summary.\r
+\r
+### Phases\r
+\r
+1. **Uploading** \u2014 the archive streams from your browser to the server's import staging directory.\r
+2. **Verifying archive** \u2014 the server checks the ZIP magic bytes during upload, then reads only the manifest entry to confirm it's a real Lumiverse archive (this is fast \u2014 milliseconds, even for multi-GB files).\r
+3. **Awaiting ticket** *(optional)* \u2014 if the archive carries encrypted secrets, the import pauses for you to upload the matching decryption ticket. See [API Keys & Tickets](api-keys-and-tickets.md).\r
+4. **Applying rows** \u2014 database rows are inserted in topological order so foreign keys resolve cleanly.\r
+5. **Restoring files** \u2014 images, thumbnails, avatars, theme assets, databank documents, and your notification sound are copied into place.\r
+6. **Restoring vectors** *(if present)* \u2014 LanceDB vectors are restored when the embedding config matches; otherwise marked for re-vectorization.\r
+7. **Restoring secrets** *(if a ticket was provided)* \u2014 encrypted secrets are decrypted with the ticket, then re-encrypted under your instance's identity key.\r
+8. **Complete** \u2014 summary shown in the panel.\r
+\r
+### Cancellation\r
+\r
+If you click **Cancel** mid-import, the job stops within a second or two. Anything already applied stays applied \u2014 merge semantics make this safe. You can re-upload the same archive to finish later.\r
+\r
+---\r
+\r
+## After the Import\r
+\r
+A few things to verify:\r
+\r
+- **Characters & chats** \u2014 open a familiar chat to confirm messages, swipes, and branches restored.\r
+- **Active persona / preset** \u2014 restored from the archive, but you can switch in the usual place if your account already had different defaults.\r
+- **Connections** \u2014 listed but **disabled** (the \`has_api_key\` flag is forced to 0). Re-enter your API key for each, or use the [ticket flow](api-keys-and-tickets.md).\r
+- **Vectors** \u2014 if the embedding config didn't match, RAG and memory-cortex search will return empty results until background re-vectorization runs through your imported chunks. Watch progress in **Settings \u2192 Embeddings**.\r
+\r
+---\r
+\r
+## Limits and Safety\r
+\r
+| Cap | Value |\r
+|-----|-------|\r
+| Maximum compressed archive size | 5 GB |\r
+| Maximum decompressed size during import | 20 GB |\r
+| Maximum NDJSON row size | 4 MB |\r
+| Maximum entries in the archive | 500 000 |\r
+\r
+These caps protect against zip bombs and malformed archives. Real archives, including 1.9 GB galleries with vectors, comfortably fit.\r
+\r
+### What Gets Rejected\r
+\r
+| Problem | Response |\r
+|---------|----------|\r
+| File doesn't start with \`PK\\x03\\x04\` (not a ZIP) | 415 \u2014 rejected before staging |\r
+| Archive exceeds compressed cap | 413 \u2014 rejected before processing |\r
+| Archive contains \`..\` or absolute paths in entry names | Entire import aborted |\r
+| Manifest claims a different producer or unsupported version | 422 \u2014 rejected during verify |\r
+| Decompressed size exceeds 20 GB | Aborted mid-extraction |\r
+\r
+---\r
+\r
+## Tips & Caveats\r
+\r
+!!! tip "Foreign-key cycles are handled"\r
+    The schema has cycles (e.g. characters reference images, but images can reference characters via \`owner_character_id\`). The importer disables foreign-key enforcement during the bulk apply, then runs a scrub pass to NULL out any references whose target wasn't restored. Affects only the importing user; other accounts' integrity is untouched.\r
+\r
+!!! tip "Same archive on multiple instances is fine"\r
+    The merge-by-ID policy means you can restore the same archive into half a dozen instances \u2014 your friends, a staging server, a backup machine. Each ends up with the same data, no duplicates if you re-run.\r
+\r
+!!! warning "Encrypted secrets need their ticket"\r
+    If the archive's manifest reports \`hasEncryptedSecrets: true\` and you don't supply the matching ticket file, the import will prompt you to either upload it or **Skip API keys**. Skipping is fine \u2014 you can always re-import later with the ticket if you find it.\r
+\r
+!!! warning "Don't restore an old backup over fresh work"\r
+    The merge is non-destructive, but it does **add back** characters, chats, or presets you deliberately deleted after the backup was taken. If you want a clean slate, create a new user account and import there.\r
+`,
+    "data-portability/index.md": `# Data Portability\r
+\r
+Move your entire Lumiverse account between machines, take periodic backups, or hand a fully-loaded environment off to another instance. Data Portability bundles **everything you own** into a single portable archive that any Lumiverse 1.0+ instance can restore.\r
+\r
+---\r
+\r
+## What's in an Archive\r
+\r
+An archive (a \`.lvbak\` file \u2014 really a renamed ZIP) carries every piece of data tied to your user account:\r
+\r
+| Domain | What's included |\r
+|--------|----------------|\r
+| **Characters** | Cards, avatars, alternate greetings, expressions, gallery images, tags |\r
+| **Chats** | Every message, swipe, branch, group chat metadata, message breakdowns |\r
+| **Personas** | All personas, pronouns, attached world books, persona\u2013character bindings |\r
+| **World Books** | Books and entries with full settings (sticky, cooldown, regex, groups, vectorization status) |\r
+| **Presets** | Chat presets, image-gen prompt presets, prompt blocks, samplers |\r
+| **Connections** | LLM, image-gen, TTS, STT connection profiles (without API keys \u2014 see below) |\r
+| **Memory Cortex** | Entities, relations, consolidations, font colors, vaults, interlinks |\r
+| **Databanks** | Knowledge banks, documents, chunks |\r
+| **Packs** | Lumia, Loom, and tool packs \u2014 both user-authored and downloaded |\r
+| **Dream Weaver** | Sessions, generated messages, saved prompts |\r
+| **Theme Assets** | Bundles, custom CSS, wallpapers |\r
+| **Settings** | Every preference \u2014 display, chat behavior, voice, push, extensions |\r
+| **Spindle Extensions** | User-installed extensions and their enclave-stored preferences |\r
+| **Notification Sound** | The custom completion sound, if you've uploaded one |\r
+| **Images** | Every uploaded image *plus* its pre-generated thumbnails (no re-processing on import) |\r
+\r
+Optionally, you can include:\r
+\r
+- **Vector embeddings** \u2014 restores instant search/RAG/memory cortex retrieval without waiting for re-vectorization\r
+- **API keys and secrets** \u2014 encrypted with a one-time decryption ticket (see [API Keys & Tickets](api-keys-and-tickets.md))\r
+\r
+---\r
+\r
+## What's Excluded\r
+\r
+These never leave your instance:\r
+\r
+- **API keys at rest** \u2014 unless you opt into the decryption-ticket flow\r
+- **Web Push subscriptions** \u2014 they're tied to specific browser/device pairs and are useless elsewhere\r
+- **System / auth tables** \u2014 your account row, sessions, OAuth tokens\r
+- **Operator-installed extensions** \u2014 only user-installed ones travel\r
+- **Runtime caches** \u2014 query vector cache, embedding cache (regenerated on demand)\r
+\r
+---\r
+\r
+## When to Use Each Flow\r
+\r
+| Use Case | Read |\r
+|----------|------|\r
+| Moving to a new server / fresh install | [Exporting Your Data](exporting.md) \u2192 [Importing an Archive](importing.md) |\r
+| Periodic backup | [Exporting Your Data](exporting.md) (run on a schedule) |\r
+| Migrating between two of your own accounts | Export from source \u2192 Import into target |\r
+| Including API keys for a true 1:1 restore | [API Keys & Tickets](api-keys-and-tickets.md) |\r
+| Sharing a single character / world book / preset | Use the per-feature export (Character \u2192 Export, World Book \u2192 Export, etc.) \u2014 Data Portability is for the *whole* account |\r
+\r
+---\r
+\r
+## Where to Find It\r
+\r
+**Settings \u2192 Data Portability**\r
+\r
+The panel has two cards: **Export your data** and **Import an archive**.\r
+\r
+!!! tip "Archives are forever"\r
+    Archives never expire and have no time-bound license. You can store a \`.lvbak\` for years and restore it into any compatible Lumiverse instance. The same applies to decryption tickets \u2014 they have no TTL.\r
+`,
     "dream-weaver/index.md": `# Dream Weaver\r
 \r
-Dream Weaver helps you make high-quality character and scenario cards from an idea. It is useful when building a card by hand would take too long, when you need help turning a loose concept into polished fields, or when existing cards do not match what you want.\r
+Dream Weaver turns an idea into a finished character or scenario card. You describe what you want, run a handful of tools, review the results, and accept the ones that fit. When the required fields are filled in, **Finalize** writes a real card to your library and creates its launch chat.\r
 \r
-Start with as much or as little direction as you have. Dream Weaver lets you build the card piece by piece, review each generated card, keep what works, and save the result when it is ready.\r
+Dream Weaver is best when you have a clear idea but writing the fields by hand would take too long, or when you want a polished first draft you can edit afterwards.\r
+\r
+---\r
+\r
+## What's New: Dream Weaver 2.0\r
+\r
+The Studio is now **chat-based**. Instead of a card pane on the side, you have a chat thread where each tool you run produces an embedded **tool card** that you accept, retry, adjust, or discard inline.\r
+\r
+Key changes from earlier versions:\r
+\r
+- **Chat-style composer** with slash-command autocomplete.\r
+- **Tool cards** appear in the thread with \`Use result\` / \`Run again\` / \`Adjust\` / \`Discard\` actions.\r
+- **Adjust** opens an inline nudge box so you can retry a tool with extra guidance.\r
+- **Run Full Suite** generates name, appearance, personality, scenario, first message, and voice in one go.\r
+- **Progress badges** at the top show which fields are still missing before you can finalize.\r
+- **Editable Dream source** \u2014 open the Dream Summary card, click the pencil, and rewrite your source at any time.\r
+- **Voice Guidance editor** for structured baseline / rhythm / diction / quirks / hard nos rules.\r
+- **Visuals tab** with portrait stage, ComfyUI workflow editor, and a **Suggest Tags** helper.\r
+\r
+The slash command vocabulary is mostly unchanged \u2014 \`/dream\`, \`/name\`, \`/appearance\`, \`/personality\`, \`/scenario\`, \`/voice\`, \`/first_message\`, \`/greeting\`, \`/add_lorebook\`, \`/add_npc\`, \`/help\` \u2014 but they now produce tool cards rather than full-screen drafts.\r
 \r
 ---\r
 \r
@@ -23293,18 +23953,18 @@ Start with as much or as little direction as you have. Dream Weaver lets you bui
 Use Dream Weaver when you want to:\r
 \r
 1. Turn an idea into a character or scenario card\r
-2. Create a card that matches a specific character, role, setup, or scenario you cannot find elsewhere\r
+2. Create a card that matches a role, setup, or scenario you can't find elsewhere\r
 3. Get help writing the parts of a card that are hard to phrase manually\r
-4. Explore variations before choosing the version you want to keep\r
-5. Add supporting details, such as lore, NPCs, greetings, or portrait prompts, after the main idea is clear\r
+4. Iterate on individual fields without rewriting the whole card\r
+5. Add supporting lore (NPCs, lorebook entries) after the main idea is clear\r
 \r
-Dream Weaver works best when you know what you want, but need help turning it into a finished card.\r
+Dream Weaver works best when you know what you want but need help turning it into a finished card.\r
 \r
 ---\r
 \r
 ## When Not to Use It\r
 \r
-Dream Weaver is not required for normal editing. Use the regular **Character Browser** when you already know the exact edits you want.\r
+Use the regular **Character Browser** when you already know the exact edits you want.\r
 \r
 | Situation | Better Tool |\r
 |-----------|-------------|\r
@@ -23314,30 +23974,40 @@ Dream Weaver is not required for normal editing. Use the regular **Character Bro
 | You are importing a finished character card | Character import |\r
 | You do not want generated suggestions | Character editor |\r
 \r
-You can edit Dream Weaver output later in the regular character editor. If you reopen the same Dream Weaver session, **Update Character** or **Update Scenario** updates the linked card instead of creating a duplicate.\r
+You can always edit Dream Weaver output later in the regular character editor. If you reopen the same Dream Weaver session, **Update Character** or **Update Scenario** updates the linked card instead of creating a duplicate.\r
 \r
 ---\r
 \r
-## How It Works\r
+## Studio Layout\r
 \r
-Dream Weaver has four core parts:\r
+The Studio is a centred modal with two tabs:\r
 \r
-| Piece | What It Does |\r
-|-------|--------------|\r
-| **Source** | The idea, premise, reference, or direction Dream Weaver uses |\r
-| **Command** | A slash command like \`/name\`, \`/appearance\`, or \`/scenario\` |\r
-| **Card** | A generated suggestion you can use, discard, retry, or adjust |\r
-| **Workspace** | The current result built from the cards you have accepted |\r
+| Tab | Purpose |\r
+|-----|---------|\r
+| **Studio** | The chat thread where you run tools, review tool cards, and edit voice guidance. Progress badges and the Suite Runner banner sit above the log. |\r
+| **Visuals** | Portrait stage and image-gen controls \u2014 generate the card's portrait once the text fields take shape. |\r
 \r
-Source is required before generation commands can run. The source field in the panel is optional because you can open a blank Studio, but commands like \`/name\`, \`/personality\`, and \`/scenario\` still need direction first. Add it with \`/dream\`.\r
+A header strip carries the session name, a **Character / Scenario** switcher (disabled once the session is finalized), and a **Draft / Linked** status pill. The footer shows the same status with a **Close** button and a **Finalize** (or **Update**) button. If any required field is missing, the footer tells you which ones.\r
 \r
-When you accept a card, Dream Weaver adds it to the workspace. Discarded cards are ignored. For single-field tools, accepting a newer card replaces the older accepted card for that field.\r
+---\r
+\r
+## Chat Thread Artifacts\r
+\r
+Anything that happens in a session shows up as an entry in the chat log:\r
+\r
+| Artifact | What it is |\r
+|----------|------------|\r
+| **Dream Summary** | A summary of the active source. Shows the dream text plus optional tone and dislikes chips. Click the pencil to edit. |\r
+| **User Command Bubble** | The slash command you ran, shown as a small grey bubble. |\r
+| **Tool Card** | The result of a tool run. Includes a header (tool name, intent), execution time, token usage, output fields, and the action buttons. Expand **Run details** for the raw output. |\r
+| **System Note** | Inline note from the Studio itself \u2014 \`/help\` output, status changes, or errors. |\r
+| **Nudge Inline** | Appears when you click **Adjust** on a tool card. Lets you type what should change before retrying. |\r
 \r
 ---\r
 \r
 ## Character vs. Scenario\r
 \r
-Dream Weaver does not decide the card type from your source text. Choose **Character** or **Scenario** with the switcher.\r
+Dream Weaver doesn't infer the card type from your source text. Pick **Character** or **Scenario** with the switcher in the header.\r
 \r
 Use **Character** when you want one primary character.\r
 \r
@@ -23352,15 +24022,13 @@ Use **Scenario** when you want a narrator, world, location, setup, or situation 
 | \`/voice\` | Character speech style | Narrator or world voice |\r
 | \`/first_message\` | Character opening message | Opening narration or scene prompt |\r
 \r
-The switcher controls this behavior. \`/dream\` only adds direction for Dream Weaver to use.\r
+The switcher controls which framing the tools write to. \`/dream\` only adds direction for Dream Weaver to use \u2014 it does not pick the card type for you.\r
 \r
 ---\r
 \r
 ## Saved Weaves\r
 \r
-The **Previous Weaves** section keeps Dream Weaver sessions in one place. Use the filters to show all sessions, drafts, or finalized sessions. Use search to find older sessions.\r
-\r
-Finalized sessions stay in the same list as drafts, but they are marked differently. Open a finalized session when you want to keep working and update the linked card.\r
+The Dream Weaver panel keeps every session in **Previous Weaves**. Filter by **All**, **Drafts**, or **Finalized**, or use search to find an older session. Finalized sessions live in the same list \u2014 they're tagged with a different status pill \u2014 and can be reopened to keep iterating on the linked card.\r
 \r
 ---\r
 \r
@@ -23368,13 +24036,13 @@ Finalized sessions stay in the same list as drafts, but they are marked differen
 \r
 | Guide | What You'll Learn |\r
 |-------|-------------------|\r
-| [Studio Workflow](studio-workflow.md) | Add source, run commands, accept cards, and build the result |\r
-| [Sources & Roadmap](sources-and-roadmap.md) | Current source support and planned character/world book imports |\r
-| [Visuals & Finalizing](visuals-and-finalizing.md) | Generate visual assets, finalize, and update generated cards |\r
+| [Studio Workflow](studio-workflow.md) | Use the chat composer, slash commands, tool cards, Suite Runner, and the Voice Guidance editor. |\r
+| [Sources & Roadmap](sources-and-roadmap.md) | Add and edit dream source, what counts as useful source, and what import sources are planned. |\r
+| [Visuals & Finalizing](visuals-and-finalizing.md) | Generate portraits, manage ComfyUI workflows, suggest tags, finalize, and update the linked card. |\r
 `,
     "dream-weaver/sources-and-roadmap.md": `# Sources & Roadmap\r
 \r
-Dream Weaver needs direction before it can generate useful cards. In the Studio, that direction is called **source**. Source can be a character idea, scenario premise, scene, pasted reference, world detail, or anything else you want Dream Weaver to build from.\r
+Dream Weaver needs direction before it can generate useful cards. The text you give it is called **source**, and it lives on a special card in the chat log called the **Dream Summary**. Every tool reads the active source before generating, so the source is what holds your whole weave together.\r
 \r
 ---\r
 \r
@@ -23384,41 +24052,41 @@ Dream Weaver currently supports text source added through the panel or with \`/d
 \r
 | Source | How to Add It | Notes |\r
 |--------|---------------|-------|\r
-| Initial source | Add text in **Source Material** before opening the Studio | Added when the Studio opens |\r
-| Blank Studio source | Open a blank Studio, then use \`/dream your source text\` | Useful when you want to add source inside the Studio |\r
-| Additional source | Use \`/dream your extra material\` at any time | Adds another accepted source card without running generation |\r
-\r
-Use \`/dream\` for extra direction, missing constraints, pasted references, or new premise details.\r
+| Initial source | Fill **Source Material** in the Dream Weaver panel before opening the Studio | Inserted into the chat as a Dream Summary card when the Studio opens. |\r
+| In-Studio source | Open the Studio, then type \`/dream your source text\` | Useful when you opened the Studio empty. |\r
+| Additional source | Run \`/dream your extra material\` again | Updates the existing Dream Summary card with the new content \u2014 does not stack a second source card. |\r
 \r
 Example:\r
 \r
 \`\`\`text\r
-/dream Alice is my bully.\r
+/dream Alice is my bully. She runs the student council and hides a soft streak she resents.\r
 \`\`\`\r
 \r
 !!! warning "Source before tools"\r
-    Dream Weaver blocks generation tools until source exists. \`/help\` and \`/dream\` are available first. After source is added, the rest of the commands can run.\r
+    Every generation tool \u2014 \`/name\`, \`/appearance\`, \`/personality\`, \`/scenario\`, \`/voice\`, \`/first_message\`, \`/greeting\`, \`/add_lorebook\`, \`/add_npc\` \u2014 is blocked until a Dream Summary exists. Only \`/help\` and \`/dream\` are available beforehand.\r
 \r
 ---\r
 \r
-## Planned Source Workflows\r
+## Editing the Dream Summary Inline\r
 \r
-More source types are planned, but not available yet.\r
+The Dream Summary card has a pencil icon. Click it to edit the source text directly in the card \u2014 no need to retype \`/dream\` from scratch. Editing the summary also re-runs any tone / dislikes parsing the card does so the chips at the bottom stay in sync.\r
 \r
-| Future Workflow | Intended Use |\r
-|-----------------|--------------|\r
-| Import a character as source | Use an existing non-Dream Weaver character as reference material |\r
-| Import a world book as source | Generate a character from lore, factions, locations, or NPC entries |\r
-| Attach or import a world book into a finalized card | Add existing lore to the final card workflow |\r
-| Generate a scenario from a world book | Turn a setting or lore collection into a narrator/scenario card |\r
+Editing source mid-weave does **not** retroactively change tool cards you've already accepted. Use **Run again** or **Adjust** on those tool cards if you want them to re-read the new source.\r
 \r
-When these import flows are added, imported material should appear in the Studio as source, just like text added with \`/dream\`. After that, the command, card, accept, retry, and finalize workflow can stay the same.\r
+The Dream Summary also surfaces a couple of optional metadata chips when present:\r
+\r
+| Chip | What it means |\r
+|------|---------------|\r
+| **Tone** | A short tone label (e.g. _melancholic_, _wry_, _menacing_) that tools fold into prompts. |\r
+| **Dislikes** | Things you specifically don't want in the result. Tools treat these as soft constraints. |\r
+\r
+Tone and dislikes are derived from your source text \u2014 there's no separate field to fill in.\r
 \r
 ---\r
 \r
 ## What Counts as Useful Source\r
 \r
-Good source does not need to be polished. It just needs enough detail for Dream Weaver to understand the card you want.\r
+Good source doesn't need to be polished. It just needs enough detail for Dream Weaver to understand the card you want.\r
 \r
 Useful source can include:\r
 \r
@@ -23441,122 +24109,405 @@ Stronger source gives Dream Weaver something specific to preserve:\r
 \`\`\`text\r
 /dream A transfer student who always knows the answer before the teacher asks. She is not psychic. She is reliving the same school week and is starting to resent everyone for not remembering.\r
 \`\`\`\r
+\r
+The more concrete the source, the less rerolling you'll do downstream.\r
+\r
+---\r
+\r
+## Iterating on Source\r
+\r
+Source isn't carved in stone. A typical iteration pattern:\r
+\r
+1. Type a first source with \`/dream\`.\r
+2. Run \`/name\`, \`/appearance\`, \`/personality\` \u2014 read the results.\r
+3. If the results miss the mark, edit the Dream Summary to tighten the brief.\r
+4. Hit **Run again** or **Adjust** on the affected tool cards so they re-read the updated source.\r
+\r
+You can repeat this as many times as you like before finalizing. The chat log keeps every card you've generated, so you can compare a "before tightened source" card against an "after" one without losing either.\r
+\r
+---\r
+\r
+## Planned Source Workflows\r
+\r
+More source types are planned but not available yet.\r
+\r
+| Future Workflow | Intended Use |\r
+|-----------------|--------------|\r
+| Import a character as source | Use an existing non-Dream Weaver character as reference material. |\r
+| Import a world book as source | Generate a character from lore, factions, locations, or NPC entries. |\r
+| Attach or import a world book into a finalized card | Add existing lore to the final card workflow. |\r
+| Generate a scenario from a world book | Turn a setting or lore collection into a narrator/scenario card. |\r
+\r
+When these import flows arrive, imported material will appear as the Dream Summary's content \u2014 and the rest of the chat-based workflow (composer, tool cards, suite, finalize) will stay exactly the same.\r
+\r
+---\r
+\r
+## Tips\r
+\r
+!!! tip "Edit the summary before reaching for Run again"\r
+    Tightening source upstream often produces a better result than nudging the tool downstream. Both work \u2014 but a one-sentence edit to the Dream Summary fixes every tool you run after, not just the one card.\r
+\r
+!!! tip "List dislikes explicitly"\r
+    Saying _"avoid royal, noble, or chosen-one language"_ in the source is more effective than discovering it later via Adjust. Dream Weaver folds dislikes into prompts as soft constraints from the start.\r
 `,
-    "dream-weaver/studio-workflow.md": '# Studio Workflow\r\n\r\nThe Dream Weaver Studio is where you turn an idea into a card. Add direction, run commands, and decide which generated cards become part of the result.\r\n\r\n---\r\n\r\n## Starting a Weave\r\n\r\n1. Open the **Dream Weaver** panel\r\n2. Choose **Character** or **Scenario**\r\n3. Optionally add direction in **Source Material**\r\n4. Optionally choose persona, connection, model, refinement, or advanced generation settings\r\n5. Open the Studio\r\n\r\nIf you enter source before opening the Studio, Dream Weaver adds it automatically. If you open a blank Studio, add direction with `/dream` before running generation commands.\r\n\r\n!!! warning "Source is required for generation"\r\n    The source field is optional before opening the Studio, but generation commands still need source. Use `/dream your source text` before running `/name`, `/appearance`, `/personality`, `/scenario`, `/voice`, `/first_message`, `/greeting`, `/add_lorebook`, or `/add_npc`.\r\n\r\n!!! tip "Good source"\r\n    Include the premise, mood, relationship to `{{user}}`, genre, constraints, and anything you do not want.\r\n\r\n!!! note "Character or scenario"\r\n    Dream Weaver does not detect this from your source text. Use **Character** for one primary character. Use **Scenario** for a narrator, world, location, or setup card.\r\n\r\n---\r\n\r\n## Commands\r\n\r\nType a slash command in the Studio composer. Add instructions after the command when you want to steer the result.\r\n\r\n| Command | Use It For | Needs Source |\r\n|---------|------------|--------------|\r\n| `/help` | Show available commands | No |\r\n| `/dream` | Add direction for Dream Weaver to use | No |\r\n| `/name` | Generate or replace the name/title | Yes |\r\n| `/appearance` | Generate appearance, setting, or visual presentation | Yes |\r\n| `/personality` | Generate behavior, rules, habits, or contradictions | Yes |\r\n| `/scenario` | Generate the starting situation | Yes |\r\n| `/voice` | Generate voice guidance | Yes |\r\n| `/first_message` | Generate the main opening message | Yes |\r\n| `/greeting` | Generate an alternate greeting | Yes |\r\n| `/add_lorebook` | Add one lorebook entry | Yes |\r\n| `/add_npc` | Add one supporting NPC | Yes |\r\n\r\nExamples:\r\n\r\n```text\r\n/dream A quiet rural inn is built over a sealed shrine. The owner knows more than she admits.\r\n```\r\n\r\n```text\r\n/personality make her warmth feel practiced, not natural\r\n```\r\n\r\n```text\r\n/scenario keep {{user}} as a suspicious guest arriving during a storm\r\n```\r\n\r\n---\r\n\r\n## Cards\r\n\r\nMost generation commands create a card. Review the card before you use it.\r\n\r\n| Action | Result |\r\n|--------|--------|\r\n| **Use result** | Adds the card to the workspace |\r\n| **Discard** | Leaves the card out |\r\n| **Run again** | Runs the same command again |\r\n| **Adjust** | Reruns with extra instruction |\r\n| **Cancel run** | Stops a running card |\r\n\r\nThe card header shows status, token usage, and runtime. Open **Run details** when you need the raw tool output.\r\n\r\nFor fields like name, appearance, personality, scenario, voice, and first message, using a newer card replaces the older accepted card for that field. Lorebook entries and NPCs are added instead of replacing each other.\r\n\r\n---\r\n\r\n## Reading the Workspace\r\n\r\nThe workspace is the current result. It is built from the cards you have accepted. If something feels wrong, discard the card that caused the problem or run the command again with clearer instructions.\r\n\r\nCommon adjustments:\r\n\r\n| Goal | Example |\r\n|------|---------|\r\n| More grounded | `less dramatic, more everyday` |\r\n| More specific | `add concrete habits and visual details` |\r\n| Less polished | `make the wording rougher and more natural` |\r\n| Stronger constraint | `avoid royal, noble, or chosen-one language` |\r\n| More scenario-focused | `treat this as a place and situation, not a single person` |\r\n\r\n---\r\n\r\n## Character Workflow\r\n\r\nFor a character, a common workflow is:\r\n\r\n1. Add source with the panel field or `/dream`\r\n2. Generate `/name`, `/appearance`, and `/personality`\r\n3. Generate `/scenario` once the character has a clear shape\r\n4. Generate `/voice` and `/first_message`\r\n5. Add `/add_lorebook` or `/add_npc` only if the card needs supporting world detail\r\n6. Use the **Visuals** tab if you want generated visual assets\r\n7. Finalize when the required fields are filled\r\n\r\nYou can do these in a different order. The main rule is that source must exist before generation commands run.\r\n\r\n---\r\n\r\n## Scenario Workflow\r\n\r\nFor a scenario:\r\n\r\n1. Set the switcher to **Scenario**\r\n2. Use `/dream` to describe the premise, setting, tone, and role of `{{user}}`\r\n3. Use `/name` for the scenario title\r\n4. Use `/appearance` for the setting and sensory presentation\r\n5. Use `/personality` for narrator or world behavior\r\n6. Use `/scenario` and `/first_message` to establish the opening situation\r\n\r\nScenario mode saves through the same card system as normal characters. The difference is how Dream Weaver writes the fields.\r\n\r\n---\r\n\r\n## Previous Weaves\r\n\r\nThe panel keeps saved sessions under **Previous Weaves**.\r\n\r\nUse:\r\n\r\n1. **All** to see every session\r\n2. **Drafts** to find unfinished sessions\r\n3. **Finalized** to find sessions already linked to a generated card\r\n4. **Search** to filter by source, type, or tone\r\n\r\nFinalized sessions can be reopened. If you accept new cards and update, Dream Weaver updates the linked card instead of creating a new one.\r\n',
+    "dream-weaver/studio-workflow.md": `# Studio Workflow\r
+\r
+The Studio is a chat thread. You type slash commands in the composer, tool cards appear in the log with their results, and you decide what to keep with a click.\r
+\r
+---\r
+\r
+## Starting a Weave\r
+\r
+1. Open the **Dream Weaver** panel.\r
+2. Choose **Character** or **Scenario** with the header switcher.\r
+3. Open or create a session \u2014 the Studio opens to its empty thread.\r
+4. Type your source with \`/dream \u2026\` (or fill the panel's **Source Material** field before opening the Studio). The Dream Summary card appears in the log.\r
+5. Run tools (\`/name\`, \`/appearance\`, \u2026) or hit **Run Full Suite** to generate the core set in one go.\r
+\r
+If the log is empty, the Studio shows a short onboarding prompt: _"Describe your concept. Type /dream followed by a few sentences about your character \u2014 their personality, look, or role."_\r
+\r
+!!! warning "Tools need source first"\r
+    Every generation tool except \`/help\` and \`/dream\` is blocked until a Dream Summary exists. Add one with \`/dream \u2026\` before running anything else.\r
+\r
+!!! tip "Good source pays off"\r
+    Include the premise, mood, relationship to \`{{user}}\`, genre, constraints, and anything you don't want. Specific source = specific results. See [Sources & Roadmap](sources-and-roadmap.md).\r
+\r
+---\r
+\r
+## The Composer\r
+\r
+The chat composer sits at the bottom of the Studio. Type a message and hit Enter to send (Shift+Enter for a new line). The placeholder reads _"/dream describe the setup, or run /name. Shift+Enter for a new line."_\r
+\r
+### Slash Command Autocomplete\r
+\r
+Typing \`/\` opens a popover with matching tools (up to 6 results), grouped by category (**Soul**, **World**, **Lifecycle**). Each entry shows the command, display name, and a short description. Press **Tab** to complete the highlighted command, or **Enter** to submit it directly.\r
+\r
+### Sending a Command With Direction\r
+\r
+You can append instruction text after the command. The tool uses it as guidance for that run:\r
+\r
+\`\`\`text\r
+/personality make her warmth feel practiced, not natural\r
+\`\`\`\r
+\r
+\`\`\`text\r
+/scenario keep {{user}} as a suspicious guest arriving during a storm\r
+\`\`\`\r
+\r
+Direction can also be added _after_ a tool runs by clicking **Adjust** on its tool card (see below).\r
+\r
+---\r
+\r
+## Tools\r
+\r
+All tools below need source material to be present (added via \`/dream\`) except \`/help\` and \`/dream\` itself.\r
+\r
+| Command | Category | Purpose | Mode |\r
+|---------|----------|---------|------|\r
+| \`/dream\` | Lifecycle | Add or edit the dream source for the session. | Append / edit |\r
+| \`/help\` | Lifecycle | List every tool with a short description. | \u2014 |\r
+| \`/name\` | Soul | Generate the character name (or scenario title). | Overwrite |\r
+| \`/appearance\` | Soul | Generate appearance, setting, or visual presentation. | Overwrite |\r
+| \`/personality\` | Soul | Generate behavioral patterns, habits, contradictions. | Overwrite |\r
+| \`/scenario\` | Soul | Generate the current situation and relationship to \`{{user}}\`. | Overwrite |\r
+| \`/voice\` | Soul | Generate voice guidance \u2014 baseline, rhythm, diction, quirks, hard nos. | Overwrite |\r
+| \`/first_message\` | Soul | Generate the main opening message. | Overwrite |\r
+| \`/greeting\` | Soul | Generate an alternate entry-point greeting. | Overwrite |\r
+| \`/add_lorebook\` | World | Generate one lorebook entry (keys, comment, content). | Append |\r
+| \`/add_npc\` | World | Generate one supporting NPC (name, description, optional voice notes). | Append |\r
+\r
+**Overwrite** tools replace the previously accepted result for that field \u2014 accepting a new \`/name\` card swaps the name on the draft. **Append** tools add to a list \u2014 every \`/add_npc\` you accept stacks another NPC on the draft.\r
+\r
+---\r
+\r
+## Tool Cards\r
+\r
+Each generation produces a **tool card** in the chat log. The card header shows the tool icon, display name, intent line (e.g. _"Setting the character's name"_), status badge, execution time, and token usage. While the tool is running, output fields show skeleton loaders.\r
+\r
+Once the card reaches **Ready to Review**, the action row appears:\r
+\r
+| Action | Result |\r
+|--------|--------|\r
+| **Use result** | Accept the output. Adds (or replaces) the matching field on the draft. |\r
+| **Run again** | Re-run the same command with the same arguments. Produces a new card that supersedes the old one. |\r
+| **Adjust** | Open the inline **nudge** box and re-run with extra guidance. The old card is marked _Replaced_. |\r
+| **Discard** | Reject the output. The card stays in the log for reference but the draft is not updated. |\r
+\r
+You can also **Cancel run** while a card is in progress, and expand **Run details** on any completed card to see the raw structured output.\r
+\r
+### Adjust / Nudge\r
+\r
+Clicking **Adjust** drops a small "What should change?" input under the card with a **Run adjusted** button. Use it to retry without retyping the original command:\r
+\r
+\`\`\`text\r
+make her warmth feel practiced, not natural \u2014 keep the height and outfit\r
+\`\`\`\r
+\r
+Run adjusted produces a new tool card linked to the previous one (with \`supersedes_id\`). The old card is greyed out and tagged **Replaced**; the new card becomes the latest in the chain.\r
+\r
+---\r
+\r
+## Run Full Suite\r
+\r
+When the Studio has source material, a banner above the chat log offers **Run Full Suite**. It runs **name \u2192 appearance \u2192 personality \u2192 scenario \u2192 first message \u2192 voice** in sequence and queues all the tool cards into the log. When the run finishes, the banner shows:\r
+\r
+> _N tools ready \u2014 review results below, then accept what you like._\r
+\r
+You still have to accept each card individually \u2014 the suite generates the candidates but doesn't auto-apply them. If any step fails, the banner switches to an error state with a **Retry** button.\r
+\r
+Use Run Full Suite when you want a complete first draft to react to. Skip it when you want to iterate on a single field \u2014 running \`/name\` then \`/appearance\` manually gives you tighter control.\r
+\r
+---\r
+\r
+## Progress Badges\r
+\r
+A horizontal **Character Progress** (or **Scenario Progress**) bar sits above the chat. Each tracked field appears as a chip \u2014 Name, Personality, First Message, Scenario, Appearance, Voice \u2014 with a checkmark once accepted. Required fields are visually highlighted while they're still missing. The right-hand counter shows the running total (e.g. \`4 / 6\`).\r
+\r
+The bar updates every time you accept a tool card.\r
+\r
+---\r
+\r
+## Required Fields for Finalize\r
+\r
+You can't finalize until three fields are filled:\r
+\r
+| Field | Character | Scenario |\r
+|-------|-----------|----------|\r
+| **Name / Title** | Character name | Scenario title |\r
+| **Personality** | Character behavior | Narrator or world behavior |\r
+| **First Message** | Opening message | Opening narration |\r
+\r
+If any of those is missing, the Studio footer reads _"Needs \u2026 before finalizing"_ and the **Finalize** button is disabled. Appearance, scenario, voice guidance, lorebook entries, NPCs, alternate greetings, and visuals are all optional \u2014 finalize will happily ship a minimal card if that's what you want.\r
+\r
+---\r
+\r
+## Voice Guidance Editor\r
+\r
+The \`/voice\` tool produces a structured voice profile, edited in the **Voice Guidance** editor (opened from the voice tool card or from the workspace panel). Each rule lives under one of five categories:\r
+\r
+| Category | Use it for |\r
+|----------|------------|\r
+| **Baseline** | Core vocal characteristics (tone, register, pacing baseline). |\r
+| **Rhythm** | Speech patterns, pacing variations, pauses. |\r
+| **Diction** | Word choice, vocabulary level, formality. |\r
+| **Quirks** | Idiosyncratic speech patterns, verbal tics, signature phrases. |\r
+| **Hard nos** | Absolute rules to avoid (forbidden words, accents you don't want, etc.). |\r
+\r
+Each category is a list of rules \u2014 add, remove, or reorder freely. A category badge shows how many rules it contains.\r
+\r
+A **Structured / Compiled** toggle at the top of the editor switches between the editable rule view and the read-only compiled string that's actually fed to the model at runtime.\r
+\r
+\`/voice\` populates both halves automatically. Hand-editing the rules afterwards is encouraged when the auto-generated wording doesn't match what you hear in your head.\r
+\r
+---\r
+\r
+## Workspace Behaviour\r
+\r
+The workspace draft is rebuilt from your accepted tool cards on every change. If a tool card is later **discarded** or **superseded** by a newer accepted card, the draft updates accordingly. Nothing is "saved" \u2014 the chat log is the source of truth, and the draft is just the latest accepted projection of it.\r
+\r
+Common adjustments when something feels off:\r
+\r
+| Goal | Example nudge |\r
+|------|---------------|\r
+| More grounded | \`less dramatic, more everyday\` |\r
+| More specific | \`add concrete habits and visual details\` |\r
+| Less polished | \`make the wording rougher and more natural\` |\r
+| Stronger constraint | \`avoid royal, noble, or chosen-one language\` |\r
+| More scenario-focused | \`treat this as a place and situation, not a single person\` |\r
+\r
+---\r
+\r
+## Common Workflows\r
+\r
+### Character\r
+\r
+1. \`/dream\` your concept (or fill **Source Material** before opening).\r
+2. Hit **Run Full Suite** and let it queue six cards.\r
+3. Walk down the log: **Use result** for keepers, **Adjust** on anything close-but-wrong, **Run again** if you want a different draft of the same thing.\r
+4. Add \`/add_lorebook\` / \`/add_npc\` if the card needs supporting world detail.\r
+5. Open the **Visuals** tab to generate a portrait.\r
+6. **Finalize Character** once Name, Personality, and First Message are checked off.\r
+\r
+### Scenario\r
+\r
+1. Flip the header switcher to **Scenario**.\r
+2. \`/dream\` the premise, setting, tone, and \`{{user}}\`'s role.\r
+3. \`/name\` for the scenario title, \`/appearance\` for the setting, \`/personality\` for narrator behavior, \`/scenario\` and \`/first_message\` for the opening situation.\r
+4. Use \`/voice\` to lock in narrator voice (optional but recommended).\r
+5. **Finalize Scenario**.\r
+\r
+You can mix and match \u2014 the only rule is that source must exist before generation tools run.\r
+\r
+---\r
+\r
+## Tips\r
+\r
+!!! tip "Nudge before re-running"\r
+    Pick **Adjust** over **Run again** when the result is _almost_ right. A nudge that mentions what to keep is faster than rerolling from scratch.\r
+\r
+!!! tip "Use Run Full Suite for first drafts only"\r
+    The Suite is great for generating six candidates fast. For revisions, run tools individually \u2014 you'll get cards that respond to recent context instead of restarting from the source.\r
+\r
+!!! tip "Append tools stack"\r
+    \`/add_npc\` and \`/add_lorebook\` don't replace previous entries. Run them once per NPC or lore beat you want; the draft collects them all.\r
+`,
     "dream-weaver/visuals-and-finalizing.md": `# Visuals & Finalizing\r
 \r
-The **Visuals** tab generates image assets for the current Dream Weaver session. Portraits are the only supported asset type in the current version. Expressions and gallery images are planned for later.\r
+The **Visuals** tab generates a portrait for the Dream Weaver session. **Finalize** turns the session into a real character or scenario card.\r
 \r
-When you finalize a session, Dream Weaver saves the result as a character or scenario card. The first time you finalize a session, it also creates the launch chat.\r
+Portraits are the only supported visual asset in the current version. Expressions and gallery images are planned for a later release.\r
 \r
 ---\r
 \r
 ## Visuals Tab\r
 \r
-Dream Weaver uses the cards you have accepted to prepare image prompts. The visual workflow depends on your image generation setup. In the current version, the generated asset is a portrait.\r
+Dream Weaver shares its image-gen connections with [core image generation](../image-generation/index.md) \u2014 there is no separate setup. Whatever ComfyUI, SwarmUI, Gemini, NovelAI, NanoGPT, or Pollinations connections you've already configured will appear in the Visuals tab's connection picker.\r
 \r
-| Area | What It Does |\r
-|------|--------------|\r
-| **Portrait stage** | Shows the accepted portrait, candidate image, or generation progress |\r
-| **Source settings** | Chooses the image provider, preset, workflow, size, seed, and provider options |\r
-| **Prompt fields** | Stores the positive and negative prompt for the selected visual asset |\r
-| **Suggest Tags** | Uses the Dream Weaver text connection to turn accepted card details into image tags |\r
-| **Generate Portrait** | Starts an image job from the current visual asset settings |\r
+The Visuals tab has two main regions:\r
 \r
-For provider setup, see [Image Generation](../image-generation/index.md).\r
+| Region | What It Does |\r
+|--------|--------------|\r
+| **Portrait stage** | A two-pane view: **Accepted** (the current accepted portrait, or an empty state) and **New Result** (the latest candidate or generation progress). |\r
+| **Source Settings Ribbon** | Image-gen connection, prompt fields, size / aspect ratio, seed, and provider parameters. |\r
+\r
+If only one image-gen connection exists, the Visuals tab auto-selects it. Otherwise pick one from the dropdown.\r
+\r
+---\r
+\r
+## Prompts & Suggest Tags\r
+\r
+The Visuals tab has its own positive and negative prompt fields \u2014 these are stored on the session's visual asset, not on the main image-gen prompt preset.\r
+\r
+**Suggest Tags** sits next to the positive prompt. Clicking it runs a quick LLM pass that converts the accepted appearance and personality cards into image-generation tags, then offers them as autocomplete suggestions you can append to the prompt. Review the suggestion before applying \u2014 you can prune anything that doesn't fit before clicking _Apply_.\r
+\r
+Tag suggestion is most useful when the accepted \`/appearance\` card is rich. If the suggested tags feel vague, run \`/appearance\` again with stronger direction first.\r
+\r
+---\r
+\r
+## Provider Settings\r
+\r
+Each provider exposes the same parameters in the Visuals tab as it does in the main image-gen panel \u2014 see [Setup & Providers](../image-generation/setup.md#provider-specific-setup) for the full per-provider parameter lists. Standard controls appear in the ribbon:\r
+\r
+- **Positive Prompt** \u2014 main image prompt.\r
+- **Negative Prompt** \u2014 content to avoid.\r
+- **Width / Height** \u2014 output resolution.\r
+- **Aspect Ratio** \u2014 locked for some providers (NovelAI, Gemini) and free-form for others.\r
+- **Seed** \u2014 explicit seed or a randomize button.\r
+\r
+Provider-specific extras (steps, CFG, sampler, scheduler, etc.) are pulled from the connection's parameter schema and rendered inline. They're stored on the visual asset, so the seed you used for an accepted portrait survives a session reopen.\r
 \r
 ---\r
 \r
 ## ComfyUI Workflows\r
 \r
-For ComfyUI connections, Dream Weaver needs an imported workflow before it can generate.\r
+For ComfyUI connections, Dream Weaver needs an imported workflow before it can generate. The flow is the same as in core image gen:\r
 \r
-1. Select a ComfyUI image connection\r
-2. Import a workflow JSON\r
-3. Review detected prompt, negative prompt, seed, width, and height mappings\r
-4. Map any missing required fields\r
-5. Generate once the Visuals tab is ready\r
+1. Select a ComfyUI image-gen connection.\r
+2. Open the **Workflow Editor** modal from the Visuals tab.\r
+3. Paste a workflow JSON (graph or API format) and let Lumiverse auto-detect injection points (positive prompt, negative prompt, seed, width, height, steps, CFG, sampler, scheduler, checkpoint).\r
+4. Adjust any field mappings that point at the wrong node.\r
+5. Save. Dream Weaver stores the workflow + mappings on the **image-gen connection's metadata**, so the same workflow is available to the core Image Generation panel too.\r
 \r
-Dream Weaver stores the workflow on the image connection metadata, not on a single Dream Weaver session.\r
+Custom fields you've mapped on the connection (LoRA strengths, alternate samplers, etc.) appear in the Visuals tab as extra parameter controls.\r
+\r
+See [ComfyUI Workflows](../image-generation/setup.md#comfyui-workflows) for the deeper walk-through.\r
+\r
+---\r
+\r
+## Generating a Portrait\r
+\r
+1. Make sure the positive prompt has at least an appearance description. Use **Suggest Tags** if you want Dream Weaver to fill it in from the accepted cards.\r
+2. Tune size, aspect, and provider parameters as needed.\r
+3. Click **Generate Portrait**. Progress streams in the **New Result** pane (with step counts and live previews on ComfyUI / SwarmUI).\r
+4. When the candidate appears, decide what to do with it:\r
+\r
+| Action | Result |\r
+|--------|--------|\r
+| **Accept Portrait** | Saves the candidate as the accepted portrait. If one is already accepted, the button reads **Replace Portrait**. |\r
+| **Regenerate** | Runs the image job again with the same settings. |\r
+| **Discard** | Removes the candidate without changing the accepted portrait. |\r
+\r
+The accepted portrait persists with the session. Reopening the session later keeps the selected portrait, and finalizing applies it to the linked card.\r
 \r
 ---\r
 \r
 ## Asset Guidance\r
 \r
-Visual generation works best after you have accepted name/title, appearance, and personality cards. Since portraits are the current supported asset type, improve the accepted \`/appearance\` card first when the image prompt feels vague.\r
+Visual generation works best after the text fields take shape. Since portraits are the current supported asset type, the accepted \`/appearance\` card matters most.\r
 \r
 Good portrait guidance includes:\r
 \r
-1. Body type, age impression, hair, eyes, clothing, and distinguishing marks\r
-2. Style constraints, such as illustration, anime, cinematic, or realistic\r
-3. Composition and framing, such as bust portrait, full body, close-up, or environmental portrait\r
-4. Things to avoid in the negative prompt\r
+1. Body type, age impression, hair, eyes, clothing, distinguishing marks.\r
+2. Style constraints \u2014 illustration, anime, cinematic, realistic.\r
+3. Composition and framing \u2014 bust portrait, full body, close-up, environmental portrait.\r
+4. Things to avoid in the negative prompt.\r
 \r
-Use **Suggest Tags** when you want Dream Weaver to turn accepted card details into image tags. Review the suggestion before applying it.\r
-\r
----\r
-\r
-## Accepting a Portrait\r
-\r
-When an image job completes, the result appears as a candidate image.\r
-\r
-| Action | Result |\r
-|--------|--------|\r
-| **Accept Portrait** | Saves the candidate as the accepted portrait |\r
-| **Replace Portrait** | Replaces the previously accepted portrait |\r
-| **Regenerate** | Runs the image job again |\r
-| **Dismiss** | Removes the candidate without changing the accepted portrait |\r
-\r
-Accepted visual assets are saved with the Dream Weaver session. Reopening the session keeps the selected portrait.\r
+If the portrait keeps drifting away from the card's vibe, sharpen \`/appearance\` first. The image prompt and the text card share the same source, so tightening one improves the other on the next pass.\r
 \r
 ---\r
 \r
 ## Finalizing\r
 \r
-Use **Finalize Character** or **Finalize Scenario** when the result is ready.\r
+Click **Finalize Character** or **Finalize Scenario** in the Studio footer once the required fields are filled.\r
 \r
 Dream Weaver requires these fields before finalizing:\r
 \r
 | Required Field | Character Mode | Scenario Mode |\r
 |----------------|----------------|---------------|\r
-| Name/title | Character name | Scenario title |\r
+| Name / Title | Character name | Scenario title |\r
 | Personality | Character behavior | Narrator or world behavior |\r
-| First message | Character opening message | Opening narration or scene prompt |\r
+| First Message | Character opening message | Opening narration or scene prompt |\r
 \r
-If any required field is missing, Dream Weaver warns you before it calls finalize.\r
+If any required field is empty, the footer reads _"Needs \u2026 before finalizing"_ and the button is disabled. Everything else \u2014 appearance, scenario, voice guidance, lorebook entries, NPCs, alternate greetings, portrait \u2014 is optional. Finalize will happily ship a minimal card.\r
 \r
-Finalizing creates or updates:\r
+### What Finalize Creates\r
 \r
 | Output | What Happens |\r
 |--------|--------------|\r
-| **Generated card** | Name/title, description, personality, scenario, first message, and Dream Weaver metadata are saved |\r
-| **Launch chat** | Created the first time you finalize the session |\r
-| **World books** | Accepted lore and NPC cards become attached world book entries |\r
-| **Portrait** | The accepted portrait is applied as the card image when available |\r
+| **Generated card** | Name/title, description, personality, scenario, first message, and Dream Weaver metadata are saved. |\r
+| **Launch chat** | Created the first time you finalize the session. |\r
+| **World books** | Accepted lorebook entries and NPCs become world book entries attached to the card. |\r
+| **Portrait** | The accepted portrait is applied as the card's avatar. |\r
+| **Voice guidance** | The compiled voice string is attached to the card. |\r
+\r
+Finalizing flips the session's status pill from **Draft** to **Linked**. The Character / Scenario switcher in the header is disabled at this point \u2014 the card type is locked in.\r
 \r
 ---\r
 \r
 ## Updating a Finalized Session\r
 \r
-After a session has been finalized, the footer action changes to **Update Character** or **Update Scenario**. Updating keeps the same linked card.\r
+Once a session is linked, the Studio footer's button changes to **Update Character** or **Update Scenario**.\r
 \r
-Updating:\r
+Update:\r
 \r
-1. Reuses the same generated card\r
-2. Keeps the existing launch chat\r
-3. Replaces Dream Weaver-generated world books from that session\r
-4. Preserves manually attached world books\r
-5. Applies the current accepted portrait when one is selected\r
+1. Reuses the same generated card and its character ID.\r
+2. Keeps the existing launch chat.\r
+3. Replaces world books Dream Weaver previously generated for this session, but **preserves world books you attached by hand** outside of Dream Weaver.\r
+4. Applies the current accepted portrait when one is selected.\r
+5. Re-writes name, description, personality, scenario, and first message from the accepted cards.\r
 \r
-Use this when you accept revised cards after testing the result, or when you generate a better portrait from the same Dream Weaver session.\r
+Use this when you've accepted revised cards after testing the result, or when you generated a better portrait from the same session.\r
 \r
 ---\r
 \r
 ## After Finalizing\r
 \r
-Open the generated card in the **Character Browser** to review saved fields. This is the best place to make small manual edits, add tags, change avatars, or export the card.\r
+Open the linked card in the **Character Browser** to review the saved fields. That's the best place for small manual edits, additional tags, alternate greetings, avatar tweaks, or exporting the card.\r
 \r
-If the launch chat does not feel right, return to Dream Weaver, accept revised cards, and update the same session.\r
+If the launch chat doesn't quite work, return to Dream Weaver, accept revised cards (or run more tools), and click **Update Character** / **Update Scenario** \u2014 the linked card refreshes in place.\r
+\r
+---\r
+\r
+## Tips\r
+\r
+!!! tip "Iterate appearance before generating"\r
+    A vague \`/appearance\` card gives the image model nothing concrete to anchor on. Spend a Run again or Adjust on \`/appearance\` before clicking Generate Portrait and you'll waste fewer image credits.\r
+\r
+!!! tip "Reuse a ComfyUI workflow across both panels"\r
+    Workflows are stored on the connection, not on the Dream Weaver session. Import once and both the Dream Weaver Visuals tab and the core Image Generation panel will see it.\r
+\r
+!!! warning "Update doesn't touch manually-edited fields outside Dream Weaver"\r
+    If you edited the linked card in the Character Browser after finalizing, those edits get overwritten when you next click **Update**. Either re-do them in the Studio first or be ready to redo them in the Browser after the update.\r
 `,
     "extensions/index.md": `# Extensions\r
 \r
@@ -24017,6 +24968,59 @@ Database migrations run automatically on startup \u2014 your data is preserved a
 \r
 ---\r
 \r
+## Switching Branches\r
+\r
+Lumiverse ships two long-lived branches:\r
+\r
+| Branch | Cadence | Audience |\r
+|--------|---------|----------|\r
+| **\`main\`** | Tagged releases. Most stable. | Default for everyone. |\r
+| **\`staging\`** | Receives merged work earlier than \`main\`. May ship rough edges or in-progress features. | Users who want a preview of upcoming changes and don't mind the occasional regression. |\r
+\r
+You can move between branches at any time. Your \`data/\` folder is unaffected.\r
+\r
+### From the Operator Panel (recommended)\r
+\r
+If you're running Lumiverse with the visual terminal runner (the default for the start scripts), you can switch branches without leaving the app:\r
+\r
+1. Open **Settings \u2192 Operator Panel**.\r
+2. Look at the **Branch** card \u2014 it shows the branch you're on (\`main\` or \`staging\`).\r
+3. Click **Switch to staging** (or **Switch to main** if you're already on staging).\r
+4. Confirm the prompt. Lumiverse will checkout, pull, reinstall, rebuild the frontend, and restart the server. Your browser will reconnect automatically when the new build is up.\r
+\r
+!!! note "Runner IPC must be connected"\r
+    The button is disabled when the **Runner IPC** badge in the Operator Panel reads _Unavailable_. The runner is what executes the checkout/pull/rebuild on your behalf. If you launched without the runner (\`--no-runner\` / \`-NoRunner\`), restart with it enabled or use the git command flow below.\r
+\r
+### From the Command Line\r
+\r
+=== "macOS / Linux"\r
+\r
+    \`\`\`bash\r
+    git fetch origin\r
+    git checkout staging      # or: git checkout main\r
+    git pull\r
+    ./start.sh --build\r
+    \`\`\`\r
+\r
+=== "Windows"\r
+\r
+    \`\`\`powershell\r
+    git fetch origin\r
+    git checkout staging      # or: git checkout main\r
+    git pull\r
+    .\\start.ps1 -Build\r
+    \`\`\`\r
+\r
+The \`--build\` / \`-Build\` flag rebuilds the frontend before launching \u2014 important when switching branches because the precompiled assets differ.\r
+\r
+!!! warning "Docker users"\r
+    The Operator Panel's branch switch and the \`git checkout\` flow both assume Lumiverse is running from a git checkout. If you're using the pre-built Docker image (\`ghcr.io/prolix-oc/lumiverse:latest\`), there is no working tree to switch \u2014 you'd need to either rebuild from source against the \`staging\` branch (\`docker-compose -f docker-compose.build.yml up -d\` after \`git checkout staging\`) or wait for the next image tag.\r
+\r
+!!! tip "Roll back to main if staging breaks"\r
+    Staging can occasionally ship a regression. Switching back to \`main\` from the Operator Panel (or \`git checkout main && ./start.sh --build\`) returns you to the last stable release without touching your \`data/\` folder.\r
+\r
+---\r
+\r
 ## Migrating from SillyTavern\r
 \r
 If you're coming from SillyTavern, Lumiverse includes a migration tool that imports your characters, chat history, world books, and personas. You can migrate from a local directory, or connect to a remote machine over **SFTP** or **SMB** if your SillyTavern installation lives on another device.\r
@@ -24279,145 +25283,473 @@ Click the gear icon (or use the Command Palette) to open **Settings**. Settings 
 `,
     "image-generation/index.md": `# Image Generation\r
 \r
-Lumiverse can generate images based on your conversation, creating visual scene illustrations that update as the story progresses.\r
+Lumiverse generates scene illustrations, character shots, and chat attachments from your conversations. It can run a hands-off **Scene tool** that watches your chat and refreshes the background as the setting shifts, or accept a **custom prompt** you write yourself \u2014 with full preset and macro support.\r
+\r
+---\r
+\r
+## What's New\r
+\r
+The image generation system was substantially rebuilt. If you used Lumiverse before this release, the parts you'll notice first:\r
+\r
+- **Three prompt modes** \u2014 _Scene tool_, _Custom prompt_, and _Chat-aware custom_ (your instructions, but applied to the live chat context by a parser LLM).\r
+- **Prompt presets** with per-character and per-persona **bindings** \u2014 splice character or persona snippets into a main preset with \`{{character_prompt}}\` / \`{{persona_prompt}}\`.\r
+- **Output targets** \u2014 send the result to the chat background, insert it as a new chat image, or attach it to the most recent message.\r
+- **Prompt preview** \u2014 see (and optionally edit) the resolved prompt before the image provider is called.\r
+- **Six providers** \u2014 ComfyUI and SwarmUI for local generation, plus Google Gemini, NovelAI, NanoGPT, and Pollinations in the cloud.\r
+- **Configurable timeouts** \u2014 separate limits for the parser/scene LLM and for the image provider itself.\r
+- **Gallery integration** \u2014 generated images can be auto-added to the active character's gallery and (optionally) re-sent to the LLM as multimodal context.\r
 \r
 ---\r
 \r
 ## How It Works\r
 \r
-1. A sidecar LLM analyzes the current scene in your chat\r
-2. It extracts scene data: environment, time of day, weather, mood, and focal details\r
-3. If the scene has changed significantly (or you force it), an image is generated\r
-4. The image appears as the chat background or in the image panel\r
+1. You pick a **prompt mode** \u2014 Scene tool, Custom, or Chat-aware Custom.\r
+2. Lumiverse builds the final prompt (running the parser/scene LLM if needed and substituting any character / persona snippets).\r
+3. The active **image-gen connection** generates the image.\r
+4. The result is routed to the **output target** you chose \u2014 background, new chat image, or attached to the last message \u2014 and optionally linked into the character gallery.\r
 \r
-The system is designed to be hands-off \u2014 it watches the conversation and generates new backgrounds when the setting changes.\r
-\r
----\r
-\r
-## Scene Data\r
-\r
-The scene analysis extracts:\r
-\r
-| Field | Description |\r
-|-------|-------------|\r
-| **Environment** | The setting/location (e.g., "dimly lit tavern," "moonlit garden") |\r
-| **Time of Day** | When the scene takes place |\r
-| **Weather** | Atmospheric conditions |\r
-| **Mood** | Emotional tone of the scene |\r
-| **Focal Detail** | A specific element to focus on |\r
-| **Palette Override** | Optional color scheme suggestion |\r
-\r
-A new image is generated when the scene data changes beyond the **scene change threshold** \u2014 a configurable sensitivity for how much needs to change before triggering regeneration.\r
+In Scene mode the cycle is automatic: each new reply is checked against the previous scene, and a new image is generated only when enough fields have changed (you control the sensitivity). In Custom and Chat-aware modes you trigger generation yourself with the **Generate** button.\r
 \r
 ---\r
 \r
-## Supported Providers\r
+## Prompt Modes\r
 \r
-| Provider | Style |\r
-|----------|-------|\r
-| **Google Gemini** | General-purpose image generation |\r
-| **NanoGPT** | Access to multiple image models via API |\r
-| **NovelAI** | Anime/illustration style with Danbooru tag support |\r
+| Mode | What it does |\r
+|------|--------------|\r
+| **Scene tool** | A sidecar LLM reads the chat and extracts a structured scene (environment, time of day, weather, mood, focal detail, and \u2014 optionally \u2014 visible characters and composition). The provider-specific prompt is built from those fields. |\r
+| **Custom prompt** | Your prompt is sent to the image provider verbatim. Macros (\`{{user}}\`, \`{{char}}\`, \`{{character_prompt}}\`, \`{{persona_prompt}}\`, \u2026) are still resolved. |\r
+| **Chat-aware custom** | Your text becomes _parser instructions_, not the final prompt. A parser LLM rewrites the current chat context into an image prompt following your guidance. |\r
+\r
+See [Prompts & Presets](prompts-and-presets.md) for the full picture, including how to save presets and bind them to a character or persona.\r
+\r
+---\r
+\r
+## Output Targets\r
+\r
+| Target | Result |\r
+|--------|--------|\r
+| **Set as background** | Image becomes the chat background at your configured opacity. |\r
+| **Insert into chat** | A new chat message is created with the image as an attachment. |\r
+| **Attach to last message** | The image is appended to the most recent message's attachments. |\r
+| **Preview only** | The image is generated but not placed in the chat \u2014 useful for testing a preset. |\r
+\r
+Generated images are persisted with thumbnails and a public URL, are addressable from the image gallery, and (when enabled) are automatically linked into the active character's gallery.\r
+\r
+---\r
+\r
+## Providers At a Glance\r
+\r
+| Provider | Runs | Strength |\r
+|----------|------|----------|\r
+| **ComfyUI** | Local | Bring-your-own workflow. Full control over samplers, schedulers, checkpoints, and any custom node graph you've already built. |\r
+| **SwarmUI** | Local | Friendlier wrapper around Comfy with built-in model browsing and component overrides (VAE, text encoders). |\r
+| **Google Gemini** | Cloud | Prose prompts, multiple aspect ratios, up to 4K. |\r
+| **NovelAI** | Cloud | Anime/illustration with Danbooru-style tags and **director reference images** (character / persona avatars or your own uploads). |\r
+| **NanoGPT** | Cloud | Aggregator \u2014 access to Flux, HiDream, DALL\xB7E 3, Imagen 4, Midjourney, Recraft, SDXL, SD 3.5, Reve, and others under one key. |\r
+| **Pollinations** | Cloud | Lightweight provider with optional \`enhance\`, transparency, and quality tiers. |\r
+\r
+See [Setup & Providers](setup.md) for connection setup and per-provider quirks.\r
 \r
 ---\r
 \r
 ## Quick Links\r
 \r
-- [Setup & Providers](setup.md) \u2014 Configure image generation connections\r
+| Guide | What You'll Learn |\r
+|-------|-------------------|\r
+| [Setup & Providers](setup.md) | Create an image-gen connection and configure each provider (including importing a ComfyUI workflow). |\r
+| [Prompts & Presets](prompts-and-presets.md) | Use Scene / Custom / Chat-aware modes, save presets, bind them to a character or persona, and preview the resolved prompt. |\r
+| [Scene, Output & Timeouts](scene-and-output.md) | Configure scene detection, output targets, gallery and context recycling, timeouts, and background display. |\r
 `,
-    "image-generation/setup.md": `# Image Generation Setup\r
+    "image-generation/prompts-and-presets.md": `# Prompts & Presets\r
 \r
-Image generation uses its own connection profiles, separate from your LLM connections.\r
-\r
----\r
-\r
-## Creating an Image Gen Connection\r
-\r
-1. Open the **Image Generation** panel\r
-2. Click **New Connection** (or go to the image gen connections section)\r
-3. Fill in:\r
-    - **Name** \u2014 A label (e.g., "NovelAI Images," "Gemini Vision")\r
-    - **Provider** \u2014 Select your image provider\r
-    - **Model** \u2014 Choose a model (use the Models button to browse available ones)\r
-    - **API Key** \u2014 Your provider's API key (stored encrypted)\r
-4. Optionally set **default parameters** (resolution, quality, etc.)\r
-5. Save\r
+Lumiverse builds the final image prompt from three things: the **prompt mode** you've chosen, any **preset** you've loaded, and the **character / persona snippets** bound to the active chat. This page covers all three and the **prompt preview** flow you can use to inspect the result before you generate.\r
 \r
 ---\r
 \r
-## Provider-Specific Setup\r
+## Prompt Modes\r
 \r
-### Google Gemini\r
+Set the mode under **Image Generation \u2192 Prompt Mode**.\r
 \r
-1. Use your Google AI API key\r
-2. Models are fetched from Google's API, filtered to image-capable ones\r
-3. Generates images using Google's native image generation\r
+### Scene tool\r
 \r
-### NanoGPT\r
+The default. A sidecar LLM reads the visible chat history and extracts a structured scene:\r
 \r
-1. Use your NanoGPT API key\r
-2. Model list is fetched live from their API (with fallback to 16 static models)\r
-3. Supports a wide range of image generation models\r
+| Field | Used for |\r
+|-------|----------|\r
+| \`environment\` | The setting / location |\r
+| \`time_of_day\` | Lighting cues |\r
+| \`weather\` | Atmospheric conditions |\r
+| \`mood\` | Emotional tone |\r
+| \`focal_detail\` | A specific element to highlight |\r
+| \`palette_override\` | Optional colour direction |\r
 \r
-### NovelAI\r
+When **Include Characters and Persona** is enabled, the parser additionally returns visible character names, per-character appearance tags, composition subjects, shot framing, camera angle, and a list of composition rating tags. NovelAI uses these directly as character tags; the other providers fold them into the prose prompt.\r
 \r
-1. Use your NovelAI API key\r
-2. Offers 6 built-in model options (no API endpoint for model listing)\r
-3. Automatically uses Danbooru-style tags instead of prose prompts\r
-4. Supports **director reference images** \u2014 character and persona avatars can be used as style references\r
+Lumiverse caches the previous scene per chat and only generates a new image when at least **Scene Change Sensitivity** fields have changed. Turn on **Ignore Scene Change Detection** to bypass the cache and regenerate on every trigger.\r
 \r
----\r
+### Custom prompt\r
 \r
-## Image Generation Settings\r
+Your prompt is sent to the image provider verbatim. Standard macros (\`{{user}}\`, \`{{char}}\`, character lookups, etc.) and the character / persona snippet macros described below are still resolved.\r
 \r
-Configure overall behavior in the Image Generation panel:\r
+### Chat-aware custom\r
 \r
-| Setting | Description |\r
-|---------|-------------|\r
-| **Active Connection** | Which image gen connection to use |\r
-| **Scene Change Threshold** | How much the scene must change before generating a new image |\r
-| **Force Generation** | Generate even if the scene hasn't changed |\r
-| **Background Opacity** | How transparent the generated image appears behind the chat |\r
-| **Fade Transition** | Animation duration when switching images (in milliseconds) |\r
+Your text becomes _parser instructions_, not the final prompt. A parser LLM reads the current chat context and rewrites it into an image prompt that follows your guidance.\r
 \r
----\r
+For example, a parser instruction like:\r
 \r
-## Manual vs. Automatic Generation\r
+> Focus on the current pose, expressions, clothing, lighting, and room details. Use concise image-generation tags.\r
 \r
-- **Manual** \u2014 Click the generate button in the Image Generation panel to create an image on demand\r
-- **Automatic** \u2014 When configured, images generate whenever the scene changes beyond the threshold\r
-\r
-Use **Force Generation** to trigger a new image even when the system thinks the scene hasn't changed enough.\r
+\u2026will produce a different final prompt every reply, tracking what just happened in the chat. This is the best mode when you want both authorial control _and_ scene awareness.\r
 \r
 ---\r
 \r
-## Generated Images\r
+## Picking the Parser LLM\r
 \r
-Generated images are:\r
+Scene and Chat-aware Custom both need a parser LLM. By default Lumiverse uses the **Council sidecar**, but you can override it under **Prompt Parser**:\r
 \r
-- Saved to the images table with full thumbnail support\r
-- Available in the image gallery\r
-- Accessible via a public URL for push notifications and embeds\r
-- Displayed as chat backgrounds at the configured opacity\r
+| Field | Purpose |\r
+|-------|---------|\r
+| **Parser Connection** | Any LLM connection \u2014 pick a small / cheap model here to keep parsing fast. |\r
+| **Parser Model** | A specific model on that connection. |\r
+| **Parser Temperature** | Default 0.4. Lower for more deterministic prompts. |\r
+| **Parser Top P** | Default 1. |\r
+| **Parser Max Tokens** | Optional cap. |\r
+\r
+The parser is short-lived per request and only runs for Scene and Chat-aware Custom modes. Pure Custom prompts skip it entirely.\r
 \r
 ---\r
 \r
-## Migration from Legacy Settings\r
+## Prompt Presets\r
 \r
-If you previously configured image generation through the older settings-based system (with API keys stored in settings), Lumiverse automatically migrates your provider configs to the new encrypted connection profile system on first use. No manual migration needed.\r
+Custom and Chat-aware prompts can be saved as **presets** and reloaded later. Presets come in three kinds:\r
+\r
+| Kind | Purpose |\r
+|------|---------|\r
+| **Main preset** | The full prompt that's actually sent / parsed. There is one active main preset at a time. |\r
+| **Character preset** | A snippet that fills \`{{character_prompt}}\` (and \`{{character_negative_prompt}}\`) in whichever main preset is active. |\r
+| **Persona preset** | A snippet that fills \`{{persona_prompt}}\` (and \`{{persona_negative_prompt}}\`) in the main preset. |\r
+\r
+Use the **Editing** picker in the panel to switch which kind you're editing. Save, rename, and delete buttons sit underneath the editor.\r
+\r
+### Bindings\r
+\r
+Character and persona presets aren't applied just because they exist \u2014 they have to be **bound**:\r
+\r
+- **Bind a character preset** by editing it while a chat is open. The preset is bound to that chat's character. From then on, any chat with the same character will splice this snippet into \`{{character_prompt}}\`.\r
+- **Bind a persona preset** by editing it with that persona active. The preset is bound to your user account against that persona.\r
+\r
+A small banner under the editor confirms what the current preset is bound to. Bindings persist across sessions and are stored per user.\r
+\r
+### Resolution Order\r
+\r
+When generation runs, Lumiverse resolves the prompt in this order:\r
+\r
+1. The **main preset** (or the inline panel text if no preset is loaded) is taken as the template.\r
+2. Any \`{{character_prompt}}\` / \`{{character_negative_prompt}}\` macro is replaced by the snippet from the character bound to the active chat \u2014 if one is bound.\r
+3. Any \`{{persona_prompt}}\` / \`{{persona_negative_prompt}}\` macro is replaced by the snippet from the persona bound to your user \u2014 if one is bound.\r
+4. Standard macros (\`{{user}}\`, \`{{char}}\`, etc.) are evaluated.\r
+5. The result is sent to the image provider (Custom mode) or to the parser LLM (Chat-aware Custom mode).\r
+\r
+If a macro is present but no binding exists, the macro expands to an empty string \u2014 your prompt still works, just without that snippet.\r
+\r
+### Example\r
+\r
+**Main preset (Custom mode):**\r
+\r
+\`\`\`text\r
+masterpiece, best quality, {{character_prompt}}, {{persona_prompt}}, indoor lighting, cinematic composition\r
+\`\`\`\r
+\r
+**Negative:**\r
+\r
+\`\`\`text\r
+worst quality, bad anatomy, {{character_negative_prompt}}\r
+\`\`\`\r
+\r
+**Character snippet (bound to "Aria"):**\r
+\r
+\`\`\`text\r
+1girl, long red hair, leather jacket, gold earrings\r
+\`\`\`\r
+\r
+**Persona snippet (bound to your "Detective" persona):**\r
+\r
+\`\`\`text\r
+middle-aged man, glasses, beige coat\r
+\`\`\`\r
+\r
+When you chat as Detective with Aria, the prompt sent to the provider becomes:\r
+\r
+\`\`\`text\r
+masterpiece, best quality, 1girl, long red hair, leather jacket, gold earrings, middle-aged man, glasses, beige coat, indoor lighting, cinematic composition\r
+\`\`\`\r
+\r
+Swap to a different persona or character mid-chat and the splices update automatically on the next generation.\r
+\r
+---\r
+\r
+## Prompt Preview\r
+\r
+Turn on **Preview prompt before generating** (under **Scene Settings**) to inspect the resolved prompt before the image provider is called.\r
+\r
+When enabled, hitting **Generate** opens the **Prompt Preview** modal showing the final prompt and negative prompt \u2014 fully macro-resolved and (for Scene / Chat-aware modes) already passed through the parser LLM. From there you can:\r
+\r
+- **Edit** the prompt and negative prompt directly.\r
+- **Generate** \u2014 sends the (possibly edited) prompt straight to the image provider, skipping the parser this time.\r
+- **Cancel** \u2014 discard and start over.\r
+\r
+This is the easiest way to debug a misbehaving preset or to fine-tune the parser output for one specific scene without changing your saved instructions.\r
+\r
+You can also preview without ever generating an image by setting the **Output** target to **Preview only**.\r
+\r
+---\r
+\r
+## Generating\r
+\r
+| Button | Behaviour |\r
+|--------|-----------|\r
+| **Generate** | Generates using the current settings. Respects scene-change detection unless **Ignore Scene Change Detection** is on. |\r
+| **Force Generate** | Bypasses scene-change detection for a single shot. |\r
+| **Auto-Generate On Reply** | When enabled, every new assistant message triggers a Scene-mode generation. Off for manual-only chats. |\r
+\r
+Generation runs cooperatively \u2014 a new request for the same chat aborts the in-flight one, so you can change your mind without waiting for the previous image to finish.\r
 \r
 ---\r
 \r
 ## Tips\r
 \r
-!!! tip "Use a low scene change threshold for dynamic scenes"\r
-    If your story moves between locations frequently, a lower threshold generates images more often. For slower-paced conversations, a higher threshold avoids unnecessary regeneration.\r
+!!! tip "Start in Scene mode, graduate to Chat-aware Custom"\r
+    Scene mode is the fastest way to get something on screen. Once you have a feel for what your provider does well, switch to Chat-aware Custom with a short parser instruction \u2014 you'll get scenes that match the chat _and_ your style.\r
 \r
-!!! tip "NovelAI director references"\r
-    NovelAI supports using character and persona avatars as reference images for style consistency. The system automatically resolves these before generation.\r
+!!! tip "Character snippets beat huge main presets"\r
+    A main preset shouldn't describe specific characters \u2014 keep it generic and put character details in a bound character snippet. You can then reuse the same main preset across every chat.\r
 \r
-!!! tip "Check the scene data"\r
-    The Image Generation panel shows the extracted scene data. If the AI is misreading the scene, you can adjust your writing to be more explicit about the setting.\r
+!!! tip "Preview is free"\r
+    Previewing the prompt runs the parser LLM but not the image provider. Use it freely to iterate on parser instructions before you spend a generation credit.\r
+`,
+    "image-generation/scene-and-output.md": `# Scene, Output & Timeouts\r
+\r
+How Lumiverse decides _when_ to generate, _where_ the result goes, and how long it's allowed to take.\r
+\r
+---\r
+\r
+## Scene Detection (Scene Mode)\r
+\r
+When **Prompt Mode** is set to **Scene tool**, every new assistant message triggers a scene parse. The parser returns a structured scene; Lumiverse compares it to the last cached scene for the chat and only generates a new image when enough fields have changed.\r
+\r
+| Setting | Default | What it does |\r
+|---------|---------|--------------|\r
+| **Auto-Generate On Reply** | On | When on, every reply triggers a scene parse + (possibly) a generation. When off, Scene mode is manual-only \u2014 useful when you want to choose when to refresh the background. |\r
+| **Scene Change Sensitivity** | 2 | Minimum number of scene fields that must change before a new image is generated. Lower = more frequent regenerations. |\r
+| **Ignore Scene Change Detection** | Off | Bypass the cache entirely. Every reply generates a new image. |\r
+| **Include Characters and Persona** | Off | When on, the parser additionally extracts visible characters, appearances, and composition tags. Required to get NovelAI character tags or character-aware Gemini / NanoGPT / Pollinations prompts. |\r
+\r
+The compared fields are: \`environment\`, \`time_of_day\`, \`weather\`, \`mood\`, and \`focal_detail\`. Character and composition fields don't currently affect the change check \u2014 they're extracted for richer prompts but won't trigger a regeneration on their own.\r
+\r
+---\r
+\r
+## Output Targets\r
+\r
+Pick where the result goes under **Prompt Mode \u2192 Output**.\r
+\r
+| Target | What happens |\r
+|--------|--------------|\r
+| **Set as background** | Replaces the chat background. Honours the configured opacity and fade duration. |\r
+| **Insert into chat** | Posts a new chat message owned by you, with the image as an attachment. Useful when you want the image to live in the chat history. |\r
+| **Attach to last message** | Appends the image to the latest existing message's attachments. Best for adding a visual to the assistant's last reply without inserting a whole new turn. |\r
+| **Preview only** | Generates the image but doesn't place it anywhere. The provider still runs \u2014 use this when you're tuning a preset and don't want the chat to fill up. |\r
+\r
+### Background display\r
+\r
+Two settings control how a background image is shown:\r
+\r
+| Setting | Default | What it does |\r
+|---------|---------|--------------|\r
+| **Opacity** | 35% | Background transparency behind the chat. |\r
+| **Fade Duration** | 800ms | Crossfade duration when the background swaps. |\r
+\r
+The Image Generation panel also has a **Use as Background** shortcut after generating, plus a **Clear** button to remove the current background.\r
+\r
+---\r
+\r
+## Gallery & Context Recycling\r
+\r
+| Setting | Default | What it does |\r
+|---------|---------|--------------|\r
+| **Add Generated Images to Character Gallery** | On | Links each generated image into the active chat's character gallery as a "Generated image" entry. The link is best-effort \u2014 the image is always saved regardless. |\r
+| **Recycle Generated Images Into Context** | Off | When on, recently generated images attached to the chat are re-sent to the LLM as multimodal input on subsequent turns. Only matters if your LLM is multimodal. |\r
+| **Generated Images To Re-Send** | 1 | Maximum number of recent generated images included when recycling is enabled. |\r
+\r
+### Removing an image from a message\r
+\r
+Right-click (or long-press on touch) an attached image inside a message to bring up the message context menu \u2014 it has a **Remove image** action that detaches the image from the message. The image itself stays in your gallery; only the attachment is removed.\r
+\r
+---\r
+\r
+## Timeouts\r
+\r
+Image generation has **two independent timeouts** so a slow parser doesn't block a fast provider (and vice versa).\r
+\r
+| Setting | Default | What it covers |\r
+|---------|---------|----------------|\r
+| **Prompt Generation Timeout** | 60 s | Time allowed for the parser LLM phase \u2014 Scene parsing or Chat-aware Custom rewriting. Set to \`0\` to disable. |\r
+| **Image Generation Timeout** | 300 s (5 min) | Time allowed for the image provider itself, measured from the moment the prompt is ready. Set to \`0\` to disable. |\r
+\r
+Both timeouts abort the in-flight generation and surface an error to the panel. Bump the **Image Generation Timeout** when running long ComfyUI workflows or loading large checkpoints on a cold server.\r
+\r
+!!! tip "Bypass either timeout by setting it to 0"\r
+    \`0\` disables the timeout entirely. Use this on local ComfyUI / SwarmUI rigs where you trust the provider to finish eventually, but be aware that a wedged provider won't surface as an error until you cancel manually.\r
+\r
+---\r
+\r
+## Progress, Previews & Cancellation\r
+\r
+ComfyUI and SwarmUI both stream progress events back to the panel:\r
+\r
+- A **progress bar** shows the current step and total step count.\r
+- For workflows that emit previews, an in-progress thumbnail appears under the bar so you can see the image forming.\r
+- The panel shows a **Cancel** affordance while a generation is running; starting a new generation for the same chat also aborts the previous one.\r
+\r
+Cloud providers (Gemini, NovelAI, NanoGPT, Pollinations) don't expose step-level progress \u2014 the panel shows a spinner instead and the result arrives in one shot.\r
+\r
+---\r
+\r
+## Tips\r
+\r
+!!! tip "Scene Change Sensitivity = 1 is noisy"\r
+    A sensitivity of 1 means _any_ change to environment, time-of-day, weather, mood, or focal detail re-triggers a generation. That's usually too much \u2014 small wording changes can shift "mood" without the scene actually moving. Start at 2 and only drop to 1 if you want a near-constant refresh.\r
+\r
+!!! tip "Attach to last message for assistant snapshots"\r
+    If you want each scene image to belong to the assistant's reply that triggered it, use **Attach to last message** instead of **Insert into chat**. The chat reads more cleanly because there's no extra "image" turn between every reply.\r
+\r
+!!! tip "Disable gallery auto-add for short-lived experiments"\r
+    If you're testing a preset by running dozens of generations, turn off **Add Generated Images to Character Gallery** so your gallery doesn't fill with throwaway shots. The images are still saved and accessible from the chat itself.\r
+`,
+    "image-generation/setup.md": `# Setup & Providers\r
+\r
+Image generation uses its own connection profiles, separate from your LLM connections. You can have as many as you like and switch between them per chat.\r
+\r
+---\r
+\r
+## Creating an Image-Gen Connection\r
+\r
+1. Open **Settings \u2192 Connections** (or the **Image Generation** panel and click the connection picker).\r
+2. Add a new connection and choose the **Provider**.\r
+3. Fill in the required fields for that provider (URL, API key, etc.).\r
+4. Click **Test** to validate the connection.\r
+5. Click **Models** (or the refresh button on the model picker) to populate the available model list. Models are fetched live where the provider supports it; otherwise a curated static list is used.\r
+6. Optionally set **default parameters** (resolution, steps, CFG, sampler, \u2026). These are stored on the connection and applied to every generation that uses it.\r
+7. Save.\r
+\r
+You can duplicate a connection to keep variant presets (for example, two SwarmUI connections that point at the same server but ship different default parameters).\r
+\r
+!!! tip "API keys are encrypted at rest"\r
+    Keys are stored in the Lumiverse identity vault (AES-256-GCM). They never leave your instance unless you opt into an [API Keys decryption ticket](../data-portability/api-keys-and-tickets.md) during data export.\r
+\r
+---\r
+\r
+## Provider-Specific Setup\r
+\r
+### ComfyUI (local)\r
+\r
+1. Run a ComfyUI server reachable from Lumiverse (default \`http://localhost:8188\`).\r
+2. Create a ComfyUI connection in Lumiverse and point it at that URL.\r
+3. Import a workflow \u2014 see [ComfyUI Workflows](#comfyui-workflows) below.\r
+\r
+**Parameters exposed** at generation time: positive prompt, negative prompt, steps, CFG, sampler, scheduler, width, height, checkpoint, plus any custom fields you map.\r
+\r
+**Streaming progress.** ComfyUI generations report step-by-step progress and live previews back into the panel.\r
+\r
+### SwarmUI (local)\r
+\r
+1. Run SwarmUI (default \`http://localhost:7801\`).\r
+2. Create a SwarmUI connection. A session token is optional \u2014 the client refreshes sessions automatically (they expire every 30 minutes).\r
+3. Pick a checkpoint. Models are scanned to a folder depth of 10, so nested layouts are supported.\r
+\r
+**Parameters:** width/height (64\u20134096), steps (1\u2013150), CFG (1\u201330), seed (-1 for random), sampler, scheduler, negative prompt, plus **component overrides** for VAE and text encoders (CLIP-L, CLIP-G, T5-XXL, Qwen, Mistral, Gemma, Llama). Lumiverse forces the SwarmUI aspect ratio to **Custom** so your explicit width/height are always respected.\r
+\r
+**Streaming progress.** Like Comfy, SwarmUI generations stream progress and previews into the panel.\r
+\r
+### Google Gemini\r
+\r
+1. Add your Google AI Studio API key.\r
+2. The model list is fetched from Google and filtered to image-capable models (with a static fallback when the API is unavailable).\r
+3. Pick an **aspect ratio** (1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9) and an **image size** (1K / 2K / 4K).\r
+\r
+### NovelAI\r
+\r
+1. Add your NovelAI API key.\r
+2. Choose a model from the six built-in options (V4.5 Full / Curated, V4 Full / Curated, Anime V3, Furry V3) \u2014 NovelAI does not expose a model-list endpoint.\r
+3. Configure sampler (\`k_euler_ancestral\`, \`k_euler\`, \`k_dpmpp_2m\`, \`k_dpmpp_2s_ancestral\`, \`k_dpmpp_sde\`, \`ddim_v3\`), resolution, steps (1\u201350, default 28), guidance (1\u201320, default 5), and the SMEA / SMEA-DYN toggles.\r
+4. NovelAI uses **Danbooru-style tags** instead of prose prompts; Lumiverse builds tag prompts automatically in Scene mode and includes character tags when **Include Characters and Persona** is on.\r
+\r
+**Director references.** NovelAI can take up to 14 reference images per generation. Lumiverse can include the current character and/or persona avatar automatically, or you can upload your own. Each reference has its own strength, info-extracted, and fidelity sliders, plus a reference type. References are padded to the nearest supported canvas size (1024\xD71536, 1536\xD71024, or 1472\xD71472).\r
+\r
+### NanoGPT\r
+\r
+1. Add your NanoGPT API key.\r
+2. The model list is fetched live with a static fallback (Flux variants, HiDream, DALL\xB7E 3, Imagen 4, Midjourney, Recraft, SDXL, SD 3.5, Reve, and more).\r
+3. Configure size (256\xB2, 512\xB2, 1024\xB2), \`numInferenceSteps\`, \`guidanceScale\`, optional \`strength\` (for image-to-image when supported), and \`seed\`.\r
+\r
+**Usage display.** NanoGPT shows your remaining credit/subscription usage in the connection panel, similar to OpenRouter.\r
+\r
+### Pollinations\r
+\r
+1. Add your Pollinations API key.\r
+2. The model list is fetched live with a static fallback (\`zimage\`, \`flux\`, \`gptimage\`, \`gptimage-large\`, \`kontext\`, \`nanobanana\`, \`seedream\` variants, \`qwen-image\`).\r
+3. Configure width/height (256\u20132048), \`quality\` (auto / low / medium / high), and the \`enhance\` and \`transparent\` toggles. Pollinations can return either base-64 or a URL; Lumiverse fetches whichever it gets.\r
+\r
+---\r
+\r
+## ComfyUI Workflows\r
+\r
+ComfyUI doesn't have fixed parameters \u2014 your workflow defines what's adjustable. Lumiverse handles this with a **workflow import** step.\r
+\r
+### Importing\r
+\r
+1. In the ComfyUI panel of your connection, choose **Import workflow** and upload a workflow JSON (either the editor's "graph" format or the "API" format).\r
+2. Lumiverse parses the graph and auto-detects the nodes that should receive standard parameters (positive prompt, negative prompt, sampler, steps, CFG, seed, width, height, checkpoint).\r
+3. Review the detected **field mappings** \u2014 every parameter is shown alongside the node and field it routes to. Adjust mappings if Lumiverse picked the wrong node.\r
+4. Save. The workflow JSON and your mappings live on the connection.\r
+\r
+### Custom Fields\r
+\r
+If your workflow has parameters that aren't in the standard set (for example, a LoRA strength or a custom sampler choice), expose them as **custom fields**. They appear in the panel's Advanced section and override the matching node value at generation time.\r
+\r
+### Capabilities Discovery\r
+\r
+The connection's **Capabilities** button queries the live ComfyUI server for available samplers, schedulers, and checkpoints. Use this whenever you add new models on the ComfyUI side so the panel pickers stay in sync.\r
+\r
+---\r
+\r
+## Connection Defaults vs. Live Parameters\r
+\r
+Every numeric/select parameter shown in the panel can be set at three levels:\r
+\r
+1. **Connection default** \u2014 set on the connection itself, applied to every generation.\r
+2. **Panel override** \u2014 temporary, lives in the open Image Generation panel.\r
+3. **Provider-level fallback** \u2014 the provider's own default if neither of the above is set.\r
+\r
+Lower levels override higher ones, so anything you change in the panel only affects the current chat session unless you explicitly save it back to the connection.\r
+\r
+---\r
+\r
+## Migration From Legacy Settings\r
+\r
+If you ran a previous version of Lumiverse that stored Gemini / NanoGPT / NovelAI keys in the global settings blob, those entries are migrated to encrypted connection profiles the first time you open the Image Generation panel. You don't need to do anything \u2014 the old keys disappear from settings and new connections appear in the picker.\r
+\r
+---\r
+\r
+## Tips\r
+\r
+!!! tip "Test before saving defaults"\r
+    Run a generation with a one-off panel value first; once you're happy with the result, copy it back to the connection's default parameters so future chats pick it up automatically.\r
+\r
+!!! tip "Pre-warm slow connections"\r
+    For ComfyUI / SwarmUI with large models, the first generation after a server restart can be slow while the checkpoint loads. Either bump the **Image Generation Timeout** (see [Scene, Output & Timeouts](scene-and-output.md)) or run a quick test from your server's UI first.\r
+\r
+!!! warning "Local providers need network access"\r
+    If Lumiverse is running in a container or VM, make sure the ComfyUI / SwarmUI URL is reachable from the Lumiverse process \u2014 not just from your browser.\r
 `,
     "index.md": `# Lumiverse User Guides\r
 \r
@@ -24480,6 +25812,15 @@ New to Lumiverse? Start here:\r
 | [Push Notifications](settings/push-notifications.md) | Get notified when the AI responds |\r
 | [LumiHub](settings/lumihub.md) | Browse and install characters from the hub |\r
 | [Users & Auth](settings/users.md) | Manage users, roles, and passwords |\r
+\r
+### Data Portability\r
+\r
+| Guide | What You'll Learn |\r
+|-------|-------------------|\r
+| [Overview](data-portability/index.md) | What's in a Lumiverse data archive and when to use one |\r
+| [Exporting Your Data](data-portability/exporting.md) | Bundle your account into a portable \`.lvbak\` archive |\r
+| [Importing an Archive](data-portability/importing.md) | Restore an archive into your account (merge-by-ID, non-destructive) |\r
+| [API Keys & Tickets](data-portability/api-keys-and-tickets.md) | Optional encrypted-secrets flow with a separate decryption ticket |\r
 \r
 ### Reference\r
 \r
@@ -27354,6 +28695,132 @@ If you're locked out, reset the owner password from the command line:\r
 \`\`\`bash\r
 bun run reset-password\r
 \`\`\`\r
+`,
+    "settings/web-search.md": `# Web Search\r
+\r
+Lumiverse can plug a self-hosted **SearXNG** meta-search instance into the [Council](../council/index.md) so members can look up current, factual, or source-backed information mid-deliberation. Results are scraped, condensed into a context block, and handed back to the calling tool.\r
+\r
+This is a host-level feature \u2014 once configured, any council member you assign the **Web Search** tool to can use it.\r
+\r
+---\r
+\r
+## How It Works\r
+\r
+1. A council member calls the **Web Search** tool with a search-engine-style query.\r
+2. Lumiverse forwards the query to your configured SearXNG instance.\r
+3. The top results (up to your configured limit) are fetched and converted to clean text using the same scraper that powers [Databanks](../chatting/memory-cortex.md).\r
+4. The combined snippets and page content are packaged into a single context block.\r
+5. That context block is stored under the variable \`web_search_context\` and exposed to the rest of the deliberation.\r
+\r
+The whole flow stays on infrastructure you control \u2014 the only outbound call is to your SearXNG host. No third-party search API is contacted by Lumiverse directly.\r
+\r
+---\r
+\r
+## Setting Up SearXNG\r
+\r
+Web Search needs a reachable SearXNG instance that returns JSON.\r
+\r
+1. **Run SearXNG** somewhere Lumiverse can reach (a Docker container on the same host is the easiest path).\r
+2. **Enable JSON output** in your SearXNG \`settings.yml\`:\r
+    \`\`\`yaml\r
+    search:\r
+      formats:\r
+        - html\r
+        - json\r
+    \`\`\`\r
+3. **(Optional) Require an API key** by putting a reverse proxy in front of SearXNG that checks the \`Authorization: Bearer \u2026\` header. Lumiverse sends the key you provide using this scheme.\r
+4. Note your instance's base URL \u2014 for example \`https://searxng.example.com\` or \`http://localhost:8080\`.\r
+\r
+!!! warning "Public SearXNG instances will rate-limit you"\r
+    The community list at [searx.space](https://searx.space) is fine for testing, but instances there throttle quickly and may block the JSON endpoint entirely. For day-to-day use, run your own.\r
+\r
+---\r
+\r
+## Configuring Lumiverse\r
+\r
+Open **Settings \u2192 Web Search**.\r
+\r
+### Required Fields\r
+\r
+| Field | What it does |\r
+|-------|--------------|\r
+| **Enable web search** | Master switch. While off, the Council \`web_search\` tool is hidden and the test button is the only thing that runs. |\r
+| **Provider** | \`SearXNG\` is currently the only supported provider. |\r
+| **API URL** | Your SearXNG base URL. Lumiverse automatically appends \`/search\` if you only give a host. |\r
+| **API Key** | Optional. Sent as \`Authorization: Bearer <key>\` if set \u2014 useful when your instance sits behind an auth proxy. The label shows **(configured)** once a key is saved. |\r
+\r
+### Search Tuning\r
+\r
+| Field | Default | Range | What it does |\r
+|-------|---------|-------|--------------|\r
+| **Engines** | (empty) | up to 20 | Comma-separated SearXNG engine allowlist (\`google, brave, duckduckgo\`). Leave empty to use whatever your SearXNG instance has enabled by default. |\r
+| **Language** | \`all\` | any SearXNG code | Result language filter. \`all\` accepts everything; \`en-US\`, \`de\`, \`ja\` etc. narrow it. |\r
+| **Safe Search** | Moderate | Off / Moderate / Strict | Maps to SearXNG's \`safesearch=0/1/2\`. |\r
+| **Timeout (ms)** | 15,000 | 5,000 \u2013 120,000 | How long Lumiverse waits for both the search request and each page fetch before giving up. |\r
+| **Default Results** | 3 | 1 \u2013 10 | Result count used when the council member doesn't specify one. |\r
+| **Max Results** | 5 | 1 \u2013 20 | Hard cap on results, even if a tool asks for more. Must be \u2265 Default Results. |\r
+| **Pages to Scrape** | 3 | 1 \u2013 10 | Of the search results, how many to actually fetch and extract text from. Smaller is faster; larger gives the model more material to work with. |\r
+| **Chars per Page** | 3,000 | 500 \u2013 20,000 | Per-page text cap applied after scraping. Keeps the context block from blowing past the chat context. |\r
+\r
+### Saving & Testing\r
+\r
+1. Fill in the fields, optionally paste a new API key.\r
+2. Click **Save Web Search Settings**.\r
+3. Enter a phrase in **Test Query** and click **Test Web Search**.\r
+\r
+The test uses **whatever is currently in the form**, including any unsaved API key \u2014 so you can validate a setup change before committing it. A successful test reports how many results were retrieved and how many pages were extracted, and shows the resulting context block in the **Preview** pane.\r
+\r
+---\r
+\r
+## Using Web Search in the Council\r
+\r
+Once Web Search is **enabled** and an **API URL** is configured, a new **Web Search** tool appears under the Context category in the [Council Tools](../council/council-tools.md) picker.\r
+\r
+To use it:\r
+\r
+1. Open the **Council** panel and select a member.\r
+2. Check **Web Search** in the tool list.\r
+3. That member can now decide to call Web Search during deliberation. The tool's planning guidance encourages it to use short, keyword-heavy search phrases ("latest OpenRouter pricing", "Tokyo weather today") rather than full sentences or roleplay narration.\r
+\r
+The tool accepts two arguments:\r
+\r
+| Argument | Required | Notes |\r
+|----------|----------|-------|\r
+| \`query\` | Yes | The search phrase. The model is prompted to produce a real search-engine query, not narration. |\r
+| \`result_count\` | No | How many results to fetch. Clamped to your **Max Results** setting. Defaults to your **Default Results** when omitted. |\r
+\r
+The tool stores its output in the deliberation under the variable \`web_search_context\`. Any downstream member can read that variable \u2014 though it does not appear in the deliberation transcript by default, to keep the context block from leaking into prose.\r
+\r
+!!! note "Web Search is gated"\r
+    The tool only shows up in the Council picker while Web Search is enabled **and** an API URL is set. Toggling it off again removes the tool from any member that had it assigned for the duration the gate is closed.\r
+\r
+---\r
+\r
+## Related: OpenRouter Web Plugin\r
+\r
+OpenRouter connections have their own **Web Search** plugin that runs on the provider side \u2014 it asks OpenRouter to augment the LLM response with web results before returning. You'll find it under **Connections \u2192 (OpenRouter connection) \u2192 Plugins \u2192 Web Search**.\r
+\r
+This plugin is independent of Lumiverse's SearXNG Web Search:\r
+\r
+- **Lumiverse Web Search** runs on _your_ infrastructure and is used by Council members as a tool.\r
+- **OpenRouter Web** is a provider-side feature that affects responses from that OpenRouter connection regardless of whether you've configured SearXNG.\r
+\r
+You can use neither, either, or both.\r
+\r
+---\r
+\r
+## Troubleshooting\r
+\r
+| Symptom | Likely cause |\r
+|---------|--------------|\r
+| "SearXNG returned HTTP 403" on test | Your instance has JSON output disabled, or a fronting proxy is blocking unauthenticated requests. Set an **API Key** or relax the proxy rule. |\r
+| "SearXNG returned HTTP 429" | Rate-limited. If you're testing against a public instance, switch to a self-hosted one. |\r
+| Tool never gets called by the Council | The member needs the tool explicitly checked. The model also won't call it for questions it can answer from the current chat \u2014 that's by design. |\r
+| Empty results despite a working query in your browser | Your engine allowlist is too narrow, or your SearXNG instance has those engines disabled. Clear the **Engines** field and retest. |\r
+| Pages return as \`Fetch note: \u2026\` instead of content | The page blocks scraping (bot protection, login walls, JS-only rendering). The snippet from SearXNG is still included. |\r
+\r
+!!! tip "Loopback URLs are allowed"\r
+    For Owner users, \`http://localhost\`, \`127.0.0.1\`, and private-range hosts are allowed as the Web Search API URL \u2014 Lumiverse's normal "no private IPs" guard is relaxed here so you can point at a SearXNG container running alongside it.\r
 `,
     "world-books/advanced-features.md": `# Advanced Features\r
 \r
@@ -35892,6 +37359,7 @@ async function compactSession(sessionId, userId, trigger) {
     s.messages.push(assistant);
     let currentText = null;
     const toolBlocks = new Map;
+    const compactionStartTs = Date.now();
     for await (const ev of runAgent({
       spindle,
       userId,
@@ -35956,6 +37424,22 @@ async function compactSession(sessionId, userId, trigger) {
       }
     }
     assistant.status = "complete";
+    let handoffOk = false;
+    try {
+      const st = await spindle.userStorage.stat(`workspace/${HANDOFF_PATH}`, userId);
+      if (st.exists && st.sizeBytes > 0) {
+        const parsed = Date.parse(st.modifiedAt);
+        handoffOk = Number.isFinite(parsed) ? parsed >= compactionStartTs - 2000 : true;
+      }
+    } catch {}
+    if (!handoffOk) {
+      log("warn", `compactSession ${sessionId}: HANDOFF.md missing / empty / stale; history preserved`);
+      await saveSession(spindle, s, userId);
+      send({ type: "ws_error", error: "Compaction failed: the agent did not write a fresh handoff. The conversation history is preserved; try again or continue chatting." }, userId);
+      send({ type: "compaction_completed", sessionId, handoffPath: HANDOFF_PATH, promptTokens: s.lastPromptTokens ?? 0, contextTokens }, userId);
+      emitContextUsage(s, contextTokens, userId);
+      return;
+    }
     s.llmHistory = [
       { role: "user", content: `[The previous agent compacted this conversation. Detailed handoff notes are saved at workspace/${HANDOFF_PATH}. If you need any context from before this point, read that file first with fs_read("${HANDOFF_PATH}"). Then respond to whatever the user says next.]` }
     ];

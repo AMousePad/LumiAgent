@@ -763,6 +763,9 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
 
     let currentText: AssistantBlock & { type: "text" } | null = null;
     const toolBlocks = new Map<string, AssistantBlock & { type: "tool" }>();
+    // Stamp BEFORE the run so we can tell apart a fresh handoff written this
+    // turn from a stale one left over by a prior compaction.
+    const compactionStartTs = Date.now();
     for await (const ev of runAgent({
       spindle, userId, sessionId, characterId: s.characterId, assistantMessageId: assistantId,
       pinnedChatId: s.pinnedChatId ?? null,
@@ -803,6 +806,29 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
       }
     }
     assistant.status = "complete";
+
+    // Did the agent actually write a fresh, non-empty handoff? If not, the
+    // conversation cannot be safely compacted: collapsing llmHistory would
+    // point the next turn at a missing or stale handoff file. Preserve the
+    // full history and surface the failure instead.
+    let handoffOk = false;
+    try {
+      const st = await spindle.userStorage.stat(`workspace/${HANDOFF_PATH}`, userId);
+      if (st.exists && st.sizeBytes > 0) {
+        const parsed = Date.parse(st.modifiedAt);
+        // Treat unparseable timestamps as fresh enough rather than false-fail.
+        handoffOk = Number.isFinite(parsed) ? parsed >= compactionStartTs - 2000 : true;
+      }
+    } catch { /* missing or unreadable -> not ok */ }
+
+    if (!handoffOk) {
+      log("warn", `compactSession ${sessionId}: HANDOFF.md missing / empty / stale; history preserved`);
+      await saveSession(spindle, s, userId);
+      send({ type: "ws_error", error: "Compaction failed: the agent did not write a fresh handoff. The conversation history is preserved; try again or continue chatting." }, userId);
+      send({ type: "compaction_completed", sessionId, handoffPath: HANDOFF_PATH, promptTokens: s.lastPromptTokens ?? 0, contextTokens }, userId);
+      emitContextUsage(s, contextTokens, userId);
+      return;
+    }
 
     // Replace the model-facing history with a short primer so the next turn
     // starts fresh. The user's UI thread keeps the full history for their own
