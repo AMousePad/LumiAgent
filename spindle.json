@@ -37,5 +37,5 @@
   ],
   "entry_backend": "dist/backend.js",
   "entry_frontend": "dist/frontend.js",
-  "minimum_lumiverse_version": "0.9.7"
+  "minimum_lumiverse_version": "1.0.0"
 }

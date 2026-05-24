@@ -41,7 +41,7 @@
 
 ## Installation
 
-LumiAgent installs as a Lumiverse extension. Lumiverse must be at version **0.9.9 or later (STAGING BRANCH).**
+LumiAgent installs as a Lumiverse extension. Lumiverse must be at version **1.0.0 or later.**
 
 1. Open your Lumiverse instance.
 2. Go to the **Sidebar → Scroll Down → Extensions Tab** and add:
