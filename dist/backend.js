@@ -1211,11 +1211,27 @@ function recordEdit(existing, input) {
       baseAt: Date.now(),
       baseHash: liveHash,
       patches: [],
-      expectedHash: liveHash
+      expectedHash: liveHash,
+      ...input.valueEncoding !== undefined ? { valueEncoding: input.valueEncoding } : {}
     };
   } else {
     file = existing;
-    if (liveHash !== file.expectedHash) {
+    if (file.valueEncoding !== input.valueEncoding) {
+      for (const p2 of file.patches) {
+        if (!p2.reverted) {
+          p2.reverted = true;
+          p2.revertedAt = Date.now();
+        }
+      }
+      file.base = input.live;
+      file.baseAt = Date.now();
+      file.baseHash = liveHash;
+      file.expectedHash = liveHash;
+      if (input.valueEncoding !== undefined)
+        file.valueEncoding = input.valueEncoding;
+      else
+        delete file.valueEncoding;
+    } else if (liveHash !== file.expectedHash) {
       const reconstructed = applyPatches2(file.base, file.patches);
       if (reconstructed.text !== null) {
         const ext = buildPatch({
@@ -1563,7 +1579,8 @@ async function appendEntries(spindle2, scope, entries, userId) {
         ts: e.ts,
         toolName: e.toolName,
         ...e.assistantMessageId !== undefined ? { assistantMessageId: e.assistantMessageId } : {},
-        turn: e.turn
+        turn: e.turn,
+        ...r.valueEncoding !== undefined ? { valueEncoding: r.valueEncoding } : {}
       });
       if (!existing && result.file.patches.length === 0)
         continue;
@@ -2482,6 +2499,9 @@ async function readLiveValue(spindle2, entry, characterId, userId) {
         return null;
       const segs = parsePath(r.field);
       const v = getAtPath(c.extensions ?? {}, segs);
+      if (r.valueEncoding === "json") {
+        return JSON.stringify(v === undefined ? null : v);
+      }
       return typeof v === "string" ? v : null;
     }
     case "preset_block": {
@@ -2537,7 +2557,8 @@ async function revertFieldEditV2(spindle2, ledger, editId, characterId, userId, 
       surfaceLabel: file.surfaceLabel,
       field: file.key.field,
       before: "",
-      after: ""
+      after: "",
+      ...file.valueEncoding !== undefined ? { valueEncoding: file.valueEncoding } : {}
     }
   };
   const live = await readLiveValue(spindle2, entryView, characterId, userId);
@@ -2571,7 +2592,7 @@ async function revertFieldEditV2(spindle2, ledger, editId, characterId, userId, 
     };
   }
   try {
-    await writeFieldValue(spindle2, file.key.surface, file.key.surfaceId, file.key.field, res.recomputed, characterId, userId);
+    await writeFieldValue(spindle2, file.key.surface, file.key.surfaceId, file.key.field, res.recomputed, characterId, userId, file.valueEncoding);
   } catch (err) {
     for (let i = 0;i < file.patches.length; i++) {
       const saved = savedPatches[i];
@@ -2591,7 +2612,7 @@ async function revertFieldEditV2(spindle2, ledger, editId, characterId, userId, 
   await persistLedgerNow(spindle2, ledger, userId);
   return res.cascaded.length > 0 ? { kind: "clean", editId, cascadedEditIds: res.cascaded } : { kind: "clean", editId };
 }
-async function writeFieldValue(spindle2, surface, surfaceId, field, value, characterId, userId) {
+async function writeFieldValue(spindle2, surface, surfaceId, field, value, characterId, userId, valueEncoding) {
   switch (surface) {
     case "character_field": {
       await spindle2.characters.update(characterId, { [field]: value }, userId);
@@ -2631,7 +2652,8 @@ async function writeFieldValue(spindle2, surface, surfaceId, field, value, chara
       if (!c)
         throw new Error("character not found");
       const segs = parsePath(field);
-      const next = setAtPath(c.extensions ?? {}, segs, value);
+      const parsed = valueEncoding === "json" ? JSON.parse(value) : value;
+      const next = setAtPath(c.extensions ?? {}, segs, parsed);
       await spindle2.characters.update(characterId, { extensions: next }, userId);
       return;
     }
@@ -18825,8 +18847,9 @@ async function resolveWrite(ctx, leaf, nextValue) {
       surfaceId: ctx.characterId,
       surfaceLabel: leaf.surfaceLabel,
       field: leaf.field,
-      before: leaf.value,
-      after: nextValue
+      before: JSON.stringify(leaf.value),
+      after: JSON.stringify(nextValue),
+      valueEncoding: "json"
     });
     return;
   }
@@ -31702,7 +31725,15 @@ async function setExtension(ctx, dotted, value) {
   }
   const next = setAtPath2(c.extensions ?? {}, segs, value);
   await ctx.spindle.characters.update(ctx.characterId, { extensions: next }, ctx.userId);
-  return { before: stringify(cur), after: stringify(value), label: `extensions.${dotted}`, surface: "extension", surfaceId: ctx.characterId, field: dotted };
+  return {
+    before: JSON.stringify(cur === undefined ? null : cur),
+    after: JSON.stringify(value === undefined ? null : value),
+    label: `extensions.${dotted}`,
+    surface: "extension",
+    surfaceId: ctx.characterId,
+    field: dotted,
+    valueEncoding: "json"
+  };
 }
 async function setRegexScriptField(ctx, scriptId, field, value) {
   const r = await ctx.spindle.regex_scripts.get(scriptId, ctx.userId);
@@ -31869,7 +31900,8 @@ Returns:
         field: result.field,
         before: result.before,
         after: result.after,
-        scope: scopeForLeafKey(path, ctx)
+        scope: scopeForLeafKey(path, ctx),
+        ...result.valueEncoding !== undefined ? { valueEncoding: result.valueEncoding } : {}
       });
       return {
         content: JSON.stringify({

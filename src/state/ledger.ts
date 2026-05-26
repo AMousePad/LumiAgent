@@ -193,6 +193,7 @@ export async function appendEntries(
         toolName: e.toolName,
         ...(e.assistantMessageId !== undefined ? { assistantMessageId: e.assistantMessageId } : {}),
         turn: e.turn,
+        ...(r.valueEncoding !== undefined ? { valueEncoding: r.valueEncoding } : {}),
       });
       // Skip a brand-new file that a no-op edit left empty: nothing to track.
       if (!existing && result.file.patches.length === 0) continue;

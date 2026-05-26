@@ -565,6 +565,9 @@ export async function readLiveValue(
       if (!c) return null;
       const segs = parsePath(r.field);
       const v = getAtPath(c.extensions ?? {}, segs);
+      if (r.valueEncoding === "json") {
+        return JSON.stringify(v === undefined ? null : v);
+      }
       return typeof v === "string" ? v : null;
     }
     case "preset_block": {
@@ -621,6 +624,7 @@ async function revertFieldEditV2(
       surface: file.key.surface as Exclude<EditRecord["surface"], "external">,
       surfaceId: file.key.surfaceId, surfaceLabel: file.surfaceLabel,
       field: file.key.field, before: "", after: "",
+      ...(file.valueEncoding !== undefined ? { valueEncoding: file.valueEncoding } : {}),
     },
   };
   const live = await readLiveValue(spindle, entryView, characterId, userId);
@@ -664,7 +668,7 @@ async function revertFieldEditV2(
   // Clean (possibly with cascade): write the recomputed value to the spindle,
   // persist the ledger so reverted flags + expectedHash survive.
   try {
-    await writeFieldValue(spindle, file.key.surface, file.key.surfaceId, file.key.field, res.recomputed, characterId, userId);
+    await writeFieldValue(spindle, file.key.surface, file.key.surfaceId, file.key.field, res.recomputed, characterId, userId, file.valueEncoding);
   } catch (err) {
     for (let i = 0; i < file.patches.length; i++) {
       const saved = savedPatches[i];
@@ -698,6 +702,7 @@ export async function writeFieldValue(
   value: string,
   characterId: string,
   userId: string,
+  valueEncoding?: "json",
 ): Promise<void> {
   switch (surface) {
     case "character_field": {
@@ -735,7 +740,10 @@ export async function writeFieldValue(
       const c = await spindle.characters.get(characterId, userId);
       if (!c) throw new Error("character not found");
       const segs = parsePath(field);
-      const next = setAtPath(c.extensions ?? {}, segs, value) as Record<string, unknown>;
+      // valueEncoding="json" comes from setExtension / resolveWrite — decode
+      // so non-string leaves (arrays, objects, etc.) round-trip on revert.
+      const parsed: unknown = valueEncoding === "json" ? JSON.parse(value) : value;
+      const next = setAtPath(c.extensions ?? {}, segs, parsed) as Record<string, unknown>;
       await spindle.characters.update(characterId, { extensions: next }, userId);
       return;
     }

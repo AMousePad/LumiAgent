@@ -118,6 +118,10 @@ export interface EditEdit {
   // Non-character surfaces set this so the edit pipeline files into the
   // right per-object ledger.
   readonly scope?: ScopeRef;
+  // "json" means before/after are JSON-encoded snapshots of the underlying
+  // value (used for extension surface so non-string leaves survive revert).
+  // Absent = raw-string encoding (legacy default for every other surface).
+  readonly valueEncoding?: "json";
 }
 
 export interface EditCreate {

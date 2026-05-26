@@ -51,6 +51,7 @@ export interface FileState {
   baseHash: string;
   patches: Patch[];
   expectedHash: string;
+  valueEncoding?: "json";
 }
 
 // jsdiff's applyPatch fuzz: context lines may drift by up to N lines and the
@@ -183,6 +184,7 @@ export interface RecordAgentEditInput {
   readonly toolName?: string;
   readonly assistantMessageId?: string;
   readonly turn?: number;
+  readonly valueEncoding?: "json";
 }
 
 export interface RecordAgentEditResult {
@@ -212,10 +214,21 @@ export function recordEdit(
       baseHash: liveHash,
       patches: [],
       expectedHash: liveHash,
+      ...(input.valueEncoding !== undefined ? { valueEncoding: input.valueEncoding } : {}),
     };
   } else {
     file = existing;
-    if (liveHash !== file.expectedHash) {
+    if (file.valueEncoding !== input.valueEncoding) {
+      for (const p of file.patches) {
+        if (!p.reverted) { p.reverted = true; p.revertedAt = Date.now(); }
+      }
+      file.base = input.live;
+      file.baseAt = Date.now();
+      file.baseHash = liveHash;
+      file.expectedHash = liveHash;
+      if (input.valueEncoding !== undefined) file.valueEncoding = input.valueEncoding;
+      else delete file.valueEncoding;
+    } else if (liveHash !== file.expectedHash) {
       const reconstructed = applyPatches(file.base, file.patches);
       if (reconstructed.text !== null) {
         const ext = buildPatch({

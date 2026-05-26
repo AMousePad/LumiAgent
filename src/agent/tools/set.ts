@@ -68,7 +68,7 @@ async function setAlternateFieldLeaf(ctx: ToolCtx, field: string, variantId: str
   };
 }
 
-async function setExtension(ctx: ToolCtx, dotted: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string } | string> {
+async function setExtension(ctx: ToolCtx, dotted: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string; valueEncoding: "json" } | string> {
   await assertExtensionWriteAllowed(ctx, dotted);
   const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
   if (!c) return "character not found";
@@ -82,7 +82,15 @@ async function setExtension(ctx: ToolCtx, dotted: string, value: unknown): Promi
   }
   const next = setAtPath(c.extensions ?? {}, segs, value) as Record<string, unknown>;
   await ctx.spindle.characters.update(ctx.characterId, { extensions: next }, ctx.userId);
-  return { before: stringify(cur), after: stringify(value), label: `extensions.${dotted}`, surface: "extension", surfaceId: ctx.characterId, field: dotted };
+  return {
+    before: JSON.stringify(cur === undefined ? null : cur),
+    after: JSON.stringify(value === undefined ? null : value),
+    label: `extensions.${dotted}`,
+    surface: "extension",
+    surfaceId: ctx.characterId,
+    field: dotted,
+    valueEncoding: "json",
+  };
 }
 
 async function setRegexScriptField(ctx: ToolCtx, scriptId: string, field: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string } | string> {
@@ -181,7 +189,7 @@ Returns:
     const path = input.path.trim();
     const value = input.value;
 
-    let result: { before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string } | string;
+    let result: { before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string; valueEncoding?: "json" } | string;
 
     if (path.startsWith("char/extensions/") || path.startsWith("character/extensions/")) {
       const dotted = path.replace(/^(char|character)\/extensions\//, "");
@@ -236,6 +244,7 @@ Returns:
       before: result.before,
       after: result.after,
       scope: scopeForLeafKey(path, ctx),
+      ...(result.valueEncoding !== undefined ? { valueEncoding: result.valueEncoding } : {}),
     } satisfies EditRecord);
 
     return {

@@ -403,9 +403,13 @@ export async function resolveWrite(
     const segs = parseExtensionPath(leaf.field);
     const next = setAtPath(c.extensions ?? {}, segs, nextValue) as Record<string, unknown>;
     await ctx.spindle.characters.update(ctx.characterId, { extensions: next }, ctx.userId);
+    // JSON-encode so the file stays consistent with set-tool extension writes
+    // and revertFieldEditV2 can decode through writeFieldValue.
     ctx.pushEdit({
       op: "edit", surface: "extension", surfaceId: ctx.characterId,
-      surfaceLabel: leaf.surfaceLabel, field: leaf.field, before: leaf.value, after: nextValue,
+      surfaceLabel: leaf.surfaceLabel, field: leaf.field,
+      before: JSON.stringify(leaf.value), after: JSON.stringify(nextValue),
+      valueEncoding: "json",
     });
     return;
   }
