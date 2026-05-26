@@ -41,7 +41,7 @@ async function setAlternateGreeting(ctx: ToolCtx, idx: number, value: unknown): 
   return { before, after: value, label: `Greeting #${idx}`, surface: "alternate_greeting", surfaceId: ctx.characterId, field: String(idx) };
 }
 
-async function setAlternateFieldLeaf(ctx: ToolCtx, field: string, variantId: string, leaf: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string } | string> {
+async function setAlternateFieldLeaf(ctx: ToolCtx, field: string, variantId: string, leaf: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string; valueEncoding: "json" } | string> {
   if (!isAlternateFieldName(field)) return `[PATH_NOT_FOUND] alternate_fields field must be one of ${ALTERNATE_FIELD_NAMES.join(", ")}, got '${field}'`;
   if (leaf !== "content" && leaf !== "label") return `[PATH_NOT_FOUND] alternate_fields leaf must be content or label, got '${leaf}'`;
   if (typeof value !== "string") return `[INVALID_VALUE_TYPE] alternate_fields.${leaf} expects a string, got ${typeof value}`;
@@ -52,19 +52,23 @@ async function setAlternateFieldLeaf(ctx: ToolCtx, field: string, variantId: str
   if (idx < 0) return `[PATH_NOT_FOUND] variant '${variantId}' not found under alternate_fields.${field}`;
   const current = variants[idx]!;
   const before = current[leaf];
-  if (before === value) return { before, after: value, label: `${field} variant '${current.label || `(unlabeled #${idx})`}' (${leaf})`, surface: "extension", surfaceId: ctx.characterId, field: `alternate_fields.${field}[${idx}].${leaf}` };
+  // JSON-encode + tag matches setExtension and resolveWrite's extension branch.
+  // Mixing tools on the same path would otherwise force a patch-stack rebase
+  // (encoding mismatch) and lose history. Idempotent writes are absorbed by
+  // recordEdit's input.live === input.next guard, so no early return needed.
   const updated = { ...current, [leaf]: value };
   const next = [...variants];
   next[idx] = updated;
   const nextExt = writeAltFieldArray(c.extensions, field, next);
   await ctx.spindle.characters.update(ctx.characterId, { extensions: nextExt }, ctx.userId);
   return {
-    before,
-    after: value,
+    before: JSON.stringify(before),
+    after: JSON.stringify(value),
     label: `${field} variant '${updated.label || `(unlabeled #${idx})`}' (${leaf})`,
     surface: "extension",
     surfaceId: ctx.characterId,
     field: `alternate_fields.${field}[${idx}].${leaf}`,
+    valueEncoding: "json",
   };
 }
 

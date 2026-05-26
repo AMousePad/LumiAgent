@@ -329,67 +329,11 @@ export async function revertEdit(
       if (res.ok) return { success: true };
       return { success: false, error: res.error ?? "write failed" };
     }
-    if (r.op === "edit") {
-      switch (r.surface) {
-        case "character_field": {
-          const patch: CharacterUpdateDTO = { [r.field]: r.before } as CharacterUpdateDTO;
-          await spindle.characters.update(characterId, patch, userId);
-          return { success: true };
-        }
-        case "alternate_greeting": {
-          const idx = parseInt(r.field, 10);
-          const c = await spindle.characters.get(characterId, userId);
-          if (!c) return { success: false, error: "character not found" };
-          const arr = [...(c.alternate_greetings ?? [])];
-          if (idx < 0 || idx >= arr.length) return { success: false, error: `index ${idx} out of range` };
-          arr[idx] = r.before;
-          await spindle.characters.update(characterId, { alternate_greetings: arr }, userId);
-          return { success: true };
-        }
-        case "world_book_entry": {
-          await spindle.world_books.entries.update(r.surfaceId, { [r.field]: r.before } as WorldBookEntryUpdateDTO, userId);
-          return { success: true };
-        }
-        case "regex_script": {
-          await spindle.regex_scripts.update(r.surfaceId, { [r.field]: r.before } as RegexScriptUpdateDTO, userId);
-          return { success: true };
-        }
-        case "persona_field": {
-          await spindle.personas.update(r.surfaceId, { [r.field]: r.before } as PersonaUpdateDTO, userId);
-          return { success: true };
-        }
-        case "chat_message": {
-          const [chatId, mid] = r.surfaceId.split(":");
-          await spindle.chat.updateMessage(chatId!, mid!, { content: r.before });
-          return { success: true };
-        }
-        case "preset_block": {
-          const [presetId, blockId] = r.surfaceId.split(":");
-          await spindle.presets.blocks.update(presetId!, blockId!, { [r.field]: r.before }, userId);
-          return { success: true };
-        }
-        case "world_book": {
-          await spindle.world_books.update(r.surfaceId, { [r.field]: decodeScalar(r.field, r.before) } as WorldBookUpdateDTO, userId);
-          return { success: true };
-        }
-        case "preset": {
-          await spindle.presets.update(r.surfaceId, { [r.field]: decodeScalar(r.field, r.before) } as UserPresetUpdateDTO, userId);
-          return { success: true };
-        }
-        case "persona": {
-          await spindle.personas.update(r.surfaceId, personaScalarUpdate(r.field, decodeScalar(r.field, r.before)), userId);
-          return { success: true };
-        }
-        case "extension": {
-          const c = await spindle.characters.get(characterId, userId);
-          if (!c) return { success: false, error: "character not found" };
-          const segs = parsePath(r.field);
-          const next = setAtPath(c.extensions ?? {}, segs, r.before) as Record<string, unknown>;
-          await spindle.characters.update(characterId, { extensions: next }, userId);
-          return { success: true };
-        }
-      }
-    } else if (r.op === "create") {
+    // op:edit non-external records are reverted by revertFieldEditV2 through
+    // the patch stack. revertEdit only handles op:create / op:delete (and the
+    // op:edit + surface:external branch above). The previous per-surface
+    // op:edit switch here was dead code that drifted out of sync with V2.
+    if (r.op === "create") {
       if (r.surface === "world_book_entry") {
         await spindle.world_books.entries.delete(r.surfaceId, userId);
         return { success: true };

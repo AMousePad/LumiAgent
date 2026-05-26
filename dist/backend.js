@@ -2254,70 +2254,7 @@ async function revertEdit(spindle2, entry, characterId, userId) {
         return { success: true };
       return { success: false, error: res.error ?? "write failed" };
     }
-    if (r.op === "edit") {
-      switch (r.surface) {
-        case "character_field": {
-          const patch = { [r.field]: r.before };
-          await spindle2.characters.update(characterId, patch, userId);
-          return { success: true };
-        }
-        case "alternate_greeting": {
-          const idx = parseInt(r.field, 10);
-          const c = await spindle2.characters.get(characterId, userId);
-          if (!c)
-            return { success: false, error: "character not found" };
-          const arr = [...c.alternate_greetings ?? []];
-          if (idx < 0 || idx >= arr.length)
-            return { success: false, error: `index ${idx} out of range` };
-          arr[idx] = r.before;
-          await spindle2.characters.update(characterId, { alternate_greetings: arr }, userId);
-          return { success: true };
-        }
-        case "world_book_entry": {
-          await spindle2.world_books.entries.update(r.surfaceId, { [r.field]: r.before }, userId);
-          return { success: true };
-        }
-        case "regex_script": {
-          await spindle2.regex_scripts.update(r.surfaceId, { [r.field]: r.before }, userId);
-          return { success: true };
-        }
-        case "persona_field": {
-          await spindle2.personas.update(r.surfaceId, { [r.field]: r.before }, userId);
-          return { success: true };
-        }
-        case "chat_message": {
-          const [chatId, mid] = r.surfaceId.split(":");
-          await spindle2.chat.updateMessage(chatId, mid, { content: r.before });
-          return { success: true };
-        }
-        case "preset_block": {
-          const [presetId, blockId] = r.surfaceId.split(":");
-          await spindle2.presets.blocks.update(presetId, blockId, { [r.field]: r.before }, userId);
-          return { success: true };
-        }
-        case "world_book": {
-          await spindle2.world_books.update(r.surfaceId, { [r.field]: decodeScalar(r.field, r.before) }, userId);
-          return { success: true };
-        }
-        case "preset": {
-          await spindle2.presets.update(r.surfaceId, { [r.field]: decodeScalar(r.field, r.before) }, userId);
-          return { success: true };
-        }
-        case "persona": {
-          await spindle2.personas.update(r.surfaceId, personaScalarUpdate(r.field, decodeScalar(r.field, r.before)), userId);
-          return { success: true };
-        }
-        case "extension": {
-          const c = await spindle2.characters.get(characterId, userId);
-          if (!c)
-            return { success: false, error: "character not found" };
-          const segs = parsePath(r.field);
-          const next = setAtPath(c.extensions ?? {}, segs, r.before);
-          await spindle2.characters.update(characterId, { extensions: next }, userId);
-          return { success: true };
-        }
-      }
-    } else if (r.op === "create") {
+    if (r.op === "create") {
       if (r.surface === "world_book_entry") {
         await spindle2.world_books.entries.delete(r.surfaceId, userId);
         return { success: true };
@@ -20966,7 +20903,7 @@ var init_finish = __esm(() => {
 });
 
 // src/generated/lumiverse-docs.ts
-var LUMIVERSE_DOCS_VERSION = "fb2eb43a2d26e9be", LUMIVERSE_DOCS;
+var LUMIVERSE_DOCS_VERSION = "88b26245c64857ec", LUMIVERSE_DOCS;
 var init_lumiverse_docs = __esm(() => {
   LUMIVERSE_DOCS = {
     "characters/alternate-fields.md": `# Alternate Fields & Avatars\r
@@ -21534,6 +21471,178 @@ Use **swipes** when you want a different version of one response. Use **branchin
 \r
 Branched chats appear as regular chats in your chat list. They're associated with the same character as the original. You can view the branch tree from the **Branch Tree Panel** to see how your conversations have diverged.\r
 `,
+    "chatting/databank.md": `# Databank\r
+\r
+The **Databank** is Lumiverse's document knowledge base. Drop reference material into a databank \u2014 worldbuilding notes, character backstories, rulebooks, transcripts, scraped articles \u2014 and it becomes retrievable context during chat. Documents are chunked, vectorized, and either pulled in automatically based on what's being said, or summoned on demand with a \`#slug\` mention.\r
+\r
+Think of it as a per-user research folder that the AI can flip through while it answers.\r
+\r
+---\r
+\r
+## How It Differs From World Books and Long-Term Memory\r
+\r
+| System | Source | When It Activates |\r
+|--------|--------|-------------------|\r
+| **World Book** | Hand-authored short entries | Keyword match (and optionally vector match) on recent messages |\r
+| **Long-Term Memory** | The current chat's own history | Semantic similarity to the current context |\r
+| **Memory Cortex** | The current chat's history, but understood as entities/arcs | Salience- and entity-weighted retrieval |\r
+| **Databank** | Documents *you upload* | \`#slug\` mentions in chat **and/or** automatic semantic retrieval |\r
+\r
+World Books are for short, structured lore facts. Databanks are for long-form source material you want the AI to consult \u2014 chapter PDFs, design docs, full character bibles, transcripts.\r
+\r
+---\r
+\r
+## Scopes\r
+\r
+Every databank belongs to one of three scopes:\r
+\r
+| Scope | Available In | Use For |\r
+|-------|--------------|---------|\r
+| **Global** | All your chats | Reference material you want everywhere (a writing style guide, your favorite worldbuilding notes) |\r
+| **Character** | Any chat using the bound character | Character-specific source material (their canonical backstory, an author's body of work) |\r
+| **Chat** | A single chat | One-off material for a specific story or campaign |\r
+\r
+A chat sees all currently-attached databanks at once \u2014 global + character-bound + chat-bound \u2014 so you can layer them.\r
+\r
+### Attaching a Databank\r
+\r
+1. Open the **Databank** drawer tab\r
+2. Use the **Global / Character / Chat** scope tabs at the top of the panel\r
+3. Pick the databank you want from the list, or click **Attach** to bind an existing global databank into the active character or chat\r
+\r
+Chat documents auto-create a chat-scoped databank the first time you upload a file in that chat \u2014 no manual setup required.\r
+\r
+---\r
+\r
+## Uploading Documents\r
+\r
+From the Databank panel, with a bank selected:\r
+\r
+1. Click **Upload** (or drag files onto the panel)\r
+2. Files are parsed, chunked, and embedded in the background\r
+\r
+Each document shows a status badge while it's being processed:\r
+\r
+| Status | Meaning |\r
+|--------|---------|\r
+| **pending** | Queued for processing |\r
+| **processing** | Being chunked and embedded |\r
+| **ready** | Available for retrieval |\r
+| **error** | Failed \u2014 hover to see the message |\r
+\r
+### Supported Formats\r
+\r
+\`.txt\`, \`.md\`, \`.markdown\`, \`.csv\`, \`.tsv\`, \`.json\`, \`.xml\`, \`.html\`, \`.htm\`, \`.yaml\`, \`.yml\`, \`.log\`, \`.rst\`, \`.rtf\`\r
+\r
+PDF, DOCX, EPUB, audio, and image OCR are **not** supported \u2014 convert those to Markdown or plain text first.\r
+\r
+### File Size\r
+\r
+Each file is capped at **10 MB**. There's no overall storage cap, but very large databanks (thousands of long documents) will use more disk and slow embedding rebuilds.\r
+\r
+### Scrape a URL\r
+\r
+Instead of downloading-then-uploading, paste a URL into the **Paste a URL to scrape\u2026** field at the top of the document list. Lumiverse fetches the page, extracts the readable content, and ingests it as a new document.\r
+\r
+---\r
+\r
+## Slug Mentions (\`#document-name\`)\r
+\r
+Every document gets an auto-generated, kebab-cased **slug** based on its name:\r
+\r
+- \`My Worldbuilding Notes.md\` \u2192 \`#my-worldbuilding-notes\`\r
+- \`Chapter 12 - The Reckoning.txt\` \u2192 \`#chapter-12-the-reckoning\`\r
+\r
+Type \`#\` in the chat input and an autocomplete popover lets you pick a document from any attached databank. The mention is removed from the message before it's sent \u2014 the AI sees the document content instead.\r
+\r
+**Sizing behavior:** if a full document fits within a 2,000-token budget, the entire text is injected. If it doesn't, Lumiverse runs a semantic search inside the mentioned document and injects the most relevant chunks. Either way, the inserted content is labeled with \`[Source: <document name>]\` so the AI knows where it came from.\r
+\r
+**Renaming changes the slug.** If you rename a document, update any presets or chat templates that reference it.\r
+\r
+---\r
+\r
+## Automatic Retrieval\r
+\r
+When you generate a message, Lumiverse also runs a semantic search across **every attached databank** using your recent chat context as the query. The top matching chunks are pulled in as additional context.\r
+\r
+This requires:\r
+\r
+- **[Embeddings](../settings/embeddings.md)** configured (any supported provider)\r
+- At least one attached databank with \`ready\` documents\r
+\r
+If embeddings aren't set up, documents are still parsed and chunked \u2014 but only \`#slug\` mentions work, since there's no way to run semantic search without a vector model.\r
+\r
+---\r
+\r
+## Settings\r
+\r
+The Databank panel exposes a small settings section that applies **globally** to every databank you own:\r
+\r
+| Setting | Description |\r
+|---------|-------------|\r
+| **Chunk Target Tokens** | Preferred chunk size (200\u20132000, default 800) |\r
+| **Chunk Max Tokens** | Hard ceiling per chunk (200\u20134000, default 1600) |\r
+| **Chunk Overlap Tokens** | Tokens of overlap between adjacent chunks (0\u2013500, default 120) |\r
+| **Retrieved Chunks** | Top-K chunks pulled per query (default 4) |\r
+\r
+After changing chunk parameters, hit **Reprocess All** on any existing documents \u2014 old chunks aren't automatically resized.\r
+\r
+---\r
+\r
+## Document Operations\r
+\r
+For each document, the panel offers:\r
+\r
+- **Rename** \u2014 click the title to edit inline (updates the slug too)\r
+- **Edit content** \u2014 click the body to open it in the inline editor; saved edits trigger re-chunking\r
+- **Reprocess** \u2014 re-parse, re-chunk, and re-embed a single document\r
+- **Delete** \u2014 remove the document and its chunks\r
+\r
+The whole bank has:\r
+\r
+- **Reprocess All** \u2014 useful after changing chunk settings\r
+- **Fuse** \u2014 merge one databank into another. The source's documents are moved over, duplicates are collapsed by content hash, and any characters/chats attached to the source are rewired to the target. Handy for consolidating "my fantasy world" notes that ended up split across several banks.\r
+\r
+---\r
+\r
+## Macros\r
+\r
+Databank content is available in your presets through dedicated macros:\r
+\r
+| Macro | Returns |\r
+|-------|---------|\r
+| \`{{databank}}\` | Formatted databank chunks with a header section |\r
+| \`{{databankRaw}}\` | The same chunks without the outer header |\r
+| \`{{databankActive}}\` | \`"yes"\` or \`"no"\` \u2014 for conditional blocks |\r
+| \`{{databankCount}}\` | Number of chunks retrieved this generation |\r
+\r
+Aliases for \`{{databank}}\`: \`{{databankMemory}}\`, \`{{documents}}\`, \`{{knowledgeBank}}\`.\r
+\r
+Use \`{{databankActive}}\` to wrap databank content in a conditional so the section disappears cleanly when nothing retrieves:\r
+\r
+\`\`\`\r
+{{if::{{databankActive}}}}\r
+Relevant source material:\r
+{{databankRaw}}\r
+{{/if}}\r
+\`\`\`\r
+\r
+---\r
+\r
+## Tips\r
+\r
+!!! tip "Use Markdown headings"\r
+    The chunker respects Markdown section boundaries. Splitting a long document with \`## Headings\` produces tighter, more topical chunks and better retrieval than one giant wall of text.\r
+\r
+!!! tip "Prefer the smallest scope that works"\r
+    A chat-scoped databank with one document doesn't pollute every other chat. Promote it to global only once you're sure you want that material everywhere.\r
+\r
+!!! tip "Slug-mention what you want guaranteed"\r
+    Automatic retrieval is helpful but stochastic. If a particular document *must* be in the prompt for this turn, drop a \`#slug\` mention into your message \u2014 that bypasses semantic search and guarantees the content is injected.\r
+\r
+!!! tip "Reprocess after big edits"\r
+    Changing chunk settings doesn't retroactively resize existing chunks. Click **Reprocess All** when you tweak chunk targets so the new settings actually apply to existing documents.\r
+`,
     "chatting/group-chats.md": `# Group Chats\r
 \r
 Group chats let you have conversations with **multiple AI characters at once**. Characters interact with you and with each other, creating dynamic multi-character scenes.\r
@@ -21926,12 +22035,14 @@ High-salience memories resist decay over time. Pivotal moments (score above 0.7 
 \r
 ### Entity Tracking\r
 \r
-The cortex extracts and tracks named entities from your chat:\r
+The cortex extracts and tracks named entities from your chat across six types:\r
 \r
 - **Characters** \u2014 detected by verb adjacency ("Melina sighed"), dialogue attribution, interaction patterns\r
 - **Locations** \u2014 detected by suffixes ("Sixth Street"), locative phrases ("arrived at Dustwell")\r
 - **Factions** \u2014 detected by collective nouns ("Sons of Calydon"), business suffixes ("PubSec")\r
 - **Items** \u2014 detected by weapon/vehicle verbs ("wielding the Starblade")\r
+- **Concepts** \u2014 proper-noun ideas, magic systems, doctrines, named phenomena\r
+- **Events** \u2014 named happenings (battles, ceremonies, festivals) that recur across the story\r
 \r
 Each entity accumulates facts, emotional associations, and a salience profile over time. The entity graph handles aliases automatically \u2014 if a character named "Pulchra Fellini" is sometimes called "Pulchra" or "Pul", those references are resolved to the same entity.\r
 \r
@@ -21985,29 +22096,47 @@ For maximum accuracy, you can assign a secondary LLM connection to assist the co
 2. Choose a **Model** (smaller, faster models work well here \u2014 the sidecar doesn't need to be creative)\r
 3. Adjust **Temperature** (0.1 recommended for factual extraction)\r
 4. Set **Parallel Requests** to control how many concurrent LLM calls run during a rebuild\r
+5. Set **Requests Per Minute** to throttle the sidecar against your provider's rate limits (0 = unlimited)\r
 \r
 !!! note "Sidecar Costs"\r
     The sidecar makes one LLM call per chunk during live chat, and one per chunk during rebuilds. A chat with 200 chunks would make 200 API calls on rebuild. Choose an inexpensive model for the sidecar to keep costs reasonable.\r
 \r
-The sidecar results are merged with heuristic results \u2014 the heuristic always runs as a baseline, and the LLM supplements it. If the sidecar call fails for any reason, the heuristic result is used as a fallback.\r
+### Reliability & Retries\r
+\r
+The sidecar is wrapped in a small reliability layer you can tune:\r
+\r
+| Setting | Description |\r
+|---------|-------------|\r
+| **Fallback** | \`heuristic\` writes the heuristic result if the sidecar fails; \`skip\` holds the chunk for reprocessing on the next pass. |\r
+| **Max Retries** | Additional attempts after the first failed call (exponential backoff). |\r
+| **Sidecar Timeout** | Per-call timeout in milliseconds before the call is abandoned. |\r
+\r
+### Arbitration\r
+\r
+When the sidecar is enabled, two optional behaviors give it authority over heuristic data:\r
+\r
+- **Arbitrates Heuristics** \u2014 the sidecar reviews each heuristic entity before it is persisted and can reject or rename misidentifications (e.g. discarding common words mistakenly extracted as characters).\r
+- **Grades Existing Records** \u2014 periodically re-evaluates already-saved entities and removes ones that have become noise. Useful after a long chat has accumulated mistakes.\r
+\r
+If the sidecar call fails and **Fallback** is set to \`heuristic\`, the heuristic result is used as a safe default.\r
 \r
 ---\r
 \r
 ## Memory Panel\r
 \r
-The sidebar's **Memory** tab gives you a live view of the cortex data for the current chat:\r
+The sidebar's **Memory** tab gives you a live view of the cortex data for the current chat. It has four tabs:\r
 \r
 ### Entities Tab\r
-Browse all tracked entities \u2014 characters, locations, items, factions. Each entity card shows:\r
+Browse all tracked entities \u2014 characters, locations, items, factions, concepts, events. Each entity card shows:\r
 \r
-- Type and status (active, inactive, deceased)\r
+- Type and status (active, inactive, deceased, destroyed, unknown)\r
 - Mention count and salience average\r
 - Description (auto-populated from first appearance)\r
 - Known facts\r
 - Emotional profile (top emotional associations)\r
 - Aliases\r
 \r
-You can delete incorrectly extracted entities directly from this panel.\r
+You can select multiple entities and delete them in bulk, or delete a single incorrectly extracted entity directly from this panel.\r
 \r
 ### Colors Tab\r
 Shows font color attributions \u2014 which hex color belongs to which character, with confidence scores. Useful for chats where characters use distinct colors for speech, thought, or narration.\r
@@ -22019,9 +22148,44 @@ Overview of the cortex data:\r
 - Entities (active and archived)\r
 - Relations between entities\r
 - Consolidations (scene summaries and arcs)\r
-- Salience records\r
+- Salience records (sourced from \`heuristic\` or \`sidecar\`)\r
 \r
 Click any stat card to drill down into the raw records.\r
+\r
+### Links Tab\r
+Manages cross-chat memory sharing \u2014 see [Vaults & Interlinks](#vaults-interlinks) below.\r
+\r
+---\r
+\r
+## Vaults & Interlinks\r
+\r
+Cortex memory can be shared between chats in two ways. Both are managed from the **Links** tab in the Memory panel.\r
+\r
+### Vaults\r
+\r
+A **vault** is a frozen snapshot of a chat's cortex state \u2014 its chunks, entities, and relationships \u2014 packaged into a reusable, read-only knowledge object. You can attach a vault to any number of other chats so the cortex on those chats can retrieve from it during generation.\r
+\r
+Typical uses:\r
+\r
+- Bottle a finished campaign into a vault, then start a sequel chat that "remembers" the prior arc\r
+- Build a "world bible" vault from a worldbuilding chat and attach it to every chat set in that universe\r
+- Share canonical character history across roleplay branches without re-pasting it\r
+\r
+Vault chunks are stored alongside chat chunks in the embeddings table (\`source_type='vault_chunk'\`) so semantic search continues to work seamlessly. You can also **rebuild** a vault's embeddings if you change your embedding provider.\r
+\r
+### Interlinks\r
+\r
+An **interlink** is a live, bidirectional connection between two chats. Each chat can see the other's entities, relationships, and (optionally) chunks in real time. Unlike a vault, an interlink stays in sync \u2014 new entities discovered in either chat become visible to the other on the next generation.\r
+\r
+Use interlinks when two chats are happening in the same continuity and should share evolving memory (e.g. one chat tracks Character A's POV while another tracks Character B's POV in the same scene).\r
+\r
+### Adding a Link\r
+\r
+1. Open the **Memory panel** and switch to the **Links** tab\r
+2. Click **Add Link** and choose **Vault** or **Interlink**\r
+3. Pick an existing vault / a target chat (interlinks can be flipped to bidirectional from the same dialog)\r
+\r
+The **Vault Library** at the bottom of the tab lists all your saved vaults and the chats currently consuming them. Delete a vault from there when you no longer need it.\r
 \r
 ---\r
 \r
@@ -23374,44 +23538,45 @@ The \`{{lumiaCouncilDeliberation}}\` macro contains the full deliberation result
 `,
     "customization/display-modes.md": `# Display Modes\r
 \r
-Lumiverse offers different visual modes for how messages appear in the chat. Choose the one that fits your aesthetic preference and reading style.\r
+Lumiverse offers two visual modes for how messages appear in the chat. Choose the one that fits your aesthetic preference and reading style.\r
 \r
 ---\r
 \r
 ## Available Modes\r
 \r
-### Minimal Mode\r
+### Minimal\r
 \r
 A clean, text-focused layout with minimal visual chrome. Messages are distinguished by subtle accent bars on the left (character) and right (user). Compact spacing makes it ideal for long conversations where you want to focus on the text.\r
 \r
-### Bubble Mode\r
+### Bubble\r
 \r
 A messaging-app style layout where each message appears in a rounded bubble. Character messages appear on the left with avatars; user messages appear on the right (configurable). Feels more conversational and visually distinct.\r
 \r
-**Bubble mode options:**\r
+**Bubble-mode options:**\r
 \r
 | Setting | Description |\r
 |---------|-------------|\r
 | **User Message Alignment** | Left or Right (default: Right) |\r
+| **Show character art in bubble backgrounds** | Uses the character's avatar as a soft, dissolving background behind their bubbles. Turn off for a flatter, content-first look. |\r
 \r
 ---\r
 \r
 ## Chat Width\r
 \r
-Both modes support width constraints:\r
+Both modes share the same width control. The chat content area can be constrained on wide monitors so messages don't stretch edge-to-edge.\r
 \r
-| Mode | Description |\r
-|------|-------------|\r
+| Width | Description |\r
+|-------|-------------|\r
 | **Full** | Messages use the full available width |\r
 | **Comfortable** | Narrower content area for easier reading |\r
-| **Compact** | Even narrower \u2014 good for wide monitors |\r
-| **Custom** | Set a specific width in pixels |\r
+| **Compact** | Even narrower \u2014 good for very wide monitors |\r
+| **Custom** | Pick an exact pixel width with a slider (500\u20132000 px) |\r
 \r
 ---\r
 \r
 ## Configuring\r
 \r
-Open **Settings > Chat** to choose your display mode and width preferences.\r
+Open **Settings \u2192 Chat** to choose your display mode, bubble options, and width preference. Changes apply immediately to the active chat.\r
 `,
     "customization/macros.md": `# Macros\r
 \r
@@ -23469,7 +23634,7 @@ Current time: 14:30 on Wednesday.\r
 | **Formatting** | \`{{bullets}}\`, \`{{numbered}}\` | [Formatting macros](../presets/macros-reference.md#formatting) |\r
 | **Council & Lumia** | \`{{lumiaCouncilDeliberation}}\`, \`{{loomStyle}}\` | [Council macros](../presets/macros-reference.md#lumia-council) |\r
 \r
-Lumiverse has **180+ built-in macros** across 20+ categories. See the [full reference](../presets/macros-reference.md) for the complete list.\r
+Lumiverse ships **180+ built-in macros** across roughly 20 categories. See the [full reference](../presets/macros-reference.md) for the complete list.\r
 `,
     "customization/regex-scripts.md": `# Regex Scripts\r
 \r
@@ -23561,7 +23726,7 @@ You can select multiple placements for the same script.\r
 | **Min/Max Depth** | Only apply to messages within a depth range |\r
 | **Trim Strings** | Additional strings to strip from matches |\r
 | **Run on Edit** | Re-run when you edit a message |\r
-| **Substitute Macros** | Replace macros in the replacement string (\`none\`, \`raw\`, \`escaped\`) |\r
+| **Substitute Macros** | Replace macros in the **find** and **replace** strings. Modes: \`none\` (no substitution), \`raw\` (substitute before matching, capture groups see the raw output), \`escaped\` (substitute and regex-escape the result so special characters in macro output don't break the pattern), \`after\` (substitute *after* the match runs \u2014 useful when you want capture groups to feed into a macro in the replacement string) |\r
 | **Folder** | Organizational grouping |\r
 \r
 ---\r
@@ -23613,7 +23778,7 @@ Choose your base theme:\r
 |------|-------------|\r
 | **Dark** | Dark background with light text (default) |\r
 | **Light** | Light background with dark text |\r
-| **Auto** | Follows your system preference |\r
+| **System** | Follows your operating system's light/dark preference |\r
 \r
 ### Accent Color\r
 \r
@@ -23634,6 +23799,10 @@ Controls the roundness of UI elements (buttons, cards, inputs):\r
 ### Font Scale\r
 \r
 Adjusts the global text size. Useful for accessibility or personal preference.\r
+\r
+### UI Scale\r
+\r
+Scales every UI element \u2014 panels, controls, chrome \u2014 proportionally between 0.8\xD7 and 1.5\xD7. Where **Font Scale** only resizes text, **UI Scale** zooms the entire interface, which is handy on very high-density displays or for people who like a more compact (or more spacious) layout overall.\r
 \r
 ### Glass Effect\r
 \r
@@ -23668,10 +23837,44 @@ Extension theme overrides are scoped per-extension and automatically cleared whe
 \r
 ## Importing & Exporting Themes\r
 \r
-You can save and share theme configurations:\r
+You can save and share theme configurations from the **Theme Panel**:\r
 \r
-- **Export** \u2014 Save your current theme settings as a shareable file\r
-- **Import** \u2014 Load a theme configuration from a file\r
+- **Export** \u2014 Save the current theme settings (mode, accent, base colors, radius, scales, glass) as a JSON file\r
+- **Import** \u2014 Load a theme JSON\r
+\r
+For richer sharing \u2014 including custom CSS, component overrides, and bundled assets \u2014 use **Theme Packs** (see below).\r
+\r
+---\r
+\r
+## Custom CSS & Component Overrides\r
+\r
+For full styling control beyond what the Theme Panel exposes, open **Settings \u2192 Appearance \u2192 Custom CSS** (or invoke the Custom CSS modal from the Theme Panel). It supports:\r
+\r
+- **Custom CSS** \u2014 raw CSS that's injected after the built-in stylesheet, so you can override any variable or selector\r
+- **Component Overrides** \u2014 drop-in TSX replacements for built-in components (advanced; imported overrides are quarantined until you explicitly approve them, for safety)\r
+\r
+---\r
+\r
+## Theme Assets & Bundles\r
+\r
+When your custom CSS needs imagery (cursors, backgrounds, decorative SVGs, icon sets), upload it as a **theme asset** instead of pasting a remote URL:\r
+\r
+1. Open the **Theme Assets** panel inside the Custom CSS modal\r
+2. Drag an image, SVG, or font file onto the upload zone \u2014 Lumiverse assigns it a slug under a per-theme \`bundle_id\`\r
+3. Reference it from your CSS with the relative path the panel gives you (e.g. \`url(./my-cursor.png)\`); Lumiverse rewrites those references to the safe \`/api/v1/theme-assets/bundles/...\` URL at runtime so paths keep working when the theme is shared\r
+\r
+Optimizing uploaded PNG/JPG assets to WebP is available from each asset's menu \u2014 useful for trimming large theme packs.\r
+\r
+---\r
+\r
+## Theme Packs\r
+\r
+A **Theme Pack** bundles everything together \u2014 theme variables, custom CSS, component overrides, and uploaded assets \u2014 into a single shareable file. From the Custom CSS modal you can:\r
+\r
+- **Export Pack** \u2014 Package the current theme + CSS + assets into a zip you can hand to someone else\r
+- **Import Pack** \u2014 Load a pack into Lumiverse. Imported component overrides arrive disabled by default and must be explicitly enabled, which prevents an untrusted pack from running arbitrary code on import.\r
+\r
+Theme Packs travel with their assets, so a recipient sees exactly what you see without needing to re-upload images.\r
 \r
 ---\r
 \r
@@ -23696,19 +23899,18 @@ Set background images or videos behind your chat to enhance the atmosphere.\r
 A wallpaper that appears in all chats:\r
 \r
 1. Open the **Wallpaper Panel**\r
-2. Click **Upload** under the global section\r
-3. Select an image or video file\r
-4. The wallpaper appears behind all your chats\r
+2. Click **Set Global** and select an image or video file\r
+3. The wallpaper appears behind all your chats\r
 \r
 ### Per-Chat Wallpaper\r
 \r
 A wallpaper specific to one conversation:\r
 \r
 1. Open the **Wallpaper Panel** while in a chat\r
-2. Click **Upload** under the per-chat section\r
-3. The wallpaper only appears in this specific chat\r
+2. Click **Set for Chat** and select an image or video file\r
+3. The wallpaper only appears in this chat\r
 \r
-Per-chat wallpapers override the global wallpaper.\r
+Per-chat wallpapers override the global wallpaper. AI-generated scene backgrounds override both.\r
 \r
 ---\r
 \r
@@ -23716,22 +23918,35 @@ Per-chat wallpapers override the global wallpaper.\r
 \r
 | Type | Formats | Size Limit |\r
 |------|---------|------------|\r
-| **Images** | PNG, JPG, WebP, GIF | Standard upload limits |\r
+| **Images** | Any browser-supported image type (PNG, JPG, WebP, GIF, AVIF, \u2026) | Standard upload limits |\r
 | **Videos** | MP4, WebM | 100 MB |\r
 \r
 Videos loop automatically and play silently in the background.\r
 \r
 ---\r
 \r
+## Display Settings\r
+\r
+The Wallpaper Panel also exposes global rendering controls that apply to *whichever* wallpaper is currently visible (global, per-chat, or an AI-generated scene):\r
+\r
+| Setting | Description |\r
+|---------|-------------|\r
+| **Opacity** | How prominently the wallpaper shows through the chat overlay (5%\u2013100%, default 30%). Lower = more subtle backdrop. |\r
+| **Fit Mode** | **Cover** (fills the screen, crops edges \u2014 the default), **Contain** (fits the whole image with possible letterboxing), or **Fill** (stretches to fill, may distort). |\r
+\r
+These two settings are global \u2014 they aren't stored per chat.\r
+\r
+---\r
+\r
 ## Removing a Wallpaper\r
 \r
-Click **Remove** in the Wallpaper Panel to clear the current wallpaper (global or per-chat).\r
+Click **Clear** in the Wallpaper Panel to remove the current wallpaper. Global and per-chat wallpapers have separate Clear buttons.\r
 \r
 ---\r
 \r
 ## Combining with Image Generation\r
 \r
-If you have image generation enabled, AI-generated scene images can serve as dynamic wallpapers that update as the story progresses. The **background opacity** setting in the Image Generation panel controls how prominently the generated image appears.\r
+If you have image generation enabled and generate scene art, those AI-generated scene images override both the global and per-chat wallpapers while they're active \u2014 letting your background evolve with the story. The Opacity slider above still controls how prominently the scene shows through.\r
 \r
 ---\r
 \r
@@ -24726,36 +24941,56 @@ If the launch chat doesn't quite work, return to Dream Weaver, accept revised ca
 `,
     "extensions/index.md": `# Extensions\r
 \r
-Lumiverse supports extensions through **Spindle**, an isolated extension system. Extensions can add new features, modify behavior, and integrate with external services.\r
+Lumiverse supports extensions through **Spindle**, an isolated extension runtime. Extensions can add new features, modify behavior, and integrate with external services \u2014 all sandboxed inside a Bun Worker with a permission-gated RPC bridge to the rest of the app.\r
 \r
 ---\r
 \r
 ## What Extensions Can Do\r
 \r
-- Add custom panels and UI widgets\r
+- Add custom panels, dock widgets, float widgets, and input-bar buttons\r
 - Define new macros for use in presets\r
-- Intercept and modify prompts before they reach the AI\r
-- Listen to events (messages, generation, etc.)\r
-- Store data persistently\r
-- Access the generation pipeline\r
-- Create custom council tools\r
-- Apply theme overrides\r
-- Send notifications\r
+- Intercept and modify prompts, raw templates, or world-info injections before generation\r
+- Listen to events (messages, generation lifecycle, tool invocations, generation parameters)\r
+- Read and write persistent and ephemeral storage (with per-extension quotas)\r
+- Access the LLM generation pipeline (raw, batch, streaming, dry-run, observe)\r
+- Register **council tools** that show up in the Lumia Council\r
+- Register **command palette** entries scoped to global, chat, character, or landing contexts\r
+- Open **modal dialogs** (confirm, text input, custom) using Lumiverse's shared component library\r
+- Apply theme overrides and asset bundles\r
+- Send push notifications\r
+- Read the user's configured web-search provider (read-only)\r
+- CRUD over characters, chats, personas, presets, world books, regex scripts, databanks, and memories \u2014 each gated by its own permission\r
 \r
 ---\r
 \r
 ## Installing Extensions\r
 \r
 !!! warning "Trust model"\r
-    Extensions run code on your server. Only install extensions from sources you trust. Installing an extension is equivalent to running arbitrary code on your machine.\r
+    Extensions run real code on your server. Only install extensions from sources you trust \u2014 installing one is equivalent to running arbitrary code on your machine. Privileged permissions (see below) require explicit admin approval before they take effect.\r
 \r
-1. Open the **Spindle Panel**\r
-2. Click **Install Extension**\r
-3. Provide the extension source (URL or local path)\r
-4. Review the requested **permissions**\r
-5. Click **Install**\r
+1. Open the **Spindle Panel** (drawer \u2192 **Extensions**)\r
+2. Click **Add Extension** in the panel header\r
+3. In the dropdown:\r
+    * Paste a **GitHub repo URL** into *Install from Source*. If the repo has multiple branches, a **Branch** selector appears so you can target staging/dev branches as well as the default.\r
+    * **Owner / admin only:** *Import Local* loads any extensions you've placed under \`data/extensions/\` on the server filesystem \u2014 useful for development or for shipping bundled extensions with a Docker image.\r
+4. Review the requested permissions and click **Install**\r
 \r
-Extensions are **disabled by default** after installation. You must explicitly enable them.\r
+Newly installed extensions are **disabled by default**. After install, flip the **Enable** toggle and grant any privileged permissions you want to honor.\r
+\r
+### Updating Extensions\r
+\r
+Each installed extension card has its own **Update** button that re-fetches and rebuilds from its source. The panel header also has an **Update All** action that walks through every git-sourced extension sequentially \u2014 disabled extensions are still updated but remain disabled afterward.\r
+\r
+### Install Scope\r
+\r
+Extensions can be installed at two scopes:\r
+\r
+| Scope | Who Installs | Visibility |\r
+|-------|--------------|------------|\r
+| **Operator** | Owner / admin accounts | Available to every user on the instance |\r
+| **User** | Any user | Only visible to the user who installed it |\r
+\r
+The scope is decided at install time based on who's installing.\r
 \r
 ---\r
 \r
@@ -24763,53 +24998,96 @@ Extensions are **disabled by default** after installation. You must explicitly e
 \r
 From the Spindle Panel:\r
 \r
-- **Enable/Disable** \u2014 Toggle extensions on and off\r
-- **Configure** \u2014 Adjust extension-specific settings\r
-- **Permissions** \u2014 Review and manage what the extension can access\r
-- **Uninstall** \u2014 Remove the extension and its data\r
+- **Enable / Disable** \u2014 Toggle extensions on and off without uninstalling\r
+- **Configure** \u2014 Open extension-specific settings (if the extension registers any)\r
+- **Permissions** \u2014 Per-permission toggles for everything the extension requested\r
+- **Update** \u2014 Pull the latest source and rebuild\r
+- **Uninstall** \u2014 Remove the extension, its storage, and its grants\r
 \r
 ---\r
 \r
 ## Permissions\r
 \r
-Extensions request specific permissions for what they can access:\r
+Every extension declares the permissions it needs in its manifest. Lumiverse splits them into two tiers:\r
+\r
+### Auto-Granted (non-privileged)\r
+\r
+These are granted automatically at install time. They're the building blocks for benign extensions that only add UI or react to events.\r
 \r
 | Permission | What It Grants |\r
-|------------|---------------|\r
-| **Storage** | Read/write persistent file storage |\r
-| **Generation** | Access to the LLM generation pipeline |\r
-| **Characters** | Read/write character data |\r
-| **Chats** | Read/write chat data |\r
-| **World Books** | Read/write world book data |\r
-| **Regex Scripts** | Read/write regex scripts (find/replace rules) |\r
-| **Personas** | Read/write persona data |\r
-| **CORS Proxy** | Make HTTP requests through the server |\r
-| **Interceptor** | Modify prompts before generation |\r
-| **Context Handler** | Provide additional context to generations |\r
-| **Chat Mutation** | Add/edit/delete messages in chats |\r
-| **Push Notification** | Send push notifications |\r
-| **Image Gen** | Access the image generation pipeline |\r
-| **App Manipulation** | Apply theme overrides and UI changes |\r
+|------------|----------------|\r
+| \`ui_panels\` | Mount drawer tabs, dock panels, float widgets, input-bar actions, app mounts |\r
+| \`tools\` | Register council/agent tools and receive \`TOOL_INVOCATION\` events |\r
+| \`ephemeral_storage\` | Use the ephemeral storage tier (quota- and TTL-managed) |\r
+| \`event_tracking\` | Track, query, and replay generation events |\r
+| \`chat_mutation\` | Hide / unhide messages and perform bulk mutations on the *current* chat |\r
+| \`generation_parameters\` | Read the generation parameters used for the latest call |\r
+| \`memories\` | Read memory cortex entities, relationships, and chunks |\r
+| \`oauth\` | Run an OAuth flow on behalf of the user (provider-scoped) |\r
 \r
-Privileged permissions (CORS proxy, generation, interceptor, etc.) require admin approval.\r
+### Privileged (admin approval required)\r
+\r
+These can read sensitive data, modify pipeline behavior, or reach outside the sandbox. They are listed on install but only take effect after an admin explicitly toggles them on.\r
+\r
+| Permission | What It Grants |\r
+|------------|----------------|\r
+| \`generation\` | Run the generation pipeline directly (raw / quiet / batch / stream) |\r
+| \`interceptor\` | Modify the assembled prompt and inject parameters before the LLM call |\r
+| \`macro_interceptor\` | Transform raw macro templates before parsing |\r
+| \`context_handler\` | Contribute additional context blocks during prompt assembly |\r
+| \`cors_proxy\` | Make HTTP requests through the server (bypassing browser CORS) |\r
+| \`app_manipulation\` | Apply theme variable overrides and other app-wide UI changes |\r
+| \`push_notification\` | Send push notifications to the user |\r
+| \`image_gen\` | Drive the image-generation pipeline |\r
+| \`images\` | Read and write the user's stored images |\r
+| \`web_search\` | Read the user's configured web-search provider |\r
+| \`characters\` | Read and write character cards |\r
+| \`chats\` | Read and write chats and chat metadata |\r
+| \`presets\` | Read and write prompt presets |\r
+| \`world_books\` | Read and write world books |\r
+| \`regex_scripts\` | Read and write regex scripts |\r
+| \`databanks\` | Read and write databank documents |\r
+| \`personas\` | Read and write user personas |\r
+\r
+!!! tip "Why two tiers?"\r
+    Auto-granted permissions cover surface area an extension needs just to *exist* (UI mounts, ephemeral storage, event tracking). Privileged permissions touch user data, the network, or the prompt pipeline \u2014 Lumiverse keeps them off by default so a misbehaving or compromised extension can't silently exfiltrate or rewrite content.\r
 \r
 ---\r
 \r
-## Extension UI\r
+## Manifest Capabilities\r
 \r
-Extensions can add UI elements in several places:\r
+Separate from runtime permissions, an extension's manifest can declare **capabilities** that bypass install-time code-pattern scans:\r
 \r
-- **Drawer panels** \u2014 Full panels in the sidebar\r
-- **Dock widgets** \u2014 Small widgets docked to the screen edges\r
-- **Float widgets** \u2014 Floating elements anywhere on screen\r
-- **Input actions** \u2014 Buttons in the chat input area\r
-- **App mounts** \u2014 Full-page or embedded views\r
+| Capability | Meaning |\r
+|------------|---------|\r
+| \`dynamic_code_execution\` | Author is intentionally using \`eval\` / the \`Function\` constructor (e.g. for safe expression evaluators) |\r
+| \`base64_decode\` | Author is intentionally using base64-decoded payloads (e.g. embedded assets) |\r
+\r
+These do not grant any runtime privilege \u2014 they just tell the installer's scanner "yes, I really mean this." Without the declaration, the installer flags the pattern and refuses to install.\r
+\r
+---\r
+\r
+## UI Extension Points\r
+\r
+Extensions can mount UI in several surfaces. Each surface has both per-extension caps and global caps so a single extension can't crowd the workspace.\r
+\r
+| Surface | Per Extension | Global | Notes |\r
+|---------|:---:|:---:|-------|\r
+| **Drawer tabs** | 4 | 8 | Full panels in the drawer, with title, short name, icon, badge, keywords |\r
+| **Dock panels** | 1 per edge | 2 per edge | Edges: top, bottom, left, right |\r
+| **Float widgets** | 2 | 8 | Free-floating panels; can be fullscreen, snap to edges, or chromeless |\r
+| **Input-bar actions** | 4 | 12 | Buttons next to the chat input action bar |\r
+| **App mounts** | 1 | 4 | Full-page or overlay mounts; positions: start, end, app-overlay |\r
+| **Command palette entries** | unlimited | \u2014 | Scopable: global / chat / chat-idle / landing / character |\r
+| **Modals** | up to 2 stacked | \u2014 | \`open\`, \`confirm\`, \`textInput\`, or custom content |\r
+\r
+Extensions can also mount native Lumiverse form components (text inputs, selects, combos, sliders, date/time pickers, color pickers) inside their own panels via the Components API, so they don't have to reimplement the design system from scratch.\r
 \r
 ---\r
 \r
 ## For Developers\r
 \r
-If you want to build your own extensions, see the [Developer Docs](https://docs.lumiverse.chat){:target="_blank"} for the complete Spindle API reference, including backend APIs, frontend APIs, and example extensions.\r
+If you want to build your own extensions, see the [Spindle developer docs](https://docs.lumiverse.chat){:target="_blank"} for the full API reference, including the manifest schema, RPC bridge, storage tiers, generation APIs, and example extensions.\r
 `,
     "getting-started/first-steps.md": `# First Steps\r
 \r
@@ -24936,8 +25214,6 @@ cd Lumiverse\r
     .\\start.ps1\r
     \`\`\`\r
 \r
-    Alternatively, double-click \`lumiverse.bat\` \u2014 it launches \`start.ps1\` automatically.\r
-\r
 === "Termux (Android)"\r
 \r
     \`\`\`bash\r
@@ -24999,6 +25275,12 @@ The start scripts accept flags to control behavior:\r
     | \`--upgrade-bun\` | Upgrade Bun to the latest stable release, then continue |\r
     | \`--upgrade-bun-canary\` | Upgrade Bun to the latest canary build, then continue |\r
 \r
+    !!! note "Termux behavior"\r
+        Bun's built-in \`bun upgrade\` command does not work on native Termux \u2014 it aborts with \`'bun upgrade' is unsupported on systems without ld\` because Termux uses Android's bionic libc, not glibc. On Termux:\r
+\r
+        * \`--upgrade-bun\` rebuilds the [\`bun-termux\`](https://github.com/Happ1ness-dev/bun-termux) wrapper at \`$HOME/.bun-termux\` (\`git pull && make && make install\`), which is the actual source of Bun on Termux.\r
+        * \`--upgrade-bun-canary\` is **not supported** \u2014 bun-termux only packages stable releases. The start script will skip the upgrade and continue with the existing binary. If you specifically need canary, run Lumiverse inside a [proot-distro Linux](https://github.com/termux/proot-distro) environment, where standard \`bun upgrade --canary\` works normally.\r
+\r
 === "Windows (\`start.ps1\`)"\r
 \r
     | Flag | Description |\r
@@ -25020,6 +25302,21 @@ The start scripts accept flags to control behavior:\r
 ## Docker\r
 \r
 Lumiverse provides pre-built Docker images for the simplest possible deployment.\r
+\r
+### Available Image Tags\r
+\r
+Pre-built images are published to GitHub Container Registry under \`ghcr.io/prolix-oc/lumiverse\`:\r
+\r
+| Tag | Built From | Cadence | Audience |\r
+|-----|------------|---------|----------|\r
+| \`latest\` | \`main\` branch | Tagged releases | Default for everyone. Most stable. |\r
+| \`staging\` | \`staging\` branch | **Daily at 05:00 UTC** | Users who want a daily preview of upcoming work. May ship rough edges. |\r
+| \`staging-<sha>\` | \`staging\` branch | Daily | Specific commit pins of the staging branch \u2014 useful for rolling back if a fresh staging build regresses. |\r
+\r
+Switching between tags is just a matter of editing the \`image:\` line in \`docker-compose.yml\` and running \`docker-compose pull && docker-compose up -d\`. Your \`lumiverse-data\` volume is untouched, so your database and settings carry over between tags.\r
+\r
+!!! tip "Tracking staging without rebuilding"\r
+    Before the daily-build workflow existed, the only way to follow \`staging\` in Docker was to rebuild from source with \`docker-compose.build.yml\`. That still works, but if you just want the latest staging changes once a day, swap the image to \`ghcr.io/prolix-oc/lumiverse:staging\` and run \`docker-compose pull\` \u2014 no local build required.\r
 \r
 ### Quick Start (Pre-Built Image)\r
 \r
@@ -25073,6 +25370,39 @@ If you want to build the image locally:\r
 \`\`\`bash\r
 docker-compose -f docker-compose.build.yml up -d\r
 \`\`\`\r
+\r
+#### Forcing a fresh frontend bundle\r
+\r
+The build pipeline uses Docker's layer cache, so if Docker doesn't see a meaningful change in the frontend inputs it will reuse the previously baked Vite bundle. This is normally what you want \u2014 but if you're tracking the \`staging\` branch (or anywhere else fast-moving), you may want to guarantee the bundle was rebuilt from your current checkout before it gets packaged into the image.\r
+\r
+The build accepts a \`FRONTEND_REFRESH\` build arg that cache-busts the Vite build layer without invalidating apt, the CA refresh, or backend dependencies:\r
+\r
+=== "macOS / Linux"\r
+\r
+    \`\`\`bash\r
+    FRONTEND_REFRESH=$(date -u +%s) docker compose -f docker-compose.build.yml build\r
+    docker compose -f docker-compose.build.yml up -d\r
+    \`\`\`\r
+\r
+=== "Windows (PowerShell)"\r
+\r
+    \`\`\`powershell\r
+    $env:FRONTEND_REFRESH = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()\r
+    docker compose -f docker-compose.build.yml build\r
+    docker compose -f docker-compose.build.yml up -d\r
+    \`\`\`\r
+\r
+Any value different from the last build will do \u2014 the timestamp examples above are just an easy way to guarantee uniqueness.\r
+\r
+!!! tip "Staging users"\r
+    \`staging\` ships frontend changes more frequently than \`main\`. If you build the image right after a \`git pull\` and don't see your latest UI work in the running container, run the \`FRONTEND_REFRESH\` invocation above to force the Vite stage to rerun. A sibling \`CA_REFRESH\` arg works the same way for the CA trust store \u2014 useful if you hit "unable to verify the first certificate" errors talking to providers:\r
+\r
+    \`\`\`bash\r
+    CA_REFRESH=$(date -u +%G-W%V) FRONTEND_REFRESH=$(date -u +%s) \\\r
+      docker compose -f docker-compose.build.yml build\r
+    \`\`\`\r
+\r
+If you'd rather throw away the cache entirely (slower, but belt-and-braces), pass \`--no-cache\` to \`docker compose build\` instead.\r
 \r
 ### Docker Environment Variables\r
 \r
@@ -25243,7 +25573,12 @@ If you launched Lumiverse with one of the start scripts, the runner is attached 
 The \`--build\` / \`-Build\` flag rebuilds the frontend before launching \u2014 important when switching branches because the precompiled assets differ.\r
 \r
 !!! warning "Docker users"\r
-    The Operator Panel's branch switch and the \`git checkout\` flow both assume Lumiverse is running from a git checkout. If you're using the pre-built Docker image (\`ghcr.io/prolix-oc/lumiverse:latest\`), there is no working tree to switch \u2014 you'd need to either rebuild from source against the \`staging\` branch (\`docker-compose -f docker-compose.build.yml up -d\` after \`git checkout staging\`) or wait for the next image tag.\r
+    The Operator Panel's branch switch and the \`git checkout\` flow both assume Lumiverse is running from a git checkout. If you're using a pre-built Docker image, there is no working tree to switch \u2014 instead, change the \`image:\` line in \`docker-compose.yml\`:\r
+\r
+    * \`ghcr.io/prolix-oc/lumiverse:latest\` \u2192 \`main\` branch (tagged releases)\r
+    * \`ghcr.io/prolix-oc/lumiverse:staging\` \u2192 \`staging\` branch (rebuilt daily at 05:00 UTC)\r
+\r
+    Then \`docker-compose pull && docker-compose up -d\`. If you need staging changes published *between* daily builds, fall back to rebuilding from source with \`docker-compose -f docker-compose.build.yml up -d\` after \`git checkout staging\` \u2014 and pass \`FRONTEND_REFRESH=$(date -u +%s)\` so the Vite bundle is regenerated from your fresh checkout (see [Forcing a fresh frontend bundle](#forcing-a-fresh-frontend-bundle)).\r
 \r
 !!! tip "Roll back to main if staging breaks"\r
     Staging can occasionally ship a regression. Switching back to \`main\` from the Operator Panel (or \`git checkout main && ./start.sh --build\`) returns you to the last stable release without touching your \`data/\` folder.\r
@@ -25366,8 +25701,22 @@ The web UI wizard walks you through these steps:\r
     - Everything (recommended)\r
     - Custom selection\r
 5. **Select target** \u2014 Choose which Lumiverse account receives the data.\r
-6. **Confirm & import** \u2014 Review the summary and start the migration. Progress and logs stream in real time.\r
-7. **Results** \u2014 See counts of imported, skipped, and failed items.\r
+6. **(Optional) TagLibrary Backup** \u2014 If you used the [SillyTavern-TagLibrary](https://github.com/Inkbottle007/SillyTavern-TagLibrary) extension and exported a JSON backup, upload it here. Lumiverse will re-apply your tags to the imported characters once the main migration finishes. See [TagLibrary Re-Apply](#taglibrary-re-apply) below.\r
+7. **Confirm & import** \u2014 Review the summary and start the migration. Progress and logs stream in real time.\r
+8. **Results** \u2014 See counts of imported, skipped, and failed items.\r
+\r
+### TagLibrary Re-Apply\r
+\r
+The standalone **TagLibrary** extension for SillyTavern stores its character tags outside the character card itself, so they are *not* part of a normal SillyTavern export. Lumiverse can pull them back in:\r
+\r
+1. In SillyTavern, open the TagLibrary extension and export your backup as JSON\r
+2. On the **Confirm** step of the Migration wizard, expand **Optional: TagLibrary Backup** and upload the JSON file\r
+3. After the main migration completes, Lumiverse automatically runs the TagLibrary import and matches tags to imported characters using their source filenames and original image filenames\r
+\r
+A toast reports the results \u2014 how many tags were applied, how many were skipped because no matching character was found, and how many failed to parse. Existing character tags are preserved; the import only *adds* tags, it never removes them.\r
+\r
+!!! tip "When to use this"\r
+    Only relevant if you ran the SillyTavern-TagLibrary extension. Tags stored directly on character cards via SillyTavern's built-in tag system come across automatically with the character import and don't need this step.\r
 \r
 ### What Gets Imported\r
 \r
@@ -25396,89 +25745,127 @@ Once Lumiverse is running, head to [First Steps](first-steps.md) to connect your
 `,
     "getting-started/interface-overview.md": `# Interface Overview\r
 \r
-Lumiverse's interface is built around a central chat view with collapsible panels on each side. Here's a tour of what's where.\r
+Lumiverse's interface is built around a central chat view with a tabbed drawer that pulls in from the edge of the screen. Here's a tour of what's where.\r
 \r
 ---\r
 \r
 ## Main Layout\r
 \r
-The app has four key areas:\r
-\r
 \`\`\`\r
-+-----+----------------------------+------+\r
-|     |                            |      |\r
-| Left|       Chat Area            | Right|\r
-|Panel|                            | Panel|\r
-|     |                            |      |\r
-|     +----------------------------+      |\r
-|     |       Input Area           |      |\r
-+-----+----------------------------+------+\r
++--------------------------------------+----+\r
+|                                      |    |\r
+|         Chat Area                    | T  |\r
+|                                      | a  |\r
+|                                      | b  |\r
+|                                      | s  |\r
++--------------------------------------+    |\r
+|         Input Area                   |    |\r
++--------------------------------------+----+\r
 \`\`\`\r
 \r
-- **Chat Area** \u2014 Where messages appear. Shows the conversation with your character, including their avatar and expression images.\r
-- **Input Area** \u2014 Where you type messages. Includes action buttons for extras like attachments, quick replies, and persona switching.\r
-- **Left Panel** \u2014 Usually houses the Character Browser and Persona panel.\r
-- **Right Panel** \u2014 Usually houses Presets, World Books, Connections, and other configuration panels.\r
+- **Chat Area** \u2014 Where messages appear. Shows the conversation with your character, including avatars, expressions, and (optionally) a per-chat wallpaper background.\r
+- **Input Area** \u2014 Where you type messages. Includes action buttons for attachments, persona switching, quick replies, add-on toggles, and dry runs.\r
+- **Drawer** \u2014 A single docked drawer that hosts every panel as a tab. Pinned tabs appear on the visible edge so you can switch with one click; the rest live behind an overflow menu.\r
+- **Chat Heads (optional)** \u2014 Floating circular avatars that follow the screen edge and act as quick-switchers between recent chats.\r
 \r
-Panels can be collapsed, resized, and rearranged. On mobile, they slide in as drawers.\r
+Drawer panels can be docked to the opposite edge using the [Spindle](../extensions/index.md) **dockPanels** system, and on mobile the drawer slides in as a sheet.\r
 \r
 ---\r
 \r
-## Sidebar Panels\r
+## Drawer Tabs\r
 \r
-Click the icons along the edges to open panels:\r
+The drawer hosts every workspace panel as a tab. You can reorder them with drag-and-drop and hide ones you don't use from the tab-bar context menu.\r
 \r
-| Panel | Purpose |\r
-|-------|---------|\r
-| **Character Browser** | Browse, search, import, and manage characters |\r
-| **Persona Manager** | Create and switch between your personas |\r
-| **Connection Manager** | Manage API connections to AI providers |\r
-| **Preset / Loom Builder** | Configure prompt assembly and sampler settings |\r
-| **World Book** | Manage lorebooks and world info entries |\r
-| **Theme Panel** | Customize colors, fonts, and visual style |\r
-| **Image Generation** | Configure and trigger AI image generation |\r
-| **Content Workshop** | Manage packs (Lumias, Looms, Tools) |\r
-| **Regex Scripts** | Set up text transformation rules |\r
-| **Wallpaper Panel** | Set background images or videos |\r
-| **Spindle Panel** | Manage installed extensions |\r
+### Character & Story\r
+\r
+| Tab | Purpose |\r
+|-----|---------|\r
+| **Profile** | View and edit the active character's card |\r
+| **Characters** | Browse, search, import, and manage your character library |\r
+| **Personas** | Create, switch, and manage user [personas](../personas/index.md) |\r
+| **Lorebook** | Edit [world books](../world-books/index.md) and lorebook entries |\r
+| **Pack Browser** | Browse and install [content packs](../packs/index.md) (Lumias, Looms, themes, tools) |\r
+| **Creator Workshop** | Author your own Lumia items and Loom presets |\r
+\r
+### Generation Configuration\r
+\r
+| Tab | Purpose |\r
+|-----|---------|\r
+| **Reasoning** | Configure chain-of-thought, reasoning effort, prompt prefix/suffix, and start-reply-with |\r
+| **Loom** | Configure narrative structure, story beats, pacing, Sovereign Hand, and director cues |\r
+| **Composition** | Pick which Lumia/Loom content is active, set context filters, and tune prompt assembly |\r
+| **Connections** | Manage LLM, Image, Speech-to-Text, and Text-to-Speech API connections |\r
+| **Council** | Configure the Lumia Council, tool functions, and sidecar agents |\r
+| **Summary** | Configure context summarization and truncation |\r
+\r
+### Memory & Knowledge\r
+\r
+| Tab | Purpose |\r
+|-----|---------|\r
+| **Memory Cortex** | Browse entities, relationships, font colors, and stats. Manage [vaults and interlinks](../chatting/memory-cortex.md#vaults-interlinks) here. |\r
+| **Databank** | Upload reference documents that the AI can pull from during generation |\r
+| **World Info** | Live readout of which lorebook entries activated for the current generation |\r
+| **Council Feedback** | Inspect the latest council execution \u2014 what the tools did and why |\r
+\r
+### Visual & Output\r
+\r
+| Tab | Purpose |\r
+|-----|---------|\r
+| **Image Generation** | Configure and trigger AI image / scene generation |\r
+| **Wallpaper** | Set global or per-chat backgrounds (images, video, animated GIFs) |\r
+| **Theme** | Customize colors, accents, fonts, glass effects, and CSS overrides |\r
+| **Regex Scripts** | Author find/replace transformations for prompts or rendered output |\r
+\r
+### Meta\r
+\r
+| Tab | Purpose |\r
+|-----|---------|\r
+| **OOC** | Out-of-character comment display settings |\r
+| **Branch Tree** | Visualize and navigate the chat's branch history |\r
+| **Dream Weaver** | Generate brand-new characters from prompts |\r
+| **Extensions** | Install and manage [Spindle](../extensions/index.md) extensions |\r
+\r
+Spindle extensions can register additional drawer tabs that appear alongside the built-ins.\r
 \r
 ---\r
 \r
 ## Chat Controls\r
 \r
-Inside an active chat, you'll find these controls:\r
+Inside an active chat, each message exposes:\r
 \r
-- **Regenerate** \u2014 Re-roll the last AI response\r
+- **Regenerate** \u2014 Re-roll the last AI response (creates a new swipe)\r
 - **Continue** \u2014 Ask the AI to continue writing from where it left off\r
-- **Swipe arrows** \u2014 Navigate between alternative responses\r
-- **Edit** \u2014 Click on any message to edit its content\r
-- **Branch** \u2014 Fork the conversation at any message\r
-- **Author's Note** \u2014 Inject a system-level instruction at a specific depth in the conversation\r
+- **Swipe arrows** \u2014 Navigate between alternative responses on the same message\r
+- **Edit** \u2014 Click on any message to edit its content in place\r
+- **Branch** \u2014 Fork the conversation at any message into a separate timeline\r
+- **Author's Note** \u2014 Inject a system-level instruction at a configurable depth\r
 \r
 ---\r
 \r
 ## Input Area Actions\r
 \r
-The input area has several action buttons beyond just sending messages:\r
+The input area exposes several actions beyond just sending messages:\r
 \r
-- **Attachments** \u2014 Upload images or audio to include with your message\r
-- **Persona switcher** \u2014 Quickly change which persona you're using\r
+- **Attachments** \u2014 Upload images, audio, or documents to include with your message\r
+- **Persona switcher** \u2014 Quickly change which [persona](../personas/index.md) is active for this chat\r
 - **Quick Replies** \u2014 Insert pre-written response templates\r
 - **Guided Generation** \u2014 Enable structured output guidance\r
-- **Add-ons** \u2014 Toggle persona add-on blocks\r
-- **Dry Run** \u2014 Test what the AI will "see" without sending a real request\r
+- **Add-ons (Puzzle icon)** \u2014 Toggle [persona add-on](../personas/bindings-and-addons.md#persona-add-ons) blocks on and off, including global add-ons attached to the active persona\r
+- **Dry Run** \u2014 Preview the exact prompt the AI will see without sending a real request\r
+- **Voice input** \u2014 Dictate via the configured Speech-to-Text connection\r
+\r
+Per-chat toggle state for add-ons is remembered, so flipping a block off in one chat doesn't affect another.\r
 \r
 ---\r
 \r
 ## Command Palette\r
 \r
-Press **Cmd+K** (Mac) or **Ctrl+K** (Windows/Linux) to open the Command Palette. This gives you quick access to:\r
+Press **Cmd+K** (macOS) or **Ctrl+K** (Windows / Linux) to open the Command Palette. This is the fastest way to navigate Lumiverse and gives quick access to:\r
 \r
-- Navigation between pages\r
-- Panel toggles\r
-- Chat-specific actions\r
-- Settings\r
-- Extension features\r
+- Drawer tabs and modal panels\r
+- Settings sections\r
+- Chat-specific actions (regenerate, swipe, branch, etc.)\r
+- Extension-registered commands\r
 \r
 Type to search, then press Enter to execute.\r
 \r
@@ -25486,29 +25873,53 @@ Type to search, then press Enter to execute.\r
 \r
 ## Landing Page\r
 \r
-When you first open Lumiverse (or navigate to the home page), you'll see the **Landing Page** showing your recent chats grouped by character. Click any chat to resume it, or click a character to start a new conversation.\r
+When you open Lumiverse (or navigate to the home page), you land on the **Landing Page**. It shows recent chats grouped by character. Click any chat to resume it, or click a character to start a new conversation. The landing page layout (compact list vs. grid) and the number of chats shown are configurable from **Settings \u2192 Display**.\r
 \r
 ---\r
 \r
 ## Settings\r
 \r
-Click the gear icon (or use the Command Palette) to open **Settings**. Settings are organized into tabs:\r
+Click the gear icon (or open the Command Palette and search "Settings") to open the **Settings** modal. The sidebar groups settings into categories:\r
 \r
-| Tab | What's Inside |\r
-|-----|---------------|\r
-| **General** | Landing page behavior |\r
-| **Display** | Modal sizing, pagination, toast positions |\r
-| **Chat** | Message-per-page, enter-to-send, draft saving |\r
-| **Appearance** | Theme presets, accent colors, glass effects |\r
+### Account & Display\r
+| Section | What's Inside |\r
+|---------|---------------|\r
+| **Account** | Username, password, avatar |\r
+| **Display** | Modal sizing, pagination, toast positions, landing layout, chat heads |\r
+| **Chat** | Message-per-page, enter-to-send, draft saving, message render options |\r
 | **Notifications** | Push notification preferences |\r
-| **Embeddings** | Vector embedding configuration |\r
-| **LumiHub** | Hub integration settings |\r
-| **Advanced** | Power-user options |\r
-| **Danger Zone** | Data deletion and reset options |\r
-| **Diagnostics** | System health information |\r
+\r
+### AI & Generation\r
+| Section | What's Inside |\r
+|---------|---------------|\r
+| **Embeddings** | [Vector embedding](../settings/embeddings.md) provider and indexing config |\r
+| **Memory Cortex** | Entity tracking, salience, sidecar, [memory cortex](../chatting/memory-cortex.md) config |\r
+| **Web Search** | SearXNG integration for the web-search tool |\r
+| **Tokenizers** | Manage tokenizer downloads for accurate token counting |\r
+| **Voice** | Speech-to-Text and Text-to-Speech defaults |\r
+| **MCP Servers** | Manage Model Context Protocol server connections |\r
+| **Guided Generation** | Default templates for guided output |\r
+| **Quick Replies** | Manage the input-area quick-reply library |\r
+\r
+### Extensions\r
+| Section | What's Inside |\r
+|---------|---------------|\r
+| **Extensions** | Manage installed Spindle extensions |\r
+| **Extension Pools** | Per-extension storage quota overrides |\r
+\r
+### Operations\r
+| Section | What's Inside |\r
+|---------|---------------|\r
+| **LumiHub** | LumiHub account and content sharing |\r
+| **Users** | (Multi-user installs) Manage additional user accounts |\r
+| **Data Portability** | Export / import everything, API keys, tickets |\r
+| **Migration** | Import from SillyTavern (Local, SFTP, SMB, Google Drive, Dropbox); re-apply TagLibrary backups |\r
+| **Operator Panel** | Check for updates, switch branches, restart server (requires the runner) |\r
+| **Advanced** | Power-user toggles |\r
+| **Diagnostics** | System health, version, embedding/cortex status |\r
 \r
 !!! tip "Mobile"\r
-    On smaller screens, panels become slide-in drawers. Swipe from the edge or tap the panel icons to open them. The interface supports PWA mode \u2014 add Lumiverse to your home screen for an app-like experience.\r
+    On smaller screens, the drawer becomes a slide-in sheet. Swipe from the edge, tap any pinned tab icon, or use the Command Palette to navigate. Lumiverse also supports PWA installs \u2014 add it to your home screen for an app-like experience.\r
 `,
     "image-generation/index.md": `# Image Generation\r
 \r
@@ -26208,7 +26619,7 @@ Items within a pack have a **sort order** that determines their display sequence
 `,
     "personas/bindings-and-addons.md": `# Bindings & Add-Ons\r
 \r
-Beyond basic persona setup, Lumiverse offers two power features: **character bindings** that auto-activate personas, and **add-ons** that let you toggle extra persona content on and off.\r
+Beyond basic persona setup, Lumiverse offers several power features: **character bindings** and **tag bindings** that auto-activate personas, and **add-ons** that let you toggle extra persona content on and off.\r
 \r
 ---\r
 \r
@@ -26223,11 +26634,11 @@ You can bind a persona to a specific character so that persona automatically act
 3. Click **Bind to Character**\r
 4. Choose the character from the list\r
 \r
-Now, whenever you open a chat with that character, your persona switches automatically.\r
+Now, whenever you open a chat with that character, your persona switches automatically. Optionally, the binding can also remember a custom set of **add-on toggles** to apply each time it fires (see below).\r
 \r
 ### How Bindings Work\r
 \r
-- Bindings are stored as a setting (\`characterPersonaBindings\`) \u2014 a mapping of character IDs to persona IDs\r
+- Bindings are stored as a setting (\`characterPersonaBindings\`) \u2014 a mapping of character IDs to either a persona ID or \`{ personaId, addonStates }\`\r
 - When you open a chat, Lumiverse checks if the character has a binding and switches your active persona\r
 - If you manually switch personas in a chat, that overrides the binding for that session\r
 - Deleting a persona automatically cleans up its bindings\r
@@ -26237,6 +26648,32 @@ Now, whenever you open a chat with that character, your persona switches automat
 - Bind your "Fantasy Knight" persona to fantasy characters\r
 - Bind your "Modern Self" persona to slice-of-life characters\r
 - Bind a specific persona to a character that expects a particular partner\r
+\r
+---\r
+\r
+## Persona Tag Bindings\r
+\r
+If you don't want to bind every character one-by-one, you can bind a persona to a set of **character tags** and have it auto-activate whenever the chat's active character matches those tags.\r
+\r
+### Setting Up a Tag Binding\r
+\r
+1. Open the **Persona** panel and select the persona\r
+2. Open the persona editor and find the **Tag Binding** section\r
+3. Enter one or more character tags (e.g. \`fantasy\`, \`medieval\`, \`oc\`)\r
+4. Choose a match mode:\r
+    - **Any** \u2014 activate when the character has *any* of the listed tags\r
+    - **All** \u2014 activate only when the character has *every* listed tag\r
+\r
+When you open a chat with a character that matches, the persona switches automatically. Direct character bindings take priority over tag bindings if both match.\r
+\r
+### Ambiguity\r
+\r
+If multiple personas match the same character through tag bindings, Lumiverse surfaces the ambiguity in the persona switcher so you can pick the right one \u2014 it won't silently choose. Add a direct character binding to disambiguate permanently.\r
+\r
+### Use Cases\r
+\r
+- Tag all your "modern" characters with \`modern\` and bind your everyday persona to that tag\r
+- Use a \`villain-pov\` tag for chats where you want to roleplay as the antagonist\r
 \r
 ---\r
 \r
@@ -26272,6 +26709,28 @@ During a chat, you can quickly toggle add-ons without opening the full editor:\r
 \r
 The puzzle icon only appears when your active persona has at least one add-on.\r
 \r
+Toggles flipped from this dropdown are remembered **per chat** \u2014 opening another chat with the same persona doesn't carry the change over, so you can have one chat where "Injured" is on and another where it's off.\r
+\r
+---\r
+\r
+## Global Add-Ons\r
+\r
+If you find yourself reusing the same add-on across multiple personas (e.g. a "GM Notes" block, or a recurring NPC companion), create it once as a **global add-on** and attach it to any persona that needs it.\r
+\r
+### Creating Global Add-Ons\r
+\r
+1. Open the **Persona** panel and click the **Global Add-Ons Library** button (also reachable from the persona editor's add-ons modal)\r
+2. Click **Add Global Add-On**\r
+3. Give it a label and content \u2014 the library auto-saves\r
+\r
+### Attaching to a Persona\r
+\r
+1. Open the persona editor and click **Add-Ons**\r
+2. Scroll to the **Global Add-Ons** section\r
+3. Click **Attach Global Add-On** and pick from the library \u2014 each attached add-on gets its own toggle on this persona\r
+\r
+Attached global add-ons appear alongside the persona's own add-ons in the quick-toggle puzzle dropdown. Edits to a global add-on update everywhere it's attached \u2014 there's only one source of truth.\r
+\r
 ### Example Add-Ons\r
 \r
 | Label | Content |\r
@@ -26296,6 +26755,7 @@ Setting up a persona takes just a minute and makes a noticeable difference in ho
     - **Name** (required) \u2014 How the AI addresses you\r
     - **Title** \u2014 A short description shown in the persona card\r
     - **Description** \u2014 Your character's appearance, personality, and background\r
+    - **Pronouns** \u2014 Subjective, objective, and possessive forms (e.g. *she / her / her*). These power the \`{{personaSubjectivePronoun}}\`, \`{{personaObjectivePronoun}}\`, and \`{{personaPossessivePronoun}}\` macros and reinforce the AI's grammar choices. Blank fields fall back to *they / them / their*.\r
 4. Optionally:\r
     - Upload an **avatar**\r
     - Assign a **folder** for organization\r
@@ -26379,6 +26839,7 @@ A **persona** represents *you* in the conversation. While you can chat without o
 | **Name** | Your display name in chat (replaces \`{{user}}\` in prompts) |\r
 | **Title** | A short tagline shown under your name in the persona switcher |\r
 | **Description** | Your character description \u2014 sent to the AI via \`{{persona}}\` |\r
+| **Pronouns** | Subjective / objective / possessive pronouns (e.g. *they / them / their*), used by macros and to nudge the AI toward correct grammar |\r
 | **Avatar** | Your profile image |\r
 | **Folder** | Organizational grouping in the persona panel |\r
 | **Default** | Whether this persona activates automatically |\r
@@ -27414,9 +27875,16 @@ Here \`.roll\` is a temporary local variable (used for the current evaluation on
 \r
 Prompt variables are preset-defined inputs that are seeded into local scope before block evaluation. That means \`{{var::tone}}\`, \`{{getvar::tone}}\`, and \`{{.tone}}\` can all resolve to the same runtime value.\r
 \r
+Variables come in seven types \u2014 **Text**, **Text Area**, **Number**, **Slider**, **Dropdown**, **On/Off**, and **Multi-select** \u2014 and each resolves to its **rendered value** when read:\r
+\r
+- **Dropdown** \u2192 the selected option's value string (the long, expanded text the creator wrote).\r
+- **On/Off** \u2192 \`1\` when on, \`0\` when off. Use directly in \`{{if::...}}\` gates.\r
+- **Multi-select** \u2192 the selected options' values, joined by the variable's separator (default \`\\n\\n\`).\r
+\r
 | Macro | Aliases | Description | Args |\r
 |-------|---------|-------------|------|\r
 | \`{{var::name}}\` | \`{{promptVar}}\`, \`{{presetVar}}\` | Read the runtime prompt-variable value, then the user override, then the creator default | Variable name |\r
+| \`{{var::name::ison::keyA,keyB,...}}\` | \u2014 | **Multi-select only.** Returns \`"true"\` if every listed option key is currently selected (AND match), \`"false"\` otherwise. Empty key list is vacuously \`"true"\`. | Variable name, the literal \`ison\`, comma-separated option keys |\r
 | \`{{hasVar::name}}\` | \`{{hasPromptVar}}\`, \`{{hasPresetVar}}\` | Check whether a prompt variable is resolvable | Variable name |\r
 | \`{{varDefault::name}}\` | \`{{promptVarDefault}}\`, \`{{presetVarDefault}}\` | Read the creator-declared default only | Variable name |\r
 \r
@@ -27427,6 +27895,20 @@ Tone: {{default::{{var::tone}}::neutral}}\r
 \r
 {{if::{{hasPromptVar::violence}}}}\r
 Violence level: {{var::violence}}\r
+{{/if}}\r
+\r
+// On/Off switches resolve to 1 or 0 \u2014 drop them straight into {{if::...}}.\r
+{{if::{{var::strict_canon}}}}\r
+Strictly adhere to established canon.\r
+{{/if}}\r
+\r
+// Multi-select: the rendered value is the joined block of selected option values.\r
+Style guidelines:\r
+{{var::style_guides}}\r
+\r
+// Multi-select: branch on WHICH options are selected with the ison sub-syntax.\r
+{{if::{{var::style_guides::ison::concise,polite}}}}\r
+Stay tight and respectful \u2014 no throat-clearing.\r
 {{/if}}\r
 \`\`\`\r
 \r
@@ -27600,6 +28082,7 @@ These macros return \`"yes"\` / \`"no"\` or \`"true"\` / \`"false"\` and are des
 | \`{{haschatvar::key}}\` | Chat-persisted variable exists |\r
 | \`{{hasgvar::key}}\` | Global variable exists |\r
 | \`{{hasPromptVar::name}}\` | A prompt variable is available |\r
+| \`{{var::name::ison::keyA,keyB}}\` | All listed option keys are selected on a multi-select prompt variable |\r
 | \`{{charTag::tag}}\` | Character has the specified tag |\r
 | \`{{regexInstalled::id}}\` | Regex script with that ID is installed and enabled |\r
 | \`{{and::a::b}}\` | All arguments are truthy |\r
@@ -27890,7 +28373,7 @@ Every variable has core metadata:\r
 \r
 ### Variable Types\r
 \r
-You can choose from four input types, depending on what kind of data your prompt needs:\r
+You can choose from seven input types, depending on what kind of data your prompt needs:\r
 \r
 | Type | Best For | Options |\r
 |------|----------|---------|\r
@@ -27898,6 +28381,103 @@ You can choose from four input types, depending on what kind of data your prompt
 | **Text Area** | Longer paragraphs, like custom formatting rules or lore snippets. | \`rows\` (controls the height of the input) |\r
 | **Number** | Precise numeric values (e.g., specific repetition counts). | \`min\`, \`max\`, \`step\` |\r
 | **Slider** | Visual range selection (e.g., a "creativity" scale from 1-10). | \`min\`, \`max\` (required), \`step\` |\r
+| **Dropdown** | One-of-many choice where the user picks a short label but a much larger string is substituted into the prompt. | \`options\` (label + value pairs) |\r
+| **On / Off** | Binary toggle. Resolves to \`1\` when on, \`0\` when off \u2014 perfect for \`{{if::...}}\` gates. | \u2014 |\r
+| **Multi-select** | Several values at once, concatenated and joined into a single block of text. | \`options\` (label + value pairs), \`separator\` (default \`\\n\\n\`) |\r
+\r
+---\r
+\r
+## Dropdown, On/Off, and Multi-select\r
+\r
+These three types give your users a curated picker rather than a free-form field, while letting you write the full text that ends up in the prompt.\r
+\r
+### Dropdown\r
+\r
+A Dropdown shows the user a list of short, friendly labels but substitutes a much larger string in their place. Define each option as a **label + value** pair:\r
+\r
+| Label (shown to user) | Value (substituted into prompt) |\r
+|-----------------------|---------------------------------|\r
+| \`Warm\` | \`Respond with empathy, warmth, and emotional attunement.\` |\r
+| \`Clinical\` | \`Respond clinically and tersely. Avoid emotive language.\` |\r
+| \`Playful\` | \`Respond with light humor and a playful, conversational rhythm.\` |\r
+\r
+In your block, just write:\r
+\r
+\`\`\`text\r
+{{var::tone}}\r
+\`\`\`\r
+\r
+The user picks \`Warm\` from the dropdown; the prompt receives the full warm-tone instruction.\r
+\r
+### On / Off\r
+\r
+An On/Off switch is the simplest possible variable: a single toggle that resolves to \`1\` (on) or \`0\` (off). Because \`0\` is falsy, you can gate entire prompt sections behind it with \`{{if::...}}\`:\r
+\r
+\`\`\`text\r
+{{if::{{var::strict_canon}}}}\r
+Strictly adhere to established canon. Do not introduce contradictions.\r
+{{/if}}\r
+\`\`\`\r
+\r
+When the user flips \`strict_canon\` on, the instruction is injected. When it's off, the entire block disappears \u2014 no awkward "false" string left in your prompt.\r
+\r
+### Multi-select\r
+\r
+A Multi-select is a Dropdown that lets the user pick **several** options. The selected values are concatenated together \u2014 by default with two newlines between them, but you can set any separator you like.\r
+\r
+Define your options the same way as a Dropdown:\r
+\r
+| Label | Value |\r
+|-------|-------|\r
+| \`Concise\` | \`Be concise. Prefer short, direct sentences.\` |\r
+| \`Vivid\` | \`Use vivid, sensory imagery in scene description.\` |\r
+| \`Polite\` | \`Maintain a polite, professional register throughout.\` |\r
+\r
+In your block:\r
+\r
+\`\`\`text\r
+Style guidelines:\r
+{{var::style_guides}}\r
+\`\`\`\r
+\r
+If the user selects \`Concise\` and \`Vivid\`, the prompt receives:\r
+\r
+\`\`\`text\r
+Style guidelines:\r
+Be concise. Prefer short, direct sentences.\r
+\r
+Use vivid, sensory imagery in scene description.\r
+\`\`\`\r
+\r
+> **Order is stable.** Selected values are always emitted in the order you declared the options \u2014 not the order the user clicked. This means you can reorder options in the editor and have the joined output rearrange automatically.\r
+\r
+#### Branching on multi-select state with \`ison\`\r
+\r
+Sometimes you don't just want to *concatenate* the selected values \u2014 you want to know **which** options the user picked so you can branch on them.\r
+\r
+Multi-select variables support a special sub-syntax:\r
+\r
+\`\`\`text\r
+{{var::name::ison::keyA,keyB,...}}\r
+\`\`\`\r
+\r
+This returns the literal string \`"true"\` if **every** listed option key is currently selected, otherwise \`"false"\`. The keys are the option IDs you defined (visible in the editor), not the labels.\r
+\r
+This lets you mix concatenated style instructions with conditional sections that fire only for specific combinations:\r
+\r
+\`\`\`text\r
+{{if::{{var::style_guides::ison::vivid}}}}\r
+Lean into atmosphere \u2014 describe weather, lighting, and ambient sound.\r
+{{/if}}\r
+\r
+{{if::{{var::style_guides::ison::concise,polite}}}}\r
+Even when being polite, keep responses tight. No throat-clearing.\r
+{{/if}}\r
+\`\`\`\r
+\r
+The first \`{{if}}\` triggers whenever \`Vivid\` is selected (regardless of what else is). The second only fires when **both** \`Concise\` and \`Polite\` are selected together \u2014 a true AND match.\r
+\r
+Pass an empty key list (\`{{var::name::ison::}}\`) and \`ison\` is vacuously \`"true"\` \u2014 useful as a "no specific requirement" guard.\r
 \r
 ---\r
 \r
@@ -27919,6 +28499,8 @@ Write in a {{getvar::tone}} tone.\r
 // Shorthand evaluation\r
 Write in a {{.tone}} tone.\r
 \`\`\`\r
+\r
+> **Type-specific behavior:** the shorthand and \`{{getvar}}\` forms always resolve to the variable's **rendered value** \u2014 the option's value string for Dropdowns, \`0\` or \`1\` for On/Off switches, and the joined block of selected values for Multi-selects. Use \`{{var::name::ison::...}}\` (described below) when you need to inspect a multi-select's underlying selection rather than its rendered text.\r
 \r
 ### Fallback Precedence\r
 \r
@@ -28355,10 +28937,16 @@ Key terms used throughout Lumiverse and these guides.\r
 **Context Window**\r
 : The maximum number of tokens a model can process at once (prompt + response combined).\r
 \r
+**Cortex (Memory Cortex)**\r
+: Lumiverse's narrative-aware memory layer that tracks entities, relationships, salience, and arcs on top of basic long-term memory. See [Memory Cortex](../chatting/memory-cortex.md).\r
+\r
 **Council**\r
 : A multi-persona deliberation system where AI personas analyze the scene and provide guidance before the main generation.\r
 \r
 ## D\r
+\r
+**Databank**\r
+: A knowledge bank of uploaded documents that can be RAG-retrieved during generation. Documents are referenced with \`#slug\` mentions in chat. See [Databank](../chatting/databank.md).\r
 \r
 **Depth**\r
 : How many messages from the end of the chat to insert content. Lower depth = closer to the end = more influence.\r
@@ -28368,6 +28956,12 @@ Key terms used throughout Lumiverse and these guides.\r
 \r
 ## E\r
 \r
+**Embedding**\r
+: A numeric vector that represents the *meaning* of a piece of text. Powers semantic world-book activation, long-term memory, databank retrieval, and the cortex. See [Embeddings](../settings/embeddings.md).\r
+\r
+**Entity**\r
+: A named thing tracked by the Memory Cortex \u2014 character, location, faction, item, concept, or event. Accumulates facts, relationships, and salience over time.\r
+\r
 **Expression**\r
 : An emotion-mapped image that changes dynamically based on the conversation mood.\r
 \r
@@ -28376,8 +28970,16 @@ Key terms used throughout Lumiverse and these guides.\r
 **Generation**\r
 : The process of sending a prompt to the AI and receiving a response. Types: normal, regenerate, continue, swipe, impersonate, quiet.\r
 \r
+**Global Add-On**\r
+: A persona add-on stored in a shared library, attachable to any number of personas. Edits propagate everywhere it's attached.\r
+\r
 **Group Chat**\r
 : A conversation with multiple AI characters who take turns responding and interact with each other.\r
+\r
+## I\r
+\r
+**Interlink**\r
+: A live, bidirectional link between two chats' Memory Cortex state. Each chat sees the other's entities and relationships in real time.\r
 \r
 ## L\r
 \r
@@ -28393,7 +28995,15 @@ Key terms used throughout Lumiverse and these guides.\r
 ## M\r
 \r
 **Macro**\r
-: A template variable (e.g., \`{{char}}\`) that gets replaced with dynamic content during prompt assembly.\r
+: A template variable (e.g., \`{{char}}\`) that gets replaced with dynamic content during prompt assembly. See [Macros Reference](../presets/macros-reference.md).\r
+\r
+## O\r
+\r
+**Operator Panel**\r
+: Settings panel for instance-level operations \u2014 check for updates, switch git branches, restart the server. Requires the runner to be attached.\r
+\r
+**Outlet**\r
+: A named content slot a world book entry can export \u2014 referenced from presets and other entries via \`{{outlet::name}}\`.\r
 \r
 ## P\r
 \r
@@ -28401,7 +29011,10 @@ Key terms used throughout Lumiverse and these guides.\r
 : A content bundle containing Lumia items, Loom items, and/or Loom tools.\r
 \r
 **Persona**\r
-: Your identity in conversations \u2014 includes name, description, and avatar.\r
+: Your identity in conversations \u2014 includes name, pronouns, description, avatar, and optional add-ons.\r
+\r
+**Persona Add-On**\r
+: An optional, toggleable block of content attached to a persona. Lets you extend your persona description dynamically without editing it.\r
 \r
 **Preset**\r
 : A saved configuration defining prompt block order, sampler settings, and completion behavior.\r
@@ -28420,7 +29033,13 @@ Key terms used throughout Lumiverse and these guides.\r
 **Regex Script**\r
 : A text transformation rule using regular expressions, applied at various stages of the pipeline.\r
 \r
+**Runner**\r
+: The supervisor process that the start scripts attach. Performs updates, branch switches, and restarts on behalf of the Operator Panel. Disable with \`--no-runner\` if you don't want it.\r
+\r
 ## S\r
+\r
+**Salience**\r
+: A score (0.0\u20131.0) the Memory Cortex assigns to each memory chunk based on emotional weight, narrative flags, and information density. High-salience memories resist decay.\r
 \r
 **Sampler Settings**\r
 : Parameters that control how the AI generates text (temperature, top-p, penalties, etc.).\r
@@ -28432,10 +29051,19 @@ Key terms used throughout Lumiverse and these guides.\r
 : Secondary keyword conditions (AND, OR, NOT) that refine when a world book entry activates.\r
 \r
 **Sidecar**\r
-: A separate, usually lighter AI model used for background tasks like council tools and expression detection.\r
+: A secondary, usually lighter LLM used for background tasks \u2014 Memory Cortex extraction, council tools, expression detection, heuristic arbitration.\r
+\r
+**Sovereign Hand**\r
+: A Loom co-pilot mode that lets you steer the next generation with directorial instructions while the AI keeps narrating.\r
 \r
 **Spindle**\r
-: Lumiverse's extension system for installing and running third-party add-ons.\r
+: Lumiverse's extension system. Extensions run in an isolated Bun Worker with a permission-gated RPC bridge. See [Extensions](../extensions/index.md).\r
+\r
+**Spindle Capability**\r
+: A manifest declaration that bypasses install-time code-pattern scans for legitimate uses of patterns like \`eval\` or base64 decode. Distinct from runtime permissions.\r
+\r
+**Spindle Permission**\r
+: A runtime grant that lets an extension access a specific subsystem (chats, generation, cors_proxy, etc.). Privileged permissions require admin approval.\r
 \r
 **Sticky Entry**\r
 : A world book entry that stays active for a set number of turns after its keywords stop appearing.\r
@@ -28445,8 +29073,19 @@ Key terms used throughout Lumiverse and these guides.\r
 \r
 ## T\r
 \r
+**TagLibrary**\r
+: A SillyTavern extension that stores character tags separately from the card. Lumiverse's migration wizard can re-apply TagLibrary backups after a regular SillyTavern import.\r
+\r
+**Theme Pack**\r
+: A shareable bundle containing theme variables, custom CSS, component overrides, and uploaded theme assets. Exported and imported from the Custom CSS modal.\r
+\r
 **Token**\r
 : The basic unit of text for AI models. Roughly 3/4 of a word. Used to measure context size and response length.\r
+\r
+## V\r
+\r
+**Vault**\r
+: A frozen snapshot of a chat's Memory Cortex state (chunks, entities, relationships) packaged as a reusable, read-only knowledge object. Attach it to other chats so they "remember" the source chat.\r
 \r
 ## W\r
 \r
@@ -28458,7 +29097,7 @@ Key terms used throughout Lumiverse and these guides.\r
 `,
     "reference/keyboard-shortcuts.md": `# Keyboard Shortcuts\r
 \r
-Quick reference for keyboard shortcuts in Lumiverse.\r
+Quick reference for keyboard shortcuts in Lumiverse. On macOS, **Cmd** is the modifier; everywhere else it's **Ctrl**.\r
 \r
 ---\r
 \r
@@ -28466,17 +29105,51 @@ Quick reference for keyboard shortcuts in Lumiverse.\r
 \r
 | Shortcut | Action |\r
 |----------|--------|\r
-| **Cmd/Ctrl + K** | Open Command Palette |\r
-| **Escape** | Close current modal or panel |\r
+| **Cmd/Ctrl + K** | Open Command Palette (press again to close) |\r
+| **Escape** | Close the current modal, popover, or command palette |\r
 \r
 ---\r
 \r
-## Chat\r
+## Composing & Sending\r
+\r
+These work when the chat input is focused.\r
 \r
 | Shortcut | Action |\r
 |----------|--------|\r
-| **Enter** | Send message |\r
-| **Shift + Enter** | New line (without sending) |\r
+| **Enter** | Send the message (when *Enter to Send* is on) |\r
+| **Shift + Enter** | Insert a newline without sending |\r
+| **Cmd/Ctrl + Enter** | **Queue** the message \u2014 append to the next generation instead of starting a new one |\r
+| **Cmd/Ctrl + L** | Resolve macros in the input *in place* \u2014 preview what the AI will see before sending |\r
+| **Cmd/Ctrl + Click on Send** | Same as Cmd/Ctrl + Enter \u2014 queues the message |\r
+\r
+!!! tip "Enter to Send is configurable"\r
+    If you turn off **Settings \u2192 Chat \u2192 Enter to Send**, plain Enter inserts a newline and Cmd/Ctrl + Enter is the only way to queue or send.\r
+\r
+### \`#\` / \`@\` Autocomplete\r
+\r
+When the autocomplete popover is open (after typing \`#\` for a databank document or \`@\` for a group character):\r
+\r
+| Shortcut | Action |\r
+|----------|--------|\r
+| **Arrow Up / Down** | Navigate suggestions |\r
+| **Enter** or **Tab** | Insert the highlighted suggestion |\r
+| **Escape** | Dismiss the popover |\r
+\r
+---\r
+\r
+## Chat Navigation\r
+\r
+These work anywhere outside an input field \u2014 hover over a message to target it.\r
+\r
+| Shortcut | Action |\r
+|----------|--------|\r
+| **Arrow Left / Arrow Right** | Swipe the **last** assistant message left/right between alternates |\r
+| **Shift + Arrow Left / Right** | Swipe the **hovered** assistant message instead |\r
+| **Arrow Up** | Edit the last assistant message; press again to walk further back up the assistant thread |\r
+| **Shift + Arrow Up** | Edit the last *user* message; press again to walk further back up the user thread |\r
+\r
+!!! note "Smart guards"\r
+    These shortcuts only fire when the chat is idle \u2014 i.e. nothing is streaming, no modal is open, no command palette is open, no text is selected, and you're not in multi-select mode. They also disable themselves while you're focused on a textarea or input. **Swipe gestures** can be turned off entirely from **Settings \u2192 Chat**.\r
 \r
 ---\r
 \r
@@ -28484,23 +29157,18 @@ Quick reference for keyboard shortcuts in Lumiverse.\r
 \r
 | Shortcut | Action |\r
 |----------|--------|\r
-| **Type to search** | Filter commands |\r
-| **Arrow keys** | Navigate results |\r
+| **Type to search** | Filter commands fuzzily |\r
+| **Arrow Up / Down** | Navigate results |\r
 | **Enter** | Execute selected command |\r
-| **Escape** | Close palette |\r
+| **Escape** | Close the palette |\r
 \r
----\r
+The Command Palette is the fastest way to navigate Lumiverse. It can:\r
 \r
-## Navigation\r
-\r
-The Command Palette (Cmd/Ctrl + K) provides keyboard-driven access to:\r
-\r
-- Switch between panels\r
-- Navigate to settings\r
-- Open character browser\r
-- Toggle features\r
-- Run chat-specific actions\r
-- Access extension tabs\r
+- Open any drawer tab or modal\r
+- Jump to any settings section\r
+- Open the character browser, persona switcher, theme panel\r
+- Run chat-specific actions (regenerate, swipe, branch, etc.)\r
+- Execute commands registered by [Spindle extensions](../extensions/index.md)\r
 \r
 ---\r
 \r
@@ -28508,6 +29176,9 @@ The Command Palette (Cmd/Ctrl + K) provides keyboard-driven access to:\r
 \r
 !!! tip "Command Palette is your friend"\r
     Almost everything in Lumiverse can be reached through the Command Palette. Learn to use it and you'll navigate the app much faster than clicking through menus.\r
+\r
+!!! tip "Queue vs send"\r
+    Queueing (**Cmd/Ctrl + Enter**) stacks your message onto the next generation instead of starting one immediately. Useful when the AI is mid-stream and you want to "buffer" your next input without interrupting.\r
 `,
     "reference/troubleshooting.md": `# Troubleshooting\r
 \r
@@ -28663,6 +29334,7 @@ Toggle the master switch on.\r
 | **OpenAI Compatible** | Any service implementing the OpenAI embeddings API (local models, self-hosted) |\r
 | **OpenRouter** | Aggregation service |\r
 | **ElectronHub** | Model aggregator |\r
+| **BananaBread** | Lumiverse's local embedding server. Defaults to \`http://localhost:8008/v1/embeddings\` and pulls its model list from \`/v1/models\`. |\r
 | **Nano-GPT** | Pay-per-token aggregator |\r
 \r
 ### 3. Configure the Connection\r
@@ -28688,19 +29360,35 @@ Enable vectorization for the content types you want:\r
 | Content | Setting | What It Does |\r
 |---------|---------|-------------|\r
 | **World Book Entries** | \`vectorize_world_books\` | Enables semantic search for lorebook entries \u2014 activates entries by meaning, not just keywords |\r
+| **Chat Documents** | \`vectorize_chat_documents\` | Indexes [databank](../chatting/databank.md) and chat-attached documents for \`#slug\` mentions and document RAG |\r
 | **Chat Messages** | \`vectorize_chat_messages\` | Enables [long-term memory](../chatting/memory.md) \u2014 recalls relevant past messages during generation |\r
-| **Chat Documents** | \`vectorize_chat_documents\` | Indexes documents attached to chats |\r
+\r
+When chat-message vectorization is enabled, the **Memory Retrieval Mode** (\`chat_memory_mode\`) controls how aggressively past messages are recalled:\r
+\r
+| Mode | Behavior |\r
+|------|----------|\r
+| **Conservative** | Fewer, high-quality memories \u2014 strict threshold |\r
+| **Balanced** | Standard retrieval (recommended) |\r
+| **Aggressive** | More memories, lower threshold \u2014 better for long epics |\r
+\r
+---\r
+\r
+## World Book Vector Presets\r
+\r
+A quick preset row above the chunk parameters auto-tunes lorebook vectorization:\r
+\r
+| Preset | Best For |\r
+|--------|----------|\r
+| **Lean** | Tight token budgets, short chunks |\r
+| **Balanced** | General use (recommended) |\r
+| **Deep** | Large lorebooks where each entry is dense |\r
+| **Custom** | Manual control \u2014 editing any value switches the row to Custom |\r
+\r
+The preset row drives the **Retrieved Entries**, **Chunk Target / Max / Overlap Tokens**, and **Stored Chunks Per Entry** values.\r
 \r
 ---\r
 \r
 ## Retrieval Settings\r
-\r
-### Vector Recall Size (Top-K)\r
-\r
-How many vector matches to retrieve per query. Higher values cast a wider net but use more tokens.\r
-\r
-- **4** \u2014 Focused retrieval (default)\r
-- **8-12** \u2014 Broad retrieval for complex stories\r
 \r
 ### Similarity Threshold\r
 \r
@@ -28714,7 +29402,7 @@ Cosine distance can exceed 1.0 in LanceDB's implementation, so this isn't capped
 \r
 ### Rerank Cutoff\r
 \r
-For world book vectors: minimum score required after boost/penalty adjustments. Helps filter out low-quality matches after post-processing.\r
+For world book vectors: minimum score required after boost/penalty adjustments. Helps filter out low-quality matches after post-processing. Set to 0 to disable.\r
 \r
 ---\r
 \r
@@ -28730,12 +29418,13 @@ Controls the balance between traditional keyword matching and semantic vector se
 \r
 ---\r
 \r
-## Batch Processing\r
+## Runtime\r
 \r
 | Setting | Description |\r
 |---------|-------------|\r
-| **Batch Size** | Entries per API request during reindexing (1-200, default 50) |\r
-| **Preferred Context Size** | Recent messages used to build the search query (default 6) |\r
+| **Batch Size** | Entries or chunks embedded per request during reindexing (1-200, default 50) |\r
+| **Request Timeout** | Per-request timeout in seconds (0 disables, max 300). Useful for slow self-hosted models. |\r
+| **Preferred Context Size** | Recent messages used to build the chat-memory search query (default 6, max 64) |\r
 \r
 ---\r
 \r
@@ -31690,20 +32379,19 @@ async function setAlternateFieldLeaf(ctx, field, variantId, leaf, value) {
     return `[PATH_NOT_FOUND] variant '${variantId}' not found under alternate_fields.${field}`;
   const current = variants[idx];
   const before = current[leaf];
-  if (before === value)
-    return { before, after: value, label: `${field} variant '${current.label || `(unlabeled #${idx})`}' (${leaf})`, surface: "extension", surfaceId: ctx.characterId, field: `alternate_fields.${field}[${idx}].${leaf}` };
   const updated = { ...current, [leaf]: value };
   const next = [...variants];
   next[idx] = updated;
   const nextExt = writeAltFieldArray(c.extensions, field, next);
   await ctx.spindle.characters.update(ctx.characterId, { extensions: nextExt }, ctx.userId);
   return {
-    before,
-    after: value,
+    before: JSON.stringify(before),
+    after: JSON.stringify(value),
     label: `${field} variant '${updated.label || `(unlabeled #${idx})`}' (${leaf})`,
     surface: "extension",
     surfaceId: ctx.characterId,
-    field: `alternate_fields.${field}[${idx}].${leaf}`
+    field: `alternate_fields.${field}[${idx}].${leaf}`,
+    valueEncoding: "json"
   };
 }
 async function setExtension(ctx, dotted, value) {
