@@ -398,7 +398,7 @@ export function sliceForPatch(file: FileState, patchId: string): PatchSlice | nu
 export interface StructuralPatch {
   readonly id: string;
   readonly op: "create" | "delete";
-  readonly surface: "world_book_entry" | "world_book" | "regex_script" | "alternate_greeting" | "persona" | "preset" | "preset_block";
+  readonly surface: "world_book_entry" | "world_book" | "regex_script" | "alternate_greeting" | "alternate_field_variant" | "persona" | "preset" | "preset_block";
   readonly surfaceId: string;
   readonly surfaceLabel: string;
   readonly snapshot: unknown;

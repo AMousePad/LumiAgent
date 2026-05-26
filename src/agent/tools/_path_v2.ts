@@ -26,6 +26,53 @@ import { parseExtensionPath, getAtPath, setAtPath } from "./_paths";
 
 const PERSONA_STRING_FIELDS = ["name", "title", "description"] as const;
 
+export const ALTERNATE_FIELD_NAMES = ["description", "personality", "scenario"] as const;
+export type AlternateFieldName = typeof ALTERNATE_FIELD_NAMES[number];
+
+export function isAlternateFieldName(s: string): s is AlternateFieldName {
+  return (ALTERNATE_FIELD_NAMES as readonly string[]).includes(s);
+}
+
+export interface AltFieldVariant {
+  readonly id: string;
+  readonly label: string;
+  readonly content: string;
+}
+
+export function readAltFieldArray(extensions: unknown, field: AlternateFieldName): AltFieldVariant[] {
+  if (!extensions || typeof extensions !== "object" || Array.isArray(extensions)) return [];
+  const af = (extensions as Record<string, unknown>).alternate_fields;
+  if (!af || typeof af !== "object" || Array.isArray(af)) return [];
+  const arr = (af as Record<string, unknown>)[field];
+  if (!Array.isArray(arr)) return [];
+  const out: AltFieldVariant[] = [];
+  for (const v of arr) {
+    if (!v || typeof v !== "object" || Array.isArray(v)) continue;
+    const r = v as Record<string, unknown>;
+    const id = typeof r.id === "string" ? r.id : "";
+    if (!id) continue;
+    const label = typeof r.label === "string" ? r.label : "";
+    const content = typeof r.content === "string" ? r.content : "";
+    out.push({ id, label, content });
+  }
+  return out;
+}
+
+export function writeAltFieldArray(
+  extensions: Record<string, unknown> | undefined,
+  field: AlternateFieldName,
+  next: readonly AltFieldVariant[],
+): Record<string, unknown> {
+  const ext = { ...(extensions ?? {}) };
+  const afRaw = (ext as Record<string, unknown>).alternate_fields;
+  const af: Record<string, unknown> = (afRaw && typeof afRaw === "object" && !Array.isArray(afRaw))
+    ? { ...(afRaw as Record<string, unknown>) }
+    : {};
+  af[field] = next.map((v) => ({ id: v.id, label: v.label, content: v.content }));
+  ext.alternate_fields = af;
+  return ext;
+}
+
 // Filing scope is derived from the leaf key prefix so it stays in one place
 // instead of being threaded through every ResolvedLeaf literal. persona /
 // chat / preset are always their own scope. wb / rx normally file under the
@@ -122,6 +169,39 @@ export async function resolveRead(ctx: ToolCtx, path: string): Promise<ResolvedL
         surfaceLabel: `Greeting #${idx}`,
         field: String(idx),
         value,
+      };
+    }
+    if (sub === "alternate_fields") {
+      const field = parts[2];
+      const variantId = parts[3];
+      const leafField = parts[4];
+      if (field === undefined) {
+        throw new PathError(path, `expected char/alternate_fields/<field>/<variantId>/<content|label>. Valid fields: ${ALTERNATE_FIELD_NAMES.join(", ")}. Use \`list({path:"char/alternate_fields"})\` to discover.`);
+      }
+      if (!isAlternateFieldName(field)) {
+        throw new PathError(path, `unknown alternate field '${field}'. Valid: ${ALTERNATE_FIELD_NAMES.join(", ")}`);
+      }
+      if (variantId === undefined || leafField === undefined || parts.length !== 5) {
+        throw new PathError(path, `expected char/alternate_fields/${field}/<variantId>/<content|label>. Use \`list({path:"char/alternate_fields/${field}"})\` to discover variant ids.`);
+      }
+      if (leafField !== "content" && leafField !== "label") {
+        throw new PathError(path, `alternate_fields leaf must be content or label, got '${leafField}'`);
+      }
+      const variants = readAltFieldArray(c.extensions, field);
+      const idx = variants.findIndex((v) => v.id === variantId);
+      if (idx < 0) {
+        throw new PathError(path, `variant '${variantId}' not found under alternate_fields.${field}. \`list({path:"char/alternate_fields/${field}"})\` shows valid ids.`);
+      }
+      const variant = variants[idx]!;
+      const extDotted = `alternate_fields.${field}[${idx}].${leafField}`;
+      const variantLabel = variant.label || `(unlabeled #${idx})`;
+      return {
+        key: `char/alternate_fields/${field}/${variantId}/${leafField}`,
+        surface: "extension",
+        surfaceId: ctx.characterId,
+        surfaceLabel: `${field} variant '${variantLabel}' (${leafField})`,
+        field: extDotted,
+        value: variant[leafField],
       };
     }
     if (sub === "extensions") {

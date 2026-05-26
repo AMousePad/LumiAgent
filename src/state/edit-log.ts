@@ -20,7 +20,7 @@ import type {
   PromptBlockDTO,
   PromptBlockCreateDTO,
 } from "lumiverse-spindle-types";
-import type { WorldBookSnapshot, PresetSnapshot } from "../types";
+import type { WorldBookSnapshot, PresetSnapshot, AlternateFieldVariantSnapshot } from "../types";
 import type { EditLogEntry, EditRecord, RevertOutcomeWire, ScopeRef } from "../types";
 import { characterScope } from "../types";
 import type { ScopedLedger } from "./ledger";
@@ -218,6 +218,50 @@ function blockCreateFromDTO(b: PromptBlockDTO): PromptBlockCreateDTO {
 
 type PathSegment = { kind: "key"; value: string } | { kind: "index"; value: number };
 
+function altFieldArrayOf(extensions: unknown, altField: string): { id: string; label: string; content: string }[] {
+  if (!extensions || typeof extensions !== "object" || Array.isArray(extensions)) return [];
+  const af = (extensions as Record<string, unknown>).alternate_fields;
+  if (!af || typeof af !== "object" || Array.isArray(af)) return [];
+  const arr = (af as Record<string, unknown>)[altField];
+  if (!Array.isArray(arr)) return [];
+  const out: { id: string; label: string; content: string }[] = [];
+  for (const v of arr) {
+    if (!v || typeof v !== "object" || Array.isArray(v)) continue;
+    const r = v as Record<string, unknown>;
+    const id = typeof r.id === "string" ? r.id : "";
+    if (!id) continue;
+    out.push({ id, label: typeof r.label === "string" ? r.label : "", content: typeof r.content === "string" ? r.content : "" });
+  }
+  return out;
+}
+
+function writeAltFieldArrayLocal(extensions: unknown, altField: string, next: readonly { id: string; label: string; content: string }[]): Record<string, unknown> {
+  const ext: Record<string, unknown> = (extensions && typeof extensions === "object" && !Array.isArray(extensions))
+    ? { ...(extensions as Record<string, unknown>) }
+    : {};
+  const afRaw = ext.alternate_fields;
+  const af: Record<string, unknown> = (afRaw && typeof afRaw === "object" && !Array.isArray(afRaw))
+    ? { ...(afRaw as Record<string, unknown>) }
+    : {};
+  af[altField] = next.map((v) => ({ id: v.id, label: v.label, content: v.content }));
+  ext.alternate_fields = af;
+  return ext;
+}
+
+function removeVariantById(extensions: unknown, altField: string, variantId: string): Record<string, unknown> {
+  const arr = altFieldArrayOf(extensions, altField);
+  const next = arr.filter((v) => v.id !== variantId);
+  return writeAltFieldArrayLocal(extensions, altField, next);
+}
+
+function insertVariant(extensions: unknown, altField: string, variant: { id: string; label: string; content: string }, index: number): Record<string, unknown> {
+  const arr = altFieldArrayOf(extensions, altField);
+  if (arr.some((v) => v.id === variant.id)) return writeAltFieldArrayLocal(extensions, altField, arr);
+  const at = Math.max(0, Math.min(arr.length, index));
+  const next = [...arr.slice(0, at), variant, ...arr.slice(at)];
+  return writeAltFieldArrayLocal(extensions, altField, next);
+}
+
 function parsePath(path: string): PathSegment[] {
   const segments: PathSegment[] = [];
   let i = 0;
@@ -363,6 +407,14 @@ export async function revertEdit(
         await spindle.characters.update(characterId, { alternate_greetings: arr }, userId);
         return { success: true };
       }
+      if (r.surface === "alternate_field_variant") {
+        const snap = r.snapshot as AlternateFieldVariantSnapshot;
+        const c = await spindle.characters.get(characterId, userId);
+        if (!c) return { success: false, error: "character not found" };
+        const nextExt = removeVariantById(c.extensions, snap.altField, snap.variant.id);
+        await spindle.characters.update(characterId, { extensions: nextExt }, userId);
+        return { success: true };
+      }
       if (r.surface === "persona") {
         await spindle.personas.delete(r.surfaceId, userId);
         return { success: true };
@@ -399,6 +451,14 @@ export async function revertEdit(
         const target = Math.max(0, Math.min(arr.length, snap.index));
         arr.splice(target, 0, snap.greeting);
         await spindle.characters.update(characterId, { alternate_greetings: arr }, userId);
+        return { success: true };
+      }
+      if (r.surface === "alternate_field_variant") {
+        const snap = r.snapshot as AlternateFieldVariantSnapshot;
+        const c = await spindle.characters.get(characterId, userId);
+        if (!c) return { success: false, error: "character not found" };
+        const nextExt = insertVariant(c.extensions, snap.altField, snap.variant, snap.index);
+        await spindle.characters.update(characterId, { extensions: nextExt }, userId);
         return { success: true };
       }
       if (r.surface === "persona") {

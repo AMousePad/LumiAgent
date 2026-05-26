@@ -1867,6 +1867,7 @@ var init_ledger = __esm(() => {
     "world_book",
     "regex_script",
     "alternate_greeting",
+    "alternate_field_variant",
     "persona",
     "preset",
     "preset_block"
@@ -2129,6 +2130,48 @@ function blockCreateFromDTO(b) {
   const { id: _id, ...rest } = b;
   return rest;
 }
+function altFieldArrayOf(extensions, altField) {
+  if (!extensions || typeof extensions !== "object" || Array.isArray(extensions))
+    return [];
+  const af = extensions.alternate_fields;
+  if (!af || typeof af !== "object" || Array.isArray(af))
+    return [];
+  const arr = af[altField];
+  if (!Array.isArray(arr))
+    return [];
+  const out = [];
+  for (const v of arr) {
+    if (!v || typeof v !== "object" || Array.isArray(v))
+      continue;
+    const r = v;
+    const id = typeof r.id === "string" ? r.id : "";
+    if (!id)
+      continue;
+    out.push({ id, label: typeof r.label === "string" ? r.label : "", content: typeof r.content === "string" ? r.content : "" });
+  }
+  return out;
+}
+function writeAltFieldArrayLocal(extensions, altField, next) {
+  const ext = extensions && typeof extensions === "object" && !Array.isArray(extensions) ? { ...extensions } : {};
+  const afRaw = ext.alternate_fields;
+  const af = afRaw && typeof afRaw === "object" && !Array.isArray(afRaw) ? { ...afRaw } : {};
+  af[altField] = next.map((v) => ({ id: v.id, label: v.label, content: v.content }));
+  ext.alternate_fields = af;
+  return ext;
+}
+function removeVariantById(extensions, altField, variantId) {
+  const arr = altFieldArrayOf(extensions, altField);
+  const next = arr.filter((v) => v.id !== variantId);
+  return writeAltFieldArrayLocal(extensions, altField, next);
+}
+function insertVariant(extensions, altField, variant, index) {
+  const arr = altFieldArrayOf(extensions, altField);
+  if (arr.some((v) => v.id === variant.id))
+    return writeAltFieldArrayLocal(extensions, altField, arr);
+  const at = Math.max(0, Math.min(arr.length, index));
+  const next = [...arr.slice(0, at), variant, ...arr.slice(at)];
+  return writeAltFieldArrayLocal(extensions, altField, next);
+}
 function parsePath(path) {
   const segments = [];
   let i = 0;
@@ -2277,6 +2320,15 @@ async function revertEdit(spindle2, entry, characterId, userId) {
         await spindle2.characters.update(characterId, { alternate_greetings: arr }, userId);
         return { success: true };
       }
+      if (r.surface === "alternate_field_variant") {
+        const snap = r.snapshot;
+        const c = await spindle2.characters.get(characterId, userId);
+        if (!c)
+          return { success: false, error: "character not found" };
+        const nextExt = removeVariantById(c.extensions, snap.altField, snap.variant.id);
+        await spindle2.characters.update(characterId, { extensions: nextExt }, userId);
+        return { success: true };
+      }
       if (r.surface === "persona") {
         await spindle2.personas.delete(r.surfaceId, userId);
         return { success: true };
@@ -2314,6 +2366,15 @@ async function revertEdit(spindle2, entry, characterId, userId) {
         const target = Math.max(0, Math.min(arr.length, snap.index));
         arr.splice(target, 0, snap.greeting);
         await spindle2.characters.update(characterId, { alternate_greetings: arr }, userId);
+        return { success: true };
+      }
+      if (r.surface === "alternate_field_variant") {
+        const snap = r.snapshot;
+        const c = await spindle2.characters.get(characterId, userId);
+        if (!c)
+          return { success: false, error: "character not found" };
+        const nextExt = insertVariant(c.extensions, snap.altField, snap.variant, snap.index);
+        await spindle2.characters.update(characterId, { extensions: nextExt }, userId);
         return { success: true };
       }
       if (r.surface === "persona") {
@@ -18422,6 +18483,40 @@ var init_gate = __esm(() => {
 });
 
 // src/agent/tools/_path_v2.ts
+function isAlternateFieldName(s) {
+  return ALTERNATE_FIELD_NAMES.includes(s);
+}
+function readAltFieldArray(extensions, field) {
+  if (!extensions || typeof extensions !== "object" || Array.isArray(extensions))
+    return [];
+  const af = extensions.alternate_fields;
+  if (!af || typeof af !== "object" || Array.isArray(af))
+    return [];
+  const arr = af[field];
+  if (!Array.isArray(arr))
+    return [];
+  const out = [];
+  for (const v of arr) {
+    if (!v || typeof v !== "object" || Array.isArray(v))
+      continue;
+    const r = v;
+    const id = typeof r.id === "string" ? r.id : "";
+    if (!id)
+      continue;
+    const label = typeof r.label === "string" ? r.label : "";
+    const content = typeof r.content === "string" ? r.content : "";
+    out.push({ id, label, content });
+  }
+  return out;
+}
+function writeAltFieldArray(extensions, field, next) {
+  const ext = { ...extensions ?? {} };
+  const afRaw = ext.alternate_fields;
+  const af = afRaw && typeof afRaw === "object" && !Array.isArray(afRaw) ? { ...afRaw } : {};
+  af[field] = next.map((v) => ({ id: v.id, label: v.label, content: v.content }));
+  ext.alternate_fields = af;
+  return ext;
+}
 function scopeForLeafKey(key, ctx) {
   if (key.startsWith("persona/"))
     return { kind: "persona", id: key.split("/")[1] };
@@ -18472,6 +18567,39 @@ async function resolveRead(ctx, path) {
         surfaceLabel: `Greeting #${idx}`,
         field: String(idx),
         value
+      };
+    }
+    if (sub === "alternate_fields") {
+      const field = parts[2];
+      const variantId = parts[3];
+      const leafField = parts[4];
+      if (field === undefined) {
+        throw new PathError(path, `expected char/alternate_fields/<field>/<variantId>/<content|label>. Valid fields: ${ALTERNATE_FIELD_NAMES.join(", ")}. Use \`list({path:"char/alternate_fields"})\` to discover.`);
+      }
+      if (!isAlternateFieldName(field)) {
+        throw new PathError(path, `unknown alternate field '${field}'. Valid: ${ALTERNATE_FIELD_NAMES.join(", ")}`);
+      }
+      if (variantId === undefined || leafField === undefined || parts.length !== 5) {
+        throw new PathError(path, `expected char/alternate_fields/${field}/<variantId>/<content|label>. Use \`list({path:"char/alternate_fields/${field}"})\` to discover variant ids.`);
+      }
+      if (leafField !== "content" && leafField !== "label") {
+        throw new PathError(path, `alternate_fields leaf must be content or label, got '${leafField}'`);
+      }
+      const variants = readAltFieldArray(c.extensions, field);
+      const idx = variants.findIndex((v2) => v2.id === variantId);
+      if (idx < 0) {
+        throw new PathError(path, `variant '${variantId}' not found under alternate_fields.${field}. \`list({path:"char/alternate_fields/${field}"})\` shows valid ids.`);
+      }
+      const variant = variants[idx];
+      const extDotted = `alternate_fields.${field}[${idx}].${leafField}`;
+      const variantLabel = variant.label || `(unlabeled #${idx})`;
+      return {
+        key: `char/alternate_fields/${field}/${variantId}/${leafField}`,
+        surface: "extension",
+        surfaceId: ctx.characterId,
+        surfaceLabel: `${field} variant '${variantLabel}' (${leafField})`,
+        field: extDotted,
+        value: variant[leafField]
       };
     }
     if (sub === "extensions") {
@@ -18844,10 +18972,11 @@ async function* iterateAllLeaves(ctx) {
     }
   }
 }
-var PERSONA_STRING_FIELDS, PathError, OutOfRangeError, ExtensionRefusedError;
+var PERSONA_STRING_FIELDS, ALTERNATE_FIELD_NAMES, PathError, OutOfRangeError, ExtensionRefusedError;
 var init__path_v2 = __esm(() => {
   init__surfaces();
   PERSONA_STRING_FIELDS = ["name", "title", "description"];
+  ALTERNATE_FIELD_NAMES = ["description", "personality", "scenario"];
   PathError = class PathError extends Error {
     path;
     constructor(path, msg) {
@@ -19318,6 +19447,7 @@ var init_create2 = __esm(() => {
   init_zod();
   init__framework();
   init__surfaces();
+  init__path_v2();
   inputSchema8 = exports_external.object({
     path: exports_external.string().min(2).describe("Container to create a child in. See description for the grammar."),
     value: exports_external.unknown().optional().describe("The new entity's fields (object), or a string for a greeting.")
@@ -19334,6 +19464,7 @@ Containers:
 - \`preset\` -> a prompt preset. value: { name (required), provider (required), engine?, parameters?, prompts?, metadata? }
 - \`preset/<presetId>/block\` -> a prompt block. value: PromptBlock fields { name?, content?, role?, enabled?, position?, depth?, ... } plus optional \`index\` for placement.
 - \`char/alternate_greetings\` -> an alternate greeting. value: a string, or { content, index? }.
+- \`char/alternate_fields/<field>\` -> a variant for description / personality / scenario. value: { content (required), label?, index? } (or a bare string for content).
 
 Returns the new id (and book/preset id for nested creates).`,
     inputSchema: inputSchema8,
@@ -19502,6 +19633,37 @@ Returns the new id (and book/preset id for nested creates).`,
         });
         return { content: JSON.stringify({ preset_id: presetId, block_id: b.id, name: b.name }) };
       }
+      if (parts[0] === "char" && parts[1] === "alternate_fields" && parts.length === 3) {
+        if (!ctx.characterId)
+          return { content: "Error: [INVALID_INPUT] no active character", isError: true };
+        const field = parts[2];
+        if (!isAlternateFieldName(field)) {
+          return { content: `Error: [INVALID_INPUT] alternate_fields field must be one of ${ALTERNATE_FIELD_NAMES.join(", ")}, got '${field}'`, isError: true };
+        }
+        const label = typeof v.label === "string" ? v.label : "";
+        const content = typeof input.value === "string" ? input.value : typeof v.content === "string" ? v.content : undefined;
+        if (content === undefined)
+          return { content: "Error: [INVALID_INPUT] variant requires value.content (or pass a string for content; value.label optional)", isError: true };
+        const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
+        if (!c)
+          return { content: `Error: character ${ctx.characterId} not found`, isError: true };
+        const before = readAltFieldArray(c.extensions, field);
+        const newVariant = { id: crypto.randomUUID(), label, content };
+        const requested = typeof v.index === "number" ? v.index : undefined;
+        const at = requested === undefined ? before.length : Math.max(0, Math.min(before.length, Math.floor(requested)));
+        const after = [...before];
+        after.splice(at, 0, newVariant);
+        const nextExt = writeAltFieldArray(c.extensions, field, after);
+        await ctx.spindle.characters.update(ctx.characterId, { extensions: nextExt }, ctx.userId);
+        ctx.pushEdit({
+          op: "create",
+          surface: "alternate_field_variant",
+          surfaceId: newVariant.id,
+          surfaceLabel: `${field} variant '${label || "(unlabeled)"}'`,
+          snapshot: { altField: field, variant: { id: newVariant.id, label, content }, index: at }
+        });
+        return { content: JSON.stringify({ field, variant_id: newVariant.id, index: at, total: after.length, content_chars: content.length }) };
+      }
       if (path === "char/alternate_greetings") {
         if (!ctx.characterId)
           return { content: "Error: [INVALID_INPUT] no active character", isError: true };
@@ -19525,7 +19687,7 @@ Returns the new id (and book/preset id for nested creates).`,
         });
         return { content: JSON.stringify({ index: at, total: arr.length, chars: content.length }) };
       }
-      return { content: `Error: [PATH_NOT_FOUND] cannot create at '${path}'. Valid containers: wb, wb/<bookId>/entry, rx, persona, preset, preset/<presetId>/block, char/alternate_greetings`, isError: true };
+      return { content: `Error: [PATH_NOT_FOUND] cannot create at '${path}'. Valid containers: wb, wb/<bookId>/entry, rx, persona, preset, preset/<presetId>/block, char/alternate_greetings, char/alternate_fields/<field>`, isError: true };
     }
   });
 });
@@ -19548,6 +19710,7 @@ var init_delete = __esm(() => {
   init_zod();
   init__framework();
   init__surfaces();
+  init__path_v2();
   inputSchema9 = exports_external.object({
     path: exports_external.string().min(3).describe("Entity to delete. Same path grammar as `read` / `edit`.")
   }).strict();
@@ -19562,6 +19725,7 @@ Deletable paths:
 - \`preset/<presetId>\` -> a prompt preset (and its blocks).
 - \`preset/<presetId>/block/<blockId>\` -> one prompt block.
 - \`char/alternate_greetings/<idx>\` -> a greeting by 0-based index.
+- \`char/alternate_fields/<field>/<variantId>\` -> a variant from description / personality / scenario.
 
 Caveat: a recreated book / preset / persona gets a fresh id on revert; external references to the old id (e.g. a character's world_book_ids) are not rewired.`,
     inputSchema: inputSchema9,
@@ -19644,6 +19808,34 @@ Caveat: a recreated book / preset / persona gets a fresh id on revert; external 
         });
         return { content: JSON.stringify({ script_id: id, deleted: true, can_revert: true }) };
       }
+      if (parts[0] === "char" && parts[1] === "alternate_fields" && parts.length === 4) {
+        if (!ctx.characterId)
+          return { content: "Error: [INVALID_INPUT] no active character", isError: true };
+        const field = parts[2];
+        const variantId = parts[3];
+        if (!isAlternateFieldName(field)) {
+          return { content: `Error: [INVALID_INPUT] alternate_fields field must be one of ${ALTERNATE_FIELD_NAMES.join(", ")}, got '${field}'`, isError: true };
+        }
+        const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
+        if (!c)
+          return { content: `Error: character ${ctx.characterId} not found`, isError: true };
+        const before = readAltFieldArray(c.extensions, field);
+        const idx = before.findIndex((v) => v.id === variantId);
+        if (idx < 0)
+          return { content: `Error: [PATH_NOT_FOUND] variant '${variantId}' not found under alternate_fields.${field}`, isError: true };
+        const removed = before[idx];
+        const after = before.slice(0, idx).concat(before.slice(idx + 1));
+        const nextExt = writeAltFieldArray(c.extensions, field, after);
+        await ctx.spindle.characters.update(ctx.characterId, { extensions: nextExt }, ctx.userId);
+        ctx.pushEdit({
+          op: "delete",
+          surface: "alternate_field_variant",
+          surfaceId: variantId,
+          surfaceLabel: `${field} variant '${removed.label || "(unlabeled)"}'`,
+          snapshot: { altField: field, variant: { id: removed.id, label: removed.label, content: removed.content }, index: idx }
+        });
+        return { content: JSON.stringify({ field, variant_id: variantId, index: idx, deleted: true, can_revert: true, chars_removed: removed.content.length }) };
+      }
       if (path.startsWith("char/alternate_greetings/") && parts.length === 3) {
         if (!ctx.characterId)
           return { content: "Error: [INVALID_INPUT] no active character", isError: true };
@@ -19699,7 +19891,7 @@ Caveat: a recreated book / preset / persona gets a fresh id on revert; external 
         });
         return { content: JSON.stringify({ entry_id: id, world_book_id: entry.world_book_id, deleted: true, can_revert: true }) };
       }
-      return { content: `Error: [PATH_NOT_FOUND] cannot delete '${path}'. Valid: wb/<id>, rx/<id>, persona/<id>, preset/<id>, preset/<id>/block/<id>, char/alternate_greetings/<idx>`, isError: true };
+      return { content: `Error: [PATH_NOT_FOUND] cannot delete '${path}'. Valid: wb/<id>, rx/<id>, persona/<id>, preset/<id>, preset/<id>/block/<id>, char/alternate_greetings/<idx>, char/alternate_fields/<field>/<variantId>`, isError: true };
     }
   });
 });
@@ -31013,6 +31205,12 @@ async function listCharacterRoot(ctx, maxEntries) {
   if (Array.isArray(c.alternate_greetings) && c.alternate_greetings.length > 0) {
     out.push({ path: "char/alternate_greetings", type: "array", size: c.alternate_greetings.length });
   }
+  let altTotal = 0;
+  for (const f of ALTERNATE_FIELD_NAMES)
+    altTotal += readAltFieldArray(c.extensions, f).length;
+  if (altTotal > 0) {
+    out.push({ path: "char/alternate_fields", type: "alternate_fields", size: altTotal });
+  }
   out.push({ path: "char/extensions", type: "object", size: c.extensions ? Object.keys(c.extensions).length : 0 });
   return out.slice(0, maxEntries);
 }
@@ -31025,6 +31223,31 @@ async function listGreetings(ctx, maxEntries) {
     path: `char/alternate_greetings/${i}`,
     type: "string",
     size: typeof g === "string" ? g.length : 0
+  }));
+}
+async function listAlternateFields(ctx, maxEntries) {
+  const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
+  if (!c)
+    throw new Error(`character ${ctx.characterId} not found`);
+  const out = [];
+  for (const f of ALTERNATE_FIELD_NAMES) {
+    const variants = readAltFieldArray(c.extensions, f);
+    out.push({ path: `char/alternate_fields/${f}`, type: "alt_field_group", entries: variants.length });
+    if (out.length >= maxEntries)
+      break;
+  }
+  return out;
+}
+async function listAlternateFieldVariants(ctx, field, maxEntries) {
+  const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
+  if (!c)
+    throw new Error(`character ${ctx.characterId} not found`);
+  const variants = readAltFieldArray(c.extensions, field);
+  return variants.slice(0, maxEntries).map((v, i) => ({
+    path: `char/alternate_fields/${field}/${v.id}`,
+    type: "alt_field_variant",
+    label: v.label || `(unlabeled #${i})`,
+    size: v.content.length
   }));
 }
 async function listRegex(ctx, maxEntries) {
@@ -31197,6 +31420,8 @@ var init_list = __esm(() => {
 Path forms:
 - (empty) or 'char'                  the character's top-level shape
 - 'char/alternate_greetings'         all greetings
+- 'char/alternate_fields'            description / personality / scenario variant counts
+- 'char/alternate_fields/<field>'    variants for one of description / personality / scenario
 - 'char/extensions'                  top-level keys of extensions
 - 'char/extensions/<dotted>'         keys/indices under that subtree (recurses up to max_depth)
 - 'rx'                               all character-scoped regex scripts
@@ -31242,6 +31467,14 @@ Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole
           entries = await listCharacterRoot(ctx, maxEntries);
         } else if (path === "char/alternate_greetings" || path === "alternate_greetings") {
           entries = await listGreetings(ctx, maxEntries);
+        } else if (path === "char/alternate_fields" || path === "alternate_fields") {
+          entries = await listAlternateFields(ctx, maxEntries);
+        } else if (path.startsWith("char/alternate_fields/") || path.startsWith("alternate_fields/")) {
+          const field = path.replace(/^(char\/)?alternate_fields\//, "");
+          if (!isAlternateFieldName(field)) {
+            return { content: `Error: [PATH_NOT_FOUND] unknown alternate field '${field}'. Valid: ${ALTERNATE_FIELD_NAMES.join(", ")}.`, isError: true };
+          }
+          entries = await listAlternateFieldVariants(ctx, field, maxEntries);
         } else if (path === "rx" || path === "regex_scripts") {
           entries = await listRegex(ctx, maxEntries);
         } else if (path === "wb" || path === "world_books") {
@@ -31418,6 +31651,38 @@ async function setAlternateGreeting(ctx, idx, value) {
   await ctx.spindle.characters.update(ctx.characterId, { alternate_greetings: arr }, ctx.userId);
   return { before, after: value, label: `Greeting #${idx}`, surface: "alternate_greeting", surfaceId: ctx.characterId, field: String(idx) };
 }
+async function setAlternateFieldLeaf(ctx, field, variantId, leaf, value) {
+  if (!isAlternateFieldName(field))
+    return `[PATH_NOT_FOUND] alternate_fields field must be one of ${ALTERNATE_FIELD_NAMES.join(", ")}, got '${field}'`;
+  if (leaf !== "content" && leaf !== "label")
+    return `[PATH_NOT_FOUND] alternate_fields leaf must be content or label, got '${leaf}'`;
+  if (typeof value !== "string")
+    return `[INVALID_VALUE_TYPE] alternate_fields.${leaf} expects a string, got ${typeof value}`;
+  const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
+  if (!c)
+    return "character not found";
+  const variants = readAltFieldArray(c.extensions, field);
+  const idx = variants.findIndex((v) => v.id === variantId);
+  if (idx < 0)
+    return `[PATH_NOT_FOUND] variant '${variantId}' not found under alternate_fields.${field}`;
+  const current = variants[idx];
+  const before = current[leaf];
+  if (before === value)
+    return { before, after: value, label: `${field} variant '${current.label || `(unlabeled #${idx})`}' (${leaf})`, surface: "extension", surfaceId: ctx.characterId, field: `alternate_fields.${field}[${idx}].${leaf}` };
+  const updated = { ...current, [leaf]: value };
+  const next = [...variants];
+  next[idx] = updated;
+  const nextExt = writeAltFieldArray(c.extensions, field, next);
+  await ctx.spindle.characters.update(ctx.characterId, { extensions: nextExt }, ctx.userId);
+  return {
+    before,
+    after: value,
+    label: `${field} variant '${updated.label || `(unlabeled #${idx})`}' (${leaf})`,
+    surface: "extension",
+    surfaceId: ctx.characterId,
+    field: `alternate_fields.${field}[${idx}].${leaf}`
+  };
+}
 async function setExtension(ctx, dotted, value) {
   await assertExtensionWriteAllowed(ctx, dotted);
   const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
@@ -31554,6 +31819,12 @@ Returns:
             return { content: `Error: [REFUSED_BY_EXTENSION] ${err.message}`, isError: true };
           throw err;
         }
+      } else if (path.startsWith("char/alternate_fields/") || path.startsWith("character/alternate_fields/")) {
+        const rest = path.replace(/^(char|character)\/alternate_fields\//, "");
+        const segs = rest.split("/");
+        if (segs.length !== 3)
+          return { content: "Error: expected char/alternate_fields/<field>/<variantId>/<content|label>", isError: true };
+        result = await setAlternateFieldLeaf(ctx, segs[0], segs[1], segs[2], value);
       } else if (path.startsWith("char/alternate_greetings/") || path.startsWith("character/alternate_greetings/")) {
         const rest = path.replace(/^(char|character)\/alternate_greetings\//, "");
         const idx = parseInt(rest, 10);
@@ -32131,6 +32402,7 @@ var init_read = __esm(() => {
 Path grammar:
   char/<field>                          top-level character string (description, first_mes, scenario, personality, mes_example, system_prompt, post_history_instructions, creator_notes, creator, name)
   char/alternate_greetings/<idx>        one greeting by 0-based index
+  char/alternate_fields/<field>/<variantId>/<content|label>  one variant of description / personality / scenario. Discover ids via list({path:"char/alternate_fields/<field>"}).
   char/extensions/<dotted-extension>    a string leaf under character.extensions (dotted-with-brackets, e.g. lumirealm.payload.triggers[0].effect[0].value)
   rx/<scriptId>/find_regex              regex script pattern
   rx/<scriptId>/replace_string          regex script body
@@ -36662,7 +36934,7 @@ var spindle_default = {
   ],
   entry_backend: "dist/backend.js",
   entry_frontend: "dist/frontend.js",
-  minimum_lumiverse_version: "0.9.7"
+  minimum_lumiverse_version: "1.0.0"
 };
 
 // src/state/version-check.ts

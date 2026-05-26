@@ -67,6 +67,7 @@ export function parseScopeKey(s: string): ScopeRef {
 export type EditSurface =
   | "character_field"
   | "alternate_greeting"
+  | "alternate_field_variant"
   | "world_book_entry"
   | "regex_script"
   | "extension"
@@ -77,6 +78,12 @@ export type EditSurface =
   | "world_book"
   | "persona"
   | "external";
+
+export interface AlternateFieldVariantSnapshot {
+  readonly altField: "description" | "personality" | "scenario";
+  readonly variant: { readonly id: string; readonly label: string; readonly content: string };
+  readonly index: number;
+}
 
 // Cascade snapshots: deleting a book/preset also drops its children, so the
 // structural snapshot carries the whole subtree for a faithful revert.
@@ -96,7 +103,8 @@ export type StructuralSnapshot =
   | WorldBookSnapshot
   | PresetSnapshot
   | PromptBlockDTO
-  | { greeting: string };
+  | { greeting: string }
+  | AlternateFieldVariantSnapshot;
 
 export interface EditEdit {
   readonly op: "edit";

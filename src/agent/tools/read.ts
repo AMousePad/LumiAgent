@@ -17,6 +17,7 @@ export const readTool = defineTool({
 Path grammar:
   char/<field>                          top-level character string (description, first_mes, scenario, personality, mes_example, system_prompt, post_history_instructions, creator_notes, creator, name)
   char/alternate_greetings/<idx>        one greeting by 0-based index
+  char/alternate_fields/<field>/<variantId>/<content|label>  one variant of description / personality / scenario. Discover ids via list({path:"char/alternate_fields/<field>"}).
   char/extensions/<dotted-extension>    a string leaf under character.extensions (dotted-with-brackets, e.g. lumirealm.payload.triggers[0].effect[0].value)
   rx/<scriptId>/find_regex              regex script pattern
   rx/<scriptId>/replace_string          regex script body

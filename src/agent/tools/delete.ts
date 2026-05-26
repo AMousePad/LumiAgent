@@ -4,6 +4,7 @@ import { defineTool } from "./_framework";
 import type { ToolCtx } from "./_context";
 import type { EditRecord, ScopeRef } from "../../types";
 import { wbLabel } from "./_surfaces";
+import { isAlternateFieldName, readAltFieldArray, writeAltFieldArray, ALTERNATE_FIELD_NAMES } from "./_path_v2";
 
 const inputSchema = z.object({
   path: z.string().min(3).describe("Entity to delete. Same path grammar as `read` / `edit`."),
@@ -32,6 +33,7 @@ Deletable paths:
 - \`preset/<presetId>\` -> a prompt preset (and its blocks).
 - \`preset/<presetId>/block/<blockId>\` -> one prompt block.
 - \`char/alternate_greetings/<idx>\` -> a greeting by 0-based index.
+- \`char/alternate_fields/<field>/<variantId>\` -> a variant from description / personality / scenario.
 
 Caveat: a recreated book / preset / persona gets a fresh id on revert; external references to the old id (e.g. a character's world_book_ids) are not rewired.`,
   inputSchema,
@@ -105,6 +107,31 @@ Caveat: a recreated book / preset / persona gets a fresh id on revert; external 
       return { content: JSON.stringify({ script_id: id, deleted: true, can_revert: true }) };
     }
 
+    // char/alternate_fields/<field>/<variantId>
+    if (parts[0] === "char" && parts[1] === "alternate_fields" && parts.length === 4) {
+      if (!ctx.characterId) return { content: "Error: [INVALID_INPUT] no active character", isError: true };
+      const field = parts[2]!;
+      const variantId = parts[3]!;
+      if (!isAlternateFieldName(field)) {
+        return { content: `Error: [INVALID_INPUT] alternate_fields field must be one of ${ALTERNATE_FIELD_NAMES.join(", ")}, got '${field}'`, isError: true };
+      }
+      const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
+      if (!c) return { content: `Error: character ${ctx.characterId} not found`, isError: true };
+      const before = readAltFieldArray(c.extensions, field);
+      const idx = before.findIndex((v) => v.id === variantId);
+      if (idx < 0) return { content: `Error: [PATH_NOT_FOUND] variant '${variantId}' not found under alternate_fields.${field}`, isError: true };
+      const removed = before[idx]!;
+      const after = before.slice(0, idx).concat(before.slice(idx + 1));
+      const nextExt = writeAltFieldArray(c.extensions, field, after);
+      await ctx.spindle.characters.update(ctx.characterId, { extensions: nextExt }, ctx.userId);
+      ctx.pushEdit({
+        op: "delete", surface: "alternate_field_variant", surfaceId: variantId,
+        surfaceLabel: `${field} variant '${removed.label || "(unlabeled)"}'`,
+        snapshot: { altField: field, variant: { id: removed.id, label: removed.label, content: removed.content }, index: idx },
+      } satisfies EditRecord);
+      return { content: JSON.stringify({ field, variant_id: variantId, index: idx, deleted: true, can_revert: true, chars_removed: removed.content.length }) };
+    }
+
     // char/alternate_greetings/<idx>
     if ((path.startsWith("char/alternate_greetings/")) && parts.length === 3) {
       if (!ctx.characterId) return { content: "Error: [INVALID_INPUT] no active character", isError: true };
@@ -148,6 +175,6 @@ Caveat: a recreated book / preset / persona gets a fresh id on revert; external 
       return { content: JSON.stringify({ entry_id: id, world_book_id: entry.world_book_id, deleted: true, can_revert: true }) };
     }
 
-    return { content: `Error: [PATH_NOT_FOUND] cannot delete '${path}'. Valid: wb/<id>, rx/<id>, persona/<id>, preset/<id>, preset/<id>/block/<id>, char/alternate_greetings/<idx>`, isError: true };
+    return { content: `Error: [PATH_NOT_FOUND] cannot delete '${path}'. Valid: wb/<id>, rx/<id>, persona/<id>, preset/<id>, preset/<id>/block/<id>, char/alternate_greetings/<idx>, char/alternate_fields/<field>/<variantId>`, isError: true };
   },
 });

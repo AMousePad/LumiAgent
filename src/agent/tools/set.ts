@@ -5,7 +5,7 @@ import type { ToolCtx } from "./_context";
 import type { EditRecord } from "../../types";
 import { isCharacterStringField, wbLabel } from "./_surfaces";
 import { parseExtensionPath, setAtPath } from "./_paths";
-import { ExtensionRefusedError, assertExtensionWriteAllowed, scopeForLeafKey } from "./_path_v2";
+import { ExtensionRefusedError, assertExtensionWriteAllowed, scopeForLeafKey, isAlternateFieldName, readAltFieldArray, writeAltFieldArray, ALTERNATE_FIELD_NAMES } from "./_path_v2";
 import { encodeScalar } from "../../state/edit-log";
 
 const inputSchema = z.object({
@@ -39,6 +39,33 @@ async function setAlternateGreeting(ctx: ToolCtx, idx: number, value: unknown): 
   arr[idx] = value;
   await ctx.spindle.characters.update(ctx.characterId, { alternate_greetings: arr }, ctx.userId);
   return { before, after: value, label: `Greeting #${idx}`, surface: "alternate_greeting", surfaceId: ctx.characterId, field: String(idx) };
+}
+
+async function setAlternateFieldLeaf(ctx: ToolCtx, field: string, variantId: string, leaf: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string } | string> {
+  if (!isAlternateFieldName(field)) return `[PATH_NOT_FOUND] alternate_fields field must be one of ${ALTERNATE_FIELD_NAMES.join(", ")}, got '${field}'`;
+  if (leaf !== "content" && leaf !== "label") return `[PATH_NOT_FOUND] alternate_fields leaf must be content or label, got '${leaf}'`;
+  if (typeof value !== "string") return `[INVALID_VALUE_TYPE] alternate_fields.${leaf} expects a string, got ${typeof value}`;
+  const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
+  if (!c) return "character not found";
+  const variants = readAltFieldArray(c.extensions, field);
+  const idx = variants.findIndex((v) => v.id === variantId);
+  if (idx < 0) return `[PATH_NOT_FOUND] variant '${variantId}' not found under alternate_fields.${field}`;
+  const current = variants[idx]!;
+  const before = current[leaf];
+  if (before === value) return { before, after: value, label: `${field} variant '${current.label || `(unlabeled #${idx})`}' (${leaf})`, surface: "extension", surfaceId: ctx.characterId, field: `alternate_fields.${field}[${idx}].${leaf}` };
+  const updated = { ...current, [leaf]: value };
+  const next = [...variants];
+  next[idx] = updated;
+  const nextExt = writeAltFieldArray(c.extensions, field, next);
+  await ctx.spindle.characters.update(ctx.characterId, { extensions: nextExt }, ctx.userId);
+  return {
+    before,
+    after: value,
+    label: `${field} variant '${updated.label || `(unlabeled #${idx})`}' (${leaf})`,
+    surface: "extension",
+    surfaceId: ctx.characterId,
+    field: `alternate_fields.${field}[${idx}].${leaf}`,
+  };
 }
 
 async function setExtension(ctx: ToolCtx, dotted: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string } | string> {
@@ -164,6 +191,11 @@ Returns:
         if (err instanceof ExtensionRefusedError) return { content: `Error: [REFUSED_BY_EXTENSION] ${err.message}`, isError: true };
         throw err;
       }
+    } else if (path.startsWith("char/alternate_fields/") || path.startsWith("character/alternate_fields/")) {
+      const rest = path.replace(/^(char|character)\/alternate_fields\//, "");
+      const segs = rest.split("/");
+      if (segs.length !== 3) return { content: "Error: expected char/alternate_fields/<field>/<variantId>/<content|label>", isError: true };
+      result = await setAlternateFieldLeaf(ctx, segs[0]!, segs[1]!, segs[2]!, value);
     } else if (path.startsWith("char/alternate_greetings/") || path.startsWith("character/alternate_greetings/")) {
       const rest = path.replace(/^(char|character)\/alternate_greetings\//, "");
       const idx = parseInt(rest, 10);

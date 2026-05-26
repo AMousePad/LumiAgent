@@ -7,6 +7,7 @@ import { renderInlineFieldDiff, renderSideBySideDiff, renderUnifiedDiff, compute
 const SURFACE_LABELS: Record<EditSurface, string> = {
   character_field: "Character",
   alternate_greeting: "Alternate greetings",
+  alternate_field_variant: "Alternate field variants",
   world_book_entry: "World book",
   world_book: "World books",
   regex_script: "Regex scripts",
@@ -19,7 +20,7 @@ const SURFACE_LABELS: Record<EditSurface, string> = {
   external: "External (other extensions)",
 };
 
-const SURFACE_ORDER: EditSurface[] = ["character_field", "alternate_greeting", "world_book_entry", "world_book", "regex_script", "extension", "persona_field", "chat_message", "preset_block", "preset", "persona", "external"];
+const SURFACE_ORDER: EditSurface[] = ["character_field", "alternate_greeting", "alternate_field_variant", "world_book_entry", "world_book", "regex_script", "extension", "persona_field", "chat_message", "preset_block", "preset", "persona", "external"];
 
 const MOBILE_BREAKPOINT_PX = 720;
 const DESKTOP_WIDTH_CAP = 1700;

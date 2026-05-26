@@ -14,6 +14,7 @@ import { defineTool } from "./_framework";
 import type { ToolCtx } from "./_context";
 import type { EditRecord, ScopeRef } from "../../types";
 import { wbLabel } from "./_surfaces";
+import { ALTERNATE_FIELD_NAMES, isAlternateFieldName, readAltFieldArray, writeAltFieldArray, type AltFieldVariant } from "./_path_v2";
 
 const inputSchema = z.object({
   path: z.string().min(2).describe("Container to create a child in. See description for the grammar."),
@@ -36,6 +37,7 @@ Containers:
 - \`preset\` -> a prompt preset. value: { name (required), provider (required), engine?, parameters?, prompts?, metadata? }
 - \`preset/<presetId>/block\` -> a prompt block. value: PromptBlock fields { name?, content?, role?, enabled?, position?, depth?, ... } plus optional \`index\` for placement.
 - \`char/alternate_greetings\` -> an alternate greeting. value: a string, or { content, index? }.
+- \`char/alternate_fields/<field>\` -> a variant for description / personality / scenario. value: { content (required), label?, index? } (or a bare string for content).
 
 Returns the new id (and book/preset id for nested creates).`,
   inputSchema,
@@ -170,6 +172,36 @@ Returns the new id (and book/preset id for nested creates).`,
       return { content: JSON.stringify({ preset_id: presetId, block_id: b.id, name: b.name }) };
     }
 
+    // char/alternate_fields/<field> -> add a variant for description / personality / scenario
+    if (parts[0] === "char" && parts[1] === "alternate_fields" && parts.length === 3) {
+      if (!ctx.characterId) return { content: "Error: [INVALID_INPUT] no active character", isError: true };
+      const field = parts[2]!;
+      if (!isAlternateFieldName(field)) {
+        return { content: `Error: [INVALID_INPUT] alternate_fields field must be one of ${ALTERNATE_FIELD_NAMES.join(", ")}, got '${field}'`, isError: true };
+      }
+      const label = typeof v.label === "string" ? v.label : "";
+      const content = typeof input.value === "string"
+        ? input.value
+        : typeof v.content === "string" ? v.content : undefined;
+      if (content === undefined) return { content: "Error: [INVALID_INPUT] variant requires value.content (or pass a string for content; value.label optional)", isError: true };
+      const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
+      if (!c) return { content: `Error: character ${ctx.characterId} not found`, isError: true };
+      const before = readAltFieldArray(c.extensions, field);
+      const newVariant: AltFieldVariant = { id: crypto.randomUUID(), label, content };
+      const requested = typeof v.index === "number" ? v.index : undefined;
+      const at = requested === undefined ? before.length : Math.max(0, Math.min(before.length, Math.floor(requested)));
+      const after = [...before];
+      after.splice(at, 0, newVariant);
+      const nextExt = writeAltFieldArray(c.extensions, field, after);
+      await ctx.spindle.characters.update(ctx.characterId, { extensions: nextExt }, ctx.userId);
+      ctx.pushEdit({
+        op: "create", surface: "alternate_field_variant", surfaceId: newVariant.id,
+        surfaceLabel: `${field} variant '${label || "(unlabeled)"}'`,
+        snapshot: { altField: field, variant: { id: newVariant.id, label, content }, index: at },
+      } satisfies EditRecord);
+      return { content: JSON.stringify({ field, variant_id: newVariant.id, index: at, total: after.length, content_chars: content.length }) };
+    }
+
     // char/alternate_greetings -> append/insert a greeting
     if (path === "char/alternate_greetings") {
       if (!ctx.characterId) return { content: "Error: [INVALID_INPUT] no active character", isError: true };
@@ -191,6 +223,6 @@ Returns the new id (and book/preset id for nested creates).`,
       return { content: JSON.stringify({ index: at, total: arr.length, chars: content.length }) };
     }
 
-    return { content: `Error: [PATH_NOT_FOUND] cannot create at '${path}'. Valid containers: wb, wb/<bookId>/entry, rx, persona, preset, preset/<presetId>/block, char/alternate_greetings`, isError: true };
+    return { content: `Error: [PATH_NOT_FOUND] cannot create at '${path}'. Valid containers: wb, wb/<bookId>/entry, rx, persona, preset, preset/<presetId>/block, char/alternate_greetings, char/alternate_fields/<field>`, isError: true };
   },
 });

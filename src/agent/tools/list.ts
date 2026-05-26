@@ -3,7 +3,7 @@ import { defineTool } from "./_framework";
 import type { ToolCtx } from "./_context";
 import { parseExtensionPath, getAtPath } from "./_paths";
 import { wbLabel } from "./_surfaces";
-import { ExtensionRefusedError } from "./_path_v2";
+import { ExtensionRefusedError, ALTERNATE_FIELD_NAMES, readAltFieldArray, isAlternateFieldName, type AlternateFieldName } from "./_path_v2";
 
 const inputSchema = z.object({
   path: z.string().describe("Container path. Empty / 'char' for the character overview. 'rx' for regex scripts. 'wb' for world books. 'wb/<bookId>' for entries in a book. 'char/alternate_greetings' for all greetings. 'char/extensions[/dotted]' for an extensions subtree. 'persona' for all personas. 'preset' for all presets. 'preset/<presetId>' for a preset's blocks."),
@@ -46,6 +46,11 @@ async function listCharacterRoot(ctx: ToolCtx, maxEntries: number): Promise<List
   if (Array.isArray(c.alternate_greetings) && c.alternate_greetings.length > 0) {
     out.push({ path: "char/alternate_greetings", type: "array", size: c.alternate_greetings.length });
   }
+  let altTotal = 0;
+  for (const f of ALTERNATE_FIELD_NAMES) altTotal += readAltFieldArray(c.extensions, f).length;
+  if (altTotal > 0) {
+    out.push({ path: "char/alternate_fields", type: "alternate_fields", size: altTotal });
+  }
   out.push({ path: "char/extensions", type: "object", size: c.extensions ? Object.keys(c.extensions).length : 0 });
   return out.slice(0, maxEntries);
 }
@@ -58,6 +63,30 @@ async function listGreetings(ctx: ToolCtx, maxEntries: number): Promise<ListEntr
     path: `char/alternate_greetings/${i}`,
     type: "string",
     size: typeof g === "string" ? g.length : 0,
+  }));
+}
+
+async function listAlternateFields(ctx: ToolCtx, maxEntries: number): Promise<ListEntry[]> {
+  const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
+  if (!c) throw new Error(`character ${ctx.characterId} not found`);
+  const out: ListEntry[] = [];
+  for (const f of ALTERNATE_FIELD_NAMES) {
+    const variants = readAltFieldArray(c.extensions, f);
+    out.push({ path: `char/alternate_fields/${f}`, type: "alt_field_group", entries: variants.length });
+    if (out.length >= maxEntries) break;
+  }
+  return out;
+}
+
+async function listAlternateFieldVariants(ctx: ToolCtx, field: AlternateFieldName, maxEntries: number): Promise<ListEntry[]> {
+  const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
+  if (!c) throw new Error(`character ${ctx.characterId} not found`);
+  const variants = readAltFieldArray(c.extensions, field);
+  return variants.slice(0, maxEntries).map((v, i) => ({
+    path: `char/alternate_fields/${field}/${v.id}`,
+    type: "alt_field_variant",
+    label: v.label || `(unlabeled #${i})`,
+    size: v.content.length,
   }));
 }
 
@@ -214,6 +243,8 @@ export const listTool = defineTool({
 Path forms:
 - (empty) or 'char'                  the character's top-level shape
 - 'char/alternate_greetings'         all greetings
+- 'char/alternate_fields'            description / personality / scenario variant counts
+- 'char/alternate_fields/<field>'    variants for one of description / personality / scenario
 - 'char/extensions'                  top-level keys of extensions
 - 'char/extensions/<dotted>'         keys/indices under that subtree (recurses up to max_depth)
 - 'rx'                               all character-scoped regex scripts
@@ -262,6 +293,14 @@ Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole
         entries = await listCharacterRoot(ctx, maxEntries);
       } else if (path === "char/alternate_greetings" || path === "alternate_greetings") {
         entries = await listGreetings(ctx, maxEntries);
+      } else if (path === "char/alternate_fields" || path === "alternate_fields") {
+        entries = await listAlternateFields(ctx, maxEntries);
+      } else if (path.startsWith("char/alternate_fields/") || path.startsWith("alternate_fields/")) {
+        const field = path.replace(/^(char\/)?alternate_fields\//, "");
+        if (!isAlternateFieldName(field)) {
+          return { content: `Error: [PATH_NOT_FOUND] unknown alternate field '${field}'. Valid: ${ALTERNATE_FIELD_NAMES.join(", ")}.`, isError: true };
+        }
+        entries = await listAlternateFieldVariants(ctx, field, maxEntries);
       } else if (path === "rx" || path === "regex_scripts") {
         entries = await listRegex(ctx, maxEntries);
       } else if (path === "wb" || path === "world_books") {

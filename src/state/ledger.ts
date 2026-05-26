@@ -140,7 +140,7 @@ function upsertFile(ledger: ScopedLedger, file: FileState): void {
 
 type StructuralSurface = StructuralPatch["surface"];
 const STRUCTURAL_SURFACES: ReadonlySet<string> = new Set<StructuralSurface>([
-  "world_book_entry", "world_book", "regex_script", "alternate_greeting", "persona", "preset", "preset_block",
+  "world_book_entry", "world_book", "regex_script", "alternate_greeting", "alternate_field_variant", "persona", "preset", "preset_block",
 ]);
 
 function structuralFromEntry(e: EditLogEntry, r: EditCreate | EditDelete): StructuralPatch | null {
