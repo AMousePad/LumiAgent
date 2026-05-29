@@ -106,6 +106,7 @@ Every editable string on the card has a path. ONE \`read\` and ONE \`edit\` cove
 Path grammar (forward slashes; first segment names the surface):
 - \`char/<field>\` — top-level string (description, first_mes, scenario, personality, mes_example, system_prompt, post_history_instructions, creator_notes, creator, name)
 - \`char/alternate_greetings/<idx>\` — one greeting by 0-based index
+- \`char/alternate_fields/<field>/<variantId>/<content|label>\` — alternate version of \`description\`, \`personality\`, or \`scenario\` (the user picks which variant is active per chat). Discover ids via \`list({path:"char/alternate_fields/<field>"})\`.
 - \`char/extensions/<dotted>\` — any string leaf under \`character.extensions.*\`. Dotted with brackets, e.g. \`<extId>.<group>.<item>[0].code\`
 - \`rx/<scriptId>/find_regex\` or \`rx/<scriptId>/replace_string\` — regex script
 - \`wb/<entryId>/content\` or \`wb/<entryId>/comment\` — lorebook entry
@@ -146,8 +147,8 @@ Flow for "translate the third greeting":
 - **rewrite({path, new_content})** — whole-field overwrite of a string leaf. One call, no find string, no chunking, no byte-match risk.
 - **edit({path, find, replace})** — targeted find/replace inside an existing string field (typo, name swap, single paragraph). NOT for full rewrites.
 - **set({path, value})** — wholesale set of any path including non-string values (arrays, objects, numbers). Also writes container-level fields: \`wb/<bookId>/<name|description>\`, \`preset/<presetId>/<name|provider|engine|parameters|prompt_order|prompts|metadata>\`.
-- **create({path, value})** — make a new entity inside a container: \`wb\` (a world book), \`wb/<bookId>/entry\`, \`rx\`, \`persona\`, \`preset\`, \`preset/<presetId>/block\`, \`char/alternate_greetings\`. Reorder preset blocks by \`set\`-ing \`preset/<id>/prompt_order\`.
-- **delete({path})** — remove the entity at a path: \`wb/<id>\` (book or entry), \`rx/<id>\`, \`persona/<id>\`, \`preset/<id>\`, \`preset/<id>/block/<bid>\`, \`char/alternate_greetings/<idx>\`. Snapshotted, so revert restores it (a book/preset restores its children too, with a fresh id).
+- **create({path, value})** — make a new entity inside a container: \`wb\` (a world book), \`wb/<bookId>/entry\`, \`rx\`, \`persona\`, \`preset\`, \`preset/<presetId>/block\`, \`char/alternate_greetings\`, \`char/alternate_fields/<field>\` (value: \`{label?, content, index?}\` — adds a description/personality/scenario variant). Reorder preset blocks by \`set\`-ing \`preset/<id>/prompt_order\`.
+- **delete({path})** — remove the entity at a path: \`wb/<id>\` (book or entry), \`rx/<id>\`, \`persona/<id>\`, \`preset/<id>\`, \`preset/<id>/block/<bid>\`, \`char/alternate_greetings/<idx>\`, \`char/alternate_fields/<field>/<variantId>\`. Snapshotted, so revert restores it (a book/preset restores its children too, with a fresh id).
 
 If you find yourself making more than 2-3 \`edit\` calls on one field, switch to \`rewrite\`. Wholesale rewrites are ONE call. If a rewrite is huge and risky, sketch a paragraph, ask "apply this style?", pause.
 
@@ -178,7 +179,7 @@ Do NOT begin surface-by-surface searching (character fields, world books, regex 
 
 When the user reports a problem ("this isn't matching", "where is X coming from", "why is the AI saying Y"), the answer is rarely in the first surface you check. **Map the territory before reporting back.** A single piece of prompt or output content can come from any of:
 
-- **Character fields** — \`first_mes\`, \`description\`, \`personality\`, \`scenario\`, \`system_prompt\`, \`post_history_instructions\`, \`mes_example\`, alternate greetings, \`creator_notes\`, plus the entire \`character.extensions.*\` blob. Use \`list({path: "char/extensions"})\` + \`grep\`.
+- **Character fields** — \`first_mes\`, \`description\`, \`personality\`, \`scenario\`, \`system_prompt\`, \`post_history_instructions\`, \`mes_example\`, alternate greetings, alternate-field variants of description/personality/scenario (one selected per chat), \`creator_notes\`, plus the entire \`character.extensions.*\` blob. Use \`list({path: "char/extensions"})\` + \`grep\`.
 - **World books** — every attached WB's entries. Use \`grep({pattern, include_paths: ["wb/"]})\`. Lorebook entries can carry decorators / activation modes / always-on flags that inject prompt content under conditions; an entry being present doesn't mean it's firing.
 - **Regex scripts** — character-scoped AND global ones, plus chat-scoped. Patterns matching ai output / display, replace_strings injecting arbitrary content. \`list_active_regex_scripts({target})\` shows what fires for a given pipeline stage.
 - **Personas** — the active persona's \`description\` is injected as {{user}}. Personas can carry their own attached world book.

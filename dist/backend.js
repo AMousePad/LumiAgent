@@ -20903,7 +20903,7 @@ var init_finish = __esm(() => {
 });
 
 // src/generated/lumiverse-docs.ts
-var LUMIVERSE_DOCS_VERSION = "88b26245c64857ec", LUMIVERSE_DOCS;
+var LUMIVERSE_DOCS_VERSION = "36e1b4472199958a", LUMIVERSE_DOCS;
 var init_lumiverse_docs = __esm(() => {
   LUMIVERSE_DOCS = {
     "characters/alternate-fields.md": `# Alternate Fields & Avatars\r
@@ -21727,6 +21727,7 @@ These macros are especially useful in group chat presets:\r
 | \`{{groupLastSpeaker}}\` | Name of the character who spoke last |\r
 | \`{{isGroupChat}}\` | "yes" or "no" |\r
 | \`{{charGroupFocused}}\` | The currently targeted character's name |\r
+| \`{{groupCardMode}}\` | Card composition mode: "solo", "swap", "merge", or "merge_ignore_muted" |\r
 \r
 ---\r
 \r
@@ -26772,6 +26773,14 @@ Only one persona can be default at a time \u2014 setting a new default automatic
 \r
 ---\r
 \r
+## Narrator Mode\r
+\r
+Toggle the **Narrator** flag on any persona to mark it as a narrator rather than a self-insert. When active, \`{{isNarrator}}\` resolves to \`"yes"\` in prompts.\r
+\r
+This is useful for players who don't role-play as a specific character \u2014 they're directing the story rather than participating as a persona. Preset creators can use \`{{if::{{isNarrator}}}}\` to adjust instructions accordingly (e.g., shifting from second-person to third-person narration, or omitting persona descriptions).\r
+\r
+---\r
+\r
 ## Switching Personas\r
 \r
 You can switch personas at any time:\r
@@ -26843,6 +26852,7 @@ A **persona** represents *you* in the conversation. While you can chat without o
 | **Avatar** | Your profile image |\r
 | **Folder** | Organizational grouping in the persona panel |\r
 | **Default** | Whether this persona activates automatically |\r
+| **Narrator** | Marks this persona as a narrator rather than a self-insert \u2014 exposes \`{{isNarrator}}\` for preset creators |\r
 | **Attached World Book** | A lorebook that activates whenever this persona is active |\r
 \r
 ---\r
@@ -27458,9 +27468,11 @@ Macros for character and user identity.\r
 | \`{{notChar}}\` | \`{{not_char}}\` | The non-character party (usually the user) |\r
 | \`{{charGroupFocused}}\` | \`{{charFocused}}\`, \`{{char_group_focused}}\` | The targeted character in a group chat |\r
 | \`{{isGroupChat}}\` | \`{{is_group_chat}}\` | \`"yes"\` or \`"no"\` \u2014 usable as a condition |\r
+| \`{{isNarrator}}\` | \`{{is_narrator}}\` | \`"yes"\` or \`"no"\` \u2014 whether the active persona is a narrator (not a self-insert) |\r
 | \`{{groupOthers}}\` | \`{{group_others}}\` | Group members excluding the focused character |\r
 | \`{{groupMemberCount}}\` | \`{{group_member_count}}\` | Number of characters in the group |\r
 | \`{{groupLastSpeaker}}\` | \`{{group_last_speaker}}\` | Last character who spoke |\r
+| \`{{groupCardMode}}\` | \`{{group_card_mode}}\` | Card composition mode: \`"solo"\`, \`"swap"\`, \`"merge"\`, or \`"merge_ignore_muted"\` |\r
 \r
 ---\r
 \r
@@ -27706,6 +27718,7 @@ Access individual messages, track state, and query character metadata.\r
 | \`{{toggle::name}}\` | \u2014 | Flipped boolean (\`"true"\` \u2194 \`"false"\`) | Toggle name (stored as local variable) |\r
 | \`{{charTags}}\` | \`{{char_tags}}\`, \`{{characterTags}}\` | Comma-separated list of the character's tags | \u2014 |\r
 | \`{{charTag::tag}}\` | \`{{char_tag}}\`, \`{{hasTag}}\`, \`{{has_tag}}\` | \`"true"\` / \`"false"\` \u2014 whether character has this tag | Tag name (case-insensitive) |\r
+| \`{{rcounter::name}}\` | \u2014 | Render-scoped counter (resets each prompt build, never persisted) | Counter name; optional second arg \`reset\` to zero it |\r
 \r
 **Examples:**\r
 \r
@@ -28072,6 +28085,7 @@ These macros return \`"yes"\` / \`"no"\` or \`"true"\` / \`"false"\` and are des
 | Macro | True When |\r
 |-------|-----------|\r
 | \`{{isGroupChat}}\` | Chat has multiple characters |\r
+| \`{{isNarrator}}\` | Active persona is marked as a narrator |\r
 | \`{{lumiaCouncilModeActive}}\` | Council mode is enabled |\r
 | \`{{lumiaCouncilToolsActive}}\` | Council tools ran this generation |\r
 | \`{{loomSovHandActive}}\` | Sovereign Hand mode is on |\r
@@ -37268,6 +37282,7 @@ Every editable string on the card has a path. ONE \`read\` and ONE \`edit\` cove
 Path grammar (forward slashes; first segment names the surface):
 - \`char/<field>\` \u2014 top-level string (description, first_mes, scenario, personality, mes_example, system_prompt, post_history_instructions, creator_notes, creator, name)
 - \`char/alternate_greetings/<idx>\` \u2014 one greeting by 0-based index
+- \`char/alternate_fields/<field>/<variantId>/<content|label>\` \u2014 alternate version of \`description\`, \`personality\`, or \`scenario\` (the user picks which variant is active per chat). Discover ids via \`list({path:"char/alternate_fields/<field>"})\`.
 - \`char/extensions/<dotted>\` \u2014 any string leaf under \`character.extensions.*\`. Dotted with brackets, e.g. \`<extId>.<group>.<item>[0].code\`
 - \`rx/<scriptId>/find_regex\` or \`rx/<scriptId>/replace_string\` \u2014 regex script
 - \`wb/<entryId>/content\` or \`wb/<entryId>/comment\` \u2014 lorebook entry
@@ -37308,8 +37323,8 @@ Flow for "translate the third greeting":
 - **rewrite({path, new_content})** \u2014 whole-field overwrite of a string leaf. One call, no find string, no chunking, no byte-match risk.
 - **edit({path, find, replace})** \u2014 targeted find/replace inside an existing string field (typo, name swap, single paragraph). NOT for full rewrites.
 - **set({path, value})** \u2014 wholesale set of any path including non-string values (arrays, objects, numbers). Also writes container-level fields: \`wb/<bookId>/<name|description>\`, \`preset/<presetId>/<name|provider|engine|parameters|prompt_order|prompts|metadata>\`.
-- **create({path, value})** \u2014 make a new entity inside a container: \`wb\` (a world book), \`wb/<bookId>/entry\`, \`rx\`, \`persona\`, \`preset\`, \`preset/<presetId>/block\`, \`char/alternate_greetings\`. Reorder preset blocks by \`set\`-ing \`preset/<id>/prompt_order\`.
-- **delete({path})** \u2014 remove the entity at a path: \`wb/<id>\` (book or entry), \`rx/<id>\`, \`persona/<id>\`, \`preset/<id>\`, \`preset/<id>/block/<bid>\`, \`char/alternate_greetings/<idx>\`. Snapshotted, so revert restores it (a book/preset restores its children too, with a fresh id).
+- **create({path, value})** \u2014 make a new entity inside a container: \`wb\` (a world book), \`wb/<bookId>/entry\`, \`rx\`, \`persona\`, \`preset\`, \`preset/<presetId>/block\`, \`char/alternate_greetings\`, \`char/alternate_fields/<field>\` (value: \`{label?, content, index?}\` \u2014 adds a description/personality/scenario variant). Reorder preset blocks by \`set\`-ing \`preset/<id>/prompt_order\`.
+- **delete({path})** \u2014 remove the entity at a path: \`wb/<id>\` (book or entry), \`rx/<id>\`, \`persona/<id>\`, \`preset/<id>\`, \`preset/<id>/block/<bid>\`, \`char/alternate_greetings/<idx>\`, \`char/alternate_fields/<field>/<variantId>\`. Snapshotted, so revert restores it (a book/preset restores its children too, with a fresh id).
 
 If you find yourself making more than 2-3 \`edit\` calls on one field, switch to \`rewrite\`. Wholesale rewrites are ONE call. If a rewrite is huge and risky, sketch a paragraph, ask "apply this style?", pause.
 
@@ -37340,7 +37355,7 @@ Do NOT begin surface-by-surface searching (character fields, world books, regex 
 
 When the user reports a problem ("this isn't matching", "where is X coming from", "why is the AI saying Y"), the answer is rarely in the first surface you check. **Map the territory before reporting back.** A single piece of prompt or output content can come from any of:
 
-- **Character fields** \u2014 \`first_mes\`, \`description\`, \`personality\`, \`scenario\`, \`system_prompt\`, \`post_history_instructions\`, \`mes_example\`, alternate greetings, \`creator_notes\`, plus the entire \`character.extensions.*\` blob. Use \`list({path: "char/extensions"})\` + \`grep\`.
+- **Character fields** \u2014 \`first_mes\`, \`description\`, \`personality\`, \`scenario\`, \`system_prompt\`, \`post_history_instructions\`, \`mes_example\`, alternate greetings, alternate-field variants of description/personality/scenario (one selected per chat), \`creator_notes\`, plus the entire \`character.extensions.*\` blob. Use \`list({path: "char/extensions"})\` + \`grep\`.
 - **World books** \u2014 every attached WB's entries. Use \`grep({pattern, include_paths: ["wb/"]})\`. Lorebook entries can carry decorators / activation modes / always-on flags that inject prompt content under conditions; an entry being present doesn't mean it's firing.
 - **Regex scripts** \u2014 character-scoped AND global ones, plus chat-scoped. Patterns matching ai output / display, replace_strings injecting arbitrary content. \`list_active_regex_scripts({target})\` shows what fires for a given pipeline stage.
 - **Personas** \u2014 the active persona's \`description\` is injected as {{user}}. Personas can carry their own attached world book.
@@ -37616,7 +37631,7 @@ function subscribeToMissingChanges(handler) {
 }
 // spindle.json
 var spindle_default = {
-  version: "0.4.5",
+  version: "0.4.6",
   name: "LumiAgent",
   identifier: "lumiagent",
   author: "amousepad",
