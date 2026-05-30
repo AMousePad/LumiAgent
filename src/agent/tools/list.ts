@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
-import type { ToolCtx } from "./_context";
+import { type ToolCtx, resolveCharacterTarget, noTargetResult } from "./_context";
 import { parseExtensionPath, getAtPath } from "./_paths";
 import { wbLabel } from "./_surfaces";
 import { ExtensionRefusedError, ALTERNATE_FIELD_NAMES, readAltFieldArray, isAlternateFieldName, type AlternateFieldName } from "./_path_v2";
@@ -10,6 +10,7 @@ const inputSchema = z.object({
   max_entries: z.number().int().positive().max(2000).optional().describe("Max items returned. Default 200."),
   max_depth: z.number().int().positive().max(10).optional().describe("Recursion depth (only used for extensions traversal). Default 4."),
   include_unattached: z.boolean().optional().describe("Only meaningful for path='wb': also list world books the user owns but hasn't attached to this character. Each row carries an `attached` flag. Use when picking a destination for a new world_book_entry."),
+  character_id: z.string().optional().describe("For char/rx/wb paths: which character. Defaults to the focused character."),
 }).strict();
 
 interface ListEntry {
@@ -34,9 +35,9 @@ function classifyNode(v: unknown): { type: string; size?: number } {
   return { type: typeof v };
 }
 
-async function listCharacterRoot(ctx: ToolCtx, maxEntries: number): Promise<ListEntry[]> {
-  const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
-  if (!c) throw new Error(`character ${ctx.characterId} not found`);
+async function listCharacterRoot(ctx: ToolCtx, characterId: string, maxEntries: number): Promise<ListEntry[]> {
+  const c = await ctx.spindle.characters.get(characterId, ctx.userId);
+  if (!c) throw new Error(`character ${characterId} not found`);
   const fields = ["name", "description", "personality", "scenario", "first_mes", "mes_example", "creator_notes", "system_prompt", "post_history_instructions", "creator"] as const;
   const out: ListEntry[] = [];
   for (const f of fields) {
@@ -55,9 +56,9 @@ async function listCharacterRoot(ctx: ToolCtx, maxEntries: number): Promise<List
   return out.slice(0, maxEntries);
 }
 
-async function listGreetings(ctx: ToolCtx, maxEntries: number): Promise<ListEntry[]> {
-  const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
-  if (!c) throw new Error(`character ${ctx.characterId} not found`);
+async function listGreetings(ctx: ToolCtx, characterId: string, maxEntries: number): Promise<ListEntry[]> {
+  const c = await ctx.spindle.characters.get(characterId, ctx.userId);
+  if (!c) throw new Error(`character ${characterId} not found`);
   const arr = c.alternate_greetings ?? [];
   return arr.slice(0, maxEntries).map((g, i) => ({
     path: `char/alternate_greetings/${i}`,
@@ -66,9 +67,9 @@ async function listGreetings(ctx: ToolCtx, maxEntries: number): Promise<ListEntr
   }));
 }
 
-async function listAlternateFields(ctx: ToolCtx, maxEntries: number): Promise<ListEntry[]> {
-  const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
-  if (!c) throw new Error(`character ${ctx.characterId} not found`);
+async function listAlternateFields(ctx: ToolCtx, characterId: string, maxEntries: number): Promise<ListEntry[]> {
+  const c = await ctx.spindle.characters.get(characterId, ctx.userId);
+  if (!c) throw new Error(`character ${characterId} not found`);
   const out: ListEntry[] = [];
   for (const f of ALTERNATE_FIELD_NAMES) {
     const variants = readAltFieldArray(c.extensions, f);
@@ -78,9 +79,9 @@ async function listAlternateFields(ctx: ToolCtx, maxEntries: number): Promise<Li
   return out;
 }
 
-async function listAlternateFieldVariants(ctx: ToolCtx, field: AlternateFieldName, maxEntries: number): Promise<ListEntry[]> {
-  const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
-  if (!c) throw new Error(`character ${ctx.characterId} not found`);
+async function listAlternateFieldVariants(ctx: ToolCtx, characterId: string, field: AlternateFieldName, maxEntries: number): Promise<ListEntry[]> {
+  const c = await ctx.spindle.characters.get(characterId, ctx.userId);
+  if (!c) throw new Error(`character ${characterId} not found`);
   const variants = readAltFieldArray(c.extensions, field);
   return variants.slice(0, maxEntries).map((v, i) => ({
     path: `char/alternate_fields/${field}/${v.id}`,
@@ -90,11 +91,11 @@ async function listAlternateFieldVariants(ctx: ToolCtx, field: AlternateFieldNam
   }));
 }
 
-async function listRegex(ctx: ToolCtx, maxEntries: number): Promise<ListEntry[]> {
+async function listRegex(ctx: ToolCtx, characterId: string, maxEntries: number): Promise<ListEntry[]> {
   const out: ListEntry[] = [];
   let offset = 0;
   while (out.length < maxEntries) {
-    const r = await ctx.spindle.regex_scripts.list({ scope: "character", scopeId: ctx.characterId, userId: ctx.userId, limit: 200, offset });
+    const r = await ctx.spindle.regex_scripts.list({ scope: "character", scopeId: characterId, userId: ctx.userId, limit: 200, offset });
     for (const s of r.data) {
       if (out.length >= maxEntries) break;
       out.push({ path: `rx/${s.id}`, type: "regex_script", label: s.name, size: (s.find_regex?.length ?? 0) + (s.replace_string?.length ?? 0) });
@@ -105,9 +106,9 @@ async function listRegex(ctx: ToolCtx, maxEntries: number): Promise<ListEntry[]>
   return out;
 }
 
-async function listWorldBooks(ctx: ToolCtx, maxEntries: number, includeUnattached: boolean): Promise<ListEntry[]> {
-  const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
-  if (!c) throw new Error(`character ${ctx.characterId} not found`);
+async function listWorldBooks(ctx: ToolCtx, characterId: string, maxEntries: number, includeUnattached: boolean): Promise<ListEntry[]> {
+  const c = await ctx.spindle.characters.get(characterId, ctx.userId);
+  if (!c) throw new Error(`character ${characterId} not found`);
   const attached = new Set(c.world_book_ids ?? []);
   const wbIds = includeUnattached
     ? (await ctx.spindle.world_books.list({ limit: 1000, userId: ctx.userId })).data.map((wb) => wb.id)
@@ -140,12 +141,12 @@ async function listWorldBookEntries(ctx: ToolCtx, bookId: string, maxEntries: nu
   return out;
 }
 
-async function listExtensions(ctx: ToolCtx, subPath: string, maxEntries: number, maxDepth: number): Promise<ListEntry[]> {
+async function listExtensions(ctx: ToolCtx, characterId: string, subPath: string, maxEntries: number, maxDepth: number): Promise<ListEntry[]> {
   // Gate the entry point on the phone-line check_read so callers can't peek
   // into refused subtrees (lumirealm.source.*, etc.) by addressing them here.
   if (subPath !== "") {
     const { checkExtensionRead } = await import("../../phoneline/gate");
-    const res = await checkExtensionRead(ctx.spindle, ctx.userId, ctx.characterId, subPath);
+    const res = await checkExtensionRead(ctx.spindle, ctx.userId, characterId, subPath);
     if (!res.ok) throw new ExtensionRefusedError(`char/extensions/${subPath}`, "read", res.message ?? "extension refused read at this path");
   }
   // Same search-exclude predicate the find/grep walkers use, so refused-but-
@@ -154,8 +155,8 @@ async function listExtensions(ctx: ToolCtx, subPath: string, maxEntries: number,
   const { buildExtensionsSearchSkip } = await import("../../phoneline/search-excludes");
   const skip = await buildExtensionsSearchSkip(ctx.spindle, ctx.userId);
 
-  const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
-  if (!c) throw new Error(`character ${ctx.characterId} not found`);
+  const c = await ctx.spindle.characters.get(characterId, ctx.userId);
+  if (!c) throw new Error(`character ${characterId} not found`);
   const segs = subPath === "" ? [] : parseExtensionPath(subPath);
   const root = getAtPath(c.extensions ?? {}, segs);
   if (root === undefined) throw new Error(`extensions${subPath === "" ? "" : "." + subPath} does not exist`);
@@ -271,6 +272,7 @@ Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole
       path: { type: "string", description: "Container path. See description for forms." },
       max_entries: { type: "integer", minimum: 1, maximum: 2000 },
       max_depth: { type: "integer", minimum: 1, maximum: 10 },
+      character_id: { type: "string", description: "For char/rx/wb paths: defaults to the focused character." },
     },
     required: ["path"],
     additionalProperties: false,
@@ -285,35 +287,39 @@ Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole
     try {
       const personaOrPreset = path === "persona" || path === "personas"
         || path === "preset" || path === "presets" || path.startsWith("preset/");
-      if (!personaOrPreset && !ctx.characterId) {
-        return { content: "Error: [PATH_NOT_FOUND] no character selected. 'char/...', 'rx', 'wb' need an active character; 'persona' and 'preset' work without one.", isError: true };
+      // wb/<bookId> entry listing is book-id-scoped, needs no character.
+      const wbEntryListing = path.startsWith("wb/") || path.startsWith("world_books/");
+      let target = "";
+      if (!personaOrPreset && !wbEntryListing) {
+        try { target = resolveCharacterTarget(ctx, input.character_id); }
+        catch (err) { const nt = noTargetResult(err); if (nt) return nt; throw err; }
       }
       let entries: ListEntry[];
       if (path === "" || path === "char" || path === "character") {
-        entries = await listCharacterRoot(ctx, maxEntries);
+        entries = await listCharacterRoot(ctx, target, maxEntries);
       } else if (path === "char/alternate_greetings" || path === "alternate_greetings") {
-        entries = await listGreetings(ctx, maxEntries);
+        entries = await listGreetings(ctx, target, maxEntries);
       } else if (path === "char/alternate_fields" || path === "alternate_fields") {
-        entries = await listAlternateFields(ctx, maxEntries);
+        entries = await listAlternateFields(ctx, target, maxEntries);
       } else if (path.startsWith("char/alternate_fields/") || path.startsWith("alternate_fields/")) {
         const field = path.replace(/^(char\/)?alternate_fields\//, "");
         if (!isAlternateFieldName(field)) {
           return { content: `Error: [PATH_NOT_FOUND] unknown alternate field '${field}'. Valid: ${ALTERNATE_FIELD_NAMES.join(", ")}.`, isError: true };
         }
-        entries = await listAlternateFieldVariants(ctx, field, maxEntries);
+        entries = await listAlternateFieldVariants(ctx, target, field, maxEntries);
       } else if (path === "rx" || path === "regex_scripts") {
-        entries = await listRegex(ctx, maxEntries);
+        entries = await listRegex(ctx, target, maxEntries);
       } else if (path === "wb" || path === "world_books") {
-        entries = await listWorldBooks(ctx, maxEntries, input.include_unattached === true);
+        entries = await listWorldBooks(ctx, target, maxEntries, input.include_unattached === true);
       } else if (path.startsWith("wb/") || path.startsWith("world_books/")) {
         const bookId = path.split("/")[1] ?? "";
         if (!bookId) return { content: "Error: wb/<bookId> requires a book id", isError: true };
         entries = await listWorldBookEntries(ctx, bookId, maxEntries);
       } else if (path === "char/extensions" || path === "extensions") {
-        entries = await listExtensions(ctx, "", maxEntries, maxDepth);
+        entries = await listExtensions(ctx, target, "", maxEntries, maxDepth);
       } else if (path.startsWith("char/extensions/") || path.startsWith("extensions/")) {
         const sub = path.replace(/^(char\/)?extensions\//, "");
-        entries = await listExtensions(ctx, sub, maxEntries, maxDepth);
+        entries = await listExtensions(ctx, target, sub, maxEntries, maxDepth);
       } else if (path === "persona" || path === "personas") {
         entries = await listPersonas(ctx, maxEntries);
       } else if (path === "preset" || path === "presets") {

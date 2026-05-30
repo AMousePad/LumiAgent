@@ -24,6 +24,21 @@ import { characterScope } from "../../types";
 import { CHARACTER_STRING_FIELDS, isCharacterStringField, wbLabel } from "./_surfaces";
 import { parseExtensionPath, getAtPath, setAtPath } from "./_paths";
 
+// Top-level char-subtree token set. parts[1] is one of these for the focused
+// form `char/<field>...`; anything else is treated as an explicit character id
+// for the form `char/<id>/<field>...`. UUIDs and other id forms never collide
+// with this fixed token set.
+const CHAR_SUBTREE_TOKENS: ReadonlySet<string> = new Set<string>([
+  ...CHARACTER_STRING_FIELDS,
+  "alternate_greetings",
+  "alternate_fields",
+  "extensions",
+]);
+
+export function isCharSubtreeToken(s: string): boolean {
+  return CHAR_SUBTREE_TOKENS.has(s);
+}
+
 const PERSONA_STRING_FIELDS = ["name", "title", "description"] as const;
 
 export const ALTERNATE_FIELD_NAMES = ["description", "personality", "scenario"] as const;
@@ -73,19 +88,24 @@ export function writeAltFieldArray(
   return ext;
 }
 
-// Filing scope is derived from the leaf key prefix so it stays in one place
-// instead of being threaded through every ResolvedLeaf literal. persona /
-// chat / preset are always their own scope. wb / rx normally file under the
-// active character, but with no character selected they file under the world
-// book / regex script itself so the edit is still tracked and revertable.
+// Filing scope is derived from the leaf key prefix. Persona / chat / preset
+// are their own scope. `char/<id>/...` carries the character id in the key
+// (canonical form after resolver), so we read it straight from there and the
+// scope is correct even when the agent addresses a character other than the
+// session focus. wb / rx file under the focused character when present, else
+// under their own scope.
 export function scopeForLeafKey(key: string, ctx: ToolCtx): ScopeRef {
   if (key.startsWith("persona/")) return { kind: "persona", id: key.split("/")[1]! };
   if (key.startsWith("chat/")) return { kind: "chat", id: key.split("/")[1]! };
   if (key.startsWith("preset/")) return { kind: "preset", id: key.split("/")[1]! };
+  if (key.startsWith("char/")) {
+    const id = key.split("/")[1];
+    if (id) return characterScope(id);
+  }
   if (ctx.characterId) return characterScope(ctx.characterId);
   if (key.startsWith("wb/")) return { kind: "world_book", id: key.split("/")[1]! };
   if (key.startsWith("rx/")) return { kind: "regex_script", id: key.split("/")[1]! };
-  return characterScope(ctx.characterId);
+  return characterScope(ctx.characterId ?? "");
 }
 
 export interface ResolvedLeaf {
@@ -101,6 +121,11 @@ export interface ResolvedLeaf {
   readonly field: string;
   // Current value at the leaf.
   readonly value: string;
+  // Filing-scope override resolved at read time. Used when the key alone
+  // doesn't carry enough info, e.g. wb/<entryId>/... where scopeForLeafKey
+  // would otherwise mis-file under entry id instead of book id in
+  // no-character sessions.
+  readonly scope?: ScopeRef;
 }
 
 export class PathError extends Error {
@@ -137,6 +162,27 @@ function splitTopLevel(path: string): readonly string[] {
   return path.split("/").filter((s) => s.length > 0);
 }
 
+// Dispatch a `char/...` path into (characterId, subParts). Two forms:
+//   char/<field>...        -> focused interp; characterId = ctx.characterId
+//   char/<id>/<field>...   -> explicit; characterId = parts[1]
+// Disambiguation: parts[1] in CHAR_SUBTREE_TOKENS means focused form. Else
+// parts[1] is treated as a character id and parts[2..] is the sub-grammar.
+// Returns NO_TARGET-shaped PathError when the focused form is used without
+// a session focus.
+interface CharDispatch { readonly characterId: string; readonly subParts: readonly string[]; }
+
+function dispatchCharPath(ctx: ToolCtx, path: string, parts: readonly string[]): CharDispatch {
+  const second = parts[1];
+  if (second === undefined) throw new PathError(path, "expected char/<field> or char/<id>/<field>");
+  if (CHAR_SUBTREE_TOKENS.has(second) || isCharacterStringField(second)) {
+    if (!ctx.characterId) {
+      throw new PathError(path, "[NO_TARGET] no character is focused in this session. Either pass `char/<id>/<field>` with an explicit character id (use `list_characters` to enumerate), or have the user pick a character via the selector.");
+    }
+    return { characterId: ctx.characterId, subParts: parts.slice(1) };
+  }
+  return { characterId: second, subParts: parts.slice(2) };
+}
+
 // Read the leaf currently addressed by `path`. Throws PathError if the path
 // is malformed or doesn't resolve to a string. Used by `read` and `edit`
 // (which calls read, mutates, calls write).
@@ -146,12 +192,13 @@ export async function resolveRead(ctx: ToolCtx, path: string): Promise<ResolvedL
   const head = parts[0]!;
 
   if (head === "char" || head === "character") {
-    if (!ctx.characterId) throw new PathError(path, "no character is selected in this session; char/ paths need an active character (wb/, rx/, persona/, chat/, preset/ paths work without one)");
-    const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
-    if (!c) throw new PathError(path, `character ${ctx.characterId} not found`);
-    const sub = parts[1]!;
+    const { characterId, subParts } = dispatchCharPath(ctx, path, parts);
+    const c = await ctx.spindle.characters.get(characterId, ctx.userId);
+    if (!c) throw new PathError(path, `character ${characterId} not found`);
+    const sub = subParts[0];
+    if (sub === undefined) throw new PathError(path, "expected a field after char/<id>");
     if (sub === "alternate_greetings") {
-      const idxStr = parts[2];
+      const idxStr = subParts[1];
       if (idxStr === undefined) throw new PathError(path, "alternate_greetings requires an index");
       const idx = parseInt(idxStr, 10);
       const arr = c.alternate_greetings ?? [];
@@ -163,25 +210,25 @@ export async function resolveRead(ctx: ToolCtx, path: string): Promise<ResolvedL
       }
       const value = arr[idx] ?? "";
       return {
-        key: `char/alternate_greetings/${idx}`,
+        key: `char/${characterId}/alternate_greetings/${idx}`,
         surface: "alternate_greeting",
-        surfaceId: ctx.characterId,
+        surfaceId: characterId,
         surfaceLabel: `Greeting #${idx}`,
         field: String(idx),
         value,
       };
     }
     if (sub === "alternate_fields") {
-      const field = parts[2];
-      const variantId = parts[3];
-      const leafField = parts[4];
+      const field = subParts[1];
+      const variantId = subParts[2];
+      const leafField = subParts[3];
       if (field === undefined) {
         throw new PathError(path, `expected char/alternate_fields/<field>/<variantId>/<content|label>. Valid fields: ${ALTERNATE_FIELD_NAMES.join(", ")}. Use \`list({path:"char/alternate_fields"})\` to discover.`);
       }
       if (!isAlternateFieldName(field)) {
         throw new PathError(path, `unknown alternate field '${field}'. Valid: ${ALTERNATE_FIELD_NAMES.join(", ")}`);
       }
-      if (variantId === undefined || leafField === undefined || parts.length !== 5) {
+      if (variantId === undefined || leafField === undefined || subParts.length !== 4) {
         throw new PathError(path, `expected char/alternate_fields/${field}/<variantId>/<content|label>. Use \`list({path:"char/alternate_fields/${field}"})\` to discover variant ids.`);
       }
       if (leafField !== "content" && leafField !== "label") {
@@ -196,18 +243,18 @@ export async function resolveRead(ctx: ToolCtx, path: string): Promise<ResolvedL
       const extDotted = `alternate_fields.${field}[${idx}].${leafField}`;
       const variantLabel = variant.label || `(unlabeled #${idx})`;
       return {
-        key: `char/alternate_fields/${field}/${variantId}/${leafField}`,
+        key: `char/${characterId}/alternate_fields/${field}/${variantId}/${leafField}`,
         surface: "extension",
-        surfaceId: ctx.characterId,
+        surfaceId: characterId,
         surfaceLabel: `${field} variant '${variantLabel}' (${leafField})`,
         field: extDotted,
         value: variant[leafField],
       };
     }
     if (sub === "extensions") {
-      const extPath = parts.slice(2).join(".");
+      const extPath = subParts.slice(1).join(".");
       if (extPath.length === 0) throw new PathError(path, "extensions requires a sub-path");
-      await assertExtensionReadAllowed(ctx, extPath);
+      await assertExtensionReadAllowed(ctx, characterId, extPath);
       const segs = parseExtensionPath(extPath);
       const v = getAtPath(c.extensions ?? {}, segs);
       if (typeof v !== "string") {
@@ -215,22 +262,22 @@ export async function resolveRead(ctx: ToolCtx, path: string): Promise<ResolvedL
         throw new PathError(path, `extension path resolves to ${shape}, not string. Use \`list({path: "char/extensions/${extPath}"})\` to walk its structure, or \`set({path, value})\` to write the whole subtree.`);
       }
       return {
-        key: `char/extensions/${extPath}`,
+        key: `char/${characterId}/extensions/${extPath}`,
         surface: "extension",
-        surfaceId: ctx.characterId,
+        surfaceId: characterId,
         surfaceLabel: `extensions.${extPath}`,
         field: extPath,
         value: v,
       };
     }
-    if (parts.length !== 2) throw new PathError(path, `expected char/<field>, got ${parts.length} segments`);
+    if (subParts.length !== 1) throw new PathError(path, `expected char/<field>, got ${subParts.length} subsegments`);
     if (!isCharacterStringField(sub)) throw new PathError(path, `unknown character field '${sub}'. Valid: ${CHARACTER_STRING_FIELDS.join(", ")}`);
     const v = (c as unknown as Record<string, unknown>)[sub];
     if (typeof v !== "string") throw new PathError(path, `field '${sub}' is not a string`);
     return {
-      key: `char/${sub}`,
+      key: `char/${characterId}/${sub}`,
       surface: "character_field",
-      surfaceId: ctx.characterId,
+      surfaceId: characterId,
       surfaceLabel: c.name,
       field: sub,
       value: v,
@@ -276,6 +323,11 @@ export async function resolveRead(ctx: ToolCtx, path: string): Promise<ResolvedL
       surfaceLabel: wbLabel(e),
       field,
       value: v,
+      // scopeForLeafKey can't tell a book id from an entry id off the key.
+      // In a character session the scope override is unused (characterScope
+      // wins); in a no-character session it routes the edit to the right
+      // world_book ledger.
+      ...(ctx.characterId ? {} : { scope: { kind: "world_book" as const, id: e.world_book_id } }),
     };
   }
 
@@ -374,42 +426,48 @@ export async function resolveWrite(
   nextValue: string,
 ): Promise<void> {
   if (leaf.surface === "character_field") {
+    const charId = leaf.surfaceId;
     const patch: CharacterUpdateDTO = { [leaf.field]: nextValue } as CharacterUpdateDTO;
-    await ctx.spindle.characters.update(ctx.characterId, patch, ctx.userId);
+    await ctx.spindle.characters.update(charId, patch, ctx.userId);
     ctx.pushEdit({
-      op: "edit", surface: "character_field", surfaceId: ctx.characterId,
+      op: "edit", surface: "character_field", surfaceId: charId,
       surfaceLabel: leaf.surfaceLabel, field: leaf.field, before: leaf.value, after: nextValue,
+      scope: characterScope(charId),
     } satisfies EditRecord);
     return;
   }
   if (leaf.surface === "alternate_greeting") {
+    const charId = leaf.surfaceId;
     const idx = parseInt(leaf.field, 10);
-    const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
+    const c = await ctx.spindle.characters.get(charId, ctx.userId);
     if (!c) throw new Error("character not found");
     const arr = [...(c.alternate_greetings ?? [])];
     if (idx < 0 || idx >= arr.length) throw new Error(`alternate_greetings[${idx}] out of range`);
     arr[idx] = nextValue;
-    await ctx.spindle.characters.update(ctx.characterId, { alternate_greetings: arr }, ctx.userId);
+    await ctx.spindle.characters.update(charId, { alternate_greetings: arr }, ctx.userId);
     ctx.pushEdit({
-      op: "edit", surface: "alternate_greeting", surfaceId: ctx.characterId,
+      op: "edit", surface: "alternate_greeting", surfaceId: charId,
       surfaceLabel: leaf.surfaceLabel, field: leaf.field, before: leaf.value, after: nextValue,
+      scope: characterScope(charId),
     });
     return;
   }
   if (leaf.surface === "extension") {
-    await assertExtensionWriteAllowed(ctx, leaf.field);
-    const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
+    const charId = leaf.surfaceId;
+    await assertExtensionWriteAllowed(ctx, charId, leaf.field);
+    const c = await ctx.spindle.characters.get(charId, ctx.userId);
     if (!c) throw new Error("character not found");
     const segs = parseExtensionPath(leaf.field);
     const next = setAtPath(c.extensions ?? {}, segs, nextValue) as Record<string, unknown>;
-    await ctx.spindle.characters.update(ctx.characterId, { extensions: next }, ctx.userId);
+    await ctx.spindle.characters.update(charId, { extensions: next }, ctx.userId);
     // JSON-encode so the file stays consistent with set-tool extension writes
     // and revertFieldEditV2 can decode through writeFieldValue.
     ctx.pushEdit({
-      op: "edit", surface: "extension", surfaceId: ctx.characterId,
+      op: "edit", surface: "extension", surfaceId: charId,
       surfaceLabel: leaf.surfaceLabel, field: leaf.field,
       before: JSON.stringify(leaf.value), after: JSON.stringify(nextValue),
       valueEncoding: "json",
+      scope: characterScope(charId),
     });
     return;
   }
@@ -418,7 +476,7 @@ export async function resolveWrite(
     ctx.pushEdit({
       op: "edit", surface: "regex_script", surfaceId: leaf.surfaceId,
       surfaceLabel: leaf.surfaceLabel, field: leaf.field, before: leaf.value, after: nextValue,
-      scope: scopeForLeafKey(leaf.key, ctx),
+      scope: leaf.scope ?? scopeForLeafKey(leaf.key, ctx),
     });
     return;
   }
@@ -427,7 +485,7 @@ export async function resolveWrite(
     ctx.pushEdit({
       op: "edit", surface: "world_book_entry", surfaceId: leaf.surfaceId,
       surfaceLabel: leaf.surfaceLabel, field: leaf.field, before: leaf.value, after: nextValue,
-      scope: scopeForLeafKey(leaf.key, ctx),
+      scope: leaf.scope ?? scopeForLeafKey(leaf.key, ctx),
     });
     return;
   }
@@ -467,61 +525,98 @@ export async function resolveWrite(
 // check_write op. Refusals throw ExtensionRefusedError carrying the bridge's
 // redirect message verbatim so callers can surface it without rewrapping.
 
-async function assertExtensionWriteAllowed(ctx: ToolCtx, extPath: string): Promise<void> {
+async function assertExtensionWriteAllowed(ctx: ToolCtx, characterId: string, extPath: string): Promise<void> {
   const { checkExtensionWrite } = await import("../../phoneline/gate");
-  const res = await checkExtensionWrite(ctx.spindle, ctx.userId, ctx.characterId, extPath);
+  const res = await checkExtensionWrite(ctx.spindle, ctx.userId, characterId, extPath);
   if (!res.ok) throw new ExtensionRefusedError(`char/extensions/${extPath}`, "write", res.message ?? "extension refused write at this path");
 }
 
-async function assertExtensionReadAllowed(ctx: ToolCtx, extPath: string): Promise<void> {
+async function assertExtensionReadAllowed(ctx: ToolCtx, characterId: string, extPath: string): Promise<void> {
   const { checkExtensionRead } = await import("../../phoneline/gate");
-  const res = await checkExtensionRead(ctx.spindle, ctx.userId, ctx.characterId, extPath);
+  const res = await checkExtensionRead(ctx.spindle, ctx.userId, characterId, extPath);
   if (!res.ok) throw new ExtensionRefusedError(`char/extensions/${extPath}`, "read", res.message ?? "extension refused read at this path");
 }
 
 // Export so update_character can run the same gate against its extensions patch.
 export { assertExtensionWriteAllowed };
 
-// All editable string leaves on the character + extensions + regex + lorebook,
-// flat-listed by path. Used by the audit tool and (later) the path-based
-// list/glob tool.
-export async function* iterateAllLeaves(ctx: ToolCtx): AsyncGenerator<ResolvedLeaf> {
-  const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
+// All editable string leaves on one character + extensions + regex + lorebook,
+// flat-listed by path. Takes the target character id explicitly (resolved by
+// the caller from input.character_id or session focus), so whole-card tools
+// (grep / audit / survey) can address any card in All Characters mode. Char
+// leaf keys carry the id (`char/<id>/...`) so a result returned for a
+// non-focused character round-trips through resolveRead unambiguously. rx / wb
+// leaves carry a characterScope override so edits found here file under the
+// owning character even when it differs from the session focus.
+export async function* iterateAllLeaves(ctx: ToolCtx, characterId: string): AsyncGenerator<ResolvedLeaf> {
+  const c = await ctx.spindle.characters.get(characterId, ctx.userId);
   if (!c) return;
+  const charScope = characterScope(characterId);
 
   for (const field of CHARACTER_STRING_FIELDS) {
     const v = (c as unknown as Record<string, unknown>)[field];
     if (typeof v === "string") {
-      yield { key: `char/${field}`, surface: "character_field", surfaceId: ctx.characterId, surfaceLabel: c.name, field, value: v };
+      yield { key: `char/${characterId}/${field}`, surface: "character_field", surfaceId: characterId, surfaceLabel: c.name, field, value: v, scope: charScope };
     }
   }
   if (Array.isArray(c.alternate_greetings)) {
     for (let i = 0; i < c.alternate_greetings.length; i++) {
       const v = c.alternate_greetings[i];
       if (typeof v === "string") {
-        yield { key: `char/alternate_greetings/${i}`, surface: "alternate_greeting", surfaceId: ctx.characterId, surfaceLabel: `Greeting #${i}`, field: String(i), value: v };
+        yield { key: `char/${characterId}/alternate_greetings/${i}`, surface: "alternate_greeting", surfaceId: characterId, surfaceLabel: `Greeting #${i}`, field: String(i), value: v, scope: charScope };
       }
+    }
+  }
+  // alternate_fields variants surface as their friendly by-id paths so audit /
+  // grep filter on `char/alternate_fields/` matches them. The legacy extension
+  // walker would also reach these leaves at `char/extensions/alternate_fields.<f>[<i>].<leaf>`,
+  // so the skip predicate below masks that subtree to avoid double-yielding.
+  for (const field of ALTERNATE_FIELD_NAMES) {
+    const variants = readAltFieldArray(c.extensions, field);
+    for (let i = 0; i < variants.length; i++) {
+      const v = variants[i]!;
+      const labelText = v.label || `(unlabeled #${i})`;
+      yield {
+        key: `char/${characterId}/alternate_fields/${field}/${v.id}/content`,
+        surface: "extension",
+        surfaceId: characterId,
+        surfaceLabel: `${field} variant '${labelText}' (content)`,
+        field: `alternate_fields.${field}[${i}].content`,
+        value: v.content,
+        scope: charScope,
+      };
+      yield {
+        key: `char/${characterId}/alternate_fields/${field}/${v.id}/label`,
+        surface: "extension",
+        surfaceId: characterId,
+        surfaceLabel: `${field} variant '${labelText}' (label)`,
+        field: `alternate_fields.${field}[${i}].label`,
+        value: v.label,
+        scope: charScope,
+      };
     }
   }
   // Walk extensions deep tree for every string leaf. Phone-line manifests
   // declare path prefixes (derived/cached projections) to skip via the
-  // shared search-excludes helper.
+  // shared search-excludes helper. alternate_fields gets masked here because
+  // the friendly-path loop above already yielded those leaves.
   const { walkStringLeaves: walk } = await import("./_walk");
   const { buildExtensionsSearchSkip } = await import("../../phoneline/search-excludes");
-  const skip = await buildExtensionsSearchSkip(ctx.spindle, ctx.userId);
+  const phonelineSkip = await buildExtensionsSearchSkip(ctx.spindle, ctx.userId);
+  const skip = (path: string): boolean => path === "alternate_fields" || path.startsWith("alternate_fields.") || phonelineSkip(path);
   for (const leaf of walk(c.extensions ?? {}, "", skip)) {
-    yield { key: `char/extensions/${leaf.path}`, surface: "extension", surfaceId: ctx.characterId, surfaceLabel: `extensions.${leaf.path}`, field: leaf.path, value: leaf.text };
+    yield { key: `char/${characterId}/extensions/${leaf.path}`, surface: "extension", surfaceId: characterId, surfaceLabel: `extensions.${leaf.path}`, field: leaf.path, value: leaf.text, scope: charScope };
   }
   // Regex scripts (character scope).
   let rOff = 0;
   while (true) {
-    const r = await ctx.spindle.regex_scripts.list({ scope: "character", scopeId: ctx.characterId, userId: ctx.userId, limit: 200, offset: rOff });
+    const r = await ctx.spindle.regex_scripts.list({ scope: "character", scopeId: characterId, userId: ctx.userId, limit: 200, offset: rOff });
     for (const s of r.data) {
       if (typeof s.find_regex === "string") {
-        yield { key: `rx/${s.id}/find_regex`, surface: "regex_script", surfaceId: s.id, surfaceLabel: s.name, field: "find_regex", value: s.find_regex };
+        yield { key: `rx/${s.id}/find_regex`, surface: "regex_script", surfaceId: s.id, surfaceLabel: s.name, field: "find_regex", value: s.find_regex, scope: charScope };
       }
       if (typeof s.replace_string === "string") {
-        yield { key: `rx/${s.id}/replace_string`, surface: "regex_script", surfaceId: s.id, surfaceLabel: s.name, field: "replace_string", value: s.replace_string };
+        yield { key: `rx/${s.id}/replace_string`, surface: "regex_script", surfaceId: s.id, surfaceLabel: s.name, field: "replace_string", value: s.replace_string, scope: charScope };
       }
     }
     if (r.data.length === 0 || rOff + r.data.length >= r.total) break;
@@ -534,10 +629,10 @@ export async function* iterateAllLeaves(ctx: ToolCtx): AsyncGenerator<ResolvedLe
       const r = await ctx.spindle.world_books.entries.list(wbId, { limit: 500, userId: ctx.userId, offset: wOff });
       for (const e of r.data) {
         if (typeof e.content === "string") {
-          yield { key: `wb/${e.id}/content`, surface: "world_book_entry", surfaceId: e.id, surfaceLabel: wbLabel(e), field: "content", value: e.content };
+          yield { key: `wb/${e.id}/content`, surface: "world_book_entry", surfaceId: e.id, surfaceLabel: wbLabel(e), field: "content", value: e.content, scope: charScope };
         }
         if (typeof e.comment === "string" && e.comment.length > 0) {
-          yield { key: `wb/${e.id}/comment`, surface: "world_book_entry", surfaceId: e.id, surfaceLabel: wbLabel(e), field: "comment", value: e.comment };
+          yield { key: `wb/${e.id}/comment`, surface: "world_book_entry", surfaceId: e.id, surfaceLabel: wbLabel(e), field: "comment", value: e.comment, scope: charScope };
         }
       }
       if (r.data.length === 0 || wOff + r.data.length >= r.total) break;

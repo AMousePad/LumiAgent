@@ -28,12 +28,24 @@ export const listVariablesTool = defineTool({
         const chatId = input.chat_id ?? ctx.pinnedChatId;
         if (!chatId) return { content: JSON.stringify({ error: `${input.scope} variables need a chat_id and no chat is pinned` }), isError: true };
         if (input.scope === "macro") {
+          // chat.metadata.macro_variables is a two-level bag in Lumiverse:
+          // { local: { name: value, ... }, global: { name: value, ... } }
+          // Flatten with `local.`/`global.` prefixes so the agent sees actual
+          // variable names instead of literally "local" and "global".
           const chat = await ctx.spindle.chats.get(chatId, ctx.userId);
           const meta = (chat?.metadata ?? {}) as Record<string, unknown>;
           const raw = meta["macro_variables"];
-          map = (raw && typeof raw === "object" && !Array.isArray(raw))
-            ? Object.fromEntries(Object.entries(raw as Record<string, unknown>).map(([k, v]) => [k, typeof v === "string" ? v : JSON.stringify(v)]))
-            : {};
+          const bag = (raw && typeof raw === "object" && !Array.isArray(raw)) ? raw as Record<string, unknown> : {};
+          const entries: [string, string][] = [];
+          for (const subKey of ["local", "global"] as const) {
+            const sub = bag[subKey];
+            if (sub && typeof sub === "object" && !Array.isArray(sub)) {
+              for (const [k, v] of Object.entries(sub as Record<string, unknown>)) {
+                entries.push([`${subKey}.${k}`, typeof v === "string" ? v : JSON.stringify(v)]);
+              }
+            }
+          }
+          map = Object.fromEntries(entries);
         } else {
           map = input.scope === "chat"
             ? await ctx.spindle.variables.chat.list(chatId)

@@ -140,7 +140,13 @@ export async function loadSession(spindle: SpindleAPI, sessionId: string, userId
 type MutableLegacyEdit = Omit<EditLogEntry, "scope"> & { scope?: EditLogEntry["scope"]; characterId?: string };
 
 function normalizeLegacyEditScopes(s: PersistedSession): void {
-  for (const e of s.edits ?? []) {
+  // Pre-schema sessions on disk may have `edits` missing entirely (or null).
+  // Assigning the fallback back onto `s` is load-bearing: summarizeForIndex
+  // and handleRevertSession do s.edits.filter(...) directly and would throw
+  // TypeError on every list / revert call until the session file is touched
+  // again.
+  if (!Array.isArray(s.edits)) (s as unknown as Record<string, unknown>)["edits"] = [];
+  for (const e of s.edits) {
     const le = e as unknown as MutableLegacyEdit;
     if (!le.scope) le.scope = characterScope(le.characterId ?? s.characterId ?? "");
   }

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { CharacterUpdateDTO } from "lumiverse-spindle-types";
 import { defineTool } from "./_framework";
+import { resolveCharacterTarget, noTargetResult } from "./_context";
 
 type Kind = "plain" | "html" | "lua";
 
@@ -107,6 +108,9 @@ Usage:
   requiresCharacter: true,
   execute: async (input, ctx) => {
     if (!ctx.callFrontend) return { content: "Error: frontend translation bridge unavailable in this context.", isError: true };
+    let cid: string;
+    try { cid = resolveCharacterTarget(ctx); }
+    catch (err) { const nt = noTargetResult(err); if (nt) return nt; throw err; }
     const include = new Set<typeof INCLUDE_VALUES[number]>(input.include ?? DEFAULT_INCLUDE);
     const minChars = input.min_chars ?? DEFAULT_MIN_CHARS;
 
@@ -114,11 +118,11 @@ Usage:
     let idCounter = 0;
     const mkId = () => `t_${(++idCounter).toString(36)}`;
 
-    const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
-    if (!c) return { content: `Error: character ${ctx.characterId} not found.`, isError: true };
+    const c = await ctx.spindle.characters.get(cid, ctx.userId);
+    if (!c) return { content: `Error: character ${cid} not found.`, isError: true };
 
     if (include.has("regex_scripts")) {
-      const res = await ctx.spindle.regex_scripts.list({ scope: "character", scopeId: ctx.characterId, userId: ctx.userId, limit: 1000 });
+      const res = await ctx.spindle.regex_scripts.list({ scope: "character", scopeId: cid, userId: ctx.userId, limit: 1000 });
       for (const r of res.data) {
         if (isNonEmptyString(r.replace_string) && r.replace_string.length >= minChars) {
           items.push({ id: mkId(), text: r.replace_string, kind: "plain", target: { kind: "regex_replace_string", scriptId: r.id, scriptName: r.name } });
@@ -375,7 +379,7 @@ Usage:
       const allowedMutations: ExtensionMutation[] = [];
       for (const m of extensionMutations) {
         const dotted = m.path.map((seg) => /^\d+$/.test(seg) ? `[${seg}]` : seg).join(".").replace(/\.\[/g, "[");
-        const res = await checkExtensionWrite(ctx.spindle, ctx.userId, ctx.characterId, dotted);
+        const res = await checkExtensionWrite(ctx.spindle, ctx.userId, cid, dotted);
         if (res.ok) allowedMutations.push(m);
         else writeErrors.push({ target: `extensions.${dotted}`, error: `[REFUSED_BY_EXTENSION] ${res.message ?? "extension refused write at this path"}` });
       }
@@ -398,9 +402,18 @@ Usage:
           }
         }
         try {
-          await ctx.spindle.characters.update(ctx.characterId, { extensions: nextExtensionsRoot } as CharacterUpdateDTO, ctx.userId);
+          await ctx.spindle.characters.update(cid, { extensions: nextExtensionsRoot } as CharacterUpdateDTO, ctx.userId);
           for (const m of allowedMutations) {
-            ctx.pushEdit({ op: "edit", surface: "extension", surfaceId: ctx.characterId, surfaceLabel: m.label, field: m.path.join("."), before: m.before, after: m.after });
+            // valueEncoding="json" + JSON-encoded before/after matches
+            // setExtension / resolveWrite's extension branch. Without this the
+            // patch stack rebases on the next extension edit and silently drops
+            // history on the same leaf.
+            // `m.label` is the bracket-notation extension path (e.g.
+            // `lumirealm.payload.triggers[0].effect[0].value`). `m.path.join(".")`
+            // would yield `triggers.0.effect.0.value`, which parsePath reads as
+            // plain string keys and setAtPath would write under `arr["0"]` instead
+            // of `arr[0]` on revert — silently dropping the undo.
+            ctx.pushEdit({ op: "edit", surface: "extension", surfaceId: cid, surfaceLabel: m.label, field: m.label, before: JSON.stringify(m.before), after: JSON.stringify(m.after), valueEncoding: "json" });
             extensionApplied++;
           }
         } catch (err) {
@@ -413,9 +426,9 @@ Usage:
       const patch: Record<string, string> = {};
       for (const m of charFieldMutations) patch[m.field] = m.after;
       try {
-        await ctx.spindle.characters.update(ctx.characterId, patch as CharacterUpdateDTO, ctx.userId);
+        await ctx.spindle.characters.update(cid, patch as CharacterUpdateDTO, ctx.userId);
         for (const m of charFieldMutations) {
-          ctx.pushEdit({ op: "edit", surface: "character_field", surfaceId: ctx.characterId, surfaceLabel: c.name, field: m.field, before: m.before, after: m.after });
+          ctx.pushEdit({ op: "edit", surface: "character_field", surfaceId: cid, surfaceLabel: c.name, field: m.field, before: m.before, after: m.after });
           charFieldApplied++;
         }
       } catch (err) {
@@ -429,9 +442,9 @@ Usage:
         if (m.index >= 0 && m.index < arr.length) arr[m.index] = m.after;
       }
       try {
-        await ctx.spindle.characters.update(ctx.characterId, { alternate_greetings: arr } as CharacterUpdateDTO, ctx.userId);
+        await ctx.spindle.characters.update(cid, { alternate_greetings: arr } as CharacterUpdateDTO, ctx.userId);
         for (const m of altGreetingMutations) {
-          ctx.pushEdit({ op: "edit", surface: "alternate_greeting", surfaceId: ctx.characterId, surfaceLabel: `Alt greeting #${m.index}`, field: String(m.index), before: m.before, after: m.after });
+          ctx.pushEdit({ op: "edit", surface: "alternate_greeting", surfaceId: cid, surfaceLabel: `Alt greeting #${m.index}`, field: String(m.index), before: m.before, after: m.after });
           altGreetingApplied++;
         }
       } catch (err) {

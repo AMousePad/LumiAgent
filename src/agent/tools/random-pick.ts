@@ -21,7 +21,7 @@ Returns:
   jsonSchema: {
     type: "object",
     properties: {
-      items: { type: "array", items: { type: "string" }, description: "The list to pick from." },
+      items: { type: "array", items: {}, description: "The list to pick from. Items can be any JSON value (strings, objects, etc.); picks come back as the same element type." },
       count: { type: "number", description: "How many to pick. Default 1." },
       replacement: { type: "boolean", description: "If true, the same item can be picked more than once. Default false." },
     },

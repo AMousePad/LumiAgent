@@ -2,6 +2,7 @@ import { z } from "zod";
 import { defineTool } from "./_framework";
 import { squashMessage } from "../../state/ledger";
 import { characterScope } from "../../types";
+import { resolveCharacterTarget, noTargetResult } from "./_context";
 
 const inputSchema = z.object({
   phase_label: z.string().max(120).optional().describe("Optional label for what this phase represented (e.g. 'translation pass', 'tone refactor'). Stored on the merged patch's description."),
@@ -26,7 +27,10 @@ Usage:
   requiresCharacter: true,
   execute: async (input, ctx) => {
     if (!ctx.assistantMessageId) return { content: "Error: no active assistant message; squash_session_edits only valid inside an agent response.", isError: true };
-    const result = await squashMessage(ctx.spindle, characterScope(ctx.characterId), ctx.assistantMessageId, ctx.userId, { sealed: true });
+    let cid: string;
+    try { cid = resolveCharacterTarget(ctx); }
+    catch (err) { const nt = noTargetResult(err); if (nt) return nt; throw err; }
+    const result = await squashMessage(ctx.spindle, characterScope(cid), ctx.assistantMessageId, ctx.userId, { sealed: true });
     if (result.filesTouched > 0 || result.absorbedIds.length > 0) ctx.pushLedgerResync();
     return {
       content: JSON.stringify({

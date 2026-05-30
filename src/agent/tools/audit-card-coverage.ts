@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import { iterateAllLeaves } from "./_path_v2";
+import { resolveCharacterTarget, noTargetResult } from "./_context";
 import { spillOrReturn } from "./_io";
 
 // Unicode ranges for the languages users actually translate FROM. Each entry
@@ -21,6 +22,7 @@ const inputSchema = z.object({
   include_paths: z.array(z.string()).optional().describe("Restrict to leaves whose path starts with one of these prefixes."),
   exclude_paths: z.array(z.string()).optional().describe("Skip leaves whose path starts with any of these prefixes."),
   show_samples: z.boolean().optional().describe("Include up to 5 sample matched runs per leaf, stratified across the leaf. Default true."),
+  character_id: z.string().optional().describe("Character to audit. Defaults to the focused character."),
 }).strict();
 
 interface MatchSample {
@@ -241,11 +243,15 @@ Sorted by match_chars descending so the worst offenders surface first.`,
       include_paths: { type: "array", items: { type: "string" } },
       exclude_paths: { type: "array", items: { type: "string" } },
       show_samples: { type: "boolean" },
+      character_id: { type: "string", description: "Defaults to the focused character." },
     },
     additionalProperties: false,
   },
-  requiresCharacter: true,
+  requiresCharacter: false,
   execute: async (input, ctx) => {
+    let target: string;
+    try { target = resolveCharacterTarget(ctx, input.character_id); }
+    catch (err) { const nt = noTargetResult(err); if (nt) return nt; throw err; }
     const langKey = input.source_lang ?? "cjk";
     const minChars = input.min_chars ?? 1;
     const showSamples = input.show_samples ?? true;
@@ -268,7 +274,7 @@ Sorted by match_chars descending so the worst offenders surface first.`,
     let scanned = 0;
     let totalMatchChars = 0;
     let codeLeavesNeedingFullRead = 0;
-    for await (const leaf of iterateAllLeaves(ctx)) {
+    for await (const leaf of iterateAllLeaves(ctx, target)) {
       scanned++;
       if (includePrefixes.length > 0 && !includePrefixes.some((p) => leaf.key.startsWith(p))) continue;
       if (excludePrefixes.some((p) => leaf.key.startsWith(p))) continue;

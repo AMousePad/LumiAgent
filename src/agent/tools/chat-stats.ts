@@ -54,7 +54,7 @@ export const chatStatsTool = defineTool({
         first_ts: firstTs,
         last_ts: lastTs,
         hint: all.length > 200
-          ? "Big chat. Prefer grep_chat_messages for content search, list_chat_messages for skimming, or read_chat_messages with offset/limit for targeted ranges. read_chat_messages without offset returns only the tail by default."
+          ? `Big chat. Prefer grep_chat_messages for content search, list_chat_messages for skimming, or read_chat_messages with offset/limit for targeted ranges. read_chat_messages defaults to offset 0 (oldest first); pass offset ${Math.max(0, all.length - 100)} to read the most recent ~100 messages.`
           : "Small enough to read end-to-end if needed.",
       }, null, 2),
     };

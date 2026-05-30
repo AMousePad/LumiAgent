@@ -1,11 +1,12 @@
 import { z } from "zod";
 import type { CharacterUpdateDTO, RegexScriptUpdateDTO, WorldBookEntryUpdateDTO, WorldBookUpdateDTO, UserPresetUpdateDTO, PersonaUpdateDTO } from "lumiverse-spindle-types";
 import { defineTool } from "./_framework";
-import type { ToolCtx } from "./_context";
-import type { EditRecord } from "../../types";
+import { type ToolCtx, resolveCharacterTarget, noTargetResult } from "./_context";
+import type { EditRecord, ScopeRef } from "../../types";
+import { characterScope } from "../../types";
 import { isCharacterStringField, wbLabel } from "./_surfaces";
 import { parseExtensionPath, setAtPath } from "./_paths";
-import { ExtensionRefusedError, assertExtensionWriteAllowed, scopeForLeafKey, isAlternateFieldName, readAltFieldArray, writeAltFieldArray, ALTERNATE_FIELD_NAMES } from "./_path_v2";
+import { ExtensionRefusedError, assertExtensionWriteAllowed, scopeForLeafKey, isCharSubtreeToken, isAlternateFieldName, readAltFieldArray, writeAltFieldArray, ALTERNATE_FIELD_NAMES } from "./_path_v2";
 import { encodeScalar } from "../../state/edit-log";
 
 const inputSchema = z.object({
@@ -18,34 +19,34 @@ function stringify(v: unknown): string {
   return JSON.stringify(v ?? null);
 }
 
-async function setCharacterField(ctx: ToolCtx, field: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string } | string> {
+async function setCharacterField(ctx: ToolCtx, characterId: string, field: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string } | string> {
   if (!isCharacterStringField(field)) return `[PATH_NOT_FOUND] unknown character field '${field}'`;
   if (typeof value !== "string") return `[INVALID_VALUE_TYPE] char/${field} expects a string value, got ${typeof value}`;
-  const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
+  const c = await ctx.spindle.characters.get(characterId, ctx.userId);
   if (!c) return "character not found";
   const before = (c as unknown as Record<string, unknown>)[field];
   const beforeStr = typeof before === "string" ? before : "";
-  await ctx.spindle.characters.update(ctx.characterId, { [field]: value } as CharacterUpdateDTO, ctx.userId);
-  return { before: beforeStr, after: value, label: c.name, surface: "character_field", surfaceId: ctx.characterId, field };
+  await ctx.spindle.characters.update(characterId, { [field]: value } as CharacterUpdateDTO, ctx.userId);
+  return { before: beforeStr, after: value, label: c.name, surface: "character_field", surfaceId: characterId, field };
 }
 
-async function setAlternateGreeting(ctx: ToolCtx, idx: number, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string } | string> {
+async function setAlternateGreeting(ctx: ToolCtx, characterId: string, idx: number, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string } | string> {
   if (typeof value !== "string") return `[INVALID_VALUE_TYPE] alternate_greetings is a string array; non-string values not allowed`;
-  const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
+  const c = await ctx.spindle.characters.get(characterId, ctx.userId);
   if (!c) return "character not found";
   const arr = [...(c.alternate_greetings ?? [])];
   if (idx < 0 || idx >= arr.length) return `[OUT_OF_RANGE] alternate_greetings[${idx}] is past the end (length ${arr.length}). \`list({path: "char/alternate_greetings"})\` shows valid indices.`;
   const before = arr[idx] ?? "";
   arr[idx] = value;
-  await ctx.spindle.characters.update(ctx.characterId, { alternate_greetings: arr }, ctx.userId);
-  return { before, after: value, label: `Greeting #${idx}`, surface: "alternate_greeting", surfaceId: ctx.characterId, field: String(idx) };
+  await ctx.spindle.characters.update(characterId, { alternate_greetings: arr }, ctx.userId);
+  return { before, after: value, label: `Greeting #${idx}`, surface: "alternate_greeting", surfaceId: characterId, field: String(idx) };
 }
 
-async function setAlternateFieldLeaf(ctx: ToolCtx, field: string, variantId: string, leaf: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string; valueEncoding: "json" } | string> {
+async function setAlternateFieldLeaf(ctx: ToolCtx, characterId: string, field: string, variantId: string, leaf: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string; valueEncoding: "json" } | string> {
   if (!isAlternateFieldName(field)) return `[PATH_NOT_FOUND] alternate_fields field must be one of ${ALTERNATE_FIELD_NAMES.join(", ")}, got '${field}'`;
   if (leaf !== "content" && leaf !== "label") return `[PATH_NOT_FOUND] alternate_fields leaf must be content or label, got '${leaf}'`;
   if (typeof value !== "string") return `[INVALID_VALUE_TYPE] alternate_fields.${leaf} expects a string, got ${typeof value}`;
-  const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
+  const c = await ctx.spindle.characters.get(characterId, ctx.userId);
   if (!c) return "character not found";
   const variants = readAltFieldArray(c.extensions, field);
   const idx = variants.findIndex((v) => v.id === variantId);
@@ -60,21 +61,21 @@ async function setAlternateFieldLeaf(ctx: ToolCtx, field: string, variantId: str
   const next = [...variants];
   next[idx] = updated;
   const nextExt = writeAltFieldArray(c.extensions, field, next);
-  await ctx.spindle.characters.update(ctx.characterId, { extensions: nextExt }, ctx.userId);
+  await ctx.spindle.characters.update(characterId, { extensions: nextExt }, ctx.userId);
   return {
     before: JSON.stringify(before),
     after: JSON.stringify(value),
     label: `${field} variant '${updated.label || `(unlabeled #${idx})`}' (${leaf})`,
     surface: "extension",
-    surfaceId: ctx.characterId,
+    surfaceId: characterId,
     field: `alternate_fields.${field}[${idx}].${leaf}`,
     valueEncoding: "json",
   };
 }
 
-async function setExtension(ctx: ToolCtx, dotted: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string; valueEncoding: "json" } | string> {
-  await assertExtensionWriteAllowed(ctx, dotted);
-  const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
+async function setExtension(ctx: ToolCtx, characterId: string, dotted: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string; valueEncoding: "json" } | string> {
+  await assertExtensionWriteAllowed(ctx, characterId, dotted);
+  const c = await ctx.spindle.characters.get(characterId, ctx.userId);
   if (!c) return "character not found";
   const segs = parseExtensionPath(dotted);
   // Get the previous value to record in the ledger.
@@ -85,13 +86,13 @@ async function setExtension(ctx: ToolCtx, dotted: string, value: unknown): Promi
     else cur = Array.isArray(cur) ? cur[seg.value] : undefined;
   }
   const next = setAtPath(c.extensions ?? {}, segs, value) as Record<string, unknown>;
-  await ctx.spindle.characters.update(ctx.characterId, { extensions: next }, ctx.userId);
+  await ctx.spindle.characters.update(characterId, { extensions: next }, ctx.userId);
   return {
     before: JSON.stringify(cur === undefined ? null : cur),
     after: JSON.stringify(value === undefined ? null : value),
     label: `extensions.${dotted}`,
     surface: "extension",
-    surfaceId: ctx.characterId,
+    surfaceId: characterId,
     field: dotted,
     valueEncoding: "json",
   };
@@ -105,20 +106,33 @@ async function setRegexScriptField(ctx: ToolCtx, scriptId: string, field: string
   return { before: stringify(before), after: stringify(value), label: r.name, surface: "regex_script", surfaceId: scriptId, field };
 }
 
-async function setWorldBookField(ctx: ToolCtx, id: string, field: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string } | string> {
+async function setWorldBookField(ctx: ToolCtx, id: string, field: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string; scopeOverride?: ScopeRef } | string> {
   // wb/<id>/<field> is overloaded: id may be a book (name/description/metadata)
   // or an entry. Resolve by lookup so one path grammar covers both.
   const book = await ctx.spindle.world_books.get(id, ctx.userId).catch(() => null);
   if (book) {
     const before = (book as unknown as Record<string, unknown>)[field];
     await ctx.spindle.world_books.update(id, { [field]: value } as WorldBookUpdateDTO, ctx.userId);
-    return { before: stringify(before), after: stringify(value), label: book.name, surface: "world_book", surfaceId: id, field };
+    // Book-level edit files under the book scope when there's no character;
+    // scopeForLeafKey can't infer it because the key segment is the book id
+    // either way, but the entry-vs-book branch matters for the entry case
+    // below.
+    return {
+      before: stringify(before), after: stringify(value), label: book.name, surface: "world_book", surfaceId: id, field,
+      ...(ctx.characterId ? {} : { scopeOverride: { kind: "world_book" as const, id } }),
+    };
   }
   const e = await ctx.spindle.world_books.entries.get(id, ctx.userId);
   if (!e) return `no world book or entry with id ${id}`;
   const before = (e as unknown as Record<string, unknown>)[field];
   await ctx.spindle.world_books.entries.update(id, { [field]: value } as WorldBookEntryUpdateDTO, ctx.userId);
-  return { before: stringify(before), after: stringify(value), label: wbLabel(e), surface: "world_book_entry", surfaceId: id, field };
+  return {
+    before: stringify(before), after: stringify(value), label: wbLabel(e), surface: "world_book_entry", surfaceId: id, field,
+    // No-character session: file under the owning book, not under the entry
+    // id (scopeForLeafKey would otherwise treat the entry id as a book id and
+    // store the patch in a ledger that never matches structural ops).
+    ...(ctx.characterId ? {} : { scopeOverride: { kind: "world_book" as const, id: e.world_book_id } }),
+  };
 }
 
 async function setPresetField(ctx: ToolCtx, presetId: string, field: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string } | string> {
@@ -190,15 +204,31 @@ Returns:
   // Path-targeted; char/ paths fail loudly without a character, wb/rx work.
   requiresCharacter: false,
   execute: async (input, ctx) => {
-    const path = input.path.trim();
+    let path = input.path.trim();
     const value = input.value;
 
-    let result: { before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string; valueEncoding?: "json" } | string;
+    // char/<id>/... explicit addressing (mirrors read/edit/rewrite). When the
+    // segment after char/ is a character id (not a known subtree token), strip
+    // it and bind charTarget to it; else fall back to the session focus.
+    let charTarget: string | null = ctx.characterId;
+    const explicitChar = /^(?:char|character)\/([^/]+)\/(.+)$/.exec(path);
+    if (explicitChar && !isCharSubtreeToken(explicitChar[1]!)) {
+      charTarget = explicitChar[1]!;
+      path = `char/${explicitChar[2]!}`;
+    }
+    const isCharPath = path.startsWith("char/") || path.startsWith("character/");
+    let charId = "";
+    if (isCharPath) {
+      try { charId = resolveCharacterTarget(ctx, charTarget); }
+      catch (err) { const nt = noTargetResult(err); if (nt) return nt; throw err; }
+    }
+
+    let result: { before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string; valueEncoding?: "json"; scopeOverride?: ScopeRef } | string;
 
     if (path.startsWith("char/extensions/") || path.startsWith("character/extensions/")) {
       const dotted = path.replace(/^(char|character)\/extensions\//, "");
       if (dotted.length === 0) return { content: "Error: extensions path requires a sub-path", isError: true };
-      try { result = await setExtension(ctx, dotted, value); }
+      try { result = await setExtension(ctx, charId, dotted, value); }
       catch (err) {
         if (err instanceof ExtensionRefusedError) return { content: `Error: [REFUSED_BY_EXTENSION] ${err.message}`, isError: true };
         throw err;
@@ -207,16 +237,16 @@ Returns:
       const rest = path.replace(/^(char|character)\/alternate_fields\//, "");
       const segs = rest.split("/");
       if (segs.length !== 3) return { content: "Error: expected char/alternate_fields/<field>/<variantId>/<content|label>", isError: true };
-      result = await setAlternateFieldLeaf(ctx, segs[0]!, segs[1]!, segs[2]!, value);
+      result = await setAlternateFieldLeaf(ctx, charId, segs[0]!, segs[1]!, segs[2]!, value);
     } else if (path.startsWith("char/alternate_greetings/") || path.startsWith("character/alternate_greetings/")) {
       const rest = path.replace(/^(char|character)\/alternate_greetings\//, "");
       const idx = parseInt(rest, 10);
       if (!Number.isFinite(idx)) return { content: `Error: alternate_greetings index '${rest}' is not a number`, isError: true };
-      result = await setAlternateGreeting(ctx, idx, value);
+      result = await setAlternateGreeting(ctx, charId, idx, value);
     } else if (path.startsWith("char/") || path.startsWith("character/")) {
       const field = path.replace(/^(char|character)\//, "");
       if (field.includes("/")) return { content: `Error: '${path}' has unexpected segments; for extension paths use char/extensions/...`, isError: true };
-      result = await setCharacterField(ctx, field, value);
+      result = await setCharacterField(ctx, charId, field, value);
     } else if (path.startsWith("rx/") || path.startsWith("regex_script/")) {
       const parts = path.split("/").slice(1);
       if (parts.length !== 2) return { content: "Error: expected rx/<scriptId>/<field>", isError: true };
@@ -247,7 +277,14 @@ Returns:
       field: result.field,
       before: result.before,
       after: result.after,
-      scope: scopeForLeafKey(path, ctx),
+      // Char surfaces carry their owning character id in surfaceId, so derive
+      // the scope from that (correct for char/<id>/ explicit addressing).
+      // scopeForLeafKey on the friendly char/ path would mis-read the field
+      // name as a character id.
+      scope: result.scopeOverride
+        ?? ((result.surface === "character_field" || result.surface === "alternate_greeting" || result.surface === "extension")
+              ? characterScope(result.surfaceId)
+              : scopeForLeafKey(path, ctx)),
       ...(result.valueEncoding !== undefined ? { valueEncoding: result.valueEncoding } : {}),
     } satisfies EditRecord);
 

@@ -85,6 +85,7 @@ export const grepChatMessagesTool = defineTool({
       total_messages: all.length,
       match_count: hits.length,
       truncated: hits.length >= cap,
+      note: "Search covers only the active swipe of each message. Text in non-active swipes (alternate generations / older regenerates) is invisible to this tool.",
       hits,
     }, null, 2);
     const out = await spillOrReturn(ctx, payload, `grep_chat_messages:${chatId}`);

@@ -517,7 +517,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     charCombo.setPlaceholder("Pick character");
     // Top entry: general-purpose chat with no character context. Tools that
     // need a character are filtered out of the schema in this mode.
-    const noneItem = { id: NO_CHARACTER_SENTINEL, label: "(No character)", sublabel: "general chat + workspace only" };
+    const noneItem = { id: NO_CHARACTER_SENTINEL, label: "All Characters", sublabel: "no focus, address any character by id" };
     if (state.characters.length === 0) {
       charCombo.setItems([noneItem]);
     } else {

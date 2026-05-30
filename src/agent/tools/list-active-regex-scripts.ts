@@ -7,6 +7,7 @@ const TARGETS = ["prompt", "response", "display"] as const;
 const inputSchema = z.object({
   target: z.enum(TARGETS),
   chat_id: z.string().optional(),
+  character_id: z.string().optional(),
   use_active_character: z.boolean().optional(),
 }).strict();
 
@@ -24,18 +25,20 @@ Usage:
     properties: {
       target: { type: "string", enum: [...TARGETS], description: "Which surface the scripts target." },
       chat_id: { type: "string", description: "Chat scope. Defaults to pinned chat." },
+      character_id: { type: "string", description: "Bind to this character. Defaults to the focused character." },
       use_active_character: { type: "boolean", description: "Bind to the active character. Defaults to true." },
     },
     required: ["target"],
   },
-  requiresCharacter: true,
+  requiresCharacter: false,
   execute: async (input, ctx) => {
     const chatId = input.chat_id ?? ctx.pinnedChatId ?? undefined;
     const useChar = input.use_active_character ?? true;
+    const target = input.character_id ?? ctx.characterId ?? undefined;
     try {
       const scripts = await ctx.spindle.regex_scripts.getActive({
         target: input.target,
-        ...(useChar ? { characterId: ctx.characterId } : {}),
+        ...(useChar && target ? { characterId: target } : {}),
         ...(chatId ? { chatId } : {}),
         userId: ctx.userId,
       });

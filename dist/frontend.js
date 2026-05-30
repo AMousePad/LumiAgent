@@ -724,6 +724,14 @@ ${LOADERS_CSS}
   overflow: hidden;
 }
 
+/* Host's drawer panel applies a 12px/40px content inset as a mobile scroll
+   buffer, which reads as a border gap around our full-bleed UI. The host only
+   drops it for its own built-in tabs. We own scrolling and bottom insets, so
+   cancel the inset for the panel wrapping our root only. */
+:has(> div > [data-spindle-extension-root].la-drawer) {
+  padding: 0 !important;
+}
+
 /* Fullscreen expansion: drawer breaks out of its host slot to fill the
  * viewport. position:fixed snaps to the viewport unless an ancestor has
  * a transform / filter / contain:paint; verified clean on Lumiverse's
@@ -7541,7 +7549,7 @@ function mountDrawer(ctx) {
   const renderCharOptions = () => {
     charCombo.setDisabled(false);
     charCombo.setPlaceholder("Pick character");
-    const noneItem = { id: NO_CHARACTER_SENTINEL, label: "(No character)", sublabel: "general chat + workspace only" };
+    const noneItem = { id: NO_CHARACTER_SENTINEL, label: "All Characters", sublabel: "no focus, address any character by id" };
     if (state.characters.length === 0) {
       charCombo.setItems([noneItem]);
     } else {

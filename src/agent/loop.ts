@@ -297,10 +297,9 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
       spindle: input.spindle,
       userId: input.userId,
       sessionId: input.sessionId,
-      // ctx exposes `string` so char-agnostic tools don't pay the null-check
-      // tax. Char-required tools are filtered out of the schema list when
-      // input.characterId is null, so the sentinel never actually reaches a
-      // tool that depends on it.
+      // Empty string is the no-focus sentinel (All Characters mode).
+      // resolveCharacterTarget treats "" and null alike, throwing [NO_TARGET]
+      // when a tool needs a character but got neither an explicit id nor focus.
       characterId: input.characterId ?? "",
       assistantMessageId: input.assistantMessageId,
       pinnedChatId: input.pinnedChatId,

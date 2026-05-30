@@ -141,12 +141,17 @@ function regexUpdateFromDTO(r: RegexScriptDTO): RegexScriptUpdateDTO {
 }
 
 function personaCreateFromDTO(p: PersonaDTO): PersonaCreateDTO {
+  // Truthiness gates would drop deliberately-blank fields (description: "",
+  // is_default: false, attached_world_book_id: "" / null for detached) — on
+  // revert the spindle would substitute its own defaults instead of restoring
+  // the user's chosen blank state. Use undefined-checks instead so the create
+  // DTO mirrors the snapshot.
   const out: PersonaCreateDTO = { name: p.name };
-  if (p.title) out.title = p.title;
-  if (p.description) out.description = p.description;
-  if (p.folder) out.folder = p.folder;
-  if (p.is_default) out.is_default = p.is_default;
-  if (p.attached_world_book_id) out.attached_world_book_id = p.attached_world_book_id;
+  if (p.title !== undefined) out.title = p.title;
+  if (p.description !== undefined) out.description = p.description;
+  if (p.folder !== undefined) out.folder = p.folder;
+  if (p.is_default !== undefined) out.is_default = p.is_default;
+  if (p.attached_world_book_id !== undefined && p.attached_world_book_id !== null) out.attached_world_book_id = p.attached_world_book_id;
   if (p.metadata && Object.keys(p.metadata).length > 0) out.metadata = p.metadata;
   return out;
 }
@@ -346,7 +351,15 @@ export async function revertEdit(
         const c = await spindle.characters.get(characterId, userId);
         if (!c) return { success: false, error: "character not found" };
         const arr = [...(c.alternate_greetings ?? [])];
-        const idx = parseInt(r.surfaceId, 10);
+        // surfaceId is the index at create-time. If greetings have been added
+        // or removed before that index since, the position has shifted and a
+        // raw splice would silently remove the wrong entry. Find the snapshot
+        // content first; fall back to the index only if the original isn't
+        // matchable (e.g., it was edited after create).
+        const snap = r.snapshot as { greeting: string };
+        const storedIdx = parseInt(r.surfaceId, 10);
+        let idx = arr.indexOf(snap.greeting);
+        if (idx < 0) idx = storedIdx;
         if (idx >= 0 && idx < arr.length) arr.splice(idx, 1);
         await spindle.characters.update(characterId, { alternate_greetings: arr }, userId);
         return { success: true };
@@ -392,6 +405,9 @@ export async function revertEdit(
         const c = await spindle.characters.get(characterId, userId);
         if (!c) return { success: false, error: "character not found" };
         const arr = [...(c.alternate_greetings ?? [])];
+        // Idempotent: if the user manually re-added the same greeting after
+        // the original delete, don't splice a second copy in.
+        if (arr.includes(snap.greeting)) return { success: true };
         const target = Math.max(0, Math.min(arr.length, snap.index));
         arr.splice(target, 0, snap.greeting);
         await spindle.characters.update(characterId, { alternate_greetings: arr }, userId);

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { WorldBookEntryDTO } from "lumiverse-spindle-types";
 import { defineTool } from "./_framework";
-import type { ToolCtx } from "./_context";
+import { type ToolCtx, resolveCharacterTarget, noTargetResult } from "./_context";
 import { resolveRead, PathError, OutOfRangeError, ExtensionRefusedError, type ResolvedLeaf } from "./_path_v2";
 import { wbLabel } from "./_surfaces";
 
@@ -84,7 +84,7 @@ async function buildDiagnostics(ctx: ToolCtx, leaf: ResolvedLeaf): Promise<Recor
   // translator schema bump could overwrite agent edits.
   if (leaf.surface === "character_field" && MIRRORED_CHARACTER_FIELDS.has(leaf.field)) {
     try {
-      const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
+      const c = await ctx.spindle.characters.get(leaf.surfaceId, ctx.userId);
       const payload = (c?.extensions as Record<string, unknown> | undefined)?.["lumirealm"] as Record<string, unknown> | undefined;
       const inner = payload?.["payload"] as Record<string, unknown> | undefined;
       const mirror = inner?.[leaf.field];
@@ -109,7 +109,7 @@ async function inspectRegexContainer(ctx: ToolCtx): Promise<Record<string, unkno
   let totalChars = 0;
   let disabled = 0;
   while (true) {
-    const r = await ctx.spindle.regex_scripts.list({ scope: "character", scopeId: ctx.characterId, userId: ctx.userId, limit: 200, offset });
+    const r = await ctx.spindle.regex_scripts.list({ scope: "character", scopeId: resolveCharacterTarget(ctx), userId: ctx.userId, limit: 200, offset });
     for (const s of r.data) {
       const findChars = s.find_regex?.length ?? 0;
       const replaceChars = s.replace_string?.length ?? 0;
@@ -157,7 +157,7 @@ async function inspectRegexScript(ctx: ToolCtx, scriptId: string): Promise<Recor
 }
 
 async function inspectWorldBooksContainer(ctx: ToolCtx): Promise<Record<string, unknown>> {
-  const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
+  const c = await ctx.spindle.characters.get(resolveCharacterTarget(ctx), ctx.userId);
   if (!c) throw new Error("character not found");
   const attached = new Set(c.world_book_ids ?? []);
   const all = await ctx.spindle.world_books.list({ limit: 1000, userId: ctx.userId });
@@ -208,7 +208,7 @@ export const inspectTool = defineTool({
   description: `Cheap orientation for any path. Dispatches by the path shape:
 
 Leaf (string-valued) paths return char/line/CJK/peek plus a \`diagnostics\` block:
-  char/<field>, char/alternate_greetings/<idx>, char/extensions/<dotted>,
+  char/<field>, char/alternate_greetings/<idx>, char/alternate_fields/<field>/<variantId>/<content|label>, char/extensions/<dotted>,
   rx/<id>/find_regex, rx/<id>/replace_string, wb/<id>/content, wb/<id>/comment,
   persona/<id>/<name|title|description>, persona/<id>/wb/<entryId>/<content|comment>,
   chat/<chatId>/msg/<msgId>/content, preset/<presetId>/block/<blockId>/<content|name>
@@ -242,13 +242,20 @@ One tool, one path argument.`,
     const path = input.path.trim();
 
     // Container paths first — they're not leaves so resolveRead would reject them.
+    // inspectRegexContainer / inspectWorldBooksContainer call resolveCharacterTarget(ctx)
+    // internally, which throws NoTargetError in no-focus sessions. Catch it here so the
+    // agent sees [NO_TARGET] guidance instead of a raw uncoded error string.
     if (path === "rx" || path === "regex_scripts") {
-      const r = await inspectRegexContainer(ctx);
-      return { content: JSON.stringify(r, null, 2) };
+      try {
+        const r = await inspectRegexContainer(ctx);
+        return { content: JSON.stringify(r, null, 2) };
+      } catch (err) { const nt = noTargetResult(err); if (nt) return nt; throw err; }
     }
     if (path === "wb" || path === "world_books") {
-      const r = await inspectWorldBooksContainer(ctx);
-      return { content: JSON.stringify(r, null, 2) };
+      try {
+        const r = await inspectWorldBooksContainer(ctx);
+        return { content: JSON.stringify(r, null, 2) };
+      } catch (err) { const nt = noTargetResult(err); if (nt) return nt; throw err; }
     }
     // rx/<id> with no field segment → script DTO.
     const rxMatch = /^(?:rx|regex_script)\/([^/]+)$/.exec(path);

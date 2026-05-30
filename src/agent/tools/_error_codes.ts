@@ -14,6 +14,7 @@ export const ErrorCode = {
   SPINDLE_ERROR: "SPINDLE_ERROR",
   INVALID_INPUT: "INVALID_INPUT",
   REFUSED_BY_EXTENSION: "REFUSED_BY_EXTENSION",
+  NO_TARGET: "NO_TARGET",
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];

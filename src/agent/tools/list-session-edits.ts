@@ -2,6 +2,7 @@ import { z } from "zod";
 import { defineTool } from "./_framework";
 import { loadLedger } from "../../state/ledger";
 import { characterScope } from "../../types";
+import { resolveCharacterTarget, noTargetResult } from "./_context";
 
 const inputSchema = z.object({
   scope: z.enum(["current_message", "current_session", "all_sessions"]).optional().describe("current_message: just this response. current_session: every edit you've made in this session. all_sessions: every agent-authored edit on this character across every session (useful when the user asks about prior conversations). Default current_message."),
@@ -30,9 +31,12 @@ Usage:
   },
   requiresCharacter: true,
   execute: async (input, ctx) => {
+    let cid: string;
+    try { cid = resolveCharacterTarget(ctx); }
+    catch (err) { const nt = noTargetResult(err); if (nt) return nt; throw err; }
     const scope = input.scope ?? "current_message";
     const includeReverted = input.include_reverted ?? false;
-    const ledger = await loadLedger(ctx.spindle, characterScope(ctx.characterId), ctx.userId);
+    const ledger = await loadLedger(ctx.spindle, characterScope(cid), ctx.userId);
     const out: Array<Record<string, unknown>> = [];
     for (const f of ledger.files) {
       for (const p of f.patches) {
@@ -42,6 +46,7 @@ Usage:
         if (!includeReverted && p.reverted) continue;
         out.push({
           edit_id: p.id,
+          op: "edit",
           surface: f.key.surface,
           surface_id: f.key.surfaceId,
           surface_label: f.surfaceLabel,
@@ -55,6 +60,33 @@ Usage:
           message_id: p.assistantMessageId ?? null,
         });
       }
+    }
+    // Structural ops (op:create / op:delete) live alongside field patches. Without
+    // this loop the agent can't see — let alone revert — its own create/delete
+    // actions on alternate_greetings, alternate_field_variants, or char-scoped wb
+    // entries via list_session_edits. They lack assistantMessageId, so
+    // current_message scope can't isolate them; surface them at current_session
+    // and above instead of dropping them entirely.
+    for (const sp of ledger.structural) {
+      if (sp.author !== "agent") continue;
+      if (scope === "current_message") continue;
+      if (scope !== "all_sessions" && sp.sessionId !== ctx.sessionId) continue;
+      if (!includeReverted && sp.reverted) continue;
+      out.push({
+        edit_id: sp.id,
+        op: sp.op,
+        surface: sp.surface,
+        surface_id: sp.surfaceId,
+        surface_label: sp.surfaceLabel,
+        field: null,
+        ts: sp.ts,
+        tool: sp.toolCallId ? sp.op : null,
+        reverted: sp.reverted,
+        sealed: false,
+        session_id: sp.sessionId,
+        is_current_session: sp.sessionId === ctx.sessionId,
+        message_id: null,
+      });
     }
     out.sort((a, b) => (a["ts"] as number) - (b["ts"] as number));
     const limited = input.limit !== undefined ? out.slice(0, input.limit) : out;

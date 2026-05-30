@@ -5,8 +5,8 @@ const inputSchema = z.object({
   text: z.string().optional(),
   chat_id: z.string().optional(),
   model: z.string().optional(),
-}).strict().refine((v) => (v.text !== undefined) !== (v.chat_id !== undefined), {
-  message: "exactly one of `text` or `chat_id` is required",
+}).strict().refine((v) => !(v.text !== undefined && v.chat_id !== undefined), {
+  message: "pass either `text` or `chat_id`, not both. Omit both to use the pinned chat.",
 });
 
 export const countTokensTool = defineTool({

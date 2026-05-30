@@ -22,7 +22,7 @@ import { systemMessageWithCache } from "./agent/cache-control";
 import { buildGeneralSystemPrompt } from "./tasks/general";
 import { revertEditWithCheck, revertEdit, writeFieldValue } from "./state/edit-log";
 import { appendEntries, entriesView, findEntry, loadLedger, ledgerPath, persistLedgerNow, purgeAllRevertedInMemory, squashMessage } from "./state/ledger";
-import { characterScope } from "./types";
+import { characterScope, scopeKeyString } from "./types";
 import { isDebugLogging } from "./log";
 import { applySinglePatch, sha256 as patchSha256 } from "./state/patch-stack";
 import { type AgentSettings, DEFAULT_PERSONA, loadSettings, saveSettings, resolveWorkspaceCap, resolveToolOutputCapTokens, WORKSPACE_FILE_CAP_BYTES, DEFAULT_WORKSPACE_MAX_FILES, DEFAULT_TOOL_OUTPUT_CAP_TOKENS } from "./state/settings";
@@ -362,6 +362,7 @@ async function buildSessionSystemMessage(
   const hasCharacter = c !== null;
   let prompt = buildGeneralSystemPrompt({
     characterName: hasCharacter ? c.name : "",
+    characterId: s.characterId ?? null,
     externalProviders: hasCharacter ? await resolveExternalProviders(userId) : [],
     extensionSystemPrompts: await resolveExtensionSystemPrompts(userId, hasCharacter ? c.id : null),
     persona: settings.persona,
@@ -447,9 +448,12 @@ async function resolveProviderForConnection(connectionId: string | null | undefi
 // top-level fields outright (400 INVALID_ARGUMENT); Anthropic uses a different
 // shape (`tool_choice.disable_parallel_tool_use`). Drop it on providers that
 // don't speak the OpenAI flavour.
+// Lumiverse's canonical provider strings use underscores: "google_vertex", not
+// "google-vertex". A hyphenated entry here never matches and parallel_tool_calls
+// leaks to Vertex connections, which reject it with 400 INVALID_ARGUMENT.
 const PARALLEL_TOOLS_INCOMPATIBLE_PROVIDERS: ReadonlySet<string> = new Set([
   "google",
-  "google-vertex",
+  "google_vertex",
   "anthropic",
 ]);
 
@@ -750,6 +754,10 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
     const systemMsg = await buildSessionSystemMessage(c, s, settings, userId);
     const compactPrompt = buildCompactionInstruction(maxHandoffChars);
     const conv: LlmMessage[] = [systemMsg, ...s.llmHistory, { role: "user", content: compactPrompt }];
+    // Same jailbreak as a normal turn so the compaction agent doesn't refuse
+    // or sanitize content the main agent has been generating freely. Mismatched
+    // jailbreak state produces handoff notes the next turn can't recover from.
+    applyJailbreakNonSystem(conv, settings);
 
     const hasCharacter = s.characterId !== null;
     const tools = makeInitialToolSchemas(hasCharacter);
@@ -1260,9 +1268,37 @@ async function handleContinueSession(sessionId: string, connectionId: string | u
   }
   const s = await loadSessionWithPending(sessionId, userId);
   if (!s) { send({ type: "generation_error", sessionId, error: `session ${sessionId} not found` }, userId); return; }
-  if (s.messages.length === 0 || s.messages[s.messages.length - 1]!.role !== "user") {
-    send({ type: "generation_error", sessionId, error: "nothing to continue: last message is not a user message" }, userId);
+  if (s.messages.length === 0) {
+    send({ type: "generation_error", sessionId, error: "nothing to continue: session is empty" }, userId);
     return;
+  }
+  const last = s.messages[s.messages.length - 1]!;
+  // "Continue" is valid in two shapes: (a) a user message awaiting a reply,
+  // and (b) a partial assistant message that paused for max_tokens. For (b)
+  // we strip it from the session before re-entering so the loop picks up at
+  // the preceding user message — otherwise handleSendMessageInternal would
+  // append a second assistant turn next to the partial one, which Anthropic
+  // rejects as consecutive assistant messages.
+  if (last.role === "assistant") {
+    if (s.messages.length < 2 || s.messages[s.messages.length - 2]!.role !== "user") {
+      send({ type: "generation_error", sessionId, error: "nothing to continue: no preceding user message" }, userId);
+      return;
+    }
+    const orphanedMessageId = last.id;
+    s.messages.pop();
+    // Edits the partial turn made would otherwise stay in s.edits with their
+    // assistantMessageId pointing at the popped message — invisible to the new
+    // turn's current_message scope and missing from any per-message revert
+    // affordance. Unanchor them so they survive as session-level edits the
+    // user can still see in the workshop without misattribution.
+    for (const e of s.edits) {
+      if (e.assistantMessageId === orphanedMessageId) {
+        delete (e as { assistantMessageId?: string }).assistantMessageId;
+      }
+    }
+    s.llmHistory = rebuildLlmHistory(s.messages);
+    await saveSession(spindle, s, userId);
+    send({ type: "session_truncated", sessionId, messages: s.messages, edits: s.edits }, userId);
   }
   void handleSendMessageInternal(s, userId, connectionId);
 }
@@ -1306,7 +1342,10 @@ function handleCancelGeneration(sessionId: string, userId: string): void {
   }
   ac.abort();
   log("info", `cancelled generation on session ${sessionId}`);
-  send({ type: "generation_cancelled", sessionId }, userId);
+  // The agent loop's natural exit sends generation_cancelled once it actually
+  // unwinds. Sending it eagerly here re-enables the composer before
+  // activeSessions clears, causing the next send to bounce with
+  // "generation already in flight" until the loop catches up.
 }
 
 async function handleDeleteSession(sessionId: string, userId: string): Promise<void> {
@@ -1439,7 +1478,7 @@ async function handleRevertEdit(scope: ScopeRef, editId: string, force: boolean,
 // and persists the ledger once at the end. For "revert all on character"
 // this collapses N×(spindle_get + spindle_update + ledger_write) to
 // roughly (unique_files) parallel spindle updates + 1 ledger write.
-async function handleRevertEditsBulk(scope: ScopeRef, editIds: readonly string[], userId: string, opts: { suppressRefresh?: boolean } = {}): Promise<void> {
+async function handleRevertEditsBulk(scope: ScopeRef, editIds: readonly string[], userId: string, opts: { suppressRefresh?: boolean } = {}): Promise<{ cascadeIds: ReadonlySet<string> }> {
   const ledger = await loadLedger(spindle, scope, userId);
   const targetSet = new Set(editIds);
 
@@ -1455,7 +1494,7 @@ async function handleRevertEditsBulk(scope: ScopeRef, editIds: readonly string[]
   };
 
   // ───── 1. Per-file batched revert (the hot path) ─────
-  type FileWork = { file: typeof ledger.files[number]; hits: typeof ledger.files[number]["patches"]; cascadeIds: string[]; recomputed: string };
+  type FileWork = { file: typeof ledger.files[number]; hits: typeof ledger.files[number]["patches"]; cascadeIds: string[]; recomputed: string; savedExpectedHash: string };
   const fileWork: FileWork[] = [];
   const now = Date.now();
   for (const file of ledger.files) {
@@ -1463,6 +1502,12 @@ async function handleRevertEditsBulk(scope: ScopeRef, editIds: readonly string[]
     for (const p of file.patches) if (targetSet.has(p.id) && !p.reverted) hits.push(p);
     if (hits.length === 0) continue;
     for (const p of hits) bumpSession(p.sessionId);
+    // Snapshot before mutation. On spindle write failure below we restore
+    // file.expectedHash too; without that the next agent edit on the file
+    // sees sha256(live) !== file.expectedHash and folds in a phantom
+    // external-drift patch on top of the unchanged spindle value, poisoning
+    // every subsequent revert with a backwards baseline.
+    const savedExpectedHash = file.expectedHash;
     for (const p of hits) { p.reverted = true; p.revertedAt = now; }
     let cur = file.base;
     const cascadeIds: string[] = [];
@@ -1473,7 +1518,7 @@ async function handleRevertEditsBulk(scope: ScopeRef, editIds: readonly string[]
       cur = next;
     }
     file.expectedHash = patchSha256(cur);
-    fileWork.push({ file, hits, cascadeIds, recomputed: cur });
+    fileWork.push({ file, hits, cascadeIds, recomputed: cur, savedExpectedHash });
   }
 
   // One spindle write per touched file, in parallel.
@@ -1499,6 +1544,7 @@ async function handleRevertEditsBulk(scope: ScopeRef, editIds: readonly string[]
         const p = work.file.patches.find((x) => x.id === cid);
         if (p) { p.reverted = false; delete p.revertedAt; }
       }
+      work.file.expectedHash = work.savedExpectedHash;
       const err = r && r.status === "rejected" ? String(r.reason?.message ?? r.reason) : "write failed";
       for (const p of work.hits) outcomes.push({ editId: p.id, outcome: { kind: "failed", editId: p.id, error: err } });
     }
@@ -1583,6 +1629,13 @@ async function handleRevertEditsBulk(scope: ScopeRef, editIds: readonly string[]
       void handleListSessions(undefined, userId);
     }
   }
+  // Surface cascade ids to revertEditsBatch callers so they can mark cascade
+  // victims as reverted in the session edits list. Without this, victims get
+  // purged from the ledger but stay `reverted: false` in `s.edits`, leaving
+  // the session view perpetually divergent from the ledger.
+  const cascadeIdSet = new Set<string>();
+  for (const w of fileWork) for (const cid of w.cascadeIds) cascadeIdSet.add(cid);
+  return { cascadeIds: cascadeIdSet };
 }
 
 async function handleRevertAllCharacters(scopes: readonly ScopeRef[], userId: string): Promise<void> {
@@ -1638,13 +1691,26 @@ async function handleRevertSession(sessionId: string, userId: string): Promise<v
   // newest-first minimises cascade noise because later patches reverted
   // explicitly won't show up as collateral damage of earlier ones. No-character
   // sessions can't have edits, so this is effectively a no-op for them.
-  if (s.characterId === null) {
+  // Non-character-scoped edits (chat messages, personas, presets, world books)
+  // can be made in a no-character session via `edit`/`set`/`rewrite` on
+  // chat/<chatId>/..., persona/<id>/..., preset/<id>/..., etc. Skipping the
+  // whole revert just because characterId is null would strand those writes.
+  // revertEditsBatch groups by e.scope, so an empty-string fallback id is
+  // harmless — no edit will fall back to it.
+  const liveSessionEdits = s.edits.filter((e) => !e.reverted);
+  if (liveSessionEdits.length === 0) {
     send({ type: "session_reverted", sessionId, entriesRestored: 0, entriesFailed: 0, scriptsRestored: 0, scriptsFailed: 0 }, userId);
     return;
   }
-  const sessionEditIds = [...s.edits].filter((e) => !e.reverted).map((e) => e.id).reverse();
-  const r = await revertEditsBatch(s.characterId, s.edits.filter((e) => sessionEditIds.includes(e.id)).reverse(), userId);
-  for (const edit of s.edits) (edit as { reverted: boolean }).reverted = true;
+  const sessionEditIds = liveSessionEdits.map((e) => e.id).reverse();
+  const r = await revertEditsBatch(s.characterId ?? "", s.edits.filter((e) => sessionEditIds.includes(e.id)).reverse(), userId);
+  const revertedNow = Date.now();
+  for (const edit of s.edits) {
+    if (r.okIds.has(edit.id)) {
+      (edit as { reverted: boolean; revertedAt?: number }).reverted = true;
+      (edit as { reverted: boolean; revertedAt?: number }).revertedAt = revertedNow;
+    }
+  }
   await saveSession(spindle, s, userId);
   send({
     type: "session_reverted",
@@ -1687,24 +1753,43 @@ function rebuildLlmHistory(messages: readonly (ChatUserMessage | ChatAssistantMe
 // Revert a batch of edits via the fast-path bulk handler. Force-reverts on
 // conflict (this is the "user explicitly asked to roll back this message" path,
 // so we override later changes — they get tracked by the ledger anyway).
-// Internal counter return for back-compat with callers that report counts.
-async function revertEditsBatch(characterId: string, entries: readonly EditLogEntry[], userId: string): Promise<{ ok: number; failed: number }> {
-  if (entries.length === 0) return { ok: 0, failed: 0 };
-  const ids = entries.map((e) => e.id);
-  await handleRevertEditsBulk(characterScope(characterId), ids, userId);
-  // handleRevertEditsBulk purges successful ids from the ledger; survivors
-  // are the failures. loadLedger is cache-backed so this is cheap.
-  const after = await loadLedger(spindle, characterScope(characterId), userId);
-  const survivors = new Set<string>();
-  for (const f of after.files) for (const p of f.patches) survivors.add(p.id);
-  for (const s of after.structural) survivors.add(s.id);
-  for (const e of after.externalEdits) survivors.add(e.id);
-  let ok = 0; let failed = 0;
-  for (const id of ids) {
-    if (survivors.has(id)) failed++;
-    else ok++;
+// Entries are grouped by scope so persona / preset / world_book / regex_script
+// / chat edits route to their own ledgers instead of silently no-opping
+// against the character ledger. Returns the set of ids confirmed reverted so
+// callers can flag only those on the session — blanket-marking the input set
+// would lie about edits whose spindle write failed.
+async function revertEditsBatch(characterId: string, entries: readonly EditLogEntry[], userId: string): Promise<{ ok: number; failed: number; okIds: Set<string> }> {
+  if (entries.length === 0) return { ok: 0, failed: 0, okIds: new Set() };
+  const byScope = new Map<string, { scope: ScopeRef; ids: string[] }>();
+  for (const e of entries) {
+    const sc = e.scope ?? characterScope(characterId);
+    const k = scopeKeyString(sc);
+    let bucket = byScope.get(k);
+    if (!bucket) { bucket = { scope: sc, ids: [] }; byScope.set(k, bucket); }
+    bucket.ids.push(e.id);
   }
-  return { ok, failed };
+  let ok = 0; let failed = 0;
+  const okIds = new Set<string>();
+  for (const { scope, ids } of byScope.values()) {
+    const bulk = await handleRevertEditsBulk(scope, ids, userId);
+    // handleRevertEditsBulk purges successful ids from the ledger; survivors
+    // are the failures. loadLedger is cache-backed so this is cheap.
+    const after = await loadLedger(spindle, scope, userId);
+    const survivors = new Set<string>();
+    for (const f of after.files) for (const p of f.patches) survivors.add(p.id);
+    for (const s of after.structural) survivors.add(s.id);
+    for (const e of after.externalEdits) survivors.add(e.id);
+    for (const id of ids) {
+      if (survivors.has(id)) failed++;
+      else { ok++; okIds.add(id); }
+    }
+    // Cascade victims (patches that later depended on a reverted patch and
+    // can no longer apply) are purged by handleRevertEditsBulk but aren't in
+    // `ids`, so the survivor scan would otherwise miss them. Propagate them so
+    // callers can flip the matching session edits' `reverted` flag.
+    for (const cid of bulk.cascadeIds) okIds.add(cid);
+  }
+  return { ok, failed, okIds };
 }
 
 // Delete a single message in place. Doesn't truncate the conversation,
@@ -1726,8 +1811,9 @@ async function handleDeleteMessage(sessionId: string, messageId: string, editsAc
   if (target.role === "assistant" && editsAction === "revert") {
     const editsToRevert = s.edits.filter((e) => e.assistantMessageId === target.id && !e.reverted);
     if (editsToRevert.length > 0 && s.characterId !== null) {
-      await revertEditsBatch(s.characterId, editsToRevert, userId);
-      for (const e of s.edits) if (editsToRevert.some((x) => x.id === e.id)) { e.reverted = true; e.revertedAt = Date.now(); }
+      const r = await revertEditsBatch(s.characterId, editsToRevert, userId);
+      const now = Date.now();
+      for (const e of s.edits) if (r.okIds.has(e.id)) { e.reverted = true; e.revertedAt = now; }
     }
   }
 
@@ -1821,8 +1907,9 @@ async function handleEditUserMessage(sessionId: string, messageId: string, newCo
   const tailMessageIds = new Set(s.messages.slice(idx + 1).filter((m) => m.role === "assistant").map((m) => m.id));
   const editsToReview = s.edits.filter((e) => e.assistantMessageId !== undefined && tailMessageIds.has(e.assistantMessageId) && !e.reverted);
   if (editsAction === "revert" && editsToReview.length > 0 && s.characterId !== null) {
-    await revertEditsBatch(s.characterId, editsToReview, userId);
-    for (const e of s.edits) if (editsToReview.some((x) => x.id === e.id)) { e.reverted = true; e.revertedAt = Date.now(); }
+    const r = await revertEditsBatch(s.characterId, editsToReview, userId);
+    const now = Date.now();
+    for (const e of s.edits) if (r.okIds.has(e.id)) { e.reverted = true; e.revertedAt = now; }
   }
 
   // Truncate session: keep messages[0..idx-1], replace messages[idx] with new content, drop the rest.
@@ -1859,8 +1946,9 @@ async function handleRegenerateAssistant(sessionId: string, assistantMessageId: 
   const tailMessageIds = new Set(s.messages.slice(idx).filter((m) => m.role === "assistant").map((m) => m.id));
   const editsToReview = s.edits.filter((e) => e.assistantMessageId !== undefined && tailMessageIds.has(e.assistantMessageId) && !e.reverted);
   if (editsAction === "revert" && editsToReview.length > 0 && s.characterId !== null) {
-    await revertEditsBatch(s.characterId, editsToReview, userId);
-    for (const e of s.edits) if (editsToReview.some((x) => x.id === e.id)) { e.reverted = true; e.revertedAt = Date.now(); }
+    const r = await revertEditsBatch(s.characterId, editsToReview, userId);
+    const now = Date.now();
+    for (const e of s.edits) if (r.okIds.has(e.id)) { e.reverted = true; e.revertedAt = now; }
   }
 
   s.messages = s.messages.slice(0, idx);
@@ -1926,7 +2014,17 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
   const settings = await loadSettings(spindle, userId);
   const systemMsg = await buildSessionSystemMessage(c, s, settings, userId);
   const conv: LlmMessage[] = [systemMsg, ...s.llmHistory];
+  // The user_suffix / assistant_prefill jailbreak is appended per request, not
+  // persisted into history. Capture its position so we can splice it out before
+  // saving llmHistory — otherwise it accumulates across turns and (for
+  // assistant_prefill) produces consecutive assistant messages that Anthropic
+  // rejects with a 400.
+  const jailbreakSliceIdx = conv.length;
   applyJailbreakNonSystem(conv, settings);
+  const jailbreakInserted = conv.length > jailbreakSliceIdx;
+  const persistableHistory = (): LlmMessage[] => jailbreakInserted
+    ? [...conv.slice(1, jailbreakSliceIdx), ...conv.slice(jailbreakSliceIdx + 1)]
+    : conv.slice(1);
 
   const assistantId = makeId("msg");
   const assistant: ChatAssistantMessage = { id: assistantId, role: "assistant", ts: Date.now(), turn: 0, blocks: [], status: "streaming" };
@@ -1989,11 +2087,10 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
           break;
         }
         case "edit_logged":
-          // A character-scoped edit in a no-character session is nonsensical
-          // (the char tools are filtered out). Non-character scopes
-          // (persona/chat/preset, e.g. create persona) are valid without a
-          // character and must still file into their own ledger.
-          if (s.characterId === null && ev.entry.scope.kind === "character") break;
+          // Every edit carries its own scope (character / persona / chat /
+          // preset / world_book / regex_script) and files into that scope's
+          // ledger. In All Characters mode the agent can edit any character by
+          // id, so character-scoped edits are valid here too. Don't drop them.
           s.edits.push(ev.entry);
           void appendEntries(spindle, ev.entry.scope, [ev.entry], userId).catch((e) => log("warn", `ledger append failed: ${(e as Error).message}`));
           break;
@@ -2011,7 +2108,13 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
               if (idsToMark.has(e.id) && !e.reverted) { e.reverted = true; e.revertedAt = Date.now(); }
             }
           }
-          send({ type: "edit_reverted", scope: characterScope(s.characterId), editId: ev.editId, outcome: ev.outcome }, userId);
+          // Source of truth for the scope is the edit's own ScopeRef — hardcoding
+          // characterScope(s.characterId) misroutes persona/preset/world_book/
+          // regex_script reverts (the workshop wouldn't correlate them to the
+          // matching scope view).
+          const revertedEntry = s.edits.find((e) => e.id === ev.editId);
+          const revertedScope = revertedEntry?.scope ?? characterScope(s.characterId);
+          send({ type: "edit_reverted", scope: revertedScope, editId: ev.editId, outcome: ev.outcome }, userId);
           break;
         }
         case "edits_resynced": {
@@ -2035,7 +2138,7 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
             emitContextUsage(s, resolveContextTokens(settings.samplers), userId);
           }
           if (ev.cleanedContent !== undefined) replaceAssistantTextBlocks(assistant, ev.cleanedContent);
-          s.llmHistory = conv.slice(1);
+          s.llmHistory = persistableHistory();
           await saveSession(spindle, s, userId).catch((e) => log("warn", `mid-stream save failed: ${(e as Error).message}`));
           break;
         case "paused_for_input":
@@ -2059,7 +2162,7 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
     }
   }
   activeSessions.delete(scopedKey(userId, s.sessionId));
-  s.llmHistory = conv.slice(1);
+  s.llmHistory = persistableHistory();
   if (ac.signal.aborted && !errored) assistant.status = "cancelled";
   await saveSession(spindle, s, userId);
   if (s.characterId !== null) {
@@ -2069,7 +2172,11 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
     // otherwise stay at N while the workshop modal shows 1.
     if (squashed) await saveSession(spindle, s, userId);
   }
-  if (ac.signal.aborted) send({ type: "generation_cancelled", sessionId: s.sessionId }, userId);
+  // An aborted run that ALSO threw (error in flight when the user cancelled)
+  // already sent generation_error in the catch above; suppress the cancelled
+  // event so the frontend doesn't ricochet between "errored" and "cancelled"
+  // statuses on the same message.
+  if (ac.signal.aborted && !errored) send({ type: "generation_cancelled", sessionId: s.sessionId }, userId);
   else if (!errored) {
     send({ type: "generation_done", sessionId: s.sessionId, turns: lastTurn }, userId);
     if (shouldAutoCompact(s, settings.samplers)) {

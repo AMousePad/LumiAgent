@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { CharacterDTO, WorldBookEntryDTO, RegexScriptDTO } from "lumiverse-spindle-types";
 import { defineTool } from "./_framework";
-import type { ToolCtx } from "./_context";
+import { type ToolCtx, resolveCharacterTarget, noTargetResult } from "./_context";
 import { CHARACTER_STRING_FIELDS } from "./_surfaces";
 import { walkStringLeaves } from "./_walk";
 
@@ -26,13 +26,13 @@ function countCjkRuns(text: string, minLen: number, source: string, map: Map<str
   }
 }
 
-async function loadAllRegexScripts(ctx: ToolCtx): Promise<RegexScriptDTO[]> {
+async function loadAllRegexScripts(ctx: ToolCtx, characterId: string): Promise<RegexScriptDTO[]> {
   const out: RegexScriptDTO[] = [];
   let offset = 0;
   for (;;) {
     const res = await ctx.spindle.regex_scripts.list({
       scope: "character",
-      scopeId: ctx.characterId,
+      scopeId: characterId,
       userId: ctx.userId,
       limit: 200,
       offset,
@@ -48,10 +48,14 @@ async function loadAllWorldBookEntries(ctx: ToolCtx, c: CharacterDTO): Promise<W
   const out: WorldBookEntryDTO[] = [];
   for (const wbId of c.world_book_ids) {
     let offset = 0;
+    let bookFetched = 0;
     for (;;) {
       const res = await ctx.spindle.world_books.entries.list(wbId, { limit: 500, userId: ctx.userId, offset });
       out.push(...res.data);
-      if (out.length - offset >= res.total || res.data.length === 0) break;
+      bookFetched += res.data.length;
+      // Per-book progress, not accumulated. The accumulated-vs-per-book mixup
+      // broke pagination for characters with more than one attached book.
+      if (res.data.length === 0 || bookFetched >= res.total) break;
       offset += res.data.length;
     }
   }
@@ -62,6 +66,7 @@ const inputSchema = z.object({
   scopes: z.array(z.enum(["character", "world_books", "regex_scripts", "extensions"])).optional(),
   min_length: z.number().optional(),
   top_n: z.number().optional(),
+  character_id: z.string().optional(),
 });
 
 export const surveyCjkTool = defineTool({
@@ -81,17 +86,21 @@ Returns:
       scopes: { type: "array", items: { type: "string", enum: ["character", "world_books", "regex_scripts", "extensions"] } },
       min_length: { type: "number", description: `default ${SURVEY_DEFAULT_MIN_LEN}` },
       top_n: { type: "number", description: `default ${SURVEY_DEFAULT_TOP_N}` },
+      character_id: { type: "string", description: "Defaults to the focused character." },
     },
     required: [],
   },
-  requiresCharacter: true,
+  requiresCharacter: false,
   execute: async (input, ctx) => {
+    let target: string;
+    try { target = resolveCharacterTarget(ctx, input.character_id); }
+    catch (err) { const nt = noTargetResult(err); if (nt) return nt; throw err; }
     const scopes = (input.scopes ?? ["character", "world_books", "regex_scripts", "extensions"]) as readonly string[];
     const minLen = Math.max(1, Math.floor(input.min_length ?? SURVEY_DEFAULT_MIN_LEN));
     const topN = Math.max(1, Math.min(500, Math.floor(input.top_n ?? SURVEY_DEFAULT_TOP_N)));
     const map = new Map<string, CjkOccurrence>();
-    const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
-    if (!c) return { content: `Error: character ${ctx.characterId} not found`, isError: true };
+    const c = await ctx.spindle.characters.get(target, ctx.userId);
+    if (!c) return { content: `Error: character ${target} not found`, isError: true };
 
     if (scopes.includes("character")) {
       for (const field of CHARACTER_STRING_FIELDS) {
@@ -109,7 +118,7 @@ Returns:
       for (const e of entries) countCjkRuns(e.content, minLen, `world_book_entry[${e.id}]`, map);
     }
     if (scopes.includes("regex_scripts")) {
-      const scripts = await loadAllRegexScripts(ctx);
+      const scripts = await loadAllRegexScripts(ctx, target);
       for (const r of scripts) {
         countCjkRuns(r.find_regex, minLen, `regex_script[${r.id}].find_regex`, map);
         countCjkRuns(r.replace_string, minLen, `regex_script[${r.id}].replace_string`, map);

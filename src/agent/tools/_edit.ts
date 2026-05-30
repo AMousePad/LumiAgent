@@ -88,8 +88,13 @@ function preserveTypography(find: string, actual: string, replace: string): stri
   if (actual.includes("‘") || actual.includes("’")) {
     out = applyPaired(out, "'", "‘", "’");
   }
+  // Pivot characters must mirror QUOTE_LIKE_MAP: 「」 → ', 『』 → ". Sharing the
+  // double-quote pivot for both bracket pairs would let the 『』 branch overwrite
+  // the 「」 branch's restorations whenever a document mixed them, and a 「」-only
+  // document where the agent's replace contains ASCII ' (the asciified form)
+  // would never have those single quotes re-promoted to corner brackets at all.
   if (actual.includes("「") || actual.includes("」")) {
-    out = applyPaired(out, '"', "「", "」");
+    out = applyPaired(out, "'", "「", "」");
   }
   if (actual.includes("『") || actual.includes("』")) {
     out = applyPaired(out, '"', "『", "』");

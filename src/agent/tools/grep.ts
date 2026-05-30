@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import { iterateAllLeaves } from "./_path_v2";
+import { resolveCharacterTarget, noTargetResult } from "./_context";
 
 const GREP_DEFAULT_MAX = 50;
 const GREP_MAX_CAP = 200;
@@ -15,6 +16,7 @@ const inputSchema = z.object({
   exclude_paths: z.array(z.string()).optional().describe("Skip leaves whose path starts with any of these prefixes."),
   max_matches: z.number().int().positive().max(GREP_MAX_CAP).optional().describe(`Cap on total returned hits across all leaves. Default ${GREP_DEFAULT_MAX}, max ${GREP_MAX_CAP}.`),
   max_hits_per_line: z.number().int().positive().max(50).optional().describe(`Cap on hits returned per line. Default ${GREP_DEFAULT_HITS_PER_LINE}. Keep at 1 when the pattern matches dense single characters (e.g. CJK glyphs) so a single line full of matches doesn't burn the entire max_matches budget.`),
+  character_id: z.string().optional().describe("Character to search. Defaults to the focused character."),
 }).strict();
 
 interface GrepHit {
@@ -107,12 +109,16 @@ Scoping:
       exclude_paths: { type: "array", items: { type: "string" } },
       max_matches: { type: "integer", minimum: 1, maximum: GREP_MAX_CAP, description: `default ${GREP_DEFAULT_MAX}` },
       max_hits_per_line: { type: "integer", minimum: 1, maximum: 50, description: `default ${GREP_DEFAULT_HITS_PER_LINE}` },
+      character_id: { type: "string", description: "Defaults to the focused character." },
     },
     required: ["pattern"],
     additionalProperties: false,
   },
-  requiresCharacter: true,
+  requiresCharacter: false,
   execute: async (input, ctx) => {
+    let target: string;
+    try { target = resolveCharacterTarget(ctx, input.character_id); }
+    catch (err) { const nt = noTargetResult(err); if (nt) return nt; throw err; }
     const cap = Math.min(GREP_MAX_CAP, Math.max(1, Math.floor(input.max_matches ?? GREP_DEFAULT_MAX)));
     const perLineCap = Math.max(1, Math.floor(input.max_hits_per_line ?? GREP_DEFAULT_HITS_PER_LINE));
     const include = input.include_paths ?? [];
@@ -135,7 +141,7 @@ Scoping:
     // reached when the cap fires. iterateAllLeaves is bounded by the card
     // size, not an open stream.
     const eligibleLeaves: Array<{ key: string; value: string; surface: string; surfaceLabel: string }> = [];
-    for await (const leaf of iterateAllLeaves(ctx)) {
+    for await (const leaf of iterateAllLeaves(ctx, target)) {
       leavesScanned++;
       if (include.length > 0 && !include.some((p) => leaf.key.startsWith(p))) { leavesFiltered++; continue; }
       if (exclude.some((p) => leaf.key.startsWith(p))) { leavesFiltered++; continue; }

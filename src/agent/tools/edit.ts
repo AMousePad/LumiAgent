@@ -33,7 +33,7 @@ export const editTool = defineTool({
 Rules:
 1. Recent-read gate: \`read\` must have run on the same path in this turn. Surface keys match byte-for-byte. If you read 'char/description' the gate fails for 'char/extensions/...'.
 2. Unique-find: \`find\` must appear exactly once, unless replace_all=true.
-3. Automatic recovery: when byte-exact match fails, falls through NFC / NFD / strip-invisible / quote-asciify / whitespace-flex variants. Result includes \`recovered_via\` on success.
+3. Automatic recovery: when byte-exact match fails, ONE fallback is tried — quote-asciify (curly / corner / fullwidth quotes normalized to ASCII on both sides). Result includes \`recovered_via\` on success. NFC/NFD Hangul, NBSPs, BOMs, line endings, and whitespace drift are NOT auto-recovered: copy bytes verbatim from a recent \`read\`, or run \`inspect\` first to see the encoding diagnostics that explain why your find string didn't match.
 4. Failure stashes the replacement payload as a draft handle the next call can pass via \`replace_handle\`.
 
 Path grammar: same as \`read\`. Examples: 'char/first_mes', 'rx/<id>/replace_string', 'wb/<id>/comment', 'char/extensions/lumirealm.payload.background_html_source'.

@@ -10,12 +10,13 @@ export interface ExternalProviderSummary {
 }
 
 export interface GeneralPromptParams {
-  // Empty string means no character is selected. The prompt swaps the active-
-  // character context line for a one-sentence no-character notice; tool
-  // filtering keeps the agent from calling card / chat / ledger / external
-  // tools in that mode, so the rest of the body's instructions about them
-  // become unreachable rather than misleading.
+  // Empty string = no character focused (All Characters mode). The focus
+  // section tells the agent to address characters by id; char/ paths and
+  // whole-card tools default to the focus when one is set.
   readonly characterName: string;
+  // The focused character's id, so the agent can contrast it with explicit
+  // char/<id>/... addressing. null in All Characters mode.
+  readonly characterId: string | null;
   readonly externalProviders: readonly ExternalProviderSummary[];
   // Already-concatenated system-prompt fragments fetched from each discovered
   // phone-line provider's `op: "system_prompt"`. Empty string when no provider
@@ -80,17 +81,18 @@ export function buildGeneralSystemPrompt(params: GeneralPromptParams): string {
     ? `${params.persona.trim()}\n\n---\n\n`
     : "";
 
-  const contextLine = params.characterName.trim().length > 0
-    ? `Active character: "${params.characterName}".`
-    : "No character is selected, so card / chat / ledger / external-provider tools are unavailable; if the user wants work on a specific character, tell them to switch to that character's chat (you can write `workspace/HANDOFF.md` first summarising what they want done so the next agent can pick it up).";
+  // Focus section. Short and placed AFTER the frozen body so a focus switch
+  // (an in-session action) only rebuilds this trailing chunk, not the cached
+  // prefix (persona + body).
+  const focusSection = params.characterName.trim().length > 0
+    ? `\n\n# Focus\n\nFocused on character "${params.characterName}"${params.characterId ? ` (id \`${params.characterId}\`)` : ""}. Unqualified \`char/<field>\` paths and the default of whole-card tools (grep / audit_card_coverage / survey_cjk / list / inspect / update_character / apply_glossary) target this character. To work on a DIFFERENT character without changing focus, address it by id: \`char/<otherId>/<field>\` for read / edit / rewrite / set, or pass \`character_id\` to a whole-card tool. \`list_characters\` finds ids.`
+    : "\n\n# Focus\n\nNo character is focused (All Characters mode). Address a character by id: \`char/<id>/<field>\` for read / edit / rewrite / set, or pass \`character_id\` to a whole-card tool (grep / audit_card_coverage / survey_cjk / list / inspect / update_character / apply_glossary). Call \`list_characters\` to find the id of the character the user means. Unqualified \`char/<field>\` paths fail with [NO_TARGET] until you pass an id or the user focuses a character via the picker.";
 
   const body = params.systemPromptOverride !== null && params.systemPromptOverride.trim().length > 0
     ? params.systemPromptOverride
     : BUILTIN_PROMPT_BODY;
 
-  return `${personaBlock}${contextLine}
-
-${body}${extensionSection}${chatSection}${externalSection}${agentNotesSection}${deferredToolsSection}
+  return `${personaBlock}${body}${extensionSection}${chatSection}${externalSection}${focusSection}${agentNotesSection}${deferredToolsSection}
 
 # When to stop
 
@@ -106,7 +108,7 @@ Every editable string on the card has a path. ONE \`read\` and ONE \`edit\` cove
 Path grammar (forward slashes; first segment names the surface):
 - \`char/<field>\` — top-level string (description, first_mes, scenario, personality, mes_example, system_prompt, post_history_instructions, creator_notes, creator, name)
 - \`char/alternate_greetings/<idx>\` — one greeting by 0-based index
-- \`char/alternate_fields/<field>/<variantId>/<content|label>\` — alternate version of \`description\`, \`personality\`, or \`scenario\` (the user picks which variant is active per chat). Discover ids via \`list({path:"char/alternate_fields/<field>"})\`.
+- \`char/alternate_fields/<field>/<variantId>/<content|label>\` — alternate version of \`description\`, \`personality\`, or \`scenario\` (the user picks which variant is active per chat; per-member in group chats). Discover ids via \`list({path:"char/alternate_fields/<field>"})\`.
 - \`char/extensions/<dotted>\` — any string leaf under \`character.extensions.*\`. Dotted with brackets, e.g. \`<extId>.<group>.<item>[0].code\`
 - \`rx/<scriptId>/find_regex\` or \`rx/<scriptId>/replace_string\` — regex script
 - \`wb/<entryId>/content\` or \`wb/<entryId>/comment\` — lorebook entry
@@ -179,7 +181,7 @@ Do NOT begin surface-by-surface searching (character fields, world books, regex 
 
 When the user reports a problem ("this isn't matching", "where is X coming from", "why is the AI saying Y"), the answer is rarely in the first surface you check. **Map the territory before reporting back.** A single piece of prompt or output content can come from any of:
 
-- **Character fields** — \`first_mes\`, \`description\`, \`personality\`, \`scenario\`, \`system_prompt\`, \`post_history_instructions\`, \`mes_example\`, alternate greetings, alternate-field variants of description/personality/scenario (one selected per chat), \`creator_notes\`, plus the entire \`character.extensions.*\` blob. Use \`list({path: "char/extensions"})\` + \`grep\`.
+- **Character fields** — \`first_mes\`, \`description\`, \`personality\`, \`scenario\`, \`system_prompt\`, \`post_history_instructions\`, \`mes_example\`, alternate greetings, alternate-field variants of description/personality/scenario (one selected per chat; per-member in group chats), \`creator_notes\`, plus the entire \`character.extensions.*\` blob. Use \`list({path: "char/extensions"})\` + \`grep\`.
 - **World books** — every attached WB's entries. Use \`grep({pattern, include_paths: ["wb/"]})\`. Lorebook entries can carry decorators / activation modes / always-on flags that inject prompt content under conditions; an entry being present doesn't mean it's firing.
 - **Regex scripts** — character-scoped AND global ones, plus chat-scoped. Patterns matching ai output / display, replace_strings injecting arbitrary content. \`list_active_regex_scripts({target})\` shows what fires for a given pipeline stage.
 - **Personas** — the active persona's \`description\` is injected as {{user}}. Personas can carry their own attached world book.
@@ -288,6 +290,7 @@ Tool errors are prefixed with a bracketed code so you can pick the right recover
 - \`[REFUSED_BY_EXTENSION]\` — a phone-line extension (e.g. LumiRealm) refused a read/write at this path because it's a derived/mirror/UI-owned surface. The error text carries the extension's redirect to the correct authoring surface. Recovery: do exactly what the redirect says, don't retry the same path.
 - \`[SPINDLE_ERROR]\` — host-side write/read failure (not your bug). Recovery: retry once; if it persists, tell the user.
 - \`[INVALID_INPUT]\` — schema rejected your args. Recovery: read the description again, then re-emit with the corrected shape.
+- \`[NO_TARGET]\` — a whole-card or chat-scoped tool ran with no focused character (or chat) and no explicit \`character_id\` / \`chat_id\`. Recovery: call \`list_characters\` (or \`list_chats\`) to find the id the user means, then re-issue with the id passed explicitly. \`char/<id>/<field>\` paths address any character regardless of focus.
 
 Pattern-match on the code, not the prose. Prose changes; codes don't.
 

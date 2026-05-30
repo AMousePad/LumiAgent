@@ -36,6 +36,7 @@ import { setTool } from "./set";
 import { setChatVariableTool } from "./set-chat-variable";
 import { setDefaultVariablesTextTool } from "./set-default-variables-text";
 import { setToggleTool } from "./set-toggle";
+import { listCharactersTool } from "./list-characters";
 import { listChatMessagesTool } from "./list-chat-messages";
 import { listChatsForCharacterTool } from "./list-chats-for-character";
 import { listExternalTool } from "./list-external";
@@ -144,6 +145,8 @@ const READ_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   // Chat reads
   "chat_stats", "list_chat_messages", "grep_chat_messages",
   "list_chats_for_character", "read_chat_messages",
+  // Character discovery
+  "list_characters",
   // Lumiverse-state inspectors
   "dry_run_prompt", "resolve_macros", "count_tokens",
   "list_variables", "read_variable",
@@ -232,6 +235,7 @@ registry.register(fsWriteTool);
 registry.register(fsZipTool);
 registry.register(grepChatMessagesTool);
 registry.register(grepExternalTool);
+registry.register(listCharactersTool);
 registry.register(listChatMessagesTool);
 registry.register(listChatsForCharacterTool);
 registry.register(listExternalTool);
