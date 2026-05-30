@@ -7,7 +7,9 @@ const inputSchema = z.object({
 });
 
 function resolveChatId(input: { chat_id?: string | undefined }, ctx: ToolCtx): string | { error: string } {
-  if (input.chat_id) return input.chat_id;
+  // "pinned" is the documented alias read_chat_messages accepts. Treat it (and
+  // omitted) as the pinned chat so the chat tools behave consistently.
+  if (input.chat_id && input.chat_id !== "pinned") return input.chat_id;
   if (!ctx.pinnedChatId) return { error: "No chat_id provided and no chat is pinned. Either pass chat_id or have the user pin a chat." };
   return ctx.pinnedChatId;
 }
@@ -21,7 +23,8 @@ export const chatStatsTool = defineTool({
     properties: { chat_id: { type: "string", description: "Optional. Omit to use the pinned chat." } },
     required: [],
   },
-  requiresCharacter: true,
+  // Chat-scoped; available in no-character sessions (matches read/list_chat_messages).
+  requiresCharacter: false,
   execute: async (input, ctx) => {
     const resolved = resolveChatId(input, ctx);
     if (typeof resolved !== "string") return { content: `Error: ${resolved.error}`, isError: true };

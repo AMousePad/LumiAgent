@@ -7,7 +7,11 @@ export type ToolCtx = SharedToolCtx;
 export { RecentReadsCache } from "./tools/_context";
 export { isDeferredTool, isReadOnlyTool, listDeferredToolNames, maxResultSizeCharsFor } from "./tools/_registry";
 
-export type ToolFn = (args: Record<string, unknown>, ctx: ToolCtx) => Promise<string>;
+export interface ToolDispatchResult {
+  readonly content: string;
+  readonly isError?: boolean;
+}
+export type ToolFn = (args: Record<string, unknown>, ctx: ToolCtx) => Promise<ToolDispatchResult>;
 
 // In no-character sessions, drop tools whose execution is character-bound so
 // the LLM physically cannot call them. Keeps the system-prompt one-liner the
@@ -51,15 +55,19 @@ export function makeToolDispatch(): Record<string, ToolFn> {
     dispatch[tool.name] = async (args, ctx) => {
       const parsed = tool.inputSchema.safeParse(args);
       if (!parsed.success) {
-        return `Error: [INVALID_INPUT] invalid input for tool '${tool.name}':\n${formatZodError(parsed.error)}`;
+        return { content: `Error: [INVALID_INPUT] invalid input for tool '${tool.name}':\n${formatZodError(parsed.error)}`, isError: true };
       }
       const ctxWithDispatch = { ...ctx, __dispatch: dispatch };
       if (tool.validateInput) {
         const v = await tool.validateInput(parsed.data, ctxWithDispatch as ToolCtx);
-        if (!v.result) return `Error: [${v.errorCode}] ${v.message}`;
+        if (!v.result) return { content: `Error: [${v.errorCode}] ${v.message}`, isError: true };
       }
+      // Surface the tool's isError flag to the caller so the loop can stamp
+      // is_error: true on the wire tool_result. Anthropic uses that signal to
+      // decide whether to retry / recover; without it, coded errors look like
+      // successful results and the model silently moves on.
       const r = await tool.execute(parsed.data, ctxWithDispatch as ToolCtx);
-      return r.content;
+      return r.isError === true ? { content: r.content, isError: true } : { content: r.content };
     };
   }
   return dispatch;

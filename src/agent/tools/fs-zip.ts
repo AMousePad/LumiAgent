@@ -51,7 +51,8 @@ export const fsZipTool = defineTool({
     }
     if (entries.length === 0) throw new Error("no files to zip");
     const zip = buildZip(entries);
-    await ws.writeBinary(ctx.spindle, ctx.userId, input.output, zip);
+    const caps = await ws.resolveUserCaps(ctx.spindle, ctx.userId);
+    await ws.writeBinary(ctx.spindle, ctx.userId, input.output, zip, caps);
     return { content: JSON.stringify({ output: input.output, entries: entries.length, bytes: zip.byteLength }) };
   },
 });

@@ -128,14 +128,33 @@ async function evictUntilFits(spindle: SpindleAPI, userId: string, incomingBytes
   if (evicted) await pruneEmptySessionDirs(spindle, userId);
 }
 
+// tmp_list is cross-session (it surfaces every session's handles), so a handle
+// shown there may live under a DIFFERENT session's dir than the caller's. Fast
+// path: the handle belongs to the current session. Fallback: scan the user's
+// session dirs for the owning session, so tmp_read / tmp_grep / tmp_stat can
+// open a handle that tmp_list advertised from another session.
+async function resolveHandleSession(
+  spindle: SpindleAPI,
+  sessionId: string,
+  userId: string,
+  handle: string,
+): Promise<string | null> {
+  const here = await spindle.userStorage.getJson<TmpHandleInfo | null>(metaPath(sessionId, handle), { fallback: null, userId });
+  if (here) return sessionId;
+  const all = await listAllTmpMeta(spindle, userId);
+  return all.find((i) => i.handle === handle)?.sessionId ?? null;
+}
+
 export async function readTmp(
   spindle: SpindleAPI,
   sessionId: string,
   userId: string,
   handle: string,
 ): Promise<string | null> {
+  const owner = await resolveHandleSession(spindle, sessionId, userId, handle);
+  if (!owner) return null;
   try {
-    return await spindle.userStorage.read(bodyPath(sessionId, handle), userId);
+    return await spindle.userStorage.read(bodyPath(owner, handle), userId);
   } catch { return null; }
 }
 
@@ -145,8 +164,10 @@ export async function statTmp(
   userId: string,
   handle: string,
 ): Promise<TmpHandleInfo | null> {
+  const owner = await resolveHandleSession(spindle, sessionId, userId, handle);
+  if (!owner) return null;
   return spindle.userStorage.getJson<TmpHandleInfo | null>(
-    metaPath(sessionId, handle),
+    metaPath(owner, handle),
     { fallback: null, userId },
   );
 }

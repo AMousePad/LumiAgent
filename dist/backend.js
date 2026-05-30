@@ -1459,6 +1459,7 @@ __export(exports_ledger, {
   purgeAllRevertedInMemory: () => purgeAllRevertedInMemory,
   persistLedgerNow: () => persistLedgerNow,
   loadLedger: () => loadLedger,
+  listNonCharacterScopeLedgers: () => listNonCharacterScopeLedgers,
   ledgerPath: () => ledgerPath,
   laterEditsOnSameFile: () => laterEditsOnSameFile,
   groupByFile: () => groupByFile,
@@ -1482,39 +1483,62 @@ function cacheKey(userId, scope) {
 function emptyLedger(scope) {
   return { ...emptyLedgerV2(scope), externalEdits: [] };
 }
+function pruneLedgerCache() {
+  if (ledgerCache.size <= LEDGER_CACHE_MAX)
+    return;
+  for (const key of ledgerCache.keys()) {
+    if (ledgerCache.size <= LEDGER_CACHE_MAX)
+      break;
+    if (inflightLoads.has(key) || (inflightAppends.get(key) ?? 0) > 0)
+      continue;
+    ledgerCache.delete(key);
+  }
+}
 async function loadLedger(spindle2, scope, userId) {
   const k = cacheKey(userId, scope);
   const cached = ledgerCache.get(k);
   if (cached)
     return cached;
-  const p = ledgerPath(scope);
-  let persisted = await spindle2.userStorage.getJson(p, { fallback: null, userId });
-  if ((!persisted || persisted.version !== 3) && scope.kind === "character") {
-    const legacy = await spindle2.userStorage.getJson(legacyPath(scope.id), { fallback: null, userId });
-    if (legacy && legacy.version === 2) {
-      const migrated = {
-        version: 3,
-        scope,
-        files: legacy.files,
-        structural: legacy.structural,
-        externalEdits: legacy.externalEdits ?? []
-      };
-      await spindle2.userStorage.write(p, JSON.stringify(migrated), userId);
-      try {
-        await spindle2.userStorage.delete(legacyPath(scope.id), userId);
-      } catch {}
-      persisted = migrated;
+  const inflight = inflightLoads.get(k);
+  if (inflight)
+    return inflight;
+  const load = (async () => {
+    const p = ledgerPath(scope);
+    let persisted = await spindle2.userStorage.getJson(p, { fallback: null, userId });
+    if ((!persisted || persisted.version !== 3) && scope.kind === "character") {
+      const legacy = await spindle2.userStorage.getJson(legacyPath(scope.id), { fallback: null, userId });
+      if (legacy && legacy.version === 2) {
+        const migrated = {
+          version: 3,
+          scope,
+          files: legacy.files,
+          structural: legacy.structural,
+          externalEdits: legacy.externalEdits ?? []
+        };
+        await spindle2.userStorage.write(p, JSON.stringify(migrated), userId);
+        try {
+          await spindle2.userStorage.delete(legacyPath(scope.id), userId);
+        } catch {}
+        persisted = migrated;
+      }
     }
+    const ledger = !persisted || persisted.version !== 3 ? emptyLedger(scope) : {
+      version: 3,
+      scope,
+      files: persisted.files,
+      structural: persisted.structural,
+      externalEdits: persisted.externalEdits ?? []
+    };
+    ledgerCache.set(k, ledger);
+    pruneLedgerCache();
+    return ledger;
+  })();
+  inflightLoads.set(k, load);
+  try {
+    return await load;
+  } finally {
+    inflightLoads.delete(k);
   }
-  const ledger = !persisted || persisted.version !== 3 ? emptyLedger(scope) : {
-    version: 3,
-    scope,
-    files: persisted.files,
-    structural: persisted.structural,
-    externalEdits: persisted.externalEdits ?? []
-  };
-  ledgerCache.set(k, ledger);
-  return ledger;
 }
 async function persistLedger(spindle2, ledger, userId) {
   const out = {
@@ -1560,40 +1584,50 @@ function structuralFromEntry(e, r) {
 async function appendEntries(spindle2, scope, entries, userId) {
   if (entries.length === 0)
     return;
-  const ledger = await loadLedger(spindle2, scope, userId);
-  for (const e of entries) {
-    const r = e.record;
-    if (r.op === "edit" && r.surface !== "external") {
-      const key = { surface: r.surface, surfaceId: r.surfaceId, field: r.field };
-      const existing = findFile(ledger, key);
-      const result = recordEdit(existing, {
-        key,
-        surfaceLabel: r.surfaceLabel,
-        live: r.before,
-        next: r.after,
-        author: "agent",
-        sessionId: e.sessionId,
-        toolCallId: e.toolCallId,
-        description: e.toolName,
-        id: e.id,
-        ts: e.ts,
-        toolName: e.toolName,
-        ...e.assistantMessageId !== undefined ? { assistantMessageId: e.assistantMessageId } : {},
-        turn: e.turn,
-        ...r.valueEncoding !== undefined ? { valueEncoding: r.valueEncoding } : {}
-      });
-      if (!existing && result.file.patches.length === 0)
-        continue;
-      upsertFile(ledger, result.file);
-    } else if (r.op === "create" || r.op === "delete") {
-      const sp = structuralFromEntry(e, r);
-      if (sp)
-        ledger.structural.push(sp);
-    } else {
-      ledger.externalEdits.push({ ...e });
+  const ck = cacheKey(userId, scope);
+  inflightAppends.set(ck, (inflightAppends.get(ck) ?? 0) + 1);
+  try {
+    const ledger = await loadLedger(spindle2, scope, userId);
+    for (const e of entries) {
+      const r = e.record;
+      if (r.op === "edit" && r.surface !== "external") {
+        const key = { surface: r.surface, surfaceId: r.surfaceId, field: r.field };
+        const existing = findFile(ledger, key);
+        const result = recordEdit(existing, {
+          key,
+          surfaceLabel: r.surfaceLabel,
+          live: r.before,
+          next: r.after,
+          author: "agent",
+          sessionId: e.sessionId,
+          toolCallId: e.toolCallId,
+          description: e.toolName,
+          id: e.id,
+          ts: e.ts,
+          toolName: e.toolName,
+          ...e.assistantMessageId !== undefined ? { assistantMessageId: e.assistantMessageId } : {},
+          turn: e.turn,
+          ...r.valueEncoding !== undefined ? { valueEncoding: r.valueEncoding } : {}
+        });
+        if (!existing && result.file.patches.length === 0)
+          continue;
+        upsertFile(ledger, result.file);
+      } else if (r.op === "create" || r.op === "delete") {
+        const sp = structuralFromEntry(e, r);
+        if (sp)
+          ledger.structural.push(sp);
+      } else {
+        ledger.externalEdits.push({ ...e });
+      }
     }
+    await persistLedger(spindle2, ledger, userId);
+  } finally {
+    const n = (inflightAppends.get(ck) ?? 1) - 1;
+    if (n <= 0)
+      inflightAppends.delete(ck);
+    else
+      inflightAppends.set(ck, n);
   }
-  await persistLedger(spindle2, ledger, userId);
 }
 async function persistLedgerNow(spindle2, ledger, userId) {
   await persistLedger(spindle2, ledger, userId);
@@ -1875,10 +1909,32 @@ function dropCache(scope, userId) {
 function laterEditsOnSameFile(_ledger, _editId) {
   return [];
 }
-var LEDGER_DIR = "ledgers", ledgerCache, STRUCTURAL_SURFACES;
+async function listNonCharacterScopeLedgers(spindle2, userId) {
+  const out = [];
+  for (const kind of NON_CHARACTER_SCOPE_KINDS) {
+    let names = [];
+    try {
+      names = await spindle2.userStorage.list(`${LEDGER_DIR}/${kind}/`, userId);
+    } catch {}
+    for (const rel of names) {
+      const base = rel.split(/[\\/]/).pop() ?? "";
+      if (!base.endsWith(".json"))
+        continue;
+      const id = base.slice(0, -5);
+      const scope = { kind, id };
+      const ledger = await loadLedger(spindle2, scope, userId).catch(() => null);
+      if (ledger)
+        out.push({ scope, ledger });
+    }
+  }
+  return out;
+}
+var LEDGER_DIR = "ledgers", ledgerCache, inflightLoads, inflightAppends, LEDGER_CACHE_MAX = 512, STRUCTURAL_SURFACES, NON_CHARACTER_SCOPE_KINDS;
 var init_ledger = __esm(() => {
   init_patch_stack();
   ledgerCache = new Map;
+  inflightLoads = new Map;
+  inflightAppends = new Map;
   STRUCTURAL_SURFACES = new Set([
     "world_book_entry",
     "world_book",
@@ -1889,6 +1945,7 @@ var init_ledger = __esm(() => {
     "preset",
     "preset_block"
   ]);
+  NON_CHARACTER_SCOPE_KINDS = ["persona", "chat", "preset", "world_book", "regex_script"];
 });
 
 // src/phoneline/protocol.ts
@@ -1919,27 +1976,30 @@ function makeCallId() {
 async function dial(spindle2, extId, request) {
   const existing = request.callId;
   const enriched = { ...request, callId: existing ?? makeCallId() };
+  let readSettled = Promise.resolve();
   const run = async () => {
     spindle2.rpcPool.sync(PHONELINE_REQUEST_CHANNEL, enriched);
+    const readP = spindle2.rpcPool.read(PHONELINE_ENDPOINT(extId));
+    readSettled = readP.then(() => {
+      return;
+    }, () => {
+      return;
+    });
     let timer = null;
     const timeout = new Promise((_, reject) => {
       timer = setTimeout(() => reject(new Error(`phoneline dial to '${extId}' timed out after ${DIAL_TIMEOUT_MS}ms`)), DIAL_TIMEOUT_MS);
     });
     try {
-      return await Promise.race([
-        spindle2.rpcPool.read(PHONELINE_ENDPOINT(extId)),
-        timeout
-      ]);
+      return await Promise.race([readP, timeout]);
     } finally {
       if (timer !== null)
         clearTimeout(timer);
     }
   };
-  const next = dialChain.then(run, run);
-  dialChain = next.catch(() => {
-    return;
-  });
-  return next;
+  const caller = dialChain.then(run, run);
+  const settleOrGrace = () => Promise.race([readSettled, new Promise((res) => setTimeout(res, DIAL_TIMEOUT_MS))]);
+  dialChain = caller.then(settleOrGrace, settleOrGrace);
+  return caller;
 }
 function dialDescribe(spindle2, extId) {
   return dial(spindle2, extId, { op: "describe" });
@@ -2065,7 +2125,7 @@ function entryUpdateFromDTO(e) {
   return out;
 }
 function entryCreateFromDTO(e) {
-  return entryUpdateFromDTO(e);
+  return { ...entryUpdateFromDTO(e), id: e.id };
 }
 function personaCreateFromDTO(p) {
   const out = { name: p.name };
@@ -2125,7 +2185,7 @@ function personaScalarUpdate(field, decoded) {
 }
 function worldBookCreateFromDTO(b) {
   const out = { name: b.name };
-  if (b.description)
+  if (b.description !== undefined)
     out.description = b.description;
   if (b.metadata && Object.keys(b.metadata).length > 0)
     out.metadata = b.metadata;
@@ -2133,19 +2193,18 @@ function worldBookCreateFromDTO(b) {
 }
 function presetCreateFromDTO(p) {
   const out = { name: p.name, provider: p.provider };
-  if (p.engine)
+  if (p.engine !== undefined)
     out.engine = p.engine;
-  if (p.parameters)
+  if (p.parameters !== undefined)
     out.parameters = p.parameters;
-  if (p.prompts)
+  if (p.prompts !== undefined)
     out.prompts = p.prompts;
-  if (p.metadata)
+  if (p.metadata !== undefined)
     out.metadata = p.metadata;
   return out;
 }
 function blockCreateFromDTO(b) {
-  const { id: _id, ...rest } = b;
-  return rest;
+  return { ...b };
 }
 function altFieldArrayOf(extensions, altField) {
   if (!extensions || typeof extensions !== "object" || Array.isArray(extensions))
@@ -2205,7 +2264,15 @@ function parsePath(path) {
       const inner = path.slice(i + 1, end);
       if (/^\d+$/.test(inner)) {
         segments.push({ kind: "index", value: parseInt(inner, 10) });
-      } else if (inner.startsWith("'") && inner.endsWith("'") || inner.startsWith('"') && inner.endsWith('"')) {
+      } else if (inner.startsWith('"') && inner.endsWith('"') && inner.length >= 2) {
+        let key2;
+        try {
+          key2 = JSON.parse(inner);
+        } catch {
+          key2 = inner.slice(1, -1);
+        }
+        segments.push({ kind: "key", value: key2 });
+      } else if (inner.startsWith("'") && inner.endsWith("'") && inner.length >= 2) {
         segments.push({ kind: "key", value: inner.slice(1, -1) });
       } else {
         throw new Error(`bracket contents must be a number or quoted string: [${inner}]`);
@@ -2414,6 +2481,8 @@ async function readLiveValue(spindle2, entry, characterId, userId) {
       if (!e)
         return null;
       const v = e[r.field];
+      if (r.valueEncoding === "json")
+        return JSON.stringify(v === undefined ? null : v);
       return typeof v === "string" ? v : null;
     }
     case "regex_script": {
@@ -2421,6 +2490,8 @@ async function readLiveValue(spindle2, entry, characterId, userId) {
       if (!s)
         return null;
       const v = s[r.field];
+      if (r.valueEncoding === "json")
+        return JSON.stringify(v === undefined ? null : v);
       return typeof v === "string" ? v : null;
     }
     case "persona_field": {
@@ -2505,8 +2576,11 @@ async function revertFieldEditV2(spindle2, ledger, editId, characterId, userId, 
     }
   };
   const live = await readLiveValue(spindle2, entryView, characterId, userId);
-  if (live === null)
-    return { kind: "failed", editId, error: "surface no longer exists" };
+  if (live === null) {
+    ledger.files = ledger.files.filter((f) => f !== file);
+    await persistLedgerNow(spindle2, ledger, userId);
+    return { kind: "noop_already_reverted", editId };
+  }
   if (sha256(live) !== file.expectedHash) {
     const expected = currentValue(file) ?? file.base;
     const drift = recordExternalDrift(file, live);
@@ -2574,11 +2648,13 @@ async function writeFieldValue(spindle2, surface, surfaceId, field, value, chara
       return;
     }
     case "world_book_entry": {
-      await spindle2.world_books.entries.update(surfaceId, { [field]: value }, userId);
+      const wv = valueEncoding === "json" ? JSON.parse(value) : value;
+      await spindle2.world_books.entries.update(surfaceId, { [field]: wv }, userId);
       return;
     }
     case "regex_script": {
-      await spindle2.regex_scripts.update(surfaceId, { [field]: value }, userId);
+      const rv = valueEncoding === "json" ? JSON.parse(value) : value;
+      await spindle2.regex_scripts.update(surfaceId, { [field]: rv }, userId);
       return;
     }
     case "persona_field": {
@@ -2776,15 +2852,28 @@ async function evictUntilFits(spindle2, userId, incomingBytes) {
   if (evicted)
     await pruneEmptySessionDirs(spindle2, userId);
 }
+async function resolveHandleSession(spindle2, sessionId, userId, handle) {
+  const here = await spindle2.userStorage.getJson(metaPath(sessionId, handle), { fallback: null, userId });
+  if (here)
+    return sessionId;
+  const all = await listAllTmpMeta(spindle2, userId);
+  return all.find((i) => i.handle === handle)?.sessionId ?? null;
+}
 async function readTmp(spindle2, sessionId, userId, handle) {
+  const owner = await resolveHandleSession(spindle2, sessionId, userId, handle);
+  if (!owner)
+    return null;
   try {
-    return await spindle2.userStorage.read(bodyPath(sessionId, handle), userId);
+    return await spindle2.userStorage.read(bodyPath(owner, handle), userId);
   } catch {
     return null;
   }
 }
 async function statTmp(spindle2, sessionId, userId, handle) {
-  return spindle2.userStorage.getJson(metaPath(sessionId, handle), { fallback: null, userId });
+  const owner = await resolveHandleSession(spindle2, sessionId, userId, handle);
+  if (!owner)
+    return null;
+  return spindle2.userStorage.getJson(metaPath(owner, handle), { fallback: null, userId });
 }
 async function listTmp(spindle2, sessionId, userId) {
   let entries;
@@ -17626,6 +17715,8 @@ function parseExtensionPath(path) {
   const segments = [];
   let i = 0;
   while (i < path.length) {
+    if (segments.length > MAX_EXTENSION_DEPTH)
+      throw new Error(`extension path too deeply nested (max ${MAX_EXTENSION_DEPTH} segments)`);
     const ch = path[i];
     if (ch === ".") {
       i++;
@@ -17637,8 +17728,19 @@ function parseExtensionPath(path) {
         throw new Error(`unclosed bracket in path at index ${i}`);
       const inner = path.slice(i + 1, end);
       if (/^\d+$/.test(inner)) {
-        segments.push({ kind: "index", value: parseInt(inner, 10) });
-      } else if (inner.startsWith("'") && inner.endsWith("'") && inner.length >= 2 || inner.startsWith('"') && inner.endsWith('"') && inner.length >= 2) {
+        const idx = parseInt(inner, 10);
+        if (idx > MAX_EXTENSION_INDEX)
+          throw new Error(`extension array index ${idx} exceeds max ${MAX_EXTENSION_INDEX}`);
+        segments.push({ kind: "index", value: idx });
+      } else if (inner.startsWith('"') && inner.endsWith('"') && inner.length >= 2) {
+        let key2;
+        try {
+          key2 = JSON.parse(inner);
+        } catch {
+          key2 = inner.slice(1, -1);
+        }
+        segments.push({ kind: "key", value: key2 });
+      } else if (inner.startsWith("'") && inner.endsWith("'") && inner.length >= 2) {
         segments.push({ kind: "key", value: inner.slice(1, -1) });
       } else {
         throw new Error(`bracket contents must be a number or quoted string: [${inner}]`);
@@ -17687,13 +17789,14 @@ function setAtPath2(root, segments, value) {
   obj[head.value] = setAtPath2(obj[head.value], rest, value);
   return obj;
 }
+var MAX_EXTENSION_INDEX = 1e5, MAX_EXTENSION_DEPTH = 256;
 
 // src/agent/tools/_walk.ts
 var exports__walk = {};
 __export(exports__walk, {
   walkStringLeaves: () => walkStringLeaves
 });
-function* walkStringLeaves(obj, prefix = "", skip) {
+function* walkStringLeaves(obj, prefix = "", skip, depth = 0) {
   if (typeof obj === "string") {
     if (obj.length > 0)
       yield { path: prefix || "(root)", text: obj };
@@ -17701,12 +17804,14 @@ function* walkStringLeaves(obj, prefix = "", skip) {
   }
   if (obj === null || obj === undefined || typeof obj !== "object")
     return;
+  if (depth >= MAX_WALK_DEPTH)
+    return;
   if (Array.isArray(obj)) {
     for (let i = 0;i < obj.length; i++) {
       const childPath = `${prefix}[${i}]`;
       if (skip && skip(childPath))
         continue;
-      yield* walkStringLeaves(obj[i], childPath, skip);
+      yield* walkStringLeaves(obj[i], childPath, skip, depth + 1);
     }
     return;
   }
@@ -17717,9 +17822,10 @@ function* walkStringLeaves(obj, prefix = "", skip) {
     const childPath = prefix + seg;
     if (skip && skip(childPath))
       continue;
-    yield* walkStringLeaves(v, childPath, skip);
+    yield* walkStringLeaves(v, childPath, skip, depth + 1);
   }
 }
+var MAX_WALK_DEPTH = 256;
 
 // src/phoneline/consent.ts
 var exports_consent = {};
@@ -18047,7 +18153,7 @@ var init_apply_glossary = __esm(() => {
   init__framework();
   init__context();
   init__surfaces();
-  CJK_RE = /[\u3040-\u309F\u30A0-\u30FF\u31F0-\u31FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7A3\u8C48-\uFAFF]/;
+  CJK_RE = /[\u3040-\u309F\u30A0-\u30FF\u31F0-\u31FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7A3\uF900-\uFAFF]/;
   inputSchema = exports_external.object({
     entries: exports_external.record(exports_external.string(), exports_external.unknown()),
     scopes: exports_external.array(exports_external.enum(["character", "world_books", "regex_scripts", "extensions"])).optional(),
@@ -18121,23 +18227,25 @@ Returns:
       for (const [k] of pairs)
         hitCounts[k] = 0;
       const applyAll = (text) => {
-        let cur = text;
         const counts = {};
-        for (const [k, v] of pairs) {
-          if (k === v)
-            continue;
-          let n = 0;
-          let scan = 0;
-          while ((scan = cur.indexOf(k, scan)) >= 0) {
-            n++;
-            scan += k.length;
+        let out = "";
+        let i = 0;
+        outer:
+          while (i < text.length) {
+            for (const [k, v] of pairs) {
+              if (k === v || k.length === 0)
+                continue;
+              if (text.startsWith(k, i)) {
+                out += v;
+                counts[k] = (counts[k] ?? 0) + 1;
+                i += k.length;
+                continue outer;
+              }
+            }
+            out += text[i];
+            i++;
           }
-          if (n > 0) {
-            cur = cur.split(k).join(v);
-            counts[k] = (counts[k] ?? 0) + n;
-          }
-        }
-        return { out: cur, perEntry: counts };
+        return { out, perEntry: counts };
       };
       const surfaceChanges = [];
       const c = await ctx.spindle.characters.get(target, ctx.userId);
@@ -18146,6 +18254,7 @@ Returns:
       if (scopes.includes("character")) {
         const patch = {};
         let charChanged = false;
+        const pendingEdits = [];
         for (const field of CHARACTER_STRING_FIELDS) {
           const text = c[field];
           if (typeof text !== "string" || text.length === 0)
@@ -18161,7 +18270,7 @@ Returns:
             patch[field] = out;
             charChanged = true;
             if (!dryRun)
-              ctx.pushEdit({ op: "edit", surface: "character_field", surfaceId: target, surfaceLabel: c.name, field, before: text, after: out, scope: charScope });
+              pendingEdits.push({ op: "edit", surface: "character_field", surfaceId: target, surfaceLabel: c.name, field, before: text, after: out, scope: charScope });
           }
         }
         const newGreetings = [...c.alternate_greetings ?? []];
@@ -18181,13 +18290,15 @@ Returns:
             newGreetings[i] = out;
             greetingsChanged = true;
             if (!dryRun)
-              ctx.pushEdit({ op: "edit", surface: "alternate_greeting", surfaceId: target, surfaceLabel: `alternate_greetings[${i}]`, field: String(i), before: text, after: out, scope: charScope });
+              pendingEdits.push({ op: "edit", surface: "alternate_greeting", surfaceId: target, surfaceLabel: `alternate_greetings[${i}]`, field: String(i), before: text, after: out, scope: charScope });
           }
         }
         if (greetingsChanged)
           patch.alternate_greetings = newGreetings;
         if (!dryRun && (charChanged || greetingsChanged)) {
           await ctx.spindle.characters.update(target, patch, ctx.userId);
+          for (const e of pendingEdits)
+            ctx.pushEdit(e);
         }
       }
       if (scopes.includes("world_books")) {
@@ -18408,7 +18519,7 @@ Wraps the \`delete_asset\` WS op so the LumiRealm runtime refresh hooks fire.`,
       },
       required: ["source", "asset_name"]
     },
-    requiresCharacter: true,
+    requiresCharacter: false,
     execute: async (input, ctx) => {
       const provider = await findLumirealm(ctx);
       if (!provider)
@@ -18465,7 +18576,7 @@ Wraps the \`rename_asset\` WS op so the LumiRealm runtime refresh hooks fire (as
       },
       required: ["source", "old_name", "new_name"]
     },
-    requiresCharacter: true,
+    requiresCharacter: false,
     execute: async (input, ctx) => {
       const provider = await findLumirealm2(ctx);
       if (!provider)
@@ -18491,8 +18602,12 @@ __export(exports_gate, {
   checkExtensionRead: () => checkExtensionRead
 });
 function firstSegment(extPath) {
-  const m = /^([A-Za-z_][A-Za-z0-9_]*)/.exec(extPath);
-  return m ? m[1] : null;
+  try {
+    const first = parseExtensionPath(extPath)[0];
+    return first && first.kind === "key" ? first.value : null;
+  } catch {
+    return null;
+  }
 }
 async function checkExtensionWrite(spindle2, userId, characterId, extPath) {
   const seg = firstSegment(extPath);
@@ -18592,7 +18707,25 @@ function scopeForLeafKey(key, ctx) {
   return characterScope(ctx.characterId ?? "");
 }
 function splitTopLevel(path) {
-  return path.split("/").filter((s) => s.length > 0);
+  const out = [];
+  let cur = "";
+  let depth = 0;
+  for (const ch of path) {
+    if (ch === "[")
+      depth++;
+    else if (ch === "]" && depth > 0)
+      depth--;
+    if (ch === "/" && depth === 0) {
+      if (cur.length > 0)
+        out.push(cur);
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  if (cur.length > 0)
+    out.push(cur);
+  return out;
 }
 function dispatchCharPath(ctx, path, parts) {
   const second = parts[1];
@@ -18895,6 +19028,9 @@ async function resolveWrite(ctx, leaf, nextValue) {
     if (!c)
       throw new Error("character not found");
     const segs = parseExtensionPath(leaf.field);
+    if (segs.length === 0 || segs[0].kind !== "key") {
+      throw new Error(`extensions path must start with a named key, got '${leaf.field}'`);
+    }
     const next = setAtPath2(c.extensions ?? {}, segs, nextValue);
     await ctx.spindle.characters.update(charId, { extensions: next }, ctx.userId);
     ctx.pushEdit({
@@ -19311,10 +19447,10 @@ var init_audit_card_coverage = __esm(() => {
   init__path_v2();
   init__context();
   LANG_PATTERNS = {
-    ko: { name: "Korean (Hangul)", regex: /[\uAC00-\uD7A3]/g },
+    ko: { name: "Korean (Hangul)", regex: /[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]/g },
     ja: { name: "Japanese (Kana)", regex: /[\u3040-\u309F\u30A0-\u30FF]/g },
     zh: { name: "Chinese (Han)", regex: /[\u4E00-\u9FFF]/g },
-    cjk: { name: "Any CJK script", regex: /[\uAC00-\uD7A3\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\u8C48-\uFAFF]/g },
+    cjk: { name: "Any CJK script", regex: /[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/g },
     arabic: { name: "Arabic", regex: /[\u0600-\u06FF]/g },
     cyrillic: { name: "Cyrillic", regex: /[\u0400-\u04FF]/g }
   };
@@ -19410,7 +19546,7 @@ Sorted by match_chars descending so the worst offenders surface first.`,
           const runs = collectDistinctRuns(text2, pat.regex, qBounds);
           const samples = pickStratifiedSamples(text2, lineEnds, runs);
           entry.samples = samples;
-          const warning = buildCoverageWarning(runCount, samples.length, densities);
+          const warning = buildCoverageWarning(runs.length, samples.length, densities);
           if (warning)
             entry.coverage_warning = warning;
         }
@@ -19447,7 +19583,7 @@ Sorted by match_chars descending so the worst offenders surface first.`,
 
 // src/agent/tools/chat-stats.ts
 function resolveChatId(input, ctx) {
-  if (input.chat_id)
+  if (input.chat_id && input.chat_id !== "pinned")
     return input.chat_id;
   if (!ctx.pinnedChatId)
     return { error: "No chat_id provided and no chat is pinned. Either pass chat_id or have the user pin a chat." };
@@ -19469,7 +19605,7 @@ var init_chat_stats = __esm(() => {
       properties: { chat_id: { type: "string", description: "Optional. Omit to use the pinned chat." } },
       required: []
     },
-    requiresCharacter: true,
+    requiresCharacter: false,
     execute: async (input, ctx) => {
       const resolved = resolveChatId(input, ctx);
       if (typeof resolved !== "string")
@@ -20245,6 +20381,8 @@ function substituteString(s, scope) {
         throw new Error(`unknown ref '{{${name}}}'`);
       return match;
     }
+    if (value === undefined || value === null)
+      return "";
     if (typeof value === "string")
       return value;
     if (typeof value === "number" || typeof value === "boolean")
@@ -20316,7 +20454,10 @@ async function runCustomTool(ctx, manifest, argsIn, opts) {
       __customToolDeadline: opts.deadline,
       __customToolStepBudget: opts.stepBudget
     };
-    const raw = await fn(substitutedArgs, stepCtx);
+    const r = await fn(substitutedArgs, stepCtx);
+    if (r.isError === true)
+      throw new Error(`step[${i}] '${callName}' failed: ${r.content}`);
+    const raw = r.content;
     const parsed = typeof raw === "string" ? tryParseJSON(raw) : raw;
     lastResult = parsed;
     if (step.save_as) {
@@ -20640,7 +20781,7 @@ function applyPaired(s, ascii, open, close) {
       const prevLetter = prev !== undefined && /\p{L}/u.test(prev);
       const nextLetter = next !== undefined && /\p{L}/u.test(next);
       if (ascii === "'" && prevLetter && nextLetter) {
-        out.push(close);
+        out.push(chars[i]);
       } else {
         out.push(isOpening(i) ? open : close);
       }
@@ -20831,7 +20972,7 @@ Usage:
       required: ["surface_id", "item_id", "field", "find"]
     },
     requiresRecentRead: gate,
-    requiresCharacter: true,
+    requiresCharacter: false,
     execute: async (input, ctx) => {
       const draftOrigin = `edit_external:${input.surface_id}/${input.item_id}/${input.field}`;
       let replace = input.replace;
@@ -30875,7 +31016,7 @@ function normaliseRelPath(input) {
     p = p.slice(0, -1);
   if (p === "" || p === ".")
     return "";
-  const parts = p.split("/");
+  const parts = p.split("/").map((seg) => seg.replace(/[ .]+$/, ""));
   for (const seg of parts) {
     if (seg === "" || seg === "." || seg === "..") {
       throw new Error(`invalid path segment in '${input}': '${seg}'`);
@@ -30959,7 +31100,7 @@ async function readBinary(spindle2, userId, relPath) {
   return spindle2.userStorage.readBinary(absPath(relPath), userId);
 }
 async function writeText(spindle2, userId, relPath, content, caps = DEFAULT_WORKSPACE_CAPS) {
-  await ensureUnderCaps(spindle2, userId, content.length, relPath, caps);
+  await ensureUnderCaps(spindle2, userId, new TextEncoder().encode(content).byteLength, relPath, caps);
   await ensureParentDir(spindle2, userId, relPath);
   await spindle2.userStorage.write(absPath(relPath), content, userId);
 }
@@ -30993,6 +31134,14 @@ async function movePath(spindle2, userId, fromRel, toRel) {
   const guard = checkMoveAllowed2(a);
   if (guard.protected)
     throw new Error(guard.reason ?? "protected path");
+  const destGuard = checkMoveAllowed2(b);
+  if (destGuard.protected)
+    throw new Error(`refusing to overwrite a protected path: ${b}`);
+  if (a !== b && a.toLowerCase() !== b.toLowerCase()) {
+    const existing = await stat(spindle2, userId, b);
+    if (existing)
+      throw new Error(`destination already exists: ${b}`);
+  }
   await ensureParentDir(spindle2, userId, b);
   await spindle2.userStorage.move(absPath(a), absPath(b), userId);
 }
@@ -31473,6 +31622,9 @@ function parseZip(input) {
   const out = [];
   let co = centralOffset;
   for (let i = 0;i < totalEntries; i++) {
+    if (co < 0 || co + 46 > input.byteLength) {
+      throw new Error(`zip: central header out of bounds at ${co}`);
+    }
     if (view.getUint32(co, true) !== SIG_CENTRAL) {
       throw new Error(`zip: bad central header at ${co}`);
     }
@@ -31488,6 +31640,9 @@ function parseZip(input) {
     co += 46 + nameLen + extraLen + commentLen;
     if (name.endsWith("/")) {
       continue;
+    }
+    if (localHeaderOffset < 0 || localHeaderOffset + 30 > input.byteLength) {
+      throw new Error(`zip: local header out of bounds at ${localHeaderOffset}`);
     }
     if (view.getUint32(localHeaderOffset, true) !== SIG_LOCAL) {
       throw new Error(`zip: bad local header at ${localHeaderOffset}`);
@@ -31716,6 +31871,8 @@ function grepLeaf(text, re, leafKey, surface, surfaceLabel, maxRemaining, maxHit
       hits.push({ path: leafKey, surface, surface_label: surfaceLabel, line: i + 1, match: lineMatches[k], preview });
     }
   }
+  if (hits.length >= maxRemaining)
+    stoppedEarly = true;
   return { hits, lastLineScanned, totalLines, stoppedEarly };
 }
 var GREP_DEFAULT_MAX = 50, GREP_MAX_CAP = 200, GREP_PREVIEW_CHARS = 150, GREP_DEFAULT_HITS_PER_LINE = 1, inputSchema27, grepTool;
@@ -31864,7 +32021,7 @@ Scoping:
 
 // src/agent/tools/grep-chat-messages.ts
 function resolveChatId2(input, ctx) {
-  if (input.chat_id)
+  if (input.chat_id && input.chat_id !== "pinned")
     return input.chat_id;
   if (!ctx.pinnedChatId)
     return { error: "No chat_id provided and no chat is pinned. Either pass chat_id or have the user pin a chat." };
@@ -31896,7 +32053,7 @@ var init_grep_chat_messages = __esm(() => {
       },
       required: ["pattern"]
     },
-    requiresCharacter: true,
+    requiresCharacter: false,
     execute: async (input, ctx) => {
       const resolved = resolveChatId2(input, ctx);
       if (typeof resolved !== "string")
@@ -32201,7 +32358,7 @@ var init_inspect = __esm(() => {
   init__context();
   init__path_v2();
   init__surfaces();
-  CJK_RE2 = /[\uAC00-\uD7A3\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\u8C48-\uFAFF]/g;
+  CJK_RE2 = /[\uAC00-\uD7A3\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/g;
   HANGUL_NFC_RANGE = /[\uAC00-\uD7A3]+/g;
   HANGUL_JAMO_RANGE = /[\u1100-\u11FF]+/g;
   MIRRORED_CHARACTER_FIELDS = new Set([
@@ -32594,7 +32751,8 @@ Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole
         path: { type: "string", description: "Container path. See description for forms." },
         max_entries: { type: "integer", minimum: 1, maximum: 2000 },
         max_depth: { type: "integer", minimum: 1, maximum: 10 },
-        character_id: { type: "string", description: "For char/rx/wb paths: defaults to the focused character." }
+        character_id: { type: "string", description: "For char/rx/wb paths: defaults to the focused character." },
+        include_unattached: { type: "boolean", description: "path='wb' only: also list owned-but-unattached world books, each flagged with `attached`." }
       },
       required: ["path"],
       additionalProperties: false
@@ -32844,6 +33002,9 @@ async function setExtension(ctx, characterId, dotted, value) {
   if (!c)
     return "character not found";
   const segs = parseExtensionPath(dotted);
+  if (segs.length === 0 || segs[0].kind !== "key") {
+    return `[PATH_NOT_FOUND] extensions path must start with a named key, got '${dotted}'.`;
+  }
   let cur = c.extensions ?? {};
   for (const seg of segs) {
     if (cur === null || cur === undefined) {
@@ -32873,7 +33034,8 @@ async function setRegexScriptField(ctx, scriptId, field, value) {
     return `regex script ${scriptId} not found`;
   const before = r[field];
   await ctx.spindle.regex_scripts.update(scriptId, { [field]: value }, ctx.userId);
-  return { before: stringify(before), after: stringify(value), label: r.name, surface: "regex_script", surfaceId: scriptId, field };
+  const isStr = typeof value === "string";
+  return { before: stringify(before), after: stringify(value), label: r.name, surface: "regex_script", surfaceId: scriptId, field, ...isStr ? {} : { valueEncoding: "json" } };
 }
 async function setWorldBookField(ctx, id, field, value) {
   const book = await ctx.spindle.world_books.get(id, ctx.userId).catch(() => null);
@@ -32895,6 +33057,7 @@ async function setWorldBookField(ctx, id, field, value) {
     return `no world book or entry with id ${id}`;
   const before = e[field];
   await ctx.spindle.world_books.entries.update(id, { [field]: value }, ctx.userId);
+  const isStr = typeof value === "string";
   return {
     before: stringify(before),
     after: stringify(value),
@@ -32902,6 +33065,7 @@ async function setWorldBookField(ctx, id, field, value) {
     surface: "world_book_entry",
     surfaceId: id,
     field,
+    ...isStr ? {} : { valueEncoding: "json" },
     ...ctx.characterId ? {} : { scopeOverride: { kind: "world_book", id: e.world_book_id } }
   };
 }
@@ -33115,7 +33279,7 @@ Lua state keys (\`__name\`) need a valid JSON string in \`value\`; the runtime w
       },
       required: ["chat_id", "key", "value"]
     },
-    requiresCharacter: true,
+    requiresCharacter: false,
     execute: async (input, ctx) => {
       const provider = await findLumirealm3(ctx);
       if (!provider)
@@ -33162,7 +33326,7 @@ For changes that every user of the card should see, edit \`char/extensions/lumir
       },
       required: ["character_id", "text"]
     },
-    requiresCharacter: true,
+    requiresCharacter: false,
     execute: async (input, ctx) => {
       const provider = await findLumirealm4(ctx);
       if (!provider)
@@ -33210,7 +33374,7 @@ Toggle definitions (what toggles exist, what type, what default) live in module 
       },
       required: ["chat_id", "key", "value"]
     },
-    requiresCharacter: true,
+    requiresCharacter: false,
     execute: async (input, ctx) => {
       const provider = await findLumirealm5(ctx);
       if (!provider)
@@ -33262,21 +33426,47 @@ When a character is focused you rarely need this. \`query\` filters by name subs
     execute: async (input, ctx) => {
       const limit = Math.min(MAX_LIMIT, Math.max(1, Math.floor(input.limit ?? DEFAULT_LIMIT)));
       const offset = Math.max(0, Math.floor(input.offset ?? 0));
-      const res = await ctx.spindle.characters.list({ limit, offset, userId: ctx.userId });
       const q = input.query?.trim().toLowerCase();
-      let rows = res.data.map((c) => ({
+      const toRow = (c) => ({
         id: c.id,
         name: c.name,
         world_book_count: c.world_book_ids?.length ?? 0
-      }));
-      const filtered = q ? rows.filter((r) => r.name.toLowerCase().includes(q)) : rows;
+      });
+      if (!q) {
+        const res = await ctx.spindle.characters.list({ limit, offset, userId: ctx.userId });
+        const out2 = JSON.stringify({
+          total: res.total,
+          total_library: res.total,
+          offset,
+          returned: res.data.length,
+          characters: res.data.map(toRow)
+        }, null, 2);
+        return { content: await spillOrReturn(ctx, out2, "list_characters") };
+      }
+      const matches = [];
+      let libraryTotal = 0;
+      let scanned = 0;
+      let pageOffset = 0;
+      for (;; ) {
+        const res = await ctx.spindle.characters.list({ limit: MAX_LIMIT, offset: pageOffset, userId: ctx.userId });
+        libraryTotal = res.total;
+        scanned += res.data.length;
+        for (const c of res.data)
+          if (c.name.toLowerCase().includes(q))
+            matches.push(toRow(c));
+        if (res.data.length === 0 || scanned >= res.total)
+          break;
+        pageOffset += res.data.length;
+      }
+      const windowed = matches.slice(offset, offset + limit);
       const out = JSON.stringify({
-        total: q ? filtered.length : res.total,
-        total_library: res.total,
+        total: matches.length,
+        total_library: libraryTotal,
         offset,
-        returned: filtered.length,
-        ...q ? { query: input.query, scanned: rows.length, note: "query filtered post-fetch on this page only; raise limit if you need broader coverage" } : {},
-        characters: filtered
+        returned: windowed.length,
+        query: input.query,
+        scanned,
+        characters: windowed
       }, null, 2);
       return { content: await spillOrReturn(ctx, out, "list_characters") };
     }
@@ -33306,10 +33496,10 @@ var init_list_chat_messages = __esm(() => {
       },
       required: []
     },
-    requiresCharacter: true,
+    requiresCharacter: false,
     execute: async (input, ctx) => {
       let chatId = input.chat_id;
-      if (!chatId) {
+      if (!chatId || chatId === "pinned") {
         if (!ctx.pinnedChatId)
           return { content: "Error: No chat_id provided and no chat is pinned. Either pass chat_id or have the user pin a chat.", isError: true };
         chatId = ctx.pinnedChatId;
@@ -33481,59 +33671,64 @@ Usage:
       }
       const scope = input.scope ?? "current_message";
       const includeReverted = input.include_reverted ?? false;
-      const ledger = await loadLedger(ctx.spindle, characterScope(cid), ctx.userId);
       const out = [];
-      for (const f of ledger.files) {
-        for (const p of f.patches) {
-          if (p.author !== "agent")
+      const collect = (ledger) => {
+        for (const f of ledger.files) {
+          for (const p of f.patches) {
+            if (p.author !== "agent")
+              continue;
+            if (scope !== "all_sessions" && p.sessionId !== ctx.sessionId)
+              continue;
+            if (scope === "current_message" && p.assistantMessageId !== ctx.assistantMessageId)
+              continue;
+            if (!includeReverted && p.reverted)
+              continue;
+            out.push({
+              edit_id: p.id,
+              op: "edit",
+              surface: f.key.surface,
+              surface_id: f.key.surfaceId,
+              surface_label: f.surfaceLabel,
+              field: f.key.field,
+              ts: p.ts,
+              tool: p.toolName ?? null,
+              reverted: p.reverted,
+              sealed: p.sealed === true,
+              session_id: p.sessionId,
+              is_current_session: p.sessionId === ctx.sessionId,
+              message_id: p.assistantMessageId ?? null
+            });
+          }
+        }
+        for (const sp of ledger.structural) {
+          if (sp.author !== "agent")
             continue;
-          if (scope !== "all_sessions" && p.sessionId !== ctx.sessionId)
+          if (scope === "current_message")
             continue;
-          if (scope === "current_message" && p.assistantMessageId !== ctx.assistantMessageId)
+          if (scope !== "all_sessions" && sp.sessionId !== ctx.sessionId)
             continue;
-          if (!includeReverted && p.reverted)
+          if (!includeReverted && sp.reverted)
             continue;
           out.push({
-            edit_id: p.id,
-            op: "edit",
-            surface: f.key.surface,
-            surface_id: f.key.surfaceId,
-            surface_label: f.surfaceLabel,
-            field: f.key.field,
-            ts: p.ts,
-            tool: p.toolName ?? null,
-            reverted: p.reverted,
-            sealed: p.sealed === true,
-            session_id: p.sessionId,
-            is_current_session: p.sessionId === ctx.sessionId,
-            message_id: p.assistantMessageId ?? null
+            edit_id: sp.id,
+            op: sp.op,
+            surface: sp.surface,
+            surface_id: sp.surfaceId,
+            surface_label: sp.surfaceLabel,
+            field: null,
+            ts: sp.ts,
+            tool: sp.toolCallId ? sp.op : null,
+            reverted: sp.reverted,
+            sealed: false,
+            session_id: sp.sessionId,
+            is_current_session: sp.sessionId === ctx.sessionId,
+            message_id: null
           });
         }
-      }
-      for (const sp of ledger.structural) {
-        if (sp.author !== "agent")
-          continue;
-        if (scope === "current_message")
-          continue;
-        if (scope !== "all_sessions" && sp.sessionId !== ctx.sessionId)
-          continue;
-        if (!includeReverted && sp.reverted)
-          continue;
-        out.push({
-          edit_id: sp.id,
-          op: sp.op,
-          surface: sp.surface,
-          surface_id: sp.surfaceId,
-          surface_label: sp.surfaceLabel,
-          field: null,
-          ts: sp.ts,
-          tool: sp.toolCallId ? sp.op : null,
-          reverted: sp.reverted,
-          sealed: false,
-          session_id: sp.sessionId,
-          is_current_session: sp.sessionId === ctx.sessionId,
-          message_id: null
-        });
+      };
+      collect(await loadLedger(ctx.spindle, characterScope(cid), ctx.userId));
+      for (const { ledger } of await listNonCharacterScopeLedgers(ctx.spindle, ctx.userId)) {
+        collect(ledger);
       }
       out.sort((a, b) => a["ts"] - b["ts"]);
       const limited = input.limit !== undefined ? out.slice(0, input.limit) : out;
@@ -33570,7 +33765,7 @@ Wraps the \`attach_module\` WS op so artifact install + refresh hooks fire.`,
       },
       required: ["character_id", "module_id"]
     },
-    requiresCharacter: true,
+    requiresCharacter: false,
     execute: async (input, ctx) => {
       const provider = await findLumirealm6(ctx);
       if (!provider)
@@ -33616,7 +33811,7 @@ Wraps the \`detach_module\` WS op so artifact uninstall + refresh hooks fire.`,
       },
       required: ["character_id", "module_id"]
     },
-    requiresCharacter: true,
+    requiresCharacter: false,
     execute: async (input, ctx) => {
       const provider = await findLumirealm7(ctx);
       if (!provider)
@@ -33817,7 +34012,7 @@ Usage:
       },
       required: []
     },
-    requiresCharacter: true,
+    requiresCharacter: false,
     execute: async (input, ctx) => {
       const requested = input.chat_id;
       if (requested === undefined || requested === "pinned") {
@@ -33862,7 +34057,7 @@ Returns: JSON \`{surface_id, item_id, field, value_chars, value}\`. \`value\` is
       },
       required: ["surface_id", "item_id"]
     },
-    requiresCharacter: true,
+    requiresCharacter: false,
     execute: async (input, ctx) => {
       const { discoverProviders: discoverProviders2, findSurface: findSurface2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
       const providers = await discoverProviders2(ctx.spindle, ctx.userId);
@@ -33877,7 +34072,7 @@ Returns: JSON \`{surface_id, item_id, field, value_chars, value}\`. \`value\` is
         ...input.field !== undefined ? { field: input.field } : {}
       });
       const value = res.value;
-      const valueStr = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+      const valueStr = value === undefined ? "" : typeof value === "string" ? value : JSON.stringify(value, null, 2);
       const payload = JSON.stringify({
         surface_id: input.surface_id,
         item_id: input.item_id,
@@ -33900,15 +34095,16 @@ Returns: JSON \`{surface_id, item_id, field, value_chars, value}\`. \`value\` is
 
 // src/state/sessions.ts
 function summarizeForIndex(s) {
+  const edits = Array.isArray(s.edits) ? s.edits : [];
   return {
     sessionId: s.sessionId,
     characterId: s.characterId,
     characterName: s.characterName,
     createdAt: s.createdAt,
     lastActivityAt: s.lastActivityAt,
-    messageCount: s.messages.length,
-    editCount: s.edits.length,
-    revertedEditCount: s.edits.filter((e) => e.reverted).length
+    messageCount: Array.isArray(s.messages) ? s.messages.length : 0,
+    editCount: edits.length,
+    revertedEditCount: edits.filter((e) => e.reverted).length
   };
 }
 async function loadIndex(spindle2, userId) {
@@ -33925,7 +34121,8 @@ async function writeIndex(spindle2, entries, userId) {
 }
 async function upsertIndex(spindle2, entry, userId) {
   const cur = await loadIndex(spindle2, userId);
-  const next = [entry, ...(cur?.entries ?? []).filter((e) => e.sessionId !== entry.sessionId)];
+  const base = cur ? cur.entries : await rebuildIndex(spindle2, userId);
+  const next = [entry, ...base.filter((e) => e.sessionId !== entry.sessionId)];
   await writeIndex(spindle2, next, userId);
 }
 async function removeFromIndex(spindle2, sessionId, userId) {
@@ -33976,6 +34173,12 @@ function normalizeLegacyEditScopes(s) {
     const le = e;
     if (!le.scope)
       le.scope = characterScope(le.characterId ?? s.characterId ?? "");
+  }
+  if (s.compactedAt !== undefined && s.compactionPrimer === undefined && Array.isArray(s.llmHistory)) {
+    const first = s.llmHistory[0];
+    if (first && first.role === "user" && typeof first.content === "string" && first.content.startsWith("[The previous agent compacted")) {
+      s.compactionPrimer = first.content;
+    }
   }
 }
 async function spliceRevertedFromSession(spindle2, sessionId, removedIds, notes, userId) {
@@ -34098,59 +34301,76 @@ Usage:
         throw err;
       }
       const allowCrossSession = input.allow_cross_session === true;
-      const ledger = await loadLedger(ctx.spindle, characterScope(cid), ctx.userId);
+      const scopeLedgers = [
+        { scope: characterScope(cid), ledger: await loadLedger(ctx.spindle, characterScope(cid), ctx.userId) },
+        ...await listNonCharacterScopeLedgers(ctx.spindle, ctx.userId)
+      ];
       const accepted = [];
       const rejected = [];
       for (const id of input.edit_ids) {
-        const located = findPatch(ledger, id);
-        if (located) {
-          if (located.patch.author !== "agent") {
-            rejected.push({ edit_id: id, reason: "not_agent_authored" });
-            continue;
+        let found = null;
+        for (const { ledger } of scopeLedgers) {
+          const located = findPatch(ledger, id);
+          if (located) {
+            found = { author: located.patch.author, sessionId: located.patch.sessionId, ts: located.patch.ts, ledger };
+            break;
           }
-          if (!allowCrossSession && located.patch.sessionId !== ctx.sessionId) {
-            rejected.push({ edit_id: id, reason: "different_session (pass allow_cross_session: true to permit)" });
-            continue;
+          const struct = findStructural(ledger, id);
+          if (struct) {
+            found = { author: struct.author, sessionId: struct.sessionId, ts: struct.ts, ledger };
+            break;
           }
-          accepted.push({ id, ownerSessionId: located.patch.sessionId, ts: located.patch.ts });
+        }
+        if (!found) {
+          rejected.push({ edit_id: id, reason: "not_found" });
           continue;
         }
-        const struct = findStructural(ledger, id);
-        if (struct) {
-          if (struct.author !== "agent") {
-            rejected.push({ edit_id: id, reason: "not_agent_authored" });
-            continue;
-          }
-          if (!allowCrossSession && struct.sessionId !== ctx.sessionId) {
-            rejected.push({ edit_id: id, reason: "different_session (pass allow_cross_session: true to permit)" });
-            continue;
-          }
-          accepted.push({ id, ownerSessionId: struct.sessionId, ts: struct.ts });
+        if (found.author !== "agent") {
+          rejected.push({ edit_id: id, reason: "not_agent_authored" });
           continue;
         }
-        rejected.push({ edit_id: id, reason: "not_found (note: persona / preset / world_book structural edits live in their own per-scope ledgers, which this tool does not yet enumerate)" });
+        if (!allowCrossSession && found.sessionId !== ctx.sessionId) {
+          rejected.push({ edit_id: id, reason: "different_session (pass allow_cross_session: true to permit)" });
+          continue;
+        }
+        accepted.push({ id, ownerSessionId: found.sessionId, ts: found.ts, ledger: found.ledger });
       }
       accepted.sort((a, b) => b.ts - a.ts);
+      const sessionOf = new Map;
+      for (const { ledger } of scopeLedgers) {
+        for (const f of ledger.files)
+          for (const p of f.patches)
+            sessionOf.set(p.id, p.sessionId);
+        for (const sp of ledger.structural)
+          sessionOf.set(sp.id, sp.sessionId);
+        for (const e of ledger.externalEdits)
+          sessionOf.set(e.id, e.sessionId);
+      }
       const outcomes = [];
       const foreignSessionEdits = new Map;
-      for (const { id, ownerSessionId } of accepted) {
+      for (const { id, ownerSessionId, ledger } of accepted) {
         const outcome = await revertEditWithCheck(ctx.spindle, ledger, id, cid, ctx.userId, true);
         ctx.pushRevert(id, outcome);
         outcomes.push({ edit_id: id, owner_session_id: ownerSessionId, ...outcome });
-        if (outcome.kind === "clean" && ownerSessionId && ownerSessionId !== ctx.sessionId) {
-          let set2 = foreignSessionEdits.get(ownerSessionId);
-          if (!set2) {
-            set2 = new Set;
-            foreignSessionEdits.set(ownerSessionId, set2);
+        if (outcome.kind === "clean") {
+          for (const vid of [id, ...outcome.cascadedEditIds ?? []]) {
+            const owner = sessionOf.get(vid) ?? ownerSessionId;
+            if (!owner || owner === ctx.sessionId)
+              continue;
+            let set2 = foreignSessionEdits.get(owner);
+            if (!set2) {
+              set2 = new Set;
+              foreignSessionEdits.set(owner, set2);
+            }
+            set2.add(vid);
           }
-          set2.add(id);
-          for (const c of outcome.cascadedEditIds ?? [])
-            set2.add(c);
         }
       }
       if (foreignSessionEdits.size > 0) {
-        const note = `[Note from the system: an agent acting in a different chat session for this character has reverted ${accepted.length === 1 ? "an edit" : "edits"} that was made here earlier. The affected character fields have been restored to their prior state. This happened outside this conversation; do not bring it up unless the user asks.]`;
-        await Promise.allSettled(Array.from(foreignSessionEdits, ([sid, ids]) => spliceRevertedFromSession(ctx.spindle, sid, ids, [note], ctx.userId)));
+        await Promise.allSettled(Array.from(foreignSessionEdits, ([sid, ids]) => {
+          const note = `[Note from the system: an agent acting in a different chat session for this character has reverted ${ids.size === 1 ? "an edit" : `${ids.size} edits`} that ${ids.size === 1 ? "was" : "were"} made here earlier. The affected fields have been restored to their prior state. This happened outside this conversation; do not bring it up unless the user asks.]`;
+          return spliceRevertedFromSession(ctx.spindle, sid, ids, [note], ctx.userId);
+        }));
       }
       return { content: JSON.stringify({
         reverted: outcomes.filter((o) => o["kind"] === "clean").length,
@@ -34243,8 +34463,15 @@ Usage:
         throw err;
       }
       const result = await squashMessage(ctx.spindle, characterScope(cid), ctx.assistantMessageId, ctx.userId, { sealed: true });
-      if (result.filesTouched > 0 || result.absorbedIds.length > 0)
-        ctx.pushLedgerResync();
+      if (result.filesTouched > 0 || result.absorbedIds.length > 0) {
+        const remap = {};
+        for (const [k, v] of result.absorbedToMerged)
+          remap[k] = v;
+        for (const id of result.absorbedIds)
+          if (!(id in remap))
+            remap[id] = "";
+        ctx.pushLedgerResync(remap);
+      }
       return {
         content: JSON.stringify({
           files_touched: result.filesTouched,
@@ -34318,7 +34545,7 @@ var init_survey_cjk = __esm(() => {
   init__framework();
   init__context();
   init__surfaces();
-  CJK_RUN_RE = /[\u3040-\u309F\u30A0-\u30FF\u31F0-\u31FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7A3\u8C48-\uFAFF]+/g;
+  CJK_RUN_RE = /[\u3040-\u309F\u30A0-\u30FF\u31F0-\u31FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F\uF900-\uFAFF]+/g;
   inputSchema51 = exports_external.object({
     scopes: exports_external.array(exports_external.enum(["character", "world_books", "regex_scripts", "extensions"])).optional(),
     min_length: exports_external.number().optional(),
@@ -34670,11 +34897,19 @@ Usage:
       }
       if (include.has("world_book_entries")) {
         for (const wbId of c.world_book_ids ?? []) {
-          const entries = await ctx.spindle.world_books.entries.list(wbId, { userId: ctx.userId, limit: 1000 });
-          for (const e of entries.data) {
-            if (isNonEmptyString(e.content) && e.content.length >= minChars) {
-              items.push({ id: mkId(), text: e.content, kind: "plain", target: { kind: "world_book_entry", entryId: e.id } });
+          let offset = 0;
+          let bookFetched = 0;
+          for (;; ) {
+            const res = await ctx.spindle.world_books.entries.list(wbId, { userId: ctx.userId, limit: 500, offset });
+            for (const e of res.data) {
+              if (isNonEmptyString(e.content) && e.content.length >= minChars) {
+                items.push({ id: mkId(), text: e.content, kind: "plain", target: { kind: "world_book_entry", entryId: e.id } });
+              }
             }
+            bookFetched += res.data.length;
+            if (res.data.length === 0 || bookFetched >= res.total)
+              break;
+            offset += res.data.length;
           }
         }
       }
@@ -34741,7 +34976,8 @@ Usage:
             label: dotted
           });
         } else if (target.kind === "lumirealm_scriptstate_default") {
-          extensionMutations.push({ path: ["lumirealm", "payload", "scriptstate_defaults", target.key], before: item.text, after: t.text, label: `lumirealm.payload.scriptstate_defaults.${target.key}` });
+          const keySeg = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(target.key) ? `.${target.key}` : `[${JSON.stringify(target.key)}]`;
+          extensionMutations.push({ path: ["lumirealm", "payload", "scriptstate_defaults", target.key], before: item.text, after: t.text, label: `lumirealm.payload.scriptstate_defaults${keySeg}` });
         } else if (target.kind === "character_field") {
           charFieldMutations.push({ field: target.field, before: item.text, after: t.text });
         } else if (target.kind === "alternate_greeting") {
@@ -35188,7 +35424,7 @@ Usage:
       },
       required: ["surface_id", "item_id", "field", "value"]
     },
-    requiresCharacter: true,
+    requiresCharacter: false,
     execute: async (input, ctx) => {
       const { surface_id: surfaceId, item_id: itemId, field, value } = input;
       const { discoverProviders: discoverProviders2, findSurface: findSurface2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
@@ -35271,11 +35507,12 @@ Usage:
       const updated = await ctx.spindle.regex_scripts.update(id, patch, ctx.userId);
       for (const [k, v] of Object.entries(patch)) {
         const prev = before[k];
-        const beforeStr = typeof prev === "string" ? prev : JSON.stringify(prev);
-        const afterStr = typeof v === "string" ? v : JSON.stringify(v);
+        const isStr = typeof v === "string";
+        const beforeStr = isStr ? typeof prev === "string" ? prev : JSON.stringify(prev ?? null) : JSON.stringify(prev ?? null);
+        const afterStr = isStr ? v : JSON.stringify(v ?? null);
         if (beforeStr === afterStr)
           continue;
-        ctx.pushEdit({ op: "edit", surface: "regex_script", surfaceId: id, surfaceLabel: before.name, field: k, before: beforeStr, after: afterStr, scope: scopeForLeafKey(`rx/${id}`, ctx) });
+        ctx.pushEdit({ op: "edit", surface: "regex_script", surfaceId: id, surfaceLabel: before.name, field: k, before: beforeStr, after: afterStr, ...isStr ? {} : { valueEncoding: "json" }, scope: scopeForLeafKey(`rx/${id}`, ctx) });
       }
       return { content: `OK. Updated regex script ${updated.id} ("${updated.name}") fields: ${Object.keys(patch).join(", ")}` };
     }
@@ -35287,7 +35524,6 @@ var inputSchema61, updateWorldBookEntryTool;
 var init_update_world_book_entry = __esm(() => {
   init_zod();
   init__framework();
-  init__path_v2();
   init__surfaces();
   inputSchema61 = exports_external.object({
     entry_id: exports_external.string().min(1),
@@ -35320,13 +35556,15 @@ Usage:
         return { content: `Error: world book entry ${id} not found`, isError: true };
       const updated = await ctx.spindle.world_books.entries.update(id, patch, ctx.userId);
       const label = wbLabel(before);
+      const scope = ctx.characterId ? characterScope(ctx.characterId) : { kind: "world_book", id: before.world_book_id };
       for (const [k, v] of Object.entries(patch)) {
         const prev = before[k];
-        const beforeStr = typeof prev === "string" ? prev : JSON.stringify(prev);
-        const afterStr = typeof v === "string" ? v : JSON.stringify(v);
+        const isStr = typeof v === "string";
+        const beforeStr = isStr ? typeof prev === "string" ? prev : JSON.stringify(prev ?? null) : JSON.stringify(prev ?? null);
+        const afterStr = isStr ? v : JSON.stringify(v ?? null);
         if (beforeStr === afterStr)
           continue;
-        ctx.pushEdit({ op: "edit", surface: "world_book_entry", surfaceId: id, surfaceLabel: label, field: k, before: beforeStr, after: afterStr, scope: scopeForLeafKey(`wb/${id}`, ctx) });
+        ctx.pushEdit({ op: "edit", surface: "world_book_entry", surfaceId: id, surfaceLabel: label, field: k, before: beforeStr, after: afterStr, ...isStr ? {} : { valueEncoding: "json" }, scope });
       }
       return { content: `OK. Updated world book entry ${updated.id} fields: ${Object.keys(patch).join(", ")}` };
     }
@@ -35501,11 +35739,11 @@ Usage:
     execute: async (input, ctx) => {
       const chatId = input.chat_id ?? ctx.pinnedChatId ?? undefined;
       const useChar = input.use_active_character ?? true;
-      const target = input.character_id ?? ctx.characterId ?? undefined;
+      const target = input.character_id ?? (useChar ? ctx.characterId ?? undefined : undefined);
       try {
         const scripts = await ctx.spindle.regex_scripts.getActive({
           target: input.target,
-          ...useChar && target ? { characterId: target } : {},
+          ...target ? { characterId: target } : {},
           ...chatId ? { chatId } : {},
           userId: ctx.userId
         });
@@ -35776,13 +36014,13 @@ var init_list_databanks = __esm(() => {
     execute: async (input, ctx) => {
       try {
         let scopeId = input.scope_id;
-        if (input.scope === "character" && scopeId === undefined)
-          scopeId = ctx.characterId;
-        if (input.scope === "chat" && scopeId === undefined)
-          scopeId = ctx.pinnedChatId;
+        if (input.scope === "character" && !scopeId)
+          scopeId = ctx.characterId || undefined;
+        if (input.scope === "chat" && !scopeId)
+          scopeId = ctx.pinnedChatId || undefined;
         const res = await ctx.spindle.databanks.list({
           ...input.scope ? { scope: input.scope } : {},
-          ...scopeId !== undefined ? { scopeId } : {},
+          ...scopeId ? { scopeId } : {},
           limit: input.limit ?? 200,
           offset: input.offset ?? 0,
           userId: ctx.userId
@@ -36020,8 +36258,8 @@ var init_read_persona = __esm(() => {
   inputSchema78 = exports_external.object({
     persona_id: exports_external.string().optional(),
     which: exports_external.enum(["active", "default"]).optional()
-  }).strict().refine((v) => v.persona_id !== undefined !== (v.which !== undefined), {
-    message: "exactly one of `persona_id` or `which` is required"
+  }).strict().refine((v) => !(v.persona_id !== undefined && v.which !== undefined), {
+    message: "pass `persona_id` or `which`, not both. Omit both to read the default persona."
   });
   readPersonaTool = defineTool({
     name: "read_persona",
@@ -36364,8 +36602,10 @@ Query forms:
     execute: async (input, ctx) => {
       const maxResults = input.max_results ?? 5;
       const deferredNames = listDeferredToolNames();
+      const hasChar = !!ctx.characterId;
       let pickedNames = [];
       const missingSelect = [];
+      const unavailableNoChar = [];
       const selectMatch = input.query.match(/^select:(.+)$/i);
       if (selectMatch) {
         const requested = selectMatch[1].split(",").map((s) => s.trim()).filter(Boolean);
@@ -36376,12 +36616,16 @@ Query forms:
             missingSelect.push(n);
             continue;
           }
+          if (tool.requiresCharacter && !hasChar) {
+            unavailableNoChar.push(tool.name);
+            continue;
+          }
           if (!found.includes(tool.name))
             found.push(tool.name);
         }
         if (found.length === 0) {
           return {
-            content: `No tools matched 'select:${requested.join(",")}'. ${missingSelect.length > 0 ? `Unknown names: ${missingSelect.join(", ")}.` : ""} Use the deferred-tools list from the system prompt to pick valid names, or run a keyword search instead.`,
+            content: `No tools loaded from 'select:${requested.join(",")}'. ${missingSelect.length > 0 ? `Unknown names: ${missingSelect.join(", ")}. ` : ""}${unavailableNoChar.length > 0 ? `Unavailable without a focused character (this is an All-Characters session): ${unavailableNoChar.join(", ")}. ` : ""}Use the deferred-tools list from the system prompt to pick valid names, or run a keyword search instead.`,
             isError: true
           };
         }
@@ -36392,6 +36636,8 @@ Query forms:
         for (const name of deferredNames) {
           const t = registry2.get(name);
           if (!t)
+            continue;
+          if (t.requiresCharacter && !hasChar)
             continue;
           const s = scoreKeyword(t.name, t.description, terms);
           if (s > 0)
@@ -36421,6 +36667,9 @@ Query forms:
       }
       if (missingSelect.length > 0) {
         noteLines.push(`Warning: unknown names not loaded: ${missingSelect.join(", ")}. Check the deferred-tools list in the system prompt. Do NOT call these names \u2014 they won't dispatch.`);
+      }
+      if (unavailableNoChar.length > 0) {
+        noteLines.push(`Not loaded (need a focused character, this is an All-Characters session): ${unavailableNoChar.join(", ")}. Focus a character first, then re-run tool_search.`);
       }
       return {
         content: `${header}
@@ -36818,6 +37067,29 @@ function encodeAssistantTurn(content, toolCalls, reasoning) {
     parts.push({ type: "text", text: EMPTY_BLOCK_PLACEHOLDER });
   return { role: "assistant", content: parts, ...reasoning ? { reasoning_content: reasoning } : {} };
 }
+function partsOf(content) {
+  if (typeof content === "string")
+    return content.trim().length > 0 ? [{ type: "text", text: content }] : [];
+  return content;
+}
+function coalesceConsecutiveTurns(messages) {
+  const out = [];
+  for (const m of messages) {
+    const prev = out[out.length - 1];
+    if (prev && prev.role === m.role && (m.role === "user" || m.role === "assistant")) {
+      const parts = [...partsOf(prev.content), ...partsOf(m.content)];
+      const reasoning = [prev.reasoning_content, m.reasoning_content].filter((r) => r && r.length > 0).join("") || undefined;
+      out[out.length - 1] = {
+        role: m.role,
+        content: parts.length > 0 ? parts : [{ type: "text", text: EMPTY_BLOCK_PLACEHOLDER }],
+        ...reasoning ? { reasoning_content: reasoning } : {}
+      };
+    } else {
+      out.push(m);
+    }
+  }
+  return out;
+}
 function encodeToolResults(results) {
   const parts = results.map((r) => {
     const clipped = clip(r.content);
@@ -36878,10 +37150,11 @@ async function* runLlmStream(spindle2, input) {
       if (chunk.reasoning !== undefined)
         response.reasoning = chunk.reasoning;
       if (chunk.usage && (chunk.usage.prompt_tokens > 0 || chunk.usage.completion_tokens > 0)) {
+        const total = chunk.usage.total_tokens > 0 ? chunk.usage.total_tokens : chunk.usage.prompt_tokens + chunk.usage.completion_tokens;
         response.usage = {
           prompt: chunk.usage.prompt_tokens,
           completion: chunk.usage.completion_tokens,
-          total: chunk.usage.total_tokens
+          total
         };
       }
       yield { type: "done", response };
@@ -37126,17 +37399,17 @@ function makeToolDispatch() {
     dispatch[tool.name] = async (args, ctx) => {
       const parsed = tool.inputSchema.safeParse(args);
       if (!parsed.success) {
-        return `Error: [INVALID_INPUT] invalid input for tool '${tool.name}':
-${formatZodError(parsed.error)}`;
+        return { content: `Error: [INVALID_INPUT] invalid input for tool '${tool.name}':
+${formatZodError(parsed.error)}`, isError: true };
       }
       const ctxWithDispatch = { ...ctx, __dispatch: dispatch };
       if (tool.validateInput) {
         const v = await tool.validateInput(parsed.data, ctxWithDispatch);
         if (!v.result)
-          return `Error: [${v.errorCode}] ${v.message}`;
+          return { content: `Error: [${v.errorCode}] ${v.message}`, isError: true };
       }
       const r = await tool.execute(parsed.data, ctxWithDispatch);
-      return r.content;
+      return r.isError === true ? { content: r.content, isError: true } : { content: r.content };
     };
   }
   return dispatch;
@@ -37341,8 +37614,11 @@ async function* runAgent(input) {
       pushRevert: (editId, outcome) => {
         buffer.reverts.push({ editId, outcome });
       },
-      pushLedgerResync: () => {
+      pushLedgerResync: (remap) => {
         buffer.resync = true;
+        if (remap && Object.keys(remap).length > 0) {
+          buffer.resyncRemap = { ...buffer.resyncRemap ?? {}, ...remap };
+        }
       },
       discoverTools: (names) => {
         for (const n of names) {
@@ -37399,7 +37675,7 @@ async function* runAgent(input) {
     let sawDoneEvent = false;
     try {
       for await (const ev of runLlmStream(input.spindle, {
-        messages: withRollingCacheBreakpoint(conv, input.cacheMode ?? "full"),
+        messages: withRollingCacheBreakpoint(coalesceConsecutiveTurns(conv), input.cacheMode ?? "full"),
         tools: effectiveTools,
         ...input.connectionId !== undefined ? { connectionId: input.connectionId } : {},
         ...input.parameters !== undefined ? { parameters: input.parameters } : {},
@@ -37430,7 +37706,7 @@ async function* runAgent(input) {
     dlog(input.spindle, `loop.turn ${turnNum} response: finish_reason=${finishReason || "<empty>"} ` + `content_chars=${content.length} tool_calls=${toolCalls.length}` + `[${toolCalls.map((t) => t.name).join(",") || "<none>"}] ` + `reasoning_terminal_chars=${reasoning?.length ?? 0} reasoning_streamed_chars=${streamedReasoningChars} ` + `token_streamed_chars=${streamedTokenChars} saw_done=${sawDoneEvent} ` + `usage=${usage ? `p${usage.prompt}/c${usage.completion}/t${usage.total}${usage.estimated ? "(est)" : ""}` : "<none>"} ` + `conv_msgs=${conv.length}`);
     if (usage === undefined) {
       try {
-        usage = await estimateUsage(input.spindle, input.userId, withRollingCacheBreakpoint(conv, input.cacheMode ?? "full"), content, reasoning, input.tokenizerModelId);
+        usage = await estimateUsage(input.spindle, input.userId, withRollingCacheBreakpoint(coalesceConsecutiveTurns(conv), input.cacheMode ?? "full"), content, reasoning, input.tokenizerModelId);
       } catch {}
     }
     if (usage !== undefined)
@@ -37506,7 +37782,7 @@ async function* runAgent(input) {
           content: "[SYSTEM: Your previous reply contained tool-call syntax as text (e.g. <invoke>, <tool_use>, <function_call>, <tool_call> tags). Text-encoded tool calls are NOT executed in their text form, they only run through the provider's native tool-use channel. Re-issue the same call(s) properly now.]"
         });
         yield { type: "warning", message: "The model wrote tool syntax as text instead of calling through the native channel. Nudged once. If it happens again I'll parse and dispatch as a fallback." };
-        yield { type: "turn_completed", turn: turnNum, finish_reason: finishReason, ...usage !== undefined ? { usage } : {} };
+        yield { type: "turn_completed", turn: turnNum, finish_reason: finishReason, cleanedContent: stripTextToolCallSyntax(content), ...usage !== undefined ? { usage } : {} };
         continue;
       }
       const { recovered, cleaned } = parseTextFormToolCalls(content);
@@ -37549,7 +37825,10 @@ async function* runAgent(input) {
         isError = true;
       } else {
         try {
-          resultText = await fn(tc.args, makeCallCtx(buffer));
+          const r = await fn(tc.args, makeCallCtx(buffer));
+          resultText = r.content;
+          if (r.isError === true)
+            isError = true;
         } catch (err) {
           resultText = `Error: ${err.message}`;
           isError = true;
@@ -37604,7 +37883,7 @@ async function* runAgent(input) {
         yield { type: "revert_logged", editId: r.editId, outcome: r.outcome };
       }
       if (oc.buffer.resync)
-        yield { type: "edits_resynced" };
+        yield oc.buffer.resyncRemap ? { type: "edits_resynced", absorbedToMerged: oc.buffer.resyncRemap } : { type: "edits_resynced" };
       yield {
         type: "tool_finished",
         call_id: oc.tc.call_id,
@@ -37703,9 +37982,6 @@ async function* runAgent(input) {
 
 // src/tasks/general.ts
 function buildGeneralSystemPrompt(params) {
-  const extensionSection = params.extensionSystemPrompts.trim().length > 0 ? `
-
-${params.extensionSystemPrompts.trim()}` : "";
   const chatSection = `
 
 # Pinned chat
@@ -37729,37 +38005,36 @@ ${params.deferredToolNames.map((n) => `- ${n}`).join(`
 `)}
 
 Do not invent tools that are not in this list and not loaded at the top of the prompt. If the tool you need is not visible anywhere, say so in chat instead of guessing.`;
-  const externalSection = params.externalProviders.length === 0 ? "" : `
-
-# External providers (other extensions)
-
-The following extensions have opted in to expose data through the phone-line protocol. Use \`list_external\` / \`read_external\` / \`grep_external\` (cross-item regex search, optional \`field_prefix\` to scope) / \`edit_external\` / \`update_external\`, keyed on \`surface_id\`.
-
-` + params.externalProviders.map((p) => {
-    const surfaceLines = p.surfaces.map((s) => `    - \`${s.id}\` (${s.scope}): ${s.label}. ${s.description.slice(0, 240)}${s.description.length > 240 ? "..." : ""}`).join(`
-`);
-    return `- **${p.name}**
-${surfaceLines}`;
-  }).join(`
-`);
   const personaBlock = params.persona && params.persona.trim().length > 0 ? `${params.persona.trim()}
 
 ---
 
 ` : "";
-  const focusSection = params.characterName.trim().length > 0 ? `
-
-# Focus
-
-Focused on character "${params.characterName}"${params.characterId ? ` (id \`${params.characterId}\`)` : ""}. Unqualified \`char/<field>\` paths and the default of whole-card tools (grep / audit_card_coverage / survey_cjk / list / inspect / update_character / apply_glossary) target this character. To work on a DIFFERENT character without changing focus, address it by id: \`char/<otherId>/<field>\` for read / edit / rewrite / set, or pass \`character_id\` to a whole-card tool. \`list_characters\` finds ids.` : "\n\n# Focus\n\nNo character is focused (All Characters mode). Address a character by id: `char/<id>/<field>` for read / edit / rewrite / set, or pass `character_id` to a whole-card tool (grep / audit_card_coverage / survey_cjk / list / inspect / update_character / apply_glossary). Call `list_characters` to find the id of the character the user means. Unqualified `char/<field>` paths fail with [NO_TARGET] until you pass an id or the user focuses a character via the picker.";
+  const addressingSection = '\n\n# Addressing characters\n\nYour current focus, and any pinned chat, is stated in the latest "[Context update ...]" note in the conversation. Unqualified `char/<field>` paths and the default of whole-card tools (grep / audit_card_coverage / survey_cjk / list / inspect / update_character / apply_glossary) target the focused character. Address any OTHER character by id: `char/<id>/<field>` for read / edit / rewrite / set, or pass `character_id` to a whole-card tool. With no focus, unqualified `char/<field>` fails with [NO_TARGET]; call `list_characters` to find ids.';
   const body = params.systemPromptOverride !== null && params.systemPromptOverride.trim().length > 0 ? params.systemPromptOverride : BUILTIN_PROMPT_BODY;
-  return `${personaBlock}${body}${extensionSection}${chatSection}${externalSection}${focusSection}${agentNotesSection}${deferredToolsSection}
+  return `${personaBlock}${body}${chatSection}${addressingSection}${agentNotesSection}${deferredToolsSection}
 
 # When to stop
 
 When the user's last request is **fulfilled by tool calls** (the file has actually changed), write a short summary of what changed and stop without calling any tool. The user will tell you what to do next. Only call finish(summary) when the user explicitly says the entire task is done.
 
 A summary is not a substitute for the work. If you only described what should happen but no \`edit_*\` / \`update_*\` / \`create_*\` / \`delete_*\` / \`apply_glossary\` tool was called for the user's request, the request is NOT fulfilled \u2014 go do the writes first.`;
+}
+function buildContextNote(params) {
+  const focus = params.characterName.trim().length > 0 ? `focused on "${params.characterName}"${params.characterId ? ` (id \`${params.characterId}\`)` : ""}` : "not focused on any character";
+  const pin = params.pinnedChat ? "A chat is pinned." : "No chat is pinned.";
+  const parts = [`[Context update from the system: you are now ${focus}. ${pin} Re-read any character or chat details you cached before this.]`];
+  if (params.extensionSystemPrompts.trim().length > 0)
+    parts.push(params.extensionSystemPrompts.trim());
+  if (params.externalProviders.length > 0) {
+    const lines = params.externalProviders.flatMap((p) => p.surfaces.map((s) => `- \`${s.id}\` (${s.scope}): ${s.label}. ${s.description.slice(0, 240)}${s.description.length > 240 ? "..." : ""}`));
+    parts.push(`External provider surfaces (use list_external / read_external / edit_external / update_external / grep_external, keyed on surface_id):
+${lines.join(`
+`)}`);
+  }
+  return parts.join(`
+
+`);
 }
 var BUILTIN_PROMPT_BODY = `# Path-based read & edit (USE THESE FIRST)
 
@@ -38241,6 +38516,14 @@ function scopedKey(userId, id) {
 }
 var activeSessions = new Map;
 var pendingSessions = new Map;
+var PENDING_SESSION_TTL_MS = 2 * 60 * 60000;
+function sweepStalePendingSessions() {
+  const cutoff = Date.now() - PENDING_SESSION_TTL_MS;
+  for (const [k, s] of pendingSessions) {
+    if (s.createdAt < cutoff)
+      pendingSessions.delete(k);
+  }
+}
 async function loadSessionWithPending(sessionId, userId) {
   const p = pendingSessions.get(scopedKey(userId, sessionId));
   if (p)
@@ -38495,10 +38778,6 @@ async function buildSessionSystemMessage(c, s, settings, userId) {
   }
   const hasCharacter = c !== null;
   let prompt = buildGeneralSystemPrompt({
-    characterName: hasCharacter ? c.name : "",
-    characterId: s.characterId ?? null,
-    externalProviders: hasCharacter ? await resolveExternalProviders(userId) : [],
-    extensionSystemPrompts: await resolveExtensionSystemPrompts(userId, hasCharacter ? c.id : null),
     persona: settings.persona,
     systemPromptOverride: settings.systemPromptOverride,
     agentNotes: s.frozenAgentNotes,
@@ -38510,6 +38789,38 @@ async function buildSessionSystemMessage(c, s, settings, userId) {
 ${settings.jailbreak}`;
   }
   return systemMessageWithCache(prompt, settings.cacheMode);
+}
+async function buildContextNoteForSession(s, userId) {
+  const characterId = s.characterId;
+  const externalProviders = characterId !== null ? await resolveExternalProviders(userId) : [];
+  const extensionSystemPrompts = await resolveExtensionSystemPrompts(userId, characterId);
+  return buildContextNote({
+    characterName: s.characterName,
+    characterId,
+    pinnedChat: (s.pinnedChatId ?? null) !== null,
+    externalProviders,
+    extensionSystemPrompts
+  });
+}
+async function emitContextNoteIfChanged(s, userId) {
+  const cur = { characterId: s.characterId, pinnedChatId: s.pinnedChatId ?? null };
+  const last = s.lastContext ?? null;
+  if (last && last.characterId === cur.characterId && last.pinnedChatId === cur.pinnedChatId)
+    return;
+  const curMeaningful = cur.characterId !== null || cur.pinnedChatId !== null;
+  const lastMeaningful = !!last && (last.characterId !== null || last.pinnedChatId !== null);
+  if (!curMeaningful && !lastMeaningful) {
+    s.lastContext = cur;
+    return;
+  }
+  const note = await buildContextNoteForSession(s, userId);
+  const entry = { role: "user", content: note };
+  const lastIdx = s.llmHistory.length - 1;
+  if (lastIdx >= 0 && s.llmHistory[lastIdx].role === "user")
+    s.llmHistory.splice(lastIdx, 0, entry);
+  else
+    s.llmHistory.push(entry);
+  s.lastContext = cur;
 }
 function applyJailbreakNonSystem(conv, settings) {
   if (settings.jailbreak.trim().length === 0)
@@ -38567,11 +38878,13 @@ async function resolveModelForConnection(connectionId, userId) {
   }
 }
 async function resolveProviderForConnection(connectionId, userId) {
-  if (!connectionId)
-    return;
   try {
-    const profile = await spindle.connections.get(connectionId, userId);
-    return profile?.provider;
+    if (connectionId) {
+      const profile = await spindle.connections.get(connectionId, userId);
+      return profile?.provider;
+    }
+    const list = await spindle.connections.list(userId);
+    return list.find((c) => c.is_default)?.provider;
   } catch {
     return;
   }
@@ -38581,8 +38894,31 @@ var PARALLEL_TOOLS_INCOMPATIBLE_PROVIDERS = new Set([
   "google_vertex",
   "anthropic"
 ]);
+var ANTHROPIC_UNSUPPORTED_SAMPLERS = [
+  "frequency_penalty",
+  "presence_penalty",
+  "min_p",
+  "repetition_penalty"
+];
+var GOOGLE_UNSUPPORTED_SAMPLERS = [
+  "frequency_penalty",
+  "presence_penalty",
+  "min_p",
+  "repetition_penalty"
+];
 function buildSamplerParams(samplers, parallelToolCalls, provider) {
   const base = { ...samplersToWireWithRequired(samplers) };
+  if (provider === "anthropic") {
+    if (typeof base["temperature"] === "number" && base["temperature"] > 1) {
+      base["temperature"] = 1;
+    }
+    for (const k of ANTHROPIC_UNSUPPORTED_SAMPLERS)
+      delete base[k];
+  }
+  if (provider === "google" || provider === "google_vertex") {
+    for (const k of GOOGLE_UNSUPPORTED_SAMPLERS)
+      delete base[k];
+  }
   if (provider && PARALLEL_TOOLS_INCOMPATIBLE_PROVIDERS.has(provider))
     return base;
   base["parallel_tool_calls"] = parallelToolCalls;
@@ -38736,13 +39072,20 @@ async function handleListCharactersStorage(userId) {
   }
 }
 async function handleSquashCharacter(scope, userId) {
+  if ([...activeSessions.keys()].some((k) => k.startsWith(`${userId}:`))) {
+    send({ type: "ws_error", error: "Wait for the current generation to finish before forgetting changes." }, userId);
+    return;
+  }
   try {
-    const { dropCache: dropCache2 } = await Promise.resolve().then(() => (init_ledger(), exports_ledger));
+    const { persistLedgerNow: persistLedgerNow2 } = await Promise.resolve().then(() => (init_ledger(), exports_ledger));
     let ledgerCleared = false;
     try {
-      await spindle.userStorage.delete(ledgerPath(scope), userId);
-      dropCache2(scope, userId);
-      ledgerCleared = true;
+      const ledger = await loadLedger(spindle, scope, userId);
+      ledgerCleared = ledger.files.length > 0 || ledger.structural.length > 0 || ledger.externalEdits.length > 0;
+      ledger.files = [];
+      ledger.structural = [];
+      ledger.externalEdits = [];
+      await persistLedgerNow2(spindle, ledger, userId);
     } catch {}
     send({ type: "scope_squashed", scope, ledgerCleared }, userId);
     await handleListCharactersStorage(userId);
@@ -38784,11 +39127,25 @@ async function handleLoadCharacterWorkshop(scope, userId) {
 }
 var AUTO_COMPACT_THRESHOLD = 0.84;
 var HANDOFF_PATH = "HANDOFF.md";
-function replaceAssistantTextBlocks(assistant, cleaned) {
-  assistant.blocks = assistant.blocks.filter((b) => b.type !== "text");
-  if (cleaned.trim().length > 0) {
-    assistant.blocks.push({ type: "text", content: cleaned });
+function replaceAssistantTextBlocks(assistant, cleaned, fromIndex) {
+  const cut = Math.max(0, Math.min(fromIndex, assistant.blocks.length));
+  const head = assistant.blocks.slice(0, cut);
+  const rebuilt = [];
+  let inserted = false;
+  for (const b of assistant.blocks.slice(cut)) {
+    if (b.type === "text") {
+      if (!inserted) {
+        if (cleaned.trim().length > 0)
+          rebuilt.push({ type: "text", content: cleaned });
+        inserted = true;
+      }
+    } else {
+      rebuilt.push(b);
+    }
   }
+  if (!inserted && cleaned.trim().length > 0)
+    rebuilt.push({ type: "text", content: cleaned });
+  assistant.blocks = [...head, ...rebuilt];
 }
 function emitContextUsage(s, contextTokens, userId) {
   const promptTokens = s.lastPromptTokens ?? 0;
@@ -38828,20 +39185,33 @@ Rules:
 }
 async function compactSession(sessionId, userId, trigger) {
   log("info", `compact_session sessionId=${sessionId} trigger=${trigger}`);
-  if (activeSessions.has(scopedKey(userId, sessionId))) {
+  const key = scopedKey(userId, sessionId);
+  if (activeSessions.has(key)) {
     send({ type: "ws_error", error: "Wait for the current generation to finish before compacting." }, userId);
     return;
   }
+  const ac = new AbortController;
+  compactingSessions.add(key);
+  activeSessions.set(key, ac);
+  pushSessionStatus(sessionId, userId);
+  const releaseSlot = () => {
+    activeSessions.delete(key);
+    compactingSessions.delete(key);
+  };
   const s = await loadSession(spindle, sessionId, userId);
   if (!s) {
+    releaseSlot();
     send({ type: "ws_error", error: "Session not found." }, userId);
+    pushSessionStatus(sessionId, userId);
     return;
   }
   let c = null;
   if (s.characterId !== null) {
     c = await spindle.characters.get(s.characterId, userId);
     if (!c) {
+      releaseSlot();
       send({ type: "ws_error", error: "Character not found." }, userId);
+      pushSessionStatus(sessionId, userId);
       return;
     }
   }
@@ -38849,10 +39219,6 @@ async function compactSession(sessionId, userId, trigger) {
   const settings = await loadSettings(spindle, userId);
   const contextTokens = resolveContextTokens(settings.samplers);
   const maxHandoffChars = Math.floor(contextTokens * 0.15) * 3;
-  const ac = new AbortController;
-  compactingSessions.add(scopedKey(userId, sessionId));
-  activeSessions.set(scopedKey(userId, sessionId), ac);
-  pushSessionStatus(sessionId, userId);
   try {
     const systemMsg = await buildSessionSystemMessage(c, s, settings, userId);
     const compactPrompt = buildCompactionInstruction(maxHandoffChars);
@@ -38868,6 +39234,7 @@ async function compactSession(sessionId, userId, trigger) {
     const assistant = { id: assistantId, role: "assistant", ts: Date.now(), turn: 0, blocks: [{ type: "text", content: "[Compacting context, writing handoff notes...]" }], status: "streaming" };
     s.messages.push(assistant);
     let currentText = null;
+    let turnStartBlocks = 0;
     const toolBlocks = new Map;
     const compactionStartTs = Date.now();
     for await (const ev of runAgent({
@@ -38897,6 +39264,7 @@ async function compactSession(sessionId, userId, trigger) {
         case "turn_started":
           assistant.turn = ev.turn;
           currentText = null;
+          turnStartBlocks = assistant.blocks.length;
           break;
         case "llm_token":
           if (!currentText) {
@@ -38927,7 +39295,11 @@ async function compactSession(sessionId, userId, trigger) {
             s.lastPromptTokens = ev.usage.prompt;
           }
           if (ev.cleanedContent !== undefined)
-            replaceAssistantTextBlocks(assistant, ev.cleanedContent);
+            replaceAssistantTextBlocks(assistant, ev.cleanedContent, turnStartBlocks);
+          break;
+        case "edit_logged":
+          s.edits.push(ev.entry);
+          appendEntries(spindle, ev.entry.scope, [ev.entry], userId).catch((e) => log("warn", `ledger append failed: ${e.message}`));
           break;
         default:
           break;
@@ -38950,11 +39322,12 @@ async function compactSession(sessionId, userId, trigger) {
       emitContextUsage(s, contextTokens, userId);
       return;
     }
-    s.llmHistory = [
-      { role: "user", content: `[The previous agent compacted this conversation. Detailed handoff notes are saved at workspace/${HANDOFF_PATH}. If you need any context from before this point, read that file first with fs_read("${HANDOFF_PATH}"). Then respond to whatever the user says next.]` }
-    ];
+    const primerContent = `[The previous agent compacted this conversation. Detailed handoff notes are saved at workspace/${HANDOFF_PATH}. If you need any context from before this point, read that file first with fs_read("${HANDOFF_PATH}"). Then respond to whatever the user says next.]`;
+    s.llmHistory = [{ role: "user", content: primerContent }];
+    s.compactionPrimer = primerContent;
     s.compactedAt = Date.now();
     s.lastPromptTokens = 0;
+    delete s.lastContext;
     const marker = {
       id: makeId("msg"),
       role: "assistant",
@@ -39021,9 +39394,6 @@ function guessMimeType(path2) {
     default:
       return "application/octet-stream";
   }
-}
-function isTextMime(mime) {
-  return mime.startsWith("text/") || mime === "application/json" || mime === "application/javascript" || mime === "application/typescript" || mime === "image/svg+xml";
 }
 function bytesToBase64(bytes) {
   let binary = "";
@@ -39094,13 +39464,8 @@ async function handleWsDuplicate(path2, userId) {
     if (!dest)
       throw new Error("couldn't find a free name");
     const { workspaceCaps } = await resolveCapsForUser(userId);
-    try {
-      const text = await ws.readText(spindle, userId, path2);
-      await ws.writeText(spindle, userId, dest, text, workspaceCaps);
-    } catch {
-      const bytes = await ws.readBinary(spindle, userId, path2);
-      await ws.writeBinary(spindle, userId, dest, bytes, workspaceCaps);
-    }
+    const bytes = await ws.readBinary(spindle, userId, path2);
+    await ws.writeBinary(spindle, userId, dest, bytes, workspaceCaps);
     send({ type: "ws_changed" }, userId);
   } catch (err) {
     send({ type: "ws_error", error: err.message }, userId);
@@ -39143,22 +39508,26 @@ async function handleWsUploadPart(transferId, path2, dataBase64, index, total, u
   try {
     let buf = uploadBuffers.get(key);
     if (!buf) {
-      buf = { path: path2, total, parts: new Array(total).fill("") };
+      buf = { path: path2, total, parts: new Array(total).fill(null) };
       uploadBuffers.set(key, buf);
-      uploadBufferTimers.set(key, setTimeout(() => {
-        log("warn", `upload transfer ${transferId} timed out`);
-        clearUploadBuffer(key);
-      }, UPLOAD_BUFFER_TTL_MS));
     }
+    const existing = uploadBufferTimers.get(key);
+    if (existing)
+      clearTimeout(existing);
+    uploadBufferTimers.set(key, setTimeout(() => {
+      log("warn", `upload transfer ${transferId} timed out`);
+      clearUploadBuffer(key);
+      send({ type: "ws_error", error: "Upload timed out before all parts arrived." }, userId);
+    }, UPLOAD_BUFFER_TTL_MS));
     if (buf.path !== path2 || buf.total !== total) {
       throw new Error(`upload part for ${transferId} mismatches path or total`);
     }
     if (index < 0 || index >= total)
       throw new Error(`bad upload index ${index}`);
     buf.parts[index] = dataBase64;
-    if (buf.parts.every((p) => p.length > 0)) {
+    if (buf.parts.every((p) => p !== null)) {
       const ws = await Promise.resolve().then(() => (init_workspace(), exports_workspace));
-      const decoded = buf.parts.map((b64) => base64ToBytes(b64));
+      const decoded = buf.parts.map((b64) => base64ToBytes(b64 ?? ""));
       const totalLen = decoded.reduce((s, b) => s + b.byteLength, 0);
       const merged = new Uint8Array(totalLen);
       let off = 0;
@@ -39213,6 +39582,7 @@ async function handleWsMkdir(path2, userId) {
     send({ type: "ws_error", error: err.message }, userId);
   }
 }
+var DOWNLOAD_INLINE_MAX_BYTES = 2800000;
 async function handleWsDownload(path2, userId) {
   try {
     const ws = await Promise.resolve().then(() => (init_workspace(), exports_workspace));
@@ -39222,12 +39592,9 @@ async function handleWsDownload(path2, userId) {
     if (node.isDirectory)
       throw new Error(`'${path2}' is a directory; use ws_download_zip`);
     const mime = guessMimeType(path2);
-    let bytes;
-    if (isTextMime(mime)) {
-      const text = await ws.readText(spindle, userId, path2);
-      bytes = new TextEncoder().encode(text);
-    } else {
-      bytes = await ws.readBinary(spindle, userId, path2);
+    const bytes = await ws.readBinary(spindle, userId, path2);
+    if (bytes.byteLength > DOWNLOAD_INLINE_MAX_BYTES) {
+      throw new Error(`'${path2}' is ${(bytes.byteLength / 1048576).toFixed(1)} MB; too large to download inline (limit ~${(DOWNLOAD_INLINE_MAX_BYTES / 1048576).toFixed(1)} MB). The host drops messages over 4 MB.`);
     }
     send({ type: "ws_download_ready", path: ws.normaliseRelPath(path2), dataBase64: bytesToBase64(bytes), mimeType: mime }, userId);
   } catch (err) {
@@ -39244,15 +39611,9 @@ async function handleWsDownloadZip(paths, userId) {
       if (seen.has(rel))
         return;
       seen.add(rel);
-      const mime = guessMimeType(rel);
       let bytes;
       try {
-        if (isTextMime(mime)) {
-          const text = await ws.readText(spindle, userId, rel);
-          bytes = new TextEncoder().encode(text);
-        } else {
-          bytes = await ws.readBinary(spindle, userId, rel);
-        }
+        bytes = await ws.readBinary(spindle, userId, rel);
       } catch {
         return;
       }
@@ -39274,6 +39635,9 @@ async function handleWsDownloadZip(paths, userId) {
     if (entries.length === 0)
       throw new Error("nothing to download");
     const zip = buildZip2(entries);
+    if (zip.byteLength > DOWNLOAD_INLINE_MAX_BYTES) {
+      throw new Error(`The zip is ${(zip.byteLength / 1048576).toFixed(1)} MB; too large to download inline (limit ~${(DOWNLOAD_INLINE_MAX_BYTES / 1048576).toFixed(1)} MB). Download fewer / smaller files.`);
+    }
     const filename = paths.length === 1 ? `${(paths[0] ?? "workspace").replace(/\//g, "_") || "workspace"}.zip` : "workspace.zip";
     send({ type: "ws_zip_ready", dataBase64: bytesToBase64(zip), filename }, userId);
   } catch (err) {
@@ -39292,14 +39656,50 @@ async function handleSetPinnedChat(sessionId, chatId, userId) {
   const prevPin = s.pinnedChatId ?? null;
   log("info", `set_pinned_chat: loaded session sessionCharacterId=${s.characterId} prevPinnedChatId=${prevPin ?? "null"} pending=${isPending}`);
   s.pinnedChatId = chatId;
-  if (!isPending && s.llmHistory.length > 0 && prevPin !== chatId) {
-    const note = chatId === null ? "[Note from the system: the user just unpinned the chat that was previously pinned for context. From now on, `read_chat_messages` (no chat_id) will return `{pinned: false}`. If the user references 'this chat' or 'the conversation', tell them to pin one again.]" : prevPin === null ? "[Note from the system: the user just pinned a chat for context. `read_chat_messages` (no chat_id) now returns the messages of that chat. The pin replaces whatever you previously knew about chat history; re-read if you need fresh context.]" : "[Note from the system: the user just swapped the pinned chat. Any chat-history context you had cached is stale; `read_chat_messages` (no chat_id) now points at a different chat. Re-read it before referencing 'this chat' / 'the conversation'.]";
-    s.llmHistory.push({ role: "user", content: note });
-  }
   if (!isPending)
     await saveSession(spindle, s, userId);
   log("info", `set_pinned_chat: ${isPending ? "updated in-memory pending session" : "saved"}, replying pinned_chat_set`);
   send({ type: "pinned_chat_set", sessionId, chatId }, userId);
+}
+async function handleSetFocus(sessionId, characterId, userId) {
+  if (activeSessions.has(scopedKey(userId, sessionId))) {
+    send({ type: "focus_rejected", sessionId, reason: "Can't switch character while a generation is in flight." }, userId);
+    return;
+  }
+  const s = await loadSessionWithPending(sessionId, userId);
+  if (!s) {
+    send({ type: "session_deleted", sessionId }, userId);
+    return;
+  }
+  if ((s.characterId ?? null) === (characterId ?? null)) {
+    send({ type: "focus_set", sessionId, characterId, characterName: s.characterName }, userId);
+    return;
+  }
+  let characterName = "";
+  if (characterId !== null) {
+    try {
+      const c = await spindle.characters.get(characterId, userId);
+      if (!c) {
+        send({ type: "focus_rejected", sessionId, reason: `Character ${characterId} not found.` }, userId);
+        return;
+      }
+      characterName = c.name;
+    } catch (err) {
+      send({ type: "focus_rejected", sessionId, reason: `Character lookup failed: ${err.message}` }, userId);
+      return;
+    }
+  }
+  if (activeSessions.has(scopedKey(userId, sessionId))) {
+    send({ type: "focus_rejected", sessionId, reason: "Can't switch character while a generation is in flight." }, userId);
+    return;
+  }
+  const stillPending = pendingSessions.has(scopedKey(userId, sessionId));
+  s.characterId = characterId;
+  s.characterName = characterName;
+  s.pinnedChatId = null;
+  if (!stillPending)
+    await saveSession(spindle, s, userId);
+  send({ type: "focus_set", sessionId, characterId, characterName }, userId);
 }
 async function handleListSessions(filter, userId) {
   const prefix = `${userId}:`;
@@ -39333,6 +39733,7 @@ async function handleLoadSession(sessionId, userId) {
 }
 async function handleStartSession(sessionId, characterId, connectionId, userId) {
   log("info", `start_session sessionId=${sessionId} characterId=${characterId ?? "(none)"}`);
+  sweepStalePendingSessions();
   const s = newSession({
     sessionId,
     characterId,
@@ -39393,7 +39794,8 @@ async function handleContinueSession(sessionId, connectionId, userId) {
         delete e.assistantMessageId;
       }
     }
-    s.llmHistory = rebuildLlmHistory(s.messages);
+    s.llmHistory = rebuildLlmHistoryScoped(s, s.messages);
+    delete s.lastContext;
     await saveSession(spindle, s, userId);
     send({ type: "session_truncated", sessionId, messages: s.messages, edits: s.edits }, userId);
   }
@@ -39538,13 +39940,34 @@ async function handleRevertEdit(scope, editId, force, userId) {
   const ledger = await loadLedger(spindle, scope, userId);
   const entry = findEntry(ledger, editId);
   if (!entry) {
-    send({ type: "edit_reverted", scope, editId, outcome: { kind: "failed", editId, error: "edit not found in ledger" } }, userId);
+    send({ type: "edit_reverted", scope, editId, outcome: { kind: "noop_already_reverted", editId } }, userId);
     return;
   }
+  const ownerSessionByEditId = new Map;
+  for (const f of ledger.files)
+    for (const p of f.patches)
+      ownerSessionByEditId.set(p.id, p.sessionId);
+  for (const s of ledger.structural)
+    ownerSessionByEditId.set(s.id, s.sessionId);
+  for (const e of ledger.externalEdits)
+    ownerSessionByEditId.set(e.id, e.sessionId);
   const outcome = await revertEditWithCheck(spindle, ledger, editId, scope.id, userId, force);
   if (outcome.kind === "clean") {
-    const removedIds = new Set([editId, ...outcome.cascadedEditIds ?? []]);
-    await spliceRevertedFromSession(spindle, entry.sessionId, removedIds, [buildRevertNote(entry)], userId);
+    const allIds = [editId, ...outcome.cascadedEditIds ?? []];
+    const bySession = new Map;
+    for (const id of allIds) {
+      const sid = ownerSessionByEditId.get(id) ?? entry.sessionId;
+      if (!sid)
+        continue;
+      let set2 = bySession.get(sid);
+      if (!set2) {
+        set2 = new Set;
+        bySession.set(sid, set2);
+      }
+      set2.add(id);
+    }
+    const note = buildRevertNote(entry);
+    await Promise.allSettled(Array.from(bySession, ([sid, ids]) => spliceRevertedFromSession(spindle, sid, ids, [note], userId)));
   }
   send({ type: "edit_reverted", scope, editId, outcome }, userId);
   if (outcome.kind === "clean") {
@@ -39573,8 +39996,6 @@ async function handleRevertEditsBulk(scope, editIds, userId, opts = {}) {
         hits.push(p);
     if (hits.length === 0)
       continue;
-    for (const p of hits)
-      bumpSession(p.sessionId);
     const savedExpectedHash = file2.expectedHash;
     for (const p of hits) {
       p.reverted = true;
@@ -39597,17 +40018,22 @@ async function handleRevertEditsBulk(scope, editIds, userId, opts = {}) {
     file2.expectedHash = sha256(cur);
     fileWork.push({ file: file2, hits, cascadeIds, recomputed: cur, savedExpectedHash });
   }
-  const fileWriteResults = await Promise.allSettled(fileWork.map(({ file: file2, recomputed }) => writeFieldValue(spindle, file2.key.surface, file2.key.surfaceId, file2.key.field, recomputed, scope.id, userId)));
+  const fileWriteResults = await Promise.allSettled(fileWork.map(({ file: file2, recomputed }) => writeFieldValue(spindle, file2.key.surface, file2.key.surfaceId, file2.key.field, recomputed, scope.id, userId, file2.valueEncoding)));
   fileWork.forEach((work, i) => {
     const r = fileWriteResults[i];
     if (r && r.status === "fulfilled") {
       for (const p of work.hits) {
         removedIds.add(p.id);
+        bumpSession(p.sessionId);
         const cas = work.cascadeIds.length > 0 && p === work.hits[0] ? { kind: "clean", editId: p.id, cascadedEditIds: work.cascadeIds } : { kind: "clean", editId: p.id };
         outcomes.push({ editId: p.id, outcome: cas });
       }
-      for (const cid of work.cascadeIds)
+      for (const cid of work.cascadeIds) {
         removedIds.add(cid);
+        const victim = work.file.patches.find((x) => x.id === cid);
+        if (victim)
+          bumpSession(victim.sessionId);
+      }
     } else {
       for (const p of work.hits) {
         p.reverted = false;
@@ -39748,7 +40174,7 @@ function buildRevertNote(entry) {
   return `[Note from the system: the user reverted the edit you made in turn ${entry.turn} via tool \`${entry.toolName}\` on ${r.surface} "${surfaceLabel}". ${detail} The user did not explain why \u2014 they may have disliked the wording, hit revert by accident, or be re-planning. Do not bring it up unless they ask; if they re-request something similar, treat it as a fresh request and read the current state first.]`;
 }
 async function handleRevertSession(sessionId, userId) {
-  const s = await loadSession(spindle, sessionId, userId);
+  let s = await loadSession(spindle, sessionId, userId);
   if (!s) {
     send({ type: "generation_error", sessionId, error: "session not found" }, userId);
     return;
@@ -39760,6 +40186,9 @@ async function handleRevertSession(sessionId, userId) {
   }
   const sessionEditIds = liveSessionEdits.map((e) => e.id).reverse();
   const r = await revertEditsBatch(s.characterId ?? "", s.edits.filter((e) => sessionEditIds.includes(e.id)).reverse(), userId);
+  const refreshed = await loadSessionWithPending(sessionId, userId);
+  if (refreshed)
+    s = refreshed;
   const revertedNow = Date.now();
   for (const edit of s.edits) {
     if (r.okIds.has(edit.id)) {
@@ -39795,9 +40224,7 @@ function rebuildLlmHistory(messages) {
         reasoning += b.content;
       else if (b.type === "tool") {
         toolCalls.push({ name: b.name, args: b.args, call_id: b.call_id });
-        if (b.result !== undefined) {
-          toolResults.push({ call_id: b.call_id, name: b.name, content: b.result, ...b.is_error ? { is_error: true } : {} });
-        }
+        toolResults.push(b.result !== undefined ? { call_id: b.call_id, name: b.name, content: b.result, ...b.is_error ? { is_error: true } : {} } : { call_id: b.call_id, name: b.name, content: "(no result: the previous turn was interrupted)", is_error: true });
       }
     }
     out.push(encodeAssistantTurn(text, toolCalls, reasoning || undefined));
@@ -39805,6 +40232,14 @@ function rebuildLlmHistory(messages) {
       out.push(encodeToolResults(toolResults));
   }
   return out;
+}
+function rebuildLlmHistoryScoped(s, messages) {
+  if (s.compactedAt === undefined || s.compactionPrimer === undefined) {
+    return rebuildLlmHistory(messages);
+  }
+  const cutoff = s.compactedAt;
+  const post = messages.filter((m) => m.ts >= cutoff);
+  return [{ role: "user", content: s.compactionPrimer }, ...rebuildLlmHistory(post)];
 }
 async function revertEditsBatch(characterId, entries, userId) {
   if (entries.length === 0)
@@ -39863,10 +40298,14 @@ async function handleDeleteMessage(sessionId, messageId, editsAction, userId) {
     return;
   }
   const target = s.messages[idx];
+  if (s.compactedAt !== undefined && target.ts < s.compactedAt) {
+    send({ type: "generation_error", sessionId, error: "This message is before the compaction point and is read-only. Fork from here into a new session if you want to branch from it." }, userId);
+    return;
+  }
   if (target.role === "assistant" && editsAction === "revert") {
     const editsToRevert = s.edits.filter((e) => e.assistantMessageId === target.id && !e.reverted);
-    if (editsToRevert.length > 0 && s.characterId !== null) {
-      const r = await revertEditsBatch(s.characterId, editsToRevert, userId);
+    if (editsToRevert.length > 0) {
+      const r = await revertEditsBatch(s.characterId ?? "", editsToRevert, userId);
       const now = Date.now();
       for (const e of s.edits)
         if (r.okIds.has(e.id)) {
@@ -39876,7 +40315,8 @@ async function handleDeleteMessage(sessionId, messageId, editsAction, userId) {
     }
   }
   s.messages = s.messages.slice(0, idx).concat(s.messages.slice(idx + 1));
-  s.llmHistory = rebuildLlmHistory(s.messages);
+  s.llmHistory = rebuildLlmHistoryScoped(s, s.messages);
+  delete s.lastContext;
   await saveSession(spindle, s, userId);
   send({ type: "session_truncated", sessionId, messages: s.messages, edits: s.edits }, userId);
 }
@@ -39961,14 +40401,18 @@ async function handleEditUserMessage(sessionId, messageId, newContent, editsActi
     send({ type: "generation_error", sessionId, error: "user message not found" }, userId);
     return;
   }
+  if (newContent.trim().length === 0) {
+    send({ type: "generation_error", sessionId, error: "Cannot save an empty message edit." }, userId);
+    return;
+  }
   if (s.compactedAt !== undefined && s.messages[idx].ts < s.compactedAt) {
     send({ type: "generation_error", sessionId, error: "This message is before the compaction point and is read-only. Fork from here into a new session if you want to branch from it." }, userId);
     return;
   }
   const tailMessageIds = new Set(s.messages.slice(idx + 1).filter((m) => m.role === "assistant").map((m) => m.id));
   const editsToReview = s.edits.filter((e) => e.assistantMessageId !== undefined && tailMessageIds.has(e.assistantMessageId) && !e.reverted);
-  if (editsAction === "revert" && editsToReview.length > 0 && s.characterId !== null) {
-    const r = await revertEditsBatch(s.characterId, editsToReview, userId);
+  if (editsAction === "revert" && editsToReview.length > 0) {
+    const r = await revertEditsBatch(s.characterId ?? "", editsToReview, userId);
     const now = Date.now();
     for (const e of s.edits)
       if (r.okIds.has(e.id)) {
@@ -39978,7 +40422,8 @@ async function handleEditUserMessage(sessionId, messageId, newContent, editsActi
   }
   const editedMsg = { id: messageId, role: "user", ts: Date.now(), content: newContent };
   s.messages = [...s.messages.slice(0, idx), editedMsg];
-  s.llmHistory = rebuildLlmHistory(s.messages);
+  s.llmHistory = rebuildLlmHistoryScoped(s, s.messages);
+  delete s.lastContext;
   await saveSession(spindle, s, userId);
   send({ type: "session_truncated", sessionId, messages: s.messages, edits: s.edits }, userId);
   handleSendMessageInternal(s, userId, connectionId);
@@ -40015,8 +40460,8 @@ async function handleRegenerateAssistant(sessionId, assistantMessageId, editsAct
   }
   const tailMessageIds = new Set(s.messages.slice(idx).filter((m) => m.role === "assistant").map((m) => m.id));
   const editsToReview = s.edits.filter((e) => e.assistantMessageId !== undefined && tailMessageIds.has(e.assistantMessageId) && !e.reverted);
-  if (editsAction === "revert" && editsToReview.length > 0 && s.characterId !== null) {
-    const r = await revertEditsBatch(s.characterId, editsToReview, userId);
+  if (editsAction === "revert" && editsToReview.length > 0) {
+    const r = await revertEditsBatch(s.characterId ?? "", editsToReview, userId);
     const now = Date.now();
     for (const e of s.edits)
       if (r.okIds.has(e.id)) {
@@ -40025,7 +40470,8 @@ async function handleRegenerateAssistant(sessionId, assistantMessageId, editsAct
       }
   }
   s.messages = s.messages.slice(0, idx);
-  s.llmHistory = rebuildLlmHistory(s.messages);
+  s.llmHistory = rebuildLlmHistoryScoped(s, s.messages);
+  delete s.lastContext;
   await saveSession(spindle, s, userId);
   send({ type: "session_truncated", sessionId, messages: s.messages, edits: s.edits }, userId);
   handleSendMessageInternal(s, userId, connectionId);
@@ -40044,6 +40490,7 @@ async function handleForkSession(sourceSessionId, messageId, userId) {
   const sliced = s.messages.slice(0, idx + 1).map((m) => structuredClone(m));
   const slicedAssistantIds = new Set(sliced.filter((m) => m.role === "assistant").map((m) => m.id));
   const newId = makeId("sess");
+  const forkIsCompacted = s.compactedAt !== undefined && sliced.some((m) => m.ts >= s.compactedAt);
   const fork = {
     version: s.version,
     sessionId: newId,
@@ -40053,9 +40500,10 @@ async function handleForkSession(sourceSessionId, messageId, userId) {
     createdAt: Date.now(),
     lastActivityAt: Date.now(),
     messages: sliced,
-    llmHistory: rebuildLlmHistory(sliced),
+    llmHistory: forkIsCompacted ? rebuildLlmHistoryScoped(s, sliced) : rebuildLlmHistory(sliced),
     edits: s.edits.filter((e) => e.assistantMessageId === undefined || slicedAssistantIds.has(e.assistantMessageId)).map((e) => ({ ...e })),
-    ...s.pinnedChatId !== undefined ? { pinnedChatId: s.pinnedChatId } : {}
+    ...s.pinnedChatId !== undefined ? { pinnedChatId: s.pinnedChatId } : {},
+    ...forkIsCompacted ? { compactedAt: s.compactedAt, compactionPrimer: s.compactionPrimer } : {}
   };
   await saveSession(spindle, fork, userId);
   send({ type: "session_forked", sourceSessionId, newSessionId: newId, messageId }, userId);
@@ -40065,35 +40513,56 @@ async function handleSendMessageInternal(s, userId, connectionIdOverride) {
   if (connectionIdOverride && s.connectionId !== connectionIdOverride) {
     s.connectionId = connectionIdOverride;
   }
-  let c = null;
-  if (s.characterId !== null) {
-    c = await spindle.characters.get(s.characterId, userId);
-    if (!c) {
-      send({ type: "generation_error", sessionId: s.sessionId, error: `character ${s.characterId} not found` }, userId);
-      return;
-    }
+  const slotKey = scopedKey(userId, s.sessionId);
+  if (activeSessions.has(slotKey)) {
+    send({ type: "generation_error", sessionId: s.sessionId, error: "session already has a generation in flight" }, userId);
+    return;
   }
   const ac = new AbortController;
-  activeSessions.set(scopedKey(userId, s.sessionId), ac);
+  activeSessions.set(slotKey, ac);
   pushSessionStatus(s.sessionId, userId);
-  const settings = await loadSettings(spindle, userId);
-  const systemMsg = await buildSessionSystemMessage(c, s, settings, userId);
-  const conv = [systemMsg, ...s.llmHistory];
-  const jailbreakSliceIdx = conv.length;
-  applyJailbreakNonSystem(conv, settings);
-  const jailbreakInserted = conv.length > jailbreakSliceIdx;
-  const persistableHistory = () => jailbreakInserted ? [...conv.slice(1, jailbreakSliceIdx), ...conv.slice(jailbreakSliceIdx + 1)] : conv.slice(1);
-  const assistantId = makeId("msg");
-  const assistant = { id: assistantId, role: "assistant", ts: Date.now(), turn: 0, blocks: [], status: "streaming" };
-  s.messages.push(assistant);
-  const hasCharacter = s.characterId !== null;
-  const tools = makeInitialToolSchemas(hasCharacter);
-  const deferredToolSchemas = makeDeferredToolSchemaMap(hasCharacter);
-  const dispatch = makeToolDispatch();
-  const provider = await resolveProviderForConnection(s.connectionId, userId);
-  const samplerParams = buildSamplerParams(settings.samplers, settings.parallelToolCalls, provider);
+  let c = null;
+  let settings;
+  let conv;
+  let persistableHistory;
+  let assistantId;
+  let assistant;
+  let tools;
+  let deferredToolSchemas;
+  let dispatch;
+  let samplerParams;
+  try {
+    if (s.characterId !== null) {
+      c = await spindle.characters.get(s.characterId, userId);
+      if (!c)
+        throw new Error(`character ${s.characterId} not found`);
+    }
+    settings = await loadSettings(spindle, userId);
+    const systemMsg = await buildSessionSystemMessage(c, s, settings, userId);
+    await emitContextNoteIfChanged(s, userId);
+    conv = [systemMsg, ...s.llmHistory];
+    const jailbreakSliceIdx = conv.length;
+    applyJailbreakNonSystem(conv, settings);
+    const jailbreakInserted = conv.length > jailbreakSliceIdx;
+    persistableHistory = () => jailbreakInserted ? [...conv.slice(1, jailbreakSliceIdx), ...conv.slice(jailbreakSliceIdx + 1)] : conv.slice(1);
+    assistantId = makeId("msg");
+    assistant = { id: assistantId, role: "assistant", ts: Date.now(), turn: 0, blocks: [], status: "streaming" };
+    s.messages.push(assistant);
+    const hasCharacter = s.characterId !== null;
+    tools = makeInitialToolSchemas(hasCharacter);
+    deferredToolSchemas = makeDeferredToolSchemaMap(hasCharacter);
+    dispatch = makeToolDispatch();
+    const provider = await resolveProviderForConnection(s.connectionId, userId);
+    samplerParams = buildSamplerParams(settings.samplers, settings.parallelToolCalls, provider);
+  } catch (setupErr) {
+    activeSessions.delete(scopedKey(userId, s.sessionId));
+    send({ type: "generation_error", sessionId: s.sessionId, error: setupErr.message }, userId);
+    pushSessionStatus(s.sessionId, userId);
+    return;
+  }
   let currentTextBlock = null;
   let currentReasoningBlock = null;
+  let turnStartBlocks = 0;
   const toolBlocks = new Map;
   let lastTurn = 0;
   let errored = false;
@@ -40128,6 +40597,7 @@ async function handleSendMessageInternal(s, userId, connectionIdOverride) {
           lastTurn = ev.turn;
           currentTextBlock = null;
           currentReasoningBlock = null;
+          turnStartBlocks = assistant.blocks.length;
           break;
         case "llm_token":
           if (!currentTextBlock) {
@@ -40187,10 +40657,58 @@ async function handleSendMessageInternal(s, userId, connectionIdOverride) {
           break;
         }
         case "edits_resynced": {
-          if (s.characterId === null)
+          if (!ev.absorbedToMerged)
             break;
+          const remap = ev.absorbedToMerged;
           const charId = s.characterId;
-          loadLedger(spindle, characterScope(charId), userId).then((l) => send({ type: "scope_edits_pushed", scope: characterScope(charId), entries: entriesView(l) }, userId)).catch((e) => log("warn", `edits resync failed: ${e.message}`));
+          const ledger = charId !== null ? await loadLedger(spindle, characterScope(charId), userId).catch(() => null) : null;
+          const view = ledger ? entriesView(ledger) : [];
+          let mutated = false;
+          const absorbed = new Set(Object.keys(remap));
+          const mergedIds = new Set(Object.values(remap));
+          if (absorbed.size > 0) {
+            const before = s.edits.length;
+            s.edits = s.edits.filter((e) => !absorbed.has(e.id) || mergedIds.has(e.id));
+            if (s.edits.length !== before)
+              mutated = true;
+            const have = new Set(s.edits.map((e) => e.id));
+            for (const e of view)
+              if (mergedIds.has(e.id) && !have.has(e.id)) {
+                s.edits.push(e);
+                mutated = true;
+              }
+          }
+          const msg = s.messages.find((m) => m.role === "assistant" && m.id === assistantId);
+          if (msg && msg.role === "assistant") {
+            for (const block of msg.blocks) {
+              if (block.type !== "tool" || block.edit_ids.length === 0)
+                continue;
+              const remapped = [];
+              const seen = new Set;
+              let changed = false;
+              for (const id of block.edit_ids) {
+                const mapped = remap[id] ?? id;
+                if (mapped === "") {
+                  changed = true;
+                  continue;
+                }
+                if (mapped !== id)
+                  changed = true;
+                if (!seen.has(mapped)) {
+                  seen.add(mapped);
+                  remapped.push(mapped);
+                }
+              }
+              if (changed || remapped.length !== block.edit_ids.length) {
+                block.edit_ids = remapped;
+                mutated = true;
+              }
+            }
+          }
+          if (mutated)
+            send({ type: "session_truncated", sessionId: s.sessionId, messages: s.messages, edits: s.edits }, userId);
+          if (charId !== null)
+            send({ type: "scope_edits_pushed", scope: characterScope(charId), entries: view }, userId);
           break;
         }
         case "warning":
@@ -40204,11 +40722,13 @@ async function handleSendMessageInternal(s, userId, connectionIdOverride) {
             emitContextUsage(s, resolveContextTokens(settings.samplers), userId);
           }
           if (ev.cleanedContent !== undefined)
-            replaceAssistantTextBlocks(assistant, ev.cleanedContent);
+            replaceAssistantTextBlocks(assistant, ev.cleanedContent, turnStartBlocks);
           s.llmHistory = persistableHistory();
           await saveSession(spindle, s, userId).catch((e) => log("warn", `mid-stream save failed: ${e.message}`));
           break;
         case "paused_for_input":
+          if (ev.detail)
+            assistant.blocks.push({ type: "warning", message: ev.detail });
           assistant.status = "complete";
           break;
       }
@@ -40276,12 +40796,21 @@ async function autosquashAndNotify(s, characterId, assistantMessageId, userId) {
           const seen = new Set;
           let changed = false;
           for (const id of block.edit_ids) {
-            const mapped = summary.absorbedToMerged.get(id) ?? id;
-            if (mapped !== id)
+            const mappedTo = summary.absorbedToMerged.get(id);
+            if (mappedTo !== undefined) {
+              if (mappedTo !== id)
+                changed = true;
+              if (!seen.has(mappedTo)) {
+                seen.add(mappedTo);
+                remapped.push(mappedTo);
+              }
+            } else if (absorbed.has(id)) {
               changed = true;
-            if (!seen.has(mapped)) {
-              seen.add(mapped);
-              remapped.push(mapped);
+            } else {
+              if (!seen.has(id)) {
+                seen.add(id);
+                remapped.push(id);
+              }
             }
           }
           if (changed || remapped.length !== block.edit_ids.length) {
@@ -40350,20 +40879,26 @@ function captureUserId(userId) {
       await broadcastBridgeStatusForUser(userId);
     })();
   }
+  sendHostVersionWarning(userId);
+}
+function sendHostVersionWarning(userId) {
   const warning = getHostVersionWarning();
-  if (warning) {
-    try {
-      send({
-        type: "host_version_warning",
-        hostVersion: warning.hostVersion,
-        minimum: warning.minimum,
-        message: warning.message
-      }, userId);
-    } catch {}
-  }
+  if (!warning)
+    return;
+  try {
+    send({
+      type: "host_version_warning",
+      hostVersion: warning.hostVersion,
+      minimum: warning.minimum,
+      message: warning.message
+    }, userId);
+  } catch {}
 }
 initPermissions({ info: (m) => log("info", m), warn: (m) => log("warn", m) });
-initHostVersionCheck({ info: (m) => log("info", m), warn: (m) => log("warn", m) });
+initHostVersionCheck({ info: (m) => log("info", m), warn: (m) => log("warn", m) }).then(() => {
+  for (const uid of capturedUserIds)
+    sendHostVersionWarning(uid);
+}).catch(() => {});
 try {
   spindle.rpcPool.handle("phoneline_probe", async () => {
     (async () => {
@@ -40474,6 +41009,9 @@ spindle.onFrontendMessage(async (raw, userId) => {
         return;
       case "set_pinned_chat":
         await handleSetPinnedChat(msg.sessionId, msg.chatId, userId);
+        return;
+      case "set_focus":
+        await handleSetFocus(msg.sessionId, msg.characterId, userId);
         return;
       case "get_settings":
         await handleGetSettings(userId);

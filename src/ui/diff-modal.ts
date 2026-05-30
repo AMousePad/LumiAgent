@@ -162,12 +162,16 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
   const handleClose = (): void => {
     if (!open) return;
     open = false;
+    try { combo.destroy(); } catch { /* combo may not be mounted */ }
     try { modal.dismiss(); } catch { /* already dismissed */ }
     deps.onClose?.();
   };
   modal.onDismiss(() => {
     if (!open) return;
     open = false;
+    // Tear down the combo's document-level mousedown listener so it doesn't
+    // accumulate one per modal open across the session.
+    try { combo.destroy(); } catch { /* combo may not be mounted */ }
     deps.onClose?.();
   });
 
@@ -341,6 +345,10 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
     const o = selectedOption();
     const scope = o ? o.scope : (activeTab === "characters" ? deps.getSelectedScope() : null);
     edits = [];
+    // A stale id from the previous scope isn't in the new scope's edits, so
+    // renderPane's find() would miss and show the empty placeholder instead of
+    // defaulting to the first edit. Reset so the new scope opens on edits[0].
+    currentEditId = null;
     requestedKey = scope ? scopeKeyString(scope) : null;
     if (scope) {
       loading = true;

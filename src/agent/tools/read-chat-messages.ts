@@ -72,7 +72,9 @@ Usage:
     },
     required: [],
   },
-  requiresCharacter: true,
+  // Chat-scoped (operates on chat_id / pinned chat), never reads ctx.characterId,
+  // so it stays available in no-character sessions (which can pin + edit chats).
+  requiresCharacter: false,
   execute: async (input, ctx) => {
     const requested = input.chat_id;
     if (requested === undefined || requested === "pinned") {

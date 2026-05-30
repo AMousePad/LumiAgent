@@ -34,11 +34,14 @@ Usage:
   execute: async (input, ctx) => {
     const chatId = input.chat_id ?? ctx.pinnedChatId ?? undefined;
     const useChar = input.use_active_character ?? true;
-    const target = input.character_id ?? ctx.characterId ?? undefined;
+    // An explicit character_id always binds; use_active_character only governs
+    // the focus FALLBACK. ANDing useChar with an explicit id silently dropped a
+    // caller-supplied character (matches the resolve_macros fix).
+    const target = input.character_id ?? (useChar ? (ctx.characterId ?? undefined) : undefined);
     try {
       const scripts = await ctx.spindle.regex_scripts.getActive({
         target: input.target,
-        ...(useChar && target ? { characterId: target } : {}),
+        ...(target ? { characterId: target } : {}),
         ...(chatId ? { chatId } : {}),
         userId: ctx.userId,
       });

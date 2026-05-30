@@ -36,10 +36,16 @@ Usage:
     const updated = await ctx.spindle.regex_scripts.update(id, patch, ctx.userId);
     for (const [k, v] of Object.entries(patch as Record<string, unknown>)) {
       const prev = (before as unknown as Record<string, unknown>)[k];
-      const beforeStr = typeof prev === "string" ? prev : JSON.stringify(prev);
-      const afterStr = typeof v === "string" ? v : JSON.stringify(v);
+      // Tag json ONLY for non-string values, so a string field (name, flags,
+      // find_regex, replace_string, description, folder, target) stays raw and
+      // matches the edit/rewrite route on the same leaf (no history-dropping
+      // encoding rebase); non-string fields (disabled, placement, sort_order)
+      // are json-tagged to round-trip on revert.
+      const isStr = typeof v === "string";
+      const beforeStr = isStr ? (typeof prev === "string" ? prev : JSON.stringify(prev ?? null)) : JSON.stringify(prev ?? null);
+      const afterStr = isStr ? (v as string) : JSON.stringify(v ?? null);
       if (beforeStr === afterStr) continue;
-      ctx.pushEdit({ op: "edit", surface: "regex_script", surfaceId: id, surfaceLabel: before.name, field: k, before: beforeStr, after: afterStr, scope: scopeForLeafKey(`rx/${id}`, ctx) });
+      ctx.pushEdit({ op: "edit", surface: "regex_script", surfaceId: id, surfaceLabel: before.name, field: k, before: beforeStr, after: afterStr, ...(isStr ? {} : { valueEncoding: "json" as const }), scope: scopeForLeafKey(`rx/${id}`, ctx) });
     }
     return { content: `OK. Updated regex script ${updated.id} ("${updated.name}") fields: ${Object.keys(patch).join(", ")}` };
   },

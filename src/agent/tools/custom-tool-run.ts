@@ -25,8 +25,16 @@ const inputSchema = z.object({
 
 // Recipes call back into other tools, so the orchestrator must attach the
 // full dispatch map onto ctx as `__dispatch` before invoking this tool.
+// runCustomTool stamps the active depth/deadline/budget onto the step ctx so
+// a nested custom_tool_run invocation inherits them; without that thread the
+// CUSTOM_TOOLS_MAX_DEPTH check is dead code (each re-entry resets depth to 1
+// and rearms a fresh 60s deadline + step budget) and a recipe that calls
+// itself recurses until JS stack exhaustion.
 type CtxWithDispatch = ToolCtx & {
-  readonly __dispatch?: Record<string, (args: Record<string, unknown>, ctx: ToolCtx) => Promise<string>>;
+  readonly __dispatch?: Record<string, (args: Record<string, unknown>, ctx: ToolCtx) => Promise<{ content: string; isError?: boolean }>>;
+  readonly __customToolDepth?: number;
+  readonly __customToolDeadline?: number;
+  readonly __customToolStepBudget?: { remaining: number };
 };
 
 export const customToolRunTool = defineTool({
@@ -128,12 +136,18 @@ Budget: 400 steps / depth 4 / 60s wall-clock.
     }
 
     const passed = input.args ?? {};
+    // Inherit depth/deadline/budget from an outer custom_tool_run frame so
+    // CUSTOM_TOOLS_MAX_DEPTH actually fires and nested calls share the parent's
+    // 60s budget instead of rearming it.
+    const parentDepth = (ctx as CtxWithDispatch).__customToolDepth ?? 0;
+    const parentDeadline = (ctx as CtxWithDispatch).__customToolDeadline;
+    const parentBudget = (ctx as CtxWithDispatch).__customToolStepBudget;
     try {
       const result = await ct.runCustomTool(ctx, manifest, passed, {
         dispatch,
-        depth: 1,
-        deadline: Date.now() + ct.CUSTOM_TOOLS_TIMEOUT_MS,
-        stepBudget: { remaining: ct.CUSTOM_TOOLS_MAX_STEPS },
+        depth: parentDepth + 1,
+        deadline: parentDeadline ?? Date.now() + ct.CUSTOM_TOOLS_TIMEOUT_MS,
+        stepBudget: parentBudget ?? { remaining: ct.CUSTOM_TOOLS_MAX_STEPS },
       });
       return { content: JSON.stringify({ mode, name: manifest.name, result }, null, 2) };
     } catch (e) {

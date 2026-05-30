@@ -290,7 +290,7 @@ export type AgentEvent =
   | { type: "tool_finished"; call_id: string; result: string; is_error: boolean; edit_ids: readonly string[] }
   | { type: "edit_logged"; entry: EditLogEntry }
   | { type: "revert_logged"; editId: string; outcome: RevertOutcomeWire }
-  | { type: "edits_resynced" }
+  | { type: "edits_resynced"; absorbedToMerged?: Readonly<Record<string, string>> }
   | { type: "turn_completed"; turn: number; finish_reason: string; usage?: { prompt: number; completion: number; total: number; estimated?: boolean } | undefined; cleanedContent?: string | undefined }
   | { type: "paused_for_input"; reason: PausedReason; detail?: string | undefined }
   | { type: "warning"; message: string };
@@ -367,6 +367,7 @@ export type BackendToFrontend =
   | { type: "chats_pushed"; characterId: string; chats: readonly ChatSummary[]; pinnedChatId: string | null }
   | { type: "pinned_chat_set"; sessionId: string; chatId: string | null }
   | { type: "focus_set"; sessionId: string; characterId: string | null; characterName: string }
+  | { type: "focus_rejected"; sessionId: string; reason: string }
   | { type: "settings_pushed"; persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody: string; samplers: Readonly<Record<string, number | null>>; jailbreak: string; jailbreakPlacement: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes: number | null; workspaceCapDefaultBytes: number; workspaceFileCapBytes: number; toolOutputCapTokens: number | null; toolOutputCapDefaultTokens: number; cacheMode: "off" | "system_only" | "full"; parallelToolCalls: boolean; tpmLimit: number | null; debugLogging: boolean }
   | { type: "ui_prefs_pushed"; connectionId: string | null; lastSessionId: string | null }
   | { type: "ws_listed"; path: string; entries: readonly WorkspaceEntry[] }

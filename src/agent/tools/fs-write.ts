@@ -34,7 +34,8 @@ export const fsWriteTool = defineTool({
 
     const ws = await import("../../state/workspace");
     try {
-      await ws.writeText(ctx.spindle, ctx.userId, input.path, content);
+      const caps = await ws.resolveUserCaps(ctx.spindle, ctx.userId);
+      await ws.writeText(ctx.spindle, ctx.userId, input.path, content, caps);
     } catch (err) {
       const h = await stashDraft(ctx, `fs_write:${input.path}`, content);
       return { content: `Error: ${(err as Error).message}\n\n${draftReuseNote(h, content.length, "content")}`, isError: true };

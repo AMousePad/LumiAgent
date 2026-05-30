@@ -8,10 +8,13 @@ import { spillOrReturn } from "./_io";
 // is a regex character class. Keep this list short. Adding ranges grows the
 // false-positive surface (CJK punctuation, fullwidth ASCII, etc.).
 const LANG_PATTERNS: Record<string, { name: string; regex: RegExp }> = {
-  ko:    { name: "Korean (Hangul)",    regex: /[가-힣]/g },
+  // Include Hangul Jamo (U+1100-11FF) and Compatibility Jamo (U+3130-318F) so
+  // NFD-decomposed Korean is caught, matching count_cjk_chars. Without these the
+  // completion gate falsely reports "clean" on NFD-normalized cards.
+  ko:    { name: "Korean (Hangul)",    regex: /[가-힣ᄀ-ᇿ㄰-㆏]/g },
   ja:    { name: "Japanese (Kana)",    regex: /[぀-ゟ゠-ヿ]/g },
   zh:    { name: "Chinese (Han)",      regex: /[一-鿿]/g },
-  cjk:   { name: "Any CJK script",     regex: /[가-힣぀-ゟ゠-ヿ㐀-䶿一-鿿豈-﫿]/g },
+  cjk:   { name: "Any CJK script",     regex: /[가-힣ᄀ-ᇿ㄰-㆏぀-ゟ゠-ヿ㐀-䶿一-鿿豈-﫿]/g },
   arabic:{ name: "Arabic",             regex: /[؀-ۿ]/g },
   cyrillic:{ name: "Cyrillic",         regex: /[Ѐ-ӿ]/g },
 };
@@ -306,7 +309,7 @@ Sorted by match_chars descending so the worst offenders surface first.`,
         const runs = collectDistinctRuns(text, pat.regex, qBounds);
         const samples = pickStratifiedSamples(text, lineEnds, runs);
         entry.samples = samples;
-        const warning = buildCoverageWarning(runCount, samples.length, densities);
+        const warning = buildCoverageWarning(runs.length, samples.length, densities);
         if (warning) entry.coverage_warning = warning;
       }
       if (isCodeLeaf(leaf.key)) {

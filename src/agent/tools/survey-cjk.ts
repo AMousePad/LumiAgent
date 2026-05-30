@@ -8,7 +8,9 @@ import { walkStringLeaves } from "./_walk";
 const SURVEY_DEFAULT_MIN_LEN = 2;
 const SURVEY_DEFAULT_TOP_N = 60;
 
-const CJK_RUN_RE = /[぀-ゟ゠-ヿㇰ-ㇿ㐀-䶿一-鿿가-힣豈-﫿]+/g;
+// Includes Hangul Jamo (U+1100-11FF) + Compatibility Jamo (U+3130-318F) so
+// NFD-decomposed Korean runs are surfaced, matching audit_card_coverage.
+const CJK_RUN_RE = /[぀-ゟ゠-ヿㇰ-ㇿ㐀-䶿一-鿿가-힣ᄀ-ᇿ㄰-㆏豈-﫿]+/g;
 
 interface CjkOccurrence { count: number; surfaces: Set<string> }
 

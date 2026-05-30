@@ -2635,8 +2635,8 @@ function inlineMarkdown(input, codeSpans) {
     return `${lead}${key}`;
   });
   out = escapeHtml(out);
-  out = out.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_m, alt, src) => `<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}">`);
-  out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, text, href) => `<a href="${escapeHtml(href)}">${text}</a>`);
+  out = out.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_m, alt, src) => `<img src="${src}" alt="${alt}">`);
+  out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, text, href) => `<a href="${href}">${text}</a>`);
   out = out.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
   out = out.replace(/__([^_\n]+)__/g, "<strong>$1</strong>");
   out = out.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
@@ -6049,8 +6049,9 @@ function mountCombo(root) {
     pop.style.display = "";
     root.classList.add("is-open");
     search.value = "";
-    activeIndex = Math.max(0, filtered.findIndex((it) => it.id === value));
     renderList();
+    activeIndex = Math.max(0, filtered.findIndex((it) => it.id === value));
+    updateActive();
     queueMicrotask(() => search.focus());
   };
   const close = () => {
@@ -6071,8 +6072,9 @@ function mountCombo(root) {
     isOpen ? close() : open();
   });
   search.addEventListener("input", () => {
-    activeIndex = filtered.length > 0 ? 0 : -1;
     renderList();
+    activeIndex = filtered.length > 0 ? 0 : -1;
+    updateActive();
   });
   search.addEventListener("keydown", (ev) => {
     if (ev.key === "ArrowDown") {
@@ -6250,6 +6252,9 @@ function openDiffModal(ctx, deps, opts) {
       return;
     open = false;
     try {
+      combo.destroy();
+    } catch {}
+    try {
       modal.dismiss();
     } catch {}
     deps.onClose?.();
@@ -6258,6 +6263,9 @@ function openDiffModal(ctx, deps, opts) {
     if (!open)
       return;
     open = false;
+    try {
+      combo.destroy();
+    } catch {}
     deps.onClose?.();
   });
   let activeTab = opts?.initialTab ?? "characters";
@@ -6404,6 +6412,7 @@ function openDiffModal(ctx, deps, opts) {
     const o = selectedOption();
     const scope = o ? o.scope : activeTab === "characters" ? deps.getSelectedScope() : null;
     edits = [];
+    currentEditId = null;
     requestedKey = scope ? scopeKeyString(scope) : null;
     if (scope) {
       loading = true;
@@ -6740,6 +6749,7 @@ function mountWorkspacePanel(deps) {
   let selectedIsDirectory = false;
   let selectedSize = 0;
   let selectedIsSystem = false;
+  let editorDirty = false;
   const pendingList = new Set;
   const setStatus = (text, isError = false) => {
     status.textContent = text;
@@ -6810,12 +6820,6 @@ function mountWorkspacePanel(deps) {
               if (!dirCache.has(entry.path))
                 requestList(entry.path);
             }
-          } else if (entry.sizeBytes < 4 * 1024 * 1024) {
-            const kind = previewKind(entry.path);
-            if (kind === "text")
-              deps.sendBackend({ type: "ws_read_text", path: entry.path });
-            else if (kind !== "binary")
-              deps.sendBackend({ type: "ws_download", path: entry.path });
           }
           renderTree();
           renderPane();
@@ -6830,6 +6834,7 @@ function mountWorkspacePanel(deps) {
   };
   const renderPane = () => {
     pane.innerHTML = "";
+    editorDirty = false;
     if (!selectedPath) {
       pane.appendChild(el5("div", "la-ws-pane-empty", "Select a file or folder."));
       return;
@@ -6858,6 +6863,8 @@ function mountWorkspacePanel(deps) {
         return;
       const to = joinPath(dirname(selectedPath), newName);
       deps.sendBackend({ type: "ws_move", from: selectedPath, to });
+      selectedPath = to;
+      renderPane();
     });
     actions.appendChild(rename);
     if (!selectedIsDirectory) {
@@ -6885,6 +6892,7 @@ This lives under custom_tools/. The agent's saved tool recipes are stored here â
       if (c.confirmed) {
         deps.sendBackend({ type: "ws_delete", path: selectedPath, recursive: selectedIsDirectory });
         selectedPath = null;
+        renderPane();
       }
     });
     actions.appendChild(del);
@@ -6902,6 +6910,10 @@ This lives under custom_tools/. The agent's saved tool recipes are stored here â
         const previewWrap = el5("div", "la-ws-preview");
         previewWrap.textContent = "Loading preview...";
         pane.appendChild(previewWrap);
+        if (kind === "text")
+          deps.sendBackend({ type: "ws_read_text", path: selectedPath });
+        else
+          deps.sendBackend({ type: "ws_download", path: selectedPath });
       }
     }
   };
@@ -6984,6 +6996,7 @@ This lives under custom_tools/. The agent's saved tool recipes are stored here â
       let savedValue = content;
       const markDirty = () => {
         const dirty = editor.value !== savedValue;
+        editorDirty = dirty;
         saveBtn.disabled = !dirty;
         statusLabel.textContent = dirty ? "Unsaved changes" : "Saved";
         statusLabel.classList.toggle("is-dirty", dirty);
@@ -6994,6 +7007,7 @@ This lives under custom_tools/. The agent's saved tool recipes are stored here â
         const next = editor.value;
         deps.sendBackend({ type: "ws_write_text", path, content: next });
         savedValue = next;
+        editorDirty = false;
         saveBtn.disabled = true;
         statusLabel.textContent = "Saved";
         statusLabel.classList.remove("is-dirty");
@@ -7012,6 +7026,12 @@ This lives under custom_tools/. The agent's saved tool recipes are stored here â
     },
     onChanged() {
       refresh();
+      const wrap = pane.querySelector(".la-ws-preview");
+      if (wrap && wrap.contains(document.activeElement) || editorDirty) {
+        setStatus("Workspace updated.");
+        return;
+      }
+      renderPane();
       setStatus("Workspace updated.");
     },
     onDownloadReady(path, dataBase64, mimeType) {
@@ -7082,6 +7102,7 @@ This lives under custom_tools/. The agent's saved tool recipes are stored here â
 }
 
 // src/ui/agent-event-handler.ts
+var turnStartBlocks = 0;
 function handleAgentEvent(ev, ctx) {
   switch (ev.type) {
     case "warning":
@@ -7091,6 +7112,7 @@ function handleAgentEvent(ev, ctx) {
       ctx.adoptStreamingTurn(ev.assistantMessageId);
       if (ctx.state.currentAssistantMessage)
         ctx.state.currentAssistantMessage.turn = ev.turn;
+      turnStartBlocks = ctx.state.currentAssistantMessage?.blocks.length ?? 0;
       return;
     case "llm_token": {
       ctx.ensureStreamingTurn().appendToken(ev.token);
@@ -7165,10 +7187,24 @@ function handleAgentEvent(ev, ctx) {
         ctx.state.streamingAssistant?.setUsage(ev.usage);
       }
       if (ev.cleanedContent !== undefined) {
-        a.blocks = a.blocks.filter((b) => b.type !== "text");
-        if (ev.cleanedContent.trim().length > 0) {
-          a.blocks.push({ type: "text", content: ev.cleanedContent });
+        const cut = Math.max(0, Math.min(turnStartBlocks, a.blocks.length));
+        const head = a.blocks.slice(0, cut);
+        const rebuilt = [];
+        let inserted = false;
+        for (const b of a.blocks.slice(cut)) {
+          if (b.type === "text") {
+            if (!inserted) {
+              if (ev.cleanedContent.trim().length > 0)
+                rebuilt.push({ type: "text", content: ev.cleanedContent });
+              inserted = true;
+            }
+          } else {
+            rebuilt.push(b);
+          }
         }
+        if (!inserted && ev.cleanedContent.trim().length > 0)
+          rebuilt.push({ type: "text", content: ev.cleanedContent });
+        a.blocks = [...head, ...rebuilt];
       }
       return;
     }
@@ -7538,7 +7574,13 @@ function mountDrawer(ctx) {
   window.addEventListener("resize", detectMouseyOverlap);
   root.append(header, thread, composer);
   const sendBackend = (msg) => ctx.sendToBackend(msg);
-  const withConnection = (msg) => state.connectionId ? { ...msg, connectionId: state.connectionId } : msg;
+  const withConnection = (msg) => {
+    let id = state.connectionId;
+    if (id && !state.connections.some((c) => c.id === id)) {
+      id = state.connections.find((c) => c.is_default)?.id ?? null;
+    }
+    return id ? { ...msg, connectionId: id } : msg;
+  };
   const refreshLists = () => {
     sendBackend({ type: "list_characters" });
     sendBackend({ type: "list_connections" });
@@ -7658,6 +7700,7 @@ function mountDrawer(ctx) {
       return;
     state.compacting = true;
     updateCompactButton();
+    updateComposer();
     sendBackend({ type: "compact_session", sessionId: state.sessionId });
   });
   let sendMode = "disabled";
@@ -7733,7 +7776,7 @@ function mountDrawer(ctx) {
       state.scopeLedgers.set(key, entries.filter((e) => !ids.has(e.id)));
     }
   };
-  const handleRevertOutcome = async (editId, outcome) => {
+  const handleRevertOutcome = async (editId, outcome, scope) => {
     if (outcome.kind === "clean" || outcome.kind === "noop_already_reverted") {
       const removed = new Set([editId]);
       if (outcome.kind === "clean" && outcome.cascadedEditIds && outcome.cascadedEditIds.length > 0) {
@@ -7753,6 +7796,8 @@ function mountDrawer(ctx) {
     if (outcome.kind === "failed") {
       composerStatus.textContent = `Revert failed: ${outcome.error}`;
       composerStatus.classList.add("is-error");
+      if (state.diffModal)
+        state.diffModal.setEdits(scopeEntries(workshopScope()));
       return;
     }
     const message = outcome.kind === "superseded" ? `${outcome.laterEditIds.length} later edit(s) couldn't be re-applied without this one. Force-revert anyway? Affected later edits will also be marked reverted.` : `The field has been changed outside the agent since this edit.
@@ -7767,8 +7812,10 @@ Force-revert anyway (this overwrites the external change)?`;
       variant: "warning",
       confirmLabel: "Force revert"
     });
-    if (c.confirmed && state.characterId) {
-      sendBackend({ type: "revert_edit", characterId: state.characterId, editId, force: true });
+    if (c.confirmed) {
+      sendBackend({ type: "revert_edit", characterId: scope.id, editId, force: true, scope });
+    } else if (state.diffModal) {
+      state.diffModal.setEdits(scopeEntries(workshopScope()));
     }
   };
   const openWorkshopOnFile = (path) => {
@@ -7910,12 +7957,13 @@ Revert those edits to the character now, or leave them applied?`;
   function makeThreadDeps() {
     return {
       onRevertEdit: async (editId) => {
-        if (!state.characterId)
+        const scope = state.edits.find((e) => e.id === editId)?.scope ?? activeScope();
+        if (!scope)
           return;
-        sendBackend({ type: "revert_edit", characterId: state.characterId, editId });
+        sendBackend({ type: "revert_edit", characterId: scope.id, editId, scope });
       },
       onRevertManyEdits: async (editIds) => {
-        if (!state.characterId || editIds.length === 0)
+        if (editIds.length === 0)
           return;
         const c = await ctx.ui.showConfirm({
           title: `Revert ${editIds.length} edit${editIds.length === 1 ? "" : "s"}?`,
@@ -7925,7 +7973,22 @@ Revert those edits to the character now, or leave them applied?`;
         });
         if (!c.confirmed)
           return;
-        sendBackend({ type: "revert_edits_bulk", characterId: state.characterId, editIds: [...editIds], ...state.sessionId ? { sessionId: state.sessionId } : {} });
+        const byScope = new Map;
+        for (const editId of editIds) {
+          const scope = state.edits.find((e) => e.id === editId)?.scope ?? activeScope();
+          if (!scope)
+            continue;
+          const key = scopeKeyString(scope);
+          let g = byScope.get(key);
+          if (!g) {
+            g = { scope, ids: [] };
+            byScope.set(key, g);
+          }
+          g.ids.push(editId);
+        }
+        for (const { scope, ids } of byScope.values()) {
+          sendBackend({ type: "revert_edits_bulk", characterId: scope.id, editIds: ids, scope, ...state.sessionId ? { sessionId: state.sessionId } : {} });
+        }
       },
       onOpenDiffModal: (initialEditId) => openDiffs(initialEditId),
       onEditUserMessage: async (messageId, newContent, editsAction) => {
@@ -7999,32 +8062,27 @@ Revert those edits to the character now, or leave them applied?`;
   }
   charCombo.onChange((rawId) => {
     const id = rawId === NO_CHARACTER_SENTINEL ? null : rawId;
-    const switchingAway = state.sessionId !== null && id !== state.characterId;
-    dlog("charCombo change", { newCharacterId: id, prevCharacterId: state.characterId, sessionId: state.sessionId, switchingAway });
-    if (switchingAway) {
-      state.sessionId = null;
-      state.messages = [];
-      state.edits = [];
-      state.streamingAssistant = null;
-      state.currentAssistantMessage = null;
-      persistUiPrefs();
+    if (id === state.characterId)
+      return;
+    if (state.isGenerating || state.startingSession) {
+      composerStatus.textContent = "Wait for the current generation to finish before switching characters.";
+      composerStatus.classList.add("is-error");
+      renderCharOptions();
+      return;
     }
-    state.characterId = id;
-    state.chatsForCharacter = [];
-    state.pinnedChatId = null;
-    state.autoPinNeeded = !!id;
-    renderCharOptions();
-    setChatPinned(false);
-    if (switchingAway)
-      rerenderThread();
-    updateComposer();
-    updateSessionBar();
-    if (id) {
-      startNewSession();
-      sendBackend({ type: "list_character_edits", characterId: id });
-      sendBackend({ type: "list_chats", characterId: id, ...state.sessionId ? { sessionId: state.sessionId } : {} });
+    composerStatus.classList.remove("is-error");
+    dlog("charCombo change", { newCharacterId: id, prevCharacterId: state.characterId, sessionId: state.sessionId });
+    if (state.sessionId !== null) {
+      sendBackend({ type: "set_focus", sessionId: state.sessionId, characterId: id });
     } else {
+      state.characterId = id;
+      state.autoPinNeeded = !!id;
+      renderCharOptions();
       startNewSession();
+      if (id) {
+        sendBackend({ type: "list_character_edits", characterId: id });
+        sendBackend({ type: "list_chats", characterId: id, ...state.sessionId ? { sessionId: state.sessionId } : {} });
+      }
     }
   });
   const persistUiPrefs = () => {
@@ -8506,6 +8564,9 @@ Revert those edits to the character now, or leave them applied?`;
         promptArea.value = "";
         return;
       }
+      const active = document.activeElement;
+      if (active === personaArea || active === promptArea || active === jbArea || active === wsCapInput || active === toolCapInput || active === tpmInput)
+        return;
       personaArea.value = s.persona;
       personaArea.placeholder = "(empty: agent has no persona)";
       promptArea.value = s.systemPromptOverride ?? (s.defaultSystemPromptBody ?? "");
@@ -9026,9 +9087,9 @@ Revert those edits to the character now, or leave them applied?`;
     if (isAnthropic && (state.settings?.cacheMode ?? "full") !== "full")
       return null;
     const userMsgs = state.messages.filter((m) => m.role === "user");
-    if (userMsgs.length <= 2)
+    if (userMsgs.length <= 1)
       return null;
-    return userMsgs[userMsgs.length - 1 - 2]?.id ?? null;
+    return userMsgs[userMsgs.length - 1 - 1]?.id ?? null;
   };
   const isCacheInvalidating = (targetMessageId) => {
     const anchorId = rollingAnchorId();
@@ -9070,9 +9131,10 @@ Revert those edits to the character now, or leave them applied?`;
     state.currentAssistantMessage = assistant;
     const handle = createStreamingAssistant({
       onRevertEdit: async (editId) => {
-        if (!state.characterId)
+        const scope = state.edits.find((e) => e.id === editId)?.scope ?? activeScope();
+        if (!scope)
           return;
-        sendBackend({ type: "revert_edit", characterId: state.characterId, editId });
+        sendBackend({ type: "revert_edit", characterId: scope.id, editId, scope });
       },
       onOpenDiffModal: (eid) => openDiffs(eid)
     });
@@ -9183,6 +9245,8 @@ Revert those edits to the character now, or leave them applied?`;
         clearErrorBanners();
         composerStatus.classList.remove("is-error");
         composerStatus.textContent = "";
+        state.streamingAssistant = null;
+        state.currentAssistantMessage = null;
         state.sessionId = msg.sessionId;
         state.characterId = msg.characterId;
         state.characterName = msg.characterName;
@@ -9216,6 +9280,13 @@ Revert those edits to the character now, or leave them applied?`;
       }
       case "session_deleted":
         if (state.sessionId === msg.sessionId) {
+          state.isGenerating = false;
+          state.startingSession = false;
+          state.compacting = false;
+          state.reattachedGeneration = false;
+          state.streamingAssistant = null;
+          state.currentAssistantMessage = null;
+          clearStartTimeout();
           state.sessionId = null;
           state.messages = [];
           state.edits = [];
@@ -9247,14 +9318,18 @@ Revert those edits to the character now, or leave them applied?`;
         rerenderThread();
         updateSessionBar();
         if (state.diffModal)
-          state.diffModal.setEdits(state.edits);
+          state.diffModal.setEdits(scopeEntries(workshopScope()));
         break;
       case "chat_event":
+        if (msg.sessionId !== state.sessionId)
+          break;
         if (state.reattachedGeneration)
           break;
         handleAgentEvent(msg.event, agentEventCtx);
         break;
       case "generation_done":
+        if (msg.sessionId !== state.sessionId)
+          break;
         if (state.reattachedGeneration && msg.sessionId === state.sessionId) {
           state.reattachedGeneration = false;
           state.isGenerating = false;
@@ -9269,6 +9344,8 @@ Revert those edits to the character now, or leave them applied?`;
           sendBackend({ type: "list_characters_storage" });
         break;
       case "generation_cancelled":
+        if (msg.sessionId !== state.sessionId)
+          break;
         if (state.reattachedGeneration && msg.sessionId === state.sessionId) {
           state.reattachedGeneration = false;
           state.isGenerating = false;
@@ -9281,6 +9358,8 @@ Revert those edits to the character now, or leave them applied?`;
         updateComposer();
         break;
       case "generation_error":
+        if (msg.sessionId !== state.sessionId)
+          break;
         if (state.reattachedGeneration && msg.sessionId === state.sessionId) {
           state.reattachedGeneration = false;
           state.isGenerating = false;
@@ -9314,7 +9393,7 @@ Revert those edits to the character now, or leave them applied?`;
         updateComposer();
         break;
       case "edit_reverted":
-        handleRevertOutcome(msg.editId, msg.outcome);
+        handleRevertOutcome(msg.editId, msg.outcome, msg.scope);
         break;
       case "edits_reverted_bulk": {
         const removed = new Set;
@@ -9362,6 +9441,12 @@ Revert those edits to the character now, or leave them applied?`;
       case "session_truncated":
         state.messages = [...msg.messages];
         state.edits = [...msg.edits];
+        if (state.streamingAssistant && state.currentAssistantMessage) {
+          const reboundId = state.currentAssistantMessage.id;
+          const rebound = state.messages.find((m) => m.id === reboundId && m.role === "assistant");
+          if (rebound && rebound.role === "assistant")
+            state.currentAssistantMessage = rebound;
+        }
         rerenderThread();
         virtualizer.scrollToBottom();
         updateSessionBar();
@@ -9395,6 +9480,35 @@ Revert those edits to the character now, or leave them applied?`;
         }
         if (state.characterId)
           sendBackend({ type: "list_chats", characterId: state.characterId, sessionId: msg.sessionId });
+        break;
+      case "focus_set":
+        if (msg.sessionId === state.sessionId) {
+          const changed = msg.characterId !== state.characterId;
+          state.characterId = msg.characterId;
+          state.characterName = msg.characterName;
+          renderCharOptions();
+          updateComposer();
+          updateSessionBar();
+          if (changed) {
+            state.pinnedChatId = null;
+            state.chatsForCharacter = [];
+            state.autoPinNeeded = msg.characterId !== null;
+            setChatPinned(false);
+            if (msg.characterId) {
+              sendBackend({ type: "list_character_edits", characterId: msg.characterId });
+              sendBackend({ type: "list_chats", characterId: msg.characterId, sessionId: msg.sessionId });
+            } else {
+              sendBackend({ type: "list_characters_storage" });
+            }
+          }
+        }
+        break;
+      case "focus_rejected":
+        if (msg.sessionId === state.sessionId) {
+          renderCharOptions();
+          composerStatus.textContent = msg.reason;
+          composerStatus.classList.add("is-error");
+        }
         break;
       case "settings_pushed":
         state.settings = {
@@ -9459,6 +9573,7 @@ Revert those edits to the character now, or leave them applied?`;
         if (msg.sessionId === state.sessionId) {
           state.compacting = true;
           updateCompactButton();
+          updateComposer();
         }
         break;
       case "compaction_completed":
@@ -9504,7 +9619,7 @@ Revert those edits to the character now, or leave them applied?`;
           state.workshopFocusScope = null;
         }
         if (activeScope() && scopeKeyString(activeScope()) === key) {
-          state.edits = state.edits.map((e) => ({ ...e, reverted: true }));
+          state.edits = state.edits.map((e) => scopeKeyString(e.scope) === key ? { ...e, reverted: true } : e);
           rerenderThread();
         }
         updateSessionBar();

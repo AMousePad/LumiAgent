@@ -82,10 +82,17 @@ export async function* runLlmStream(
       // gateways) omit usage on streaming or report zeros. Treat all-zero as
       // missing so the loop's fallback path runs.
       if (chunk.usage && (chunk.usage.prompt_tokens > 0 || chunk.usage.completion_tokens > 0)) {
+        // Derive total rather than trusting total_tokens: a gateway that fills
+        // only the component fields (the quirk this branch guards) reports
+        // total_tokens:0, which would zero the displayed total and under-count
+        // the TPM window.
+        const total = chunk.usage.total_tokens > 0
+          ? chunk.usage.total_tokens
+          : chunk.usage.prompt_tokens + chunk.usage.completion_tokens;
         (response as { usage?: { prompt: number; completion: number; total: number; estimated?: boolean } }).usage = {
           prompt: chunk.usage.prompt_tokens,
           completion: chunk.usage.completion_tokens,
-          total: chunk.usage.total_tokens,
+          total,
         };
       }
       yield { type: "done", response };

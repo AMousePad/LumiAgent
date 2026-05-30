@@ -31,7 +31,20 @@ Usage:
     try { cid = resolveCharacterTarget(ctx); }
     catch (err) { const nt = noTargetResult(err); if (nt) return nt; throw err; }
     const result = await squashMessage(ctx.spindle, characterScope(cid), ctx.assistantMessageId, ctx.userId, { sealed: true });
-    if (result.filesTouched > 0 || result.absorbedIds.length > 0) ctx.pushLedgerResync();
+    if (result.filesTouched > 0 || result.absorbedIds.length > 0) {
+      // Pass the absorbed → merged map so the backend rewrites tool-block
+      // edit_ids on the in-flight message. Without this, the sealed phase's
+      // "Revert all" buttons point at absorbed (now-purged) ids and the
+      // matching reverts fail with "edit not found in ledger".
+      const remap: Record<string, string> = {};
+      for (const [k, v] of result.absorbedToMerged) remap[k] = v;
+      // Null-collapse runs (edits that net to no change) purge ids that have NO
+      // merged target, so they're absent from absorbedToMerged. Encode them as
+      // id -> "" so the backend still drops them from s.edits and strips them
+      // from tool-block edit_ids; otherwise the phantom ids linger as live.
+      for (const id of result.absorbedIds) if (!(id in remap)) remap[id] = "";
+      ctx.pushLedgerResync(remap);
+    }
     return {
       content: JSON.stringify({
         files_touched: result.filesTouched,

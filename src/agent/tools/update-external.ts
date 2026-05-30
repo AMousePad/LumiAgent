@@ -26,7 +26,7 @@ Usage:
     },
     required: ["surface_id", "item_id", "field", "value"],
   },
-  requiresCharacter: true,
+  requiresCharacter: false,
   execute: async (input, ctx) => {
     const { surface_id: surfaceId, item_id: itemId, field, value } = input;
     const { discoverProviders, findSurface } = await import("../../phoneline/registry");

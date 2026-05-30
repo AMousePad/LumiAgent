@@ -27,7 +27,8 @@ For changes that every user of the card should see, edit \`char/extensions/lumir
     },
     required: ["character_id", "text"],
   },
-  requiresCharacter: true,
+  // Takes an explicit character_id, never reads ctx.characterId.
+  requiresCharacter: false,
   execute: async (input, ctx) => {
     const provider = await findLumirealm(ctx);
     if (!provider) return { content: "Error: LumiRealm phone line not available (not installed or consent denied).", isError: true };

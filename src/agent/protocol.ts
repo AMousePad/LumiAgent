@@ -61,6 +61,39 @@ export function encodeAssistantTurn(content: string, toolCalls: readonly ToolCal
   return { role: "assistant", content: parts, ...(reasoning ? { reasoning_content: reasoning } : {}) };
 }
 
+function partsOf(content: string | LlmMessagePart[]): LlmMessagePart[] {
+  if (typeof content === "string") return content.trim().length > 0 ? [{ type: "text", text: content }] : [];
+  return content;
+}
+
+// Strict providers (OpenRouter, generic OpenAI-compatible) 400 on two
+// consecutive same-role messages. Two paths produce them: an assistant_prefill
+// jailbreak (a standalone assistant message before the model's first encoded
+// turn) and a focus/pin context note (a user message pushed right before the
+// user's turn). The direct Anthropic provider merges these upstream; others
+// don't. Coalesce at wire-build time so the persisted conversation (and
+// persistableHistory's prefill slice in backend.ts) stay untouched.
+export function coalesceConsecutiveTurns(messages: readonly LlmMessage[]): LlmMessage[] {
+  const out: LlmMessage[] = [];
+  for (const m of messages) {
+    const prev = out[out.length - 1];
+    if (prev && prev.role === m.role && (m.role === "user" || m.role === "assistant")) {
+      const parts = [...partsOf(prev.content), ...partsOf(m.content)];
+      // Concatenate rather than pick: if both turns carry reasoning_content
+      // (DeepSeek thinking), dropping either breaks the continuation contract.
+      const reasoning = [prev.reasoning_content, m.reasoning_content].filter((r) => r && r.length > 0).join("") || undefined;
+      out[out.length - 1] = {
+        role: m.role,
+        content: parts.length > 0 ? parts : [{ type: "text", text: EMPTY_BLOCK_PLACEHOLDER }],
+        ...(reasoning ? { reasoning_content: reasoning } : {}),
+      };
+    } else {
+      out.push(m);
+    }
+  }
+  return out;
+}
+
 export function encodeToolResults(results: readonly ToolResult[]): LlmMessage {
   const parts: LlmMessagePart[] = results.map((r) => {
     const clipped = clip(r.content);

@@ -66,30 +66,40 @@ Query forms:
     required: ["query"],
     additionalProperties: false,
   },
-  // Sensitive so auto-free never wipes the <functions> block. The
-  // seed-from-history scan in the loop reads those names back to avoid
-  // re-issuing tool_search on every new user message.
+  // Discovered schemas persist across normal turns via the loop's
+  // seed-from-history scan (it reads the <functions> block back), so the agent
+  // need not re-issue tool_search every message. Compaction collapses history
+  // and resets discovery, the agent re-runs tool_search after a compaction.
   execute: async (input, ctx) => {
     const maxResults = input.max_results ?? 5;
     const deferredNames = listDeferredToolNames();
+    // Char-required tools are filtered out of the deferred schema map in a
+    // no-character session, so tool_search must match. Otherwise it reports them
+    // "loaded" while the loop drops them and the call fails with [NO_TARGET].
+    const hasChar = !!ctx.characterId;
 
     let pickedNames: string[] = [];
+    const missingSelect: string[] = [];
+    const unavailableNoChar: string[] = [];
     const selectMatch = input.query.match(/^select:(.+)$/i);
     if (selectMatch) {
       const requested = selectMatch[1]!.split(",").map((s) => s.trim()).filter(Boolean);
       const found: string[] = [];
-      const missing: string[] = [];
       for (const n of requested) {
         const tool = registry.get(n);
         if (!tool) {
-          missing.push(n);
+          missingSelect.push(n);
+          continue;
+        }
+        if (tool.requiresCharacter && !hasChar) {
+          unavailableNoChar.push(tool.name);
           continue;
         }
         if (!found.includes(tool.name)) found.push(tool.name);
       }
       if (found.length === 0) {
         return {
-          content: `No tools matched 'select:${requested.join(",")}'. ${missing.length > 0 ? `Unknown names: ${missing.join(", ")}.` : ""} Use the deferred-tools list from the system prompt to pick valid names, or run a keyword search instead.`,
+          content: `No tools loaded from 'select:${requested.join(",")}'. ${missingSelect.length > 0 ? `Unknown names: ${missingSelect.join(", ")}. ` : ""}${unavailableNoChar.length > 0 ? `Unavailable without a focused character (this is an All-Characters session): ${unavailableNoChar.join(", ")}. ` : ""}Use the deferred-tools list from the system prompt to pick valid names, or run a keyword search instead.`,
           isError: true,
         };
       }
@@ -100,6 +110,7 @@ Query forms:
       for (const name of deferredNames) {
         const t = registry.get(name);
         if (!t) continue;
+        if (t.requiresCharacter && !hasChar) continue;
         const s = scoreKeyword(t.name, t.description, terms);
         if (s > 0) scored.push({ name: t.name, score: s });
       }
@@ -130,6 +141,12 @@ Query forms:
     const noteLines: string[] = [];
     if (alreadyLoaded.length > 0) {
       noteLines.push(`Note: ${alreadyLoaded.join(", ")} ${alreadyLoaded.length === 1 ? "was" : "were"} already loaded. Selecting an already-loaded tool is a harmless no-op.`);
+    }
+    if (missingSelect.length > 0) {
+      noteLines.push(`Warning: unknown names not loaded: ${missingSelect.join(", ")}. Check the deferred-tools list in the system prompt. Do NOT call these names — they won't dispatch.`);
+    }
+    if (unavailableNoChar.length > 0) {
+      noteLines.push(`Not loaded (need a focused character, this is an All-Characters session): ${unavailableNoChar.join(", ")}. Focus a character first, then re-run tool_search.`);
     }
     void stillDeferred;
     return {

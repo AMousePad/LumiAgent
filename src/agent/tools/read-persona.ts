@@ -6,8 +6,8 @@ import { markReadWithHash } from "./_gates";
 const inputSchema = z.object({
   persona_id: z.string().optional(),
   which: z.enum(["active", "default"]).optional(),
-}).strict().refine((v) => (v.persona_id !== undefined) !== (v.which !== undefined), {
-  message: "exactly one of `persona_id` or `which` is required",
+}).strict().refine((v) => !(v.persona_id !== undefined && v.which !== undefined), {
+  message: "pass `persona_id` or `which`, not both. Omit both to read the default persona.",
 });
 
 export const readPersonaTool = defineTool({

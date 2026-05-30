@@ -29,7 +29,7 @@ Returns: JSON \`{surface_id, item_id, field, value_chars, value}\`. \`value\` is
     },
     required: ["surface_id", "item_id"],
   },
-  requiresCharacter: true,
+  requiresCharacter: false,
   execute: async (input, ctx) => {
     const { discoverProviders, findSurface } = await import("../../phoneline/registry");
     const providers = await discoverProviders(ctx.spindle, ctx.userId);
@@ -43,7 +43,9 @@ Returns: JSON \`{surface_id, item_id, field, value_chars, value}\`. \`value\` is
       ...(input.field !== undefined ? { field: input.field } : {}),
     });
     const value = res.value;
-    const valueStr = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+    // value is `unknown` and may be undefined (missing field). JSON.stringify(undefined)
+    // returns the JS value undefined, not a string, so `.length` below would throw.
+    const valueStr = value === undefined ? "" : typeof value === "string" ? value : JSON.stringify(value, null, 2);
     const payload = JSON.stringify({
       surface_id: input.surface_id,
       item_id: input.item_id,

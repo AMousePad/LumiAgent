@@ -14,7 +14,7 @@ import { parseExtensionPath, setAtPath } from "./_paths";
 import { walkStringLeaves } from "./_walk";
 import { characterScope } from "../../types";
 
-const CJK_RE = /[぀-ゟ゠-ヿㇰ-ㇿ㐀-䶿一-鿿가-힣豈-﫿]/;
+const CJK_RE = /[぀-ゟ゠-ヿㇰ-ㇿ㐀-䶿一-鿿가-힣豈-﫿]/;
 
 async function loadAllRegexScripts(ctx: ToolCtx, characterId: string): Promise<RegexScriptDTO[]> {
   const out: RegexScriptDTO[] = [];
@@ -121,19 +121,29 @@ Returns:
     for (const [k] of pairs) hitCounts[k] = 0;
 
     const applyAll = (text: string): { out: string; perEntry: Record<string, number> } => {
-      let cur = text;
+      // Single left-to-right pass: at each position take the longest matching key
+      // (pairs are sorted longest-first), emit its value, and advance past the KEY
+      // in the source. A sequential split/join per entry would re-scan text that an
+      // earlier entry's value introduced, so a glossary where one entry's value
+      // contains another's key (variant -> canonical -> translation) double-applies
+      // and over-counts. This consumes the source once and never re-reads output.
       const counts: Record<string, number> = {};
-      for (const [k, v] of pairs) {
-        if (k === v) continue;
-        let n = 0;
-        let scan = 0;
-        while ((scan = cur.indexOf(k, scan)) >= 0) { n++; scan += k.length; }
-        if (n > 0) {
-          cur = cur.split(k).join(v);
-          counts[k] = (counts[k] ?? 0) + n;
+      let out = "";
+      let i = 0;
+      outer: while (i < text.length) {
+        for (const [k, v] of pairs) {
+          if (k === v || k.length === 0) continue;
+          if (text.startsWith(k, i)) {
+            out += v;
+            counts[k] = (counts[k] ?? 0) + 1;
+            i += k.length;
+            continue outer;
+          }
         }
+        out += text[i];
+        i++;
       }
-      return { out: cur, perEntry: counts };
+      return { out, perEntry: counts };
     };
 
     const surfaceChanges: Array<{ surface: string; surfaceId: string; field: string; hits: number }> = [];
@@ -143,6 +153,13 @@ Returns:
     if (scopes.includes("character")) {
       const patch: CharacterUpdateDTO = {};
       let charChanged = false;
+      // Buffer the ledger edits and only commit them AFTER the single batched
+      // characters.update succeeds. The update is deferred to one call past both
+      // loops, so pushing edits inline would commit ghost edits (a throw on the
+      // update still lets drainOutcome flush the buffer) for writes that never
+      // landed. The per-item surfaces (world_books/regex/extensions) write then
+      // pushEdit, so only this batched-write branch needs the deferral.
+      const pendingEdits: Array<Parameters<typeof ctx.pushEdit>[0]> = [];
       for (const field of CHARACTER_STRING_FIELDS) {
         const text = (c as unknown as Record<string, unknown>)[field];
         if (typeof text !== "string" || text.length === 0) continue;
@@ -153,7 +170,7 @@ Returns:
           surfaceChanges.push({ surface: "character_field", surfaceId: target, field, hits: fieldHits });
           (patch as Record<string, unknown>)[field] = out;
           charChanged = true;
-          if (!dryRun) ctx.pushEdit({ op: "edit", surface: "character_field", surfaceId: target, surfaceLabel: c.name, field, before: text, after: out, scope: charScope });
+          if (!dryRun) pendingEdits.push({ op: "edit", surface: "character_field", surfaceId: target, surfaceLabel: c.name, field, before: text, after: out, scope: charScope });
         }
       }
       const newGreetings = [...(c.alternate_greetings ?? [])];
@@ -168,12 +185,13 @@ Returns:
           surfaceChanges.push({ surface: "alternate_greeting", surfaceId: target, field: String(i), hits });
           newGreetings[i] = out;
           greetingsChanged = true;
-          if (!dryRun) ctx.pushEdit({ op: "edit", surface: "alternate_greeting", surfaceId: target, surfaceLabel: `alternate_greetings[${i}]`, field: String(i), before: text, after: out, scope: charScope });
+          if (!dryRun) pendingEdits.push({ op: "edit", surface: "alternate_greeting", surfaceId: target, surfaceLabel: `alternate_greetings[${i}]`, field: String(i), before: text, after: out, scope: charScope });
         }
       }
       if (greetingsChanged) (patch as { alternate_greetings?: string[] }).alternate_greetings = newGreetings;
       if (!dryRun && (charChanged || greetingsChanged)) {
         await ctx.spindle.characters.update(target, patch, ctx.userId);
+        for (const e of pendingEdits) ctx.pushEdit(e);
       }
     }
 

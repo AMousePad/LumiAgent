@@ -19,7 +19,7 @@ import type {
 import { runAgent } from "./agent/loop";
 import { listDeferredToolNames, makeDeferredToolSchemaMap, makeInitialToolSchemas, makeToolDispatch, toolRequiresCharacter } from "./agent/tools";
 import { systemMessageWithCache } from "./agent/cache-control";
-import { buildGeneralSystemPrompt } from "./tasks/general";
+import { buildGeneralSystemPrompt, buildContextNote } from "./tasks/general";
 import { revertEditWithCheck, revertEdit, writeFieldValue } from "./state/edit-log";
 import { appendEntries, entriesView, findEntry, loadLedger, ledgerPath, persistLedgerNow, purgeAllRevertedInMemory, squashMessage } from "./state/ledger";
 import { characterScope, scopeKeyString } from "./types";
@@ -65,6 +65,17 @@ const activeSessions = new Map<string, AbortController>();
 // pending session to a persisted one. A page refresh discards them, which
 // is the desired behaviour: empty sessions clutter the picker for no gain.
 const pendingSessions = new Map<string, PersistedSession>();
+
+// A staged session abandoned via page-refresh (never sent, never deleted) would
+// otherwise orphan its in-memory entry for the worker's whole life. Lazily drop
+// stale ones on each new stage. 2h is well past any "stage then come back" flow.
+const PENDING_SESSION_TTL_MS = 2 * 60 * 60_000;
+function sweepStalePendingSessions(): void {
+  const cutoff = Date.now() - PENDING_SESSION_TTL_MS;
+  for (const [k, s] of pendingSessions) {
+    if (s.createdAt < cutoff) pendingSessions.delete(k);
+  }
+}
 
 async function loadSessionWithPending(sessionId: string, userId: string): Promise<PersistedSession | null> {
   const p = pendingSessions.get(scopedKey(userId, sessionId));
@@ -360,11 +371,11 @@ async function buildSessionSystemMessage(
     s.frozenAgentNotes = await loadAgentNotes(userId);
   }
   const hasCharacter = c !== null;
+  // Character-agnostic: the focused character, its extension guidance, and its
+  // external surfaces are delivered as a conversation context note (see
+  // emitContextNoteIfChanged), not baked here, so switching focus never
+  // invalidates this cached prefix.
   let prompt = buildGeneralSystemPrompt({
-    characterName: hasCharacter ? c.name : "",
-    characterId: s.characterId ?? null,
-    externalProviders: hasCharacter ? await resolveExternalProviders(userId) : [],
-    extensionSystemPrompts: await resolveExtensionSystemPrompts(userId, hasCharacter ? c.id : null),
     persona: settings.persona,
     systemPromptOverride: settings.systemPromptOverride,
     agentNotes: s.frozenAgentNotes,
@@ -374,6 +385,41 @@ async function buildSessionSystemMessage(
     prompt = `${prompt}\n\n${settings.jailbreak}`;
   }
   return systemMessageWithCache(prompt, settings.cacheMode);
+}
+
+async function buildContextNoteForSession(s: PersistedSession, userId: string): Promise<string> {
+  const characterId = s.characterId;
+  const externalProviders = characterId !== null ? await resolveExternalProviders(userId) : [];
+  const extensionSystemPrompts = await resolveExtensionSystemPrompts(userId, characterId);
+  return buildContextNote({
+    characterName: s.characterName,
+    characterId,
+    pinnedChat: (s.pinnedChatId ?? null) !== null,
+    externalProviders,
+    extensionSystemPrompts,
+  });
+}
+
+// Emit a one-shot focus/pin context note into llmHistory when the state the
+// agent was last told about differs from current. Inserts the note just before
+// the trailing user message so the agent reads it ahead of the user's words;
+// wire-coalescing merges the two user turns. Switching focus / pin several
+// times before a send collapses to a single note (state-diff, not per-switch).
+// The note lives in llmHistory only (not s.messages), and rebuildLlmHistory
+// drops it, so resend paths clear s.lastContext to force re-emission.
+async function emitContextNoteIfChanged(s: PersistedSession, userId: string): Promise<void> {
+  const cur = { characterId: s.characterId, pinnedChatId: s.pinnedChatId ?? null };
+  const last = s.lastContext ?? null;
+  if (last && last.characterId === cur.characterId && last.pinnedChatId === cur.pinnedChatId) return;
+  const curMeaningful = cur.characterId !== null || cur.pinnedChatId !== null;
+  const lastMeaningful = !!last && (last.characterId !== null || last.pinnedChatId !== null);
+  if (!curMeaningful && !lastMeaningful) { s.lastContext = cur; return; }
+  const note = await buildContextNoteForSession(s, userId);
+  const entry: LlmMessage = { role: "user", content: note };
+  const lastIdx = s.llmHistory.length - 1;
+  if (lastIdx >= 0 && s.llmHistory[lastIdx]!.role === "user") s.llmHistory.splice(lastIdx, 0, entry);
+  else s.llmHistory.push(entry);
+  s.lastContext = cur;
 }
 
 // Apply the non-system jailbreak placements to a conversation already
@@ -437,10 +483,16 @@ async function resolveModelForConnection(connectionId: string | null | undefined
 }
 
 async function resolveProviderForConnection(connectionId: string | null | undefined, userId: string): Promise<string | undefined> {
-  if (!connectionId) return undefined;
   try {
-    const profile = await spindle.connections.get(connectionId, userId);
-    return profile?.provider;
+    if (connectionId) {
+      const profile = await spindle.connections.get(connectionId, userId);
+      return profile?.provider;
+    }
+    // No explicit connection: the generation falls back to the user's default
+    // connection, so resolve THAT provider. Returning undefined here skipped the
+    // parallel_tool_calls / penalty stripping and 400'd an Anthropic/Google default.
+    const list = await spindle.connections.list(userId);
+    return list.find((c) => c.is_default)?.provider;
   } catch { return undefined; }
 }
 
@@ -457,12 +509,41 @@ const PARALLEL_TOOLS_INCOMPATIBLE_PROVIDERS: ReadonlySet<string> = new Set([
   "anthropic",
 ]);
 
+// OpenAI-style penalty / sampling knobs that SAMPLER_DEFS exposes but the
+// listed providers reject. Lumiverse's provider buildBody passes any
+// unrecognized parameter straight through to the wire, so a non-zero value
+// in settings turns every call to that provider into a 400. Keep these lists
+// in sync with the wire keys in `samplerWireKey`.
+const ANTHROPIC_UNSUPPORTED_SAMPLERS: readonly string[] = [
+  "frequency_penalty",
+  "presence_penalty",
+  "min_p",
+  "repetition_penalty",
+];
+const GOOGLE_UNSUPPORTED_SAMPLERS: readonly string[] = [
+  "frequency_penalty",
+  "presence_penalty",
+  "min_p",
+  "repetition_penalty",
+];
+
 function buildSamplerParams(
   samplers: Readonly<Record<string, number | null>>,
   parallelToolCalls: boolean,
   provider: string | undefined,
 ): Record<string, unknown> {
   const base: Record<string, unknown> = { ...samplersToWireWithRequired(samplers) };
+  if (provider === "anthropic") {
+    // SAMPLER_DEFS allows temperature up to 2 for OpenAI-style providers, but
+    // Anthropic rejects anything > 1 with a 400.
+    if (typeof base["temperature"] === "number" && (base["temperature"] as number) > 1) {
+      base["temperature"] = 1;
+    }
+    for (const k of ANTHROPIC_UNSUPPORTED_SAMPLERS) delete base[k];
+  }
+  if (provider === "google" || provider === "google_vertex") {
+    for (const k of GOOGLE_UNSUPPORTED_SAMPLERS) delete base[k];
+  }
   if (provider && PARALLEL_TOOLS_INCOMPATIBLE_PROVIDERS.has(provider)) return base;
   base["parallel_tool_calls"] = parallelToolCalls;
   return base;
@@ -624,13 +705,30 @@ async function handleListCharactersStorage(userId: string): Promise<void> {
 }
 
 async function handleSquashCharacter(scope: ScopeRef, userId: string): Promise<void> {
+  // Refuse while any of this user's generations is in flight: a live turn can
+  // append edits to ANY scope (cross-scope edits), and its fire-and-forget
+  // persist can race the squash's persist and resurrect the cleared patches.
+  // Blocking is the safe boundary (squash is a rare manual action).
+  if ([...activeSessions.keys()].some((k) => k.startsWith(`${userId}:`))) {
+    send({ type: "ws_error", error: "Wait for the current generation to finish before forgetting changes." }, userId);
+    return;
+  }
   try {
-    const { dropCache } = await import("./state/ledger");
+    const { persistLedgerNow } = await import("./state/ledger");
     let ledgerCleared = false;
     try {
-      await spindle.userStorage.delete(ledgerPath(scope), userId);
-      dropCache(scope, userId);
-      ledgerCleared = true;
+      // Clear the SHARED cached ledger object in place and persist it, rather
+      // than deleting the file + dropCache. A raw delete let a concurrent
+      // in-flight appendEntries (which holds the pre-delete cached reference)
+      // re-persist the old patches afterward, silently resurrecting them. By
+      // mutating the shared object, any concurrent writer observes the cleared
+      // state and the final write stays coherent.
+      const ledger = await loadLedger(spindle, scope, userId);
+      ledgerCleared = ledger.files.length > 0 || ledger.structural.length > 0 || ledger.externalEdits.length > 0;
+      ledger.files = [];
+      ledger.structural = [];
+      ledger.externalEdits = [];
+      await persistLedgerNow(spindle, ledger, userId);
     } catch { /* nothing to clear */ }
     send({ type: "scope_squashed", scope, ledgerCleared }, userId);
     await handleListCharactersStorage(userId);
@@ -677,11 +775,26 @@ const HANDOFF_PATH = "HANDOFF.md";
 // Replace every text block on the assistant message with a single cleaned
 // one appended at the end. Tool blocks keep their place. Used when the
 // agent loop strips text-form tool-call markup from the model's output.
-function replaceAssistantTextBlocks(assistant: ChatAssistantMessage, cleaned: string): void {
-  assistant.blocks = assistant.blocks.filter((b) => b.type !== "text");
-  if (cleaned.trim().length > 0) {
-    assistant.blocks.push({ type: "text", content: cleaned });
+// Replace ONLY the CURRENT turn's text blocks (those at/after fromIndex, the
+// block count when this turn started) with the single cleaned text block at the
+// first text position, preserving earlier turns' prose and this turn's tool /
+// reasoning blocks. cleaned is the full current-turn text with text-form
+// tool-call markup stripped. Filtering ALL text blocks would delete prior
+// turns' text in a multi-turn response.
+function replaceAssistantTextBlocks(assistant: ChatAssistantMessage, cleaned: string, fromIndex: number): void {
+  const cut = Math.max(0, Math.min(fromIndex, assistant.blocks.length));
+  const head = assistant.blocks.slice(0, cut);
+  const rebuilt: AssistantBlock[] = [];
+  let inserted = false;
+  for (const b of assistant.blocks.slice(cut)) {
+    if (b.type === "text") {
+      if (!inserted) { if (cleaned.trim().length > 0) rebuilt.push({ type: "text", content: cleaned }); inserted = true; }
+    } else {
+      rebuilt.push(b);
+    }
   }
+  if (!inserted && cleaned.trim().length > 0) rebuilt.push({ type: "text", content: cleaned });
+  assistant.blocks = [...head, ...rebuilt];
 }
 
 function emitContextUsage(s: PersistedSession, contextTokens: number, userId: string): void {
@@ -726,16 +839,28 @@ Rules:
 
 async function compactSession(sessionId: string, userId: string, trigger: "auto" | "manual"): Promise<void> {
   log("info", `compact_session sessionId=${sessionId} trigger=${trigger}`);
-  if (activeSessions.has(scopedKey(userId, sessionId))) {
+  const key = scopedKey(userId, sessionId);
+  if (activeSessions.has(key)) {
     send({ type: "ws_error", error: "Wait for the current generation to finish before compacting." }, userId);
     return;
   }
+  // Claim the slot synchronously, BEFORE any await, so a concurrent send can't
+  // slip through its own activeSessions.has guard during the load/lookup window
+  // and start a second runAgent on the same session (which would corrupt
+  // s.llmHistory and misroute cancel). Free it on every early-return path.
+  const ac = new AbortController();
+  compactingSessions.add(key);
+  activeSessions.set(key, ac);
+  void pushSessionStatus(sessionId, userId);
+
+  const releaseSlot = (): void => { activeSessions.delete(key); compactingSessions.delete(key); };
+
   const s = await loadSession(spindle, sessionId, userId);
-  if (!s) { send({ type: "ws_error", error: "Session not found." }, userId); return; }
+  if (!s) { releaseSlot(); send({ type: "ws_error", error: "Session not found." }, userId); void pushSessionStatus(sessionId, userId); return; }
   let c: CharacterDTO | null = null;
   if (s.characterId !== null) {
     c = await spindle.characters.get(s.characterId, userId);
-    if (!c) { send({ type: "ws_error", error: "Character not found." }, userId); return; }
+    if (!c) { releaseSlot(); send({ type: "ws_error", error: "Character not found." }, userId); void pushSessionStatus(sessionId, userId); return; }
   }
 
   send({ type: "compaction_started", sessionId }, userId);
@@ -744,11 +869,6 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
   const contextTokens = resolveContextTokens(settings.samplers);
   // Cap the handoff at 15% of context, with a conservative chars-per-token of 3.
   const maxHandoffChars = Math.floor(contextTokens * 0.15) * 3;
-
-  const ac = new AbortController();
-  compactingSessions.add(scopedKey(userId, sessionId));
-  activeSessions.set(scopedKey(userId, sessionId), ac);
-  void pushSessionStatus(sessionId, userId);
 
   try {
     const systemMsg = await buildSessionSystemMessage(c, s, settings, userId);
@@ -770,6 +890,7 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
     s.messages.push(assistant);
 
     let currentText: AssistantBlock & { type: "text" } | null = null;
+    let turnStartBlocks = 0;
     const toolBlocks = new Map<string, AssistantBlock & { type: "tool" }>();
     // Stamp BEFORE the run so we can tell apart a fresh handoff written this
     // turn from a stale one left over by a prior compaction.
@@ -790,6 +911,7 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
         case "turn_started":
           assistant.turn = ev.turn;
           currentText = null;
+          turnStartBlocks = assistant.blocks.length;
           break;
         case "llm_token":
           if (!currentText) { currentText = { type: "text", content: ev.token }; assistant.blocks.push(currentText); }
@@ -808,7 +930,14 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
         }
         case "turn_completed":
           if (ev.usage) { assistant.usage = ev.usage; s.lastPromptTokens = ev.usage.prompt; }
-          if (ev.cleanedContent !== undefined) replaceAssistantTextBlocks(assistant, ev.cleanedContent);
+          if (ev.cleanedContent !== undefined) replaceAssistantTextBlocks(assistant, ev.cleanedContent, turnStartBlocks);
+          break;
+        case "edit_logged":
+          // The compaction agent holds the full tool set; if it edits state
+          // (off-contract but reachable), track it like a normal turn so the
+          // mutation stays revertable instead of landing silently on the spindle.
+          s.edits.push(ev.entry);
+          void appendEntries(spindle, ev.entry.scope, [ev.entry], userId).catch((e) => log("warn", `ledger append failed: ${(e as Error).message}`));
           break;
         default: break;
       }
@@ -841,11 +970,16 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
     // Replace the model-facing history with a short primer so the next turn
     // starts fresh. The user's UI thread keeps the full history for their own
     // record; this only affects what the model sees next.
-    s.llmHistory = [
-      { role: "user", content: `[The previous agent compacted this conversation. Detailed handoff notes are saved at workspace/${HANDOFF_PATH}. If you need any context from before this point, read that file first with fs_read("${HANDOFF_PATH}"). Then respond to whatever the user says next.]` },
-    ];
+    const primerContent = `[The previous agent compacted this conversation. Detailed handoff notes are saved at workspace/${HANDOFF_PATH}. If you need any context from before this point, read that file first with fs_read("${HANDOFF_PATH}"). Then respond to whatever the user says next.]`;
+    s.llmHistory = [{ role: "user", content: primerContent }];
+    // Persist the primer so the rebuild paths re-prepend it and rebuild only the
+    // post-compaction messages instead of re-expanding the full thread.
+    s.compactionPrimer = primerContent;
     s.compactedAt = Date.now();
     s.lastPromptTokens = 0;
+    // The collapsed history no longer carries the focus/pin context note; the
+    // agent re-learns it from a fresh note on the next send.
+    delete s.lastContext;
 
     // Append a visible boundary message in the user's thread so they can see
     // where the compaction happened on next session reload.
@@ -904,10 +1038,6 @@ function guessMimeType(path: string): string {
     case "zip": return "application/zip";
     default: return "application/octet-stream";
   }
-}
-
-function isTextMime(mime: string): boolean {
-  return mime.startsWith("text/") || mime === "application/json" || mime === "application/javascript" || mime === "application/typescript" || mime === "image/svg+xml";
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -974,15 +1104,12 @@ async function handleWsDuplicate(path: string, userId: string): Promise<void> {
     }
     if (!dest) throw new Error("couldn't find a free name");
     const { workspaceCaps } = await resolveCapsForUser(userId);
-    // Binary vs text: try text first, fall back to binary if read fails or
-    // the file looks non-textual (we don't sniff content; just try).
-    try {
-      const text = await ws.readText(spindle, userId, path);
-      await ws.writeText(spindle, userId, dest, text, workspaceCaps);
-    } catch {
-      const bytes = await ws.readBinary(spindle, userId, path);
-      await ws.writeBinary(spindle, userId, dest, bytes, workspaceCaps);
-    }
+    // Always copy raw bytes. The host read() is readFileSync(utf-8), which never
+    // throws on a binary file, it lossily replaces invalid bytes with U+FFFD, so
+    // a readText-first strategy silently corrupts the duplicate. Text round-trips
+    // through the binary path intact.
+    const bytes = await ws.readBinary(spindle, userId, path);
+    await ws.writeBinary(spindle, userId, dest, bytes, workspaceCaps);
     send({ type: "ws_changed" }, userId);
   } catch (err) { send({ type: "ws_error", error: (err as Error).message }, userId); }
 }
@@ -1009,7 +1136,10 @@ async function handleWsUploadBinary(path: string, dataBase64: string, userId: st
 // Chunked upload assembly buffer. Keyed by `${userId}:${transferId}` so
 // concurrent uploads from the same user don't collide. Cleared on completion
 // or when a different transferId starts writing to the same path.
-const uploadBuffers = new Map<string, { path: string; total: number; parts: string[] }>();
+// parts slots are null until received, NOT "": a genuinely empty final chunk
+// (e.g. a zero-byte file's single part) base64-encodes to "", so completion
+// must key on "slot received" not "slot non-empty".
+const uploadBuffers = new Map<string, { path: string; total: number; parts: (string | null)[] }>();
 const UPLOAD_BUFFER_TTL_MS = 5 * 60_000;
 const uploadBufferTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -1024,23 +1154,30 @@ async function handleWsUploadPart(transferId: string, path: string, dataBase64: 
   try {
     let buf = uploadBuffers.get(key);
     if (!buf) {
-      buf = { path, total, parts: new Array(total).fill("") };
+      buf = { path, total, parts: new Array<string | null>(total).fill(null) };
       uploadBuffers.set(key, buf);
-      uploadBufferTimers.set(key, setTimeout(() => {
-        log("warn", `upload transfer ${transferId} timed out`);
-        clearUploadBuffer(key);
-      }, UPLOAD_BUFFER_TTL_MS));
     }
+    // Refresh the reap timer on every part: a large multi-chunk upload on a slow
+    // link would otherwise be torn down mid-flight by a timer armed on part 0.
+    // On expiry tell the frontend, which only ever shows "Uploading..." and
+    // would hang silently otherwise (a lost part never completes the buffer).
+    const existing = uploadBufferTimers.get(key);
+    if (existing) clearTimeout(existing);
+    uploadBufferTimers.set(key, setTimeout(() => {
+      log("warn", `upload transfer ${transferId} timed out`);
+      clearUploadBuffer(key);
+      send({ type: "ws_error", error: "Upload timed out before all parts arrived." }, userId);
+    }, UPLOAD_BUFFER_TTL_MS));
     if (buf.path !== path || buf.total !== total) {
       throw new Error(`upload part for ${transferId} mismatches path or total`);
     }
     if (index < 0 || index >= total) throw new Error(`bad upload index ${index}`);
     buf.parts[index] = dataBase64;
-    // Check completion: every slot must be a non-empty string.
-    if (buf.parts.every((p) => p.length > 0)) {
+    // Check completion: every slot received (an empty-string chunk counts).
+    if (buf.parts.every((p) => p !== null)) {
       const ws = await import("./state/workspace");
       // Concatenate decoded bytes in order.
-      const decoded = buf.parts.map((b64) => base64ToBytes(b64));
+      const decoded = buf.parts.map((b64) => base64ToBytes(b64 ?? ""));
       const totalLen = decoded.reduce((s, b) => s + b.byteLength, 0);
       const merged = new Uint8Array(totalLen);
       let off = 0;
@@ -1086,6 +1223,11 @@ async function handleWsMkdir(path: string, userId: string): Promise<void> {
   } catch (err) { send({ type: "ws_error", error: (err as Error).message }, userId); }
 }
 
+// Single-shot download/zip rides one SPINDLE_BACKEND_MSG frame, capped at 4 MB
+// host-side (oversized frames are SILENTLY dropped). base64 inflates 4/3, so
+// cap the raw payload well under 3 MB and surface ws_error instead of hanging.
+const DOWNLOAD_INLINE_MAX_BYTES = 2_800_000;
+
 async function handleWsDownload(path: string, userId: string): Promise<void> {
   try {
     const ws = await import("./state/workspace");
@@ -1093,12 +1235,12 @@ async function handleWsDownload(path: string, userId: string): Promise<void> {
     if (!node) throw new Error(`'${path}' not found`);
     if (node.isDirectory) throw new Error(`'${path}' is a directory; use ws_download_zip`);
     const mime = guessMimeType(path);
-    let bytes: Uint8Array;
-    if (isTextMime(mime)) {
-      const text = await ws.readText(spindle, userId, path);
-      bytes = new TextEncoder().encode(text);
-    } else {
-      bytes = await ws.readBinary(spindle, userId, path);
+    // Always read as raw bytes. Reading via readText (UTF-8) would lossily
+    // replace non-UTF-8 bytes with U+FFFD for a binary file that happens to
+    // carry a text-mime extension (.json/.svg/...), corrupting the download.
+    const bytes = await ws.readBinary(spindle, userId, path);
+    if (bytes.byteLength > DOWNLOAD_INLINE_MAX_BYTES) {
+      throw new Error(`'${path}' is ${(bytes.byteLength / (1024 * 1024)).toFixed(1)} MB; too large to download inline (limit ~${(DOWNLOAD_INLINE_MAX_BYTES / (1024 * 1024)).toFixed(1)} MB). The host drops messages over 4 MB.`);
     }
     send({ type: "ws_download_ready", path: ws.normaliseRelPath(path), dataBase64: bytesToBase64(bytes), mimeType: mime }, userId);
   } catch (err) { send({ type: "ws_error", error: (err as Error).message }, userId); }
@@ -1114,16 +1256,10 @@ async function handleWsDownloadZip(paths: readonly string[], userId: string): Pr
     const enqueueFile = async (rel: string) => {
       if (seen.has(rel)) return;
       seen.add(rel);
-      const mime = guessMimeType(rel);
       let bytes: Uint8Array;
-      try {
-        if (isTextMime(mime)) {
-          const text = await ws.readText(spindle, userId, rel);
-          bytes = new TextEncoder().encode(text);
-        } else {
-          bytes = await ws.readBinary(spindle, userId, rel);
-        }
-      } catch { return; }
+      // Raw bytes only: readText would corrupt mislabeled-binary text-extension
+      // files (lossy UTF-8 decode).
+      try { bytes = await ws.readBinary(spindle, userId, rel); } catch { return; }
       entries.push({ path: rel, bytes });
     };
     const targets = paths.length === 0 ? [""] : paths;
@@ -1139,6 +1275,9 @@ async function handleWsDownloadZip(paths: readonly string[], userId: string): Pr
     }
     if (entries.length === 0) throw new Error("nothing to download");
     const zip = buildZip(entries);
+    if (zip.byteLength > DOWNLOAD_INLINE_MAX_BYTES) {
+      throw new Error(`The zip is ${(zip.byteLength / (1024 * 1024)).toFixed(1)} MB; too large to download inline (limit ~${(DOWNLOAD_INLINE_MAX_BYTES / (1024 * 1024)).toFixed(1)} MB). Download fewer / smaller files.`);
+    }
     const filename = paths.length === 1 ? `${(paths[0] ?? "workspace").replace(/\//g, "_") || "workspace"}.zip` : "workspace.zip";
     send({ type: "ws_zip_ready", dataBase64: bytesToBase64(zip), filename }, userId);
   } catch (err) { send({ type: "ws_error", error: (err as Error).message }, userId); }
@@ -1156,25 +1295,61 @@ async function handleSetPinnedChat(sessionId: string, chatId: string | null, use
   const prevPin = s.pinnedChatId ?? null;
   log("info", `set_pinned_chat: loaded session sessionCharacterId=${s.characterId} prevPinnedChatId=${prevPin ?? "null"} pending=${isPending}`);
   s.pinnedChatId = chatId;
-
-  // Mirror the revert-note pattern: tell the agent the pin changed via a
-  // system note on llmHistory so the next turn sees it. The chat name/id
-  // stays out of the system prompt (cache-stable) but the agent learns from
-  // a one-shot note here that it should re-read via read_chat_messages.
-  if (!isPending && s.llmHistory.length > 0 && prevPin !== chatId) {
-    const note = chatId === null
-      ? "[Note from the system: the user just unpinned the chat that was previously pinned for context. From now on, `read_chat_messages` (no chat_id) will return `{pinned: false}`. If the user references 'this chat' or 'the conversation', tell them to pin one again.]"
-      : prevPin === null
-        ? "[Note from the system: the user just pinned a chat for context. `read_chat_messages` (no chat_id) now returns the messages of that chat. The pin replaces whatever you previously knew about chat history; re-read if you need fresh context.]"
-        : "[Note from the system: the user just swapped the pinned chat. Any chat-history context you had cached is stale; `read_chat_messages` (no chat_id) now points at a different chat. Re-read it before referencing 'this chat' / 'the conversation'.]";
-    s.llmHistory.push({ role: "user", content: note });
-  }
+  // The agent learns about the pin change via the lazy context note emitted on
+  // the next send (emitContextNoteIfChanged), folded together with any focus
+  // change so repeated switches before a send collapse to one note.
 
   // Pending sessions stay in memory: mutating the held object is the save.
   // Disk write only fires once the session has its first message.
   if (!isPending) await saveSession(spindle, s, userId);
   log("info", `set_pinned_chat: ${isPending ? "updated in-memory pending session" : "saved"}, replying pinned_chat_set`);
   send({ type: "pinned_chat_set", sessionId, chatId }, userId);
+}
+
+// Switch the focused character in place, keeping the thread. Pure state
+// mutation: the agent learns the new focus from the lazy context note on the
+// next send, so the cached prompt prefix is never invalidated. The frontend
+// emits this and renders the authoritative state pushed back here.
+async function handleSetFocus(sessionId: string, characterId: string | null, userId: string): Promise<void> {
+  // Rejections use focus_rejected, NOT generation_error: routing a focus failure
+  // through generation_error would tear down a live generation's UI (finalize the
+  // streaming bubble as errored, re-enable the composer).
+  if (activeSessions.has(scopedKey(userId, sessionId))) {
+    send({ type: "focus_rejected", sessionId, reason: "Can't switch character while a generation is in flight." }, userId);
+    return;
+  }
+  const s = await loadSessionWithPending(sessionId, userId);
+  if (!s) { send({ type: "session_deleted", sessionId }, userId); return; }
+  if ((s.characterId ?? null) === (characterId ?? null)) {
+    send({ type: "focus_set", sessionId, characterId, characterName: s.characterName }, userId);
+    return;
+  }
+  let characterName = "";
+  if (characterId !== null) {
+    try {
+      const c = await spindle.characters.get(characterId, userId);
+      if (!c) { send({ type: "focus_rejected", sessionId, reason: `Character ${characterId} not found.` }, userId); return; }
+      characterName = c.name;
+    } catch (err) {
+      send({ type: "focus_rejected", sessionId, reason: `Character lookup failed: ${(err as Error).message}` }, userId);
+      return;
+    }
+  }
+  // Re-check after the awaits above: a concurrent send_message could have
+  // promoted this pending session and started a generation against the SAME
+  // shared object. Mutating it now would swap the character mid-generation, and
+  // the stale isPending would skip the persist. Re-derive both.
+  if (activeSessions.has(scopedKey(userId, sessionId))) {
+    send({ type: "focus_rejected", sessionId, reason: "Can't switch character while a generation is in flight." }, userId);
+    return;
+  }
+  const stillPending = pendingSessions.has(scopedKey(userId, sessionId));
+  s.characterId = characterId;
+  s.characterName = characterName;
+  // The pinned chat belonged to the previous character.
+  s.pinnedChatId = null;
+  if (!stillPending) await saveSession(spindle, s, userId);
+  send({ type: "focus_set", sessionId, characterId, characterName }, userId);
 }
 
 async function handleListSessions(filter: string | null | undefined, userId: string): Promise<void> {
@@ -1219,6 +1394,7 @@ async function handleStartSession(sessionId: string, characterId: string | null,
   // Stage the pending session synchronously so a follow-up set_pinned_chat or
   // list_chats arriving while we await character lookup or system-file seeding
   // still finds the session. characterName fills in below once we resolve it.
+  sweepStalePendingSessions();
   const s = newSession({
     sessionId,
     characterId,
@@ -1296,7 +1472,8 @@ async function handleContinueSession(sessionId: string, connectionId: string | u
         delete (e as { assistantMessageId?: string }).assistantMessageId;
       }
     }
-    s.llmHistory = rebuildLlmHistory(s.messages);
+    s.llmHistory = rebuildLlmHistoryScoped(s, s.messages);
+    delete s.lastContext;
     await saveSession(spindle, s, userId);
     send({ type: "session_truncated", sessionId, messages: s.messages, edits: s.edits }, userId);
   }
@@ -1452,16 +1629,40 @@ async function handleRevertEdit(scope: ScopeRef, editId: string, force: boolean,
   const ledger = await loadLedger(spindle, scope, userId);
   const entry = findEntry(ledger, editId);
   if (!entry) {
-    send({ type: "edit_reverted", scope, editId, outcome: { kind: "failed", editId, error: "edit not found in ledger" } }, userId);
+    // Already gone (e.g. a double-click, or the same edit reverted from two
+    // surfaces): idempotent no-op, not a failure. The frontend treats
+    // noop_already_reverted as success and just drops the row.
+    send({ type: "edit_reverted", scope, editId, outcome: { kind: "noop_already_reverted", editId } }, userId);
     return;
   }
+  // Snapshot id → sessionId BEFORE the revert: cascade victims get purged
+  // inside revertEditWithCheck, after which their owning sessionId is no
+  // longer recoverable from the ledger.
+  const ownerSessionByEditId = new Map<string, string | null>();
+  for (const f of ledger.files) for (const p of f.patches) ownerSessionByEditId.set(p.id, p.sessionId);
+  for (const s of ledger.structural) ownerSessionByEditId.set(s.id, s.sessionId);
+  for (const e of ledger.externalEdits) ownerSessionByEditId.set(e.id, e.sessionId);
   // revertEditWithCheck mutates the ledger in place (marks reverted, replays,
   // purges, persists). On clean outcome the patch is gone from the ledger.
   const outcome = await revertEditWithCheck(spindle, ledger, editId, scope.id, userId, force);
 
   if (outcome.kind === "clean") {
-    const removedIds = new Set<string>([editId, ...(outcome.cascadedEditIds ?? [])]);
-    await spliceReverted(spindle, entry.sessionId, removedIds, [buildRevertNote(entry)], userId);
+    // A cascade victim may own a different session than the primary edit.
+    // Splice each owning session independently so stale entries don't linger
+    // in s.edits across sessions.
+    const allIds = [editId, ...(outcome.cascadedEditIds ?? [])];
+    const bySession = new Map<string, Set<string>>();
+    for (const id of allIds) {
+      const sid = ownerSessionByEditId.get(id) ?? entry.sessionId;
+      if (!sid) continue;
+      let set = bySession.get(sid);
+      if (!set) { set = new Set(); bySession.set(sid, set); }
+      set.add(id);
+    }
+    const note = buildRevertNote(entry);
+    await Promise.allSettled(Array.from(bySession, ([sid, ids]) =>
+      spliceReverted(spindle, sid, ids, [note], userId),
+    ));
   }
   send({ type: "edit_reverted", scope, editId, outcome }, userId);
   // Push fresh workshop view (reverted entries no longer appear).
@@ -1501,7 +1702,9 @@ async function handleRevertEditsBulk(scope: ScopeRef, editIds: readonly string[]
     const hits: typeof file.patches = [];
     for (const p of file.patches) if (targetSet.has(p.id) && !p.reverted) hits.push(p);
     if (hits.length === 0) continue;
-    for (const p of hits) bumpSession(p.sessionId);
+    // bumpSession is deferred to the per-file SUCCESS branch below: counting a
+    // session here (before the spindle write outcome) inflated the per-session
+    // revert note and could phantom-note a session whose every write failed.
     // Snapshot before mutation. On spindle write failure below we restore
     // file.expectedHash too; without that the next agent edit on the file
     // sees sha256(live) !== file.expectedHash and folds in a phantom
@@ -1514,16 +1717,21 @@ async function handleRevertEditsBulk(scope: ScopeRef, editIds: readonly string[]
     for (const p of file.patches) {
       if (p.reverted) continue;
       const next = applySinglePatch(cur, p);
-      if (next === null) { p.reverted = true; p.revertedAt = now; cascadeIds.push(p.id); continue; }
+      if (next === null) {
+        p.reverted = true; p.revertedAt = now; cascadeIds.push(p.id);
+        continue;
+      }
       cur = next;
     }
     file.expectedHash = patchSha256(cur);
     fileWork.push({ file, hits, cascadeIds, recomputed: cur, savedExpectedHash });
   }
 
-  // One spindle write per touched file, in parallel.
+  // One spindle write per touched file, in parallel. Pass file.valueEncoding so
+  // JSON-encoded extension leaves (arrays/objects, alternate_field variants)
+  // decode on write-back instead of being restored as their literal JSON text.
   const fileWriteResults = await Promise.allSettled(fileWork.map(({ file, recomputed }) =>
-    writeFieldValue(spindle, file.key.surface, file.key.surfaceId, file.key.field, recomputed, scope.id, userId),
+    writeFieldValue(spindle, file.key.surface, file.key.surfaceId, file.key.field, recomputed, scope.id, userId, file.valueEncoding),
   ));
 
   fileWork.forEach((work, i) => {
@@ -1531,12 +1739,21 @@ async function handleRevertEditsBulk(scope: ScopeRef, editIds: readonly string[]
     if (r && r.status === "fulfilled") {
       for (const p of work.hits) {
         removedIds.add(p.id);
+        // Count the owning session only now that the write succeeded, so the
+        // per-session revert note reflects edits actually reverted.
+        bumpSession(p.sessionId);
         const cas = work.cascadeIds.length > 0 && p === work.hits[0]
           ? { kind: "clean" as const, editId: p.id, cascadedEditIds: work.cascadeIds }
           : { kind: "clean" as const, editId: p.id };
         outcomes.push({ editId: p.id, outcome: cas });
       }
-      for (const cid of work.cascadeIds) removedIds.add(cid);
+      for (const cid of work.cascadeIds) {
+        removedIds.add(cid);
+        // Cascade victim may own a different session than the direct hits;
+        // bump it so the per-session splice loop reaches that session.
+        const victim = work.file.patches.find((x) => x.id === cid);
+        if (victim) bumpSession(victim.sessionId);
+      }
     } else {
       // Roll back the in-memory marks for this file so the ledger stays honest.
       for (const p of work.hits) { p.reverted = false; delete p.revertedAt; }
@@ -1682,7 +1899,7 @@ function buildRevertNote(entry: EditLogEntry): string {
 }
 
 async function handleRevertSession(sessionId: string, userId: string): Promise<void> {
-  const s = await loadSession(spindle, sessionId, userId);
+  let s = await loadSession(spindle, sessionId, userId);
   if (!s) {
     send({ type: "generation_error", sessionId, error: "session not found" }, userId);
     return;
@@ -1704,6 +1921,12 @@ async function handleRevertSession(sessionId: string, userId: string): Promise<v
   }
   const sessionEditIds = liveSessionEdits.map((e) => e.id).reverse();
   const r = await revertEditsBatch(s.characterId ?? "", s.edits.filter((e) => sessionEditIds.includes(e.id)).reverse(), userId);
+  // revertEditsBatch -> handleRevertEditsBulk -> spliceRevertedFromSession
+  // already wrote a fresh copy of THIS session to disk (filtered edits +
+  // llmHistory note). Reload before mutating so our final save doesn't
+  // overwrite the note with our stale in-memory copy of llmHistory.
+  const refreshed = await loadSessionWithPending(sessionId, userId);
+  if (refreshed) s = refreshed;
   const revertedNow = Date.now();
   for (const edit of s.edits) {
     if (r.okIds.has(edit.id)) {
@@ -1739,15 +1962,33 @@ function rebuildLlmHistory(messages: readonly (ChatUserMessage | ChatAssistantMe
       else if (b.type === "reasoning") reasoning += b.content;
       else if (b.type === "tool") {
         toolCalls.push({ name: b.name, args: b.args, call_id: b.call_id });
-        if (b.result !== undefined) {
-          toolResults.push({ call_id: b.call_id, name: b.name, content: b.result, ...(b.is_error ? { is_error: true } : {}) });
-        }
+        // Every tool_use MUST have a matching tool_result or strict providers
+        // 400 on an orphan. A block can lack a result if the turn was aborted /
+        // errored mid-batch and this message isn't the last one (so it survives
+        // a rebuild); synthesize a placeholder rather than drop the pairing.
+        toolResults.push(b.result !== undefined
+          ? { call_id: b.call_id, name: b.name, content: b.result, ...(b.is_error ? { is_error: true } : {}) }
+          : { call_id: b.call_id, name: b.name, content: "(no result: the previous turn was interrupted)", is_error: true });
       }
     }
     out.push(encodeAssistantTurn(text, toolCalls, reasoning || undefined));
     if (toolResults.length > 0) out.push(encodeToolResults(toolResults));
   }
   return out;
+}
+
+// Compaction-aware rebuild. After a compaction, llmHistory is a single primer
+// and s.messages keeps the full thread. Rebuilding from ALL of s.messages would
+// re-expand the pre-compaction history and undo the collapse (re-inflating the
+// prompt, re-tripping auto-compaction). When compacted, prepend the stored
+// primer and rebuild ONLY the messages at/after the compaction point.
+function rebuildLlmHistoryScoped(s: PersistedSession, messages: readonly (ChatUserMessage | ChatAssistantMessage)[]): LlmMessage[] {
+  if (s.compactedAt === undefined || s.compactionPrimer === undefined) {
+    return rebuildLlmHistory(messages);
+  }
+  const cutoff = s.compactedAt;
+  const post = messages.filter((m) => m.ts >= cutoff);
+  return [{ role: "user", content: s.compactionPrimer }, ...rebuildLlmHistory(post)];
 }
 
 // Revert a batch of edits via the fast-path bulk handler. Force-reverts on
@@ -1807,18 +2048,31 @@ async function handleDeleteMessage(sessionId: string, messageId: string, editsAc
   const idx = s.messages.findIndex((m) => m.id === messageId);
   if (idx < 0) { send({ type: "generation_error", sessionId, error: "message not found" }, userId); return; }
   const target = s.messages[idx]!;
+  // Pre-compaction messages are read-only (edit / regenerate / free-tool-result
+  // all reject them): deleting one diverges s.messages from the collapsed
+  // llmHistory and reverts edits anchored to a read-only turn. Match the siblings.
+  if (s.compactedAt !== undefined && target.ts < s.compactedAt) {
+    send({ type: "generation_error", sessionId, error: "This message is before the compaction point and is read-only. Fork from here into a new session if you want to branch from it." }, userId);
+    return;
+  }
 
   if (target.role === "assistant" && editsAction === "revert") {
     const editsToRevert = s.edits.filter((e) => e.assistantMessageId === target.id && !e.reverted);
-    if (editsToRevert.length > 0 && s.characterId !== null) {
-      const r = await revertEditsBatch(s.characterId, editsToRevert, userId);
+    if (editsToRevert.length > 0) {
+      // No character gate: revertEditsBatch groups by each edit's own scope, so
+      // chat/persona/preset edits in a no-character session revert too (matches
+      // handleRevertSession). The fallback "" is only used for entries lacking
+      // explicit scope, which the scope-stamping path never produces.
+      const r = await revertEditsBatch(s.characterId ?? "", editsToRevert, userId);
       const now = Date.now();
       for (const e of s.edits) if (r.okIds.has(e.id)) { e.reverted = true; e.revertedAt = now; }
     }
   }
 
   s.messages = s.messages.slice(0, idx).concat(s.messages.slice(idx + 1));
-  s.llmHistory = rebuildLlmHistory(s.messages);
+  s.llmHistory = rebuildLlmHistoryScoped(s, s.messages);
+  // rebuild drops the llmHistory-only context note; force re-emit next send.
+  delete s.lastContext;
   await saveSession(spindle, s, userId);
   send({ type: "session_truncated", sessionId, messages: s.messages, edits: s.edits }, userId);
 }
@@ -1896,6 +2150,12 @@ async function handleEditUserMessage(sessionId: string, messageId: string, newCo
   if (!s) { send({ type: "generation_error", sessionId, error: "session not found" }, userId); return; }
   const idx = s.messages.findIndex((m) => m.id === messageId && m.role === "user");
   if (idx < 0) { send({ type: "generation_error", sessionId, error: "user message not found" }, userId); return; }
+  // An empty / whitespace-only edit would push an empty user content block on the
+  // regenerate, which 400s on Anthropic and poisons cross-provider history.
+  if (newContent.trim().length === 0) {
+    send({ type: "generation_error", sessionId, error: "Cannot save an empty message edit." }, userId);
+    return;
+  }
   // Editing a pre-compaction message would call rebuildLlmHistory over the
   // full s.messages and silently undo the compaction collapse. Reject loud.
   if (s.compactedAt !== undefined && s.messages[idx]!.ts < s.compactedAt) {
@@ -1906,8 +2166,8 @@ async function handleEditUserMessage(sessionId: string, messageId: string, newCo
   // Collect edits made in messages STRICTLY AFTER the edited user message.
   const tailMessageIds = new Set(s.messages.slice(idx + 1).filter((m) => m.role === "assistant").map((m) => m.id));
   const editsToReview = s.edits.filter((e) => e.assistantMessageId !== undefined && tailMessageIds.has(e.assistantMessageId) && !e.reverted);
-  if (editsAction === "revert" && editsToReview.length > 0 && s.characterId !== null) {
-    const r = await revertEditsBatch(s.characterId, editsToReview, userId);
+  if (editsAction === "revert" && editsToReview.length > 0) {
+    const r = await revertEditsBatch(s.characterId ?? "", editsToReview, userId);
     const now = Date.now();
     for (const e of s.edits) if (r.okIds.has(e.id)) { e.reverted = true; e.revertedAt = now; }
   }
@@ -1915,7 +2175,8 @@ async function handleEditUserMessage(sessionId: string, messageId: string, newCo
   // Truncate session: keep messages[0..idx-1], replace messages[idx] with new content, drop the rest.
   const editedMsg: ChatUserMessage = { id: messageId, role: "user", ts: Date.now(), content: newContent };
   s.messages = [...s.messages.slice(0, idx), editedMsg];
-  s.llmHistory = rebuildLlmHistory(s.messages);
+  s.llmHistory = rebuildLlmHistoryScoped(s, s.messages);
+  delete s.lastContext;
   await saveSession(spindle, s, userId);
   send({ type: "session_truncated", sessionId, messages: s.messages, edits: s.edits }, userId);
 
@@ -1945,14 +2206,15 @@ async function handleRegenerateAssistant(sessionId: string, assistantMessageId: 
 
   const tailMessageIds = new Set(s.messages.slice(idx).filter((m) => m.role === "assistant").map((m) => m.id));
   const editsToReview = s.edits.filter((e) => e.assistantMessageId !== undefined && tailMessageIds.has(e.assistantMessageId) && !e.reverted);
-  if (editsAction === "revert" && editsToReview.length > 0 && s.characterId !== null) {
-    const r = await revertEditsBatch(s.characterId, editsToReview, userId);
+  if (editsAction === "revert" && editsToReview.length > 0) {
+    const r = await revertEditsBatch(s.characterId ?? "", editsToReview, userId);
     const now = Date.now();
     for (const e of s.edits) if (r.okIds.has(e.id)) { e.reverted = true; e.revertedAt = now; }
   }
 
   s.messages = s.messages.slice(0, idx);
-  s.llmHistory = rebuildLlmHistory(s.messages);
+  s.llmHistory = rebuildLlmHistoryScoped(s, s.messages);
+  delete s.lastContext;
   await saveSession(spindle, s, userId);
   send({ type: "session_truncated", sessionId, messages: s.messages, edits: s.edits }, userId);
 
@@ -1969,6 +2231,12 @@ async function handleForkSession(sourceSessionId: string, messageId: string, use
   const sliced = s.messages.slice(0, idx + 1).map((m) => structuredClone(m));
   const slicedAssistantIds = new Set(sliced.filter((m) => m.role === "assistant").map((m) => m.id));
   const newId = makeId("sess");
+  // A fork breakpoint BEFORE the compaction boundary is a fresh, un-compacted
+  // branch: rebuildLlmHistoryScoped would filter the slice to ts>=compactedAt
+  // (empty) and leave only the primer, silently dropping the entire forked
+  // conversation from the model's view. Only carry compaction state forward
+  // when the slice actually contains post-compaction messages.
+  const forkIsCompacted = s.compactedAt !== undefined && sliced.some((m) => m.ts >= s.compactedAt!);
   // The source session is not touched: its llmHistory, compactedAt, and the
   // prompt-cache prefix bytes all remain. The fork's first request will
   // share the prefix bytes with the source up to the breakpoint, so the
@@ -1982,11 +2250,18 @@ async function handleForkSession(sourceSessionId: string, messageId: string, use
     createdAt: Date.now(),
     lastActivityAt: Date.now(),
     messages: sliced,
-    llmHistory: rebuildLlmHistory(sliced),
+    // Post-compaction fork: collapsed (primer + post-compaction) history.
+    // Pre-compaction fork: full rebuild of the slice (a fresh un-compacted branch).
+    llmHistory: forkIsCompacted ? rebuildLlmHistoryScoped(s, sliced) : rebuildLlmHistory(sliced),
     edits: s.edits
       .filter((e) => e.assistantMessageId === undefined || slicedAssistantIds.has(e.assistantMessageId))
       .map((e) => ({ ...e })),
     ...(s.pinnedChatId !== undefined ? { pinnedChatId: s.pinnedChatId } : {}),
+    // Carry compaction state forward ONLY for a post-compaction fork (the
+    // read-only guard gates on compactedAt and the scoped rebuild needs the
+    // primer). A pre-compaction fork must carry neither, or it would re-collapse
+    // to an empty model history.
+    ...(forkIsCompacted ? { compactedAt: s.compactedAt!, compactionPrimer: s.compactionPrimer! } : {}),
   };
   await saveSession(spindle, fork, userId);
   send({ type: "session_forked", sourceSessionId, newSessionId: newId, messageId }, userId);
@@ -2002,42 +2277,79 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
   if (connectionIdOverride && s.connectionId !== connectionIdOverride) {
     s.connectionId = connectionIdOverride;
   }
-  let c: CharacterDTO | null = null;
-  if (s.characterId !== null) {
-    c = await spindle.characters.get(s.characterId, userId);
-    if (!c) { send({ type: "generation_error", sessionId: s.sessionId, error: `character ${s.characterId} not found` }, userId); return; }
+  // Atomic test-and-set of the activeSessions slot, synchronously and BEFORE any
+  // await. The callers' activeSessions.has checks are split from this claim by
+  // awaits (loadSession, saveSession), so two near-simultaneous sends could both
+  // pass the caller guard; this is the authoritative single-claim point that
+  // rejects the loser instead of starting a second generation on the session.
+  const slotKey = scopedKey(userId, s.sessionId);
+  if (activeSessions.has(slotKey)) {
+    send({ type: "generation_error", sessionId: s.sessionId, error: "session already has a generation in flight" }, userId);
+    return;
   }
   const ac = new AbortController();
-  activeSessions.set(scopedKey(userId, s.sessionId), ac);
+  activeSessions.set(slotKey, ac);
   void pushSessionStatus(s.sessionId, userId);
 
-  const settings = await loadSettings(spindle, userId);
-  const systemMsg = await buildSessionSystemMessage(c, s, settings, userId);
-  const conv: LlmMessage[] = [systemMsg, ...s.llmHistory];
-  // The user_suffix / assistant_prefill jailbreak is appended per request, not
-  // persisted into history. Capture its position so we can splice it out before
-  // saving llmHistory — otherwise it accumulates across turns and (for
-  // assistant_prefill) produces consecutive assistant messages that Anthropic
-  // rejects with a 400.
-  const jailbreakSliceIdx = conv.length;
-  applyJailbreakNonSystem(conv, settings);
-  const jailbreakInserted = conv.length > jailbreakSliceIdx;
-  const persistableHistory = (): LlmMessage[] => jailbreakInserted
-    ? [...conv.slice(1, jailbreakSliceIdx), ...conv.slice(jailbreakSliceIdx + 1)]
-    : conv.slice(1);
+  // Setup before the generation loop (character fetch, settings load,
+  // system-prompt build, provider + sampler resolution) can throw OR reject.
+  // The activeSessions slot is already claimed, so anything here must release it
+  // (the catch below) or the session stays "generating" forever and the
+  // composer never re-enables. The character fetch lives INSIDE the try for
+  // exactly this reason: an IPC rejection there used to strand the slot.
+  let c: CharacterDTO | null = null;
+  let settings!: AgentSettings;
+  let conv!: LlmMessage[];
+  let persistableHistory!: () => LlmMessage[];
+  let assistantId!: string;
+  let assistant!: ChatAssistantMessage;
+  let tools!: ReturnType<typeof makeInitialToolSchemas>;
+  let deferredToolSchemas!: ReturnType<typeof makeDeferredToolSchemaMap>;
+  let dispatch!: ReturnType<typeof makeToolDispatch>;
+  let samplerParams!: ReturnType<typeof buildSamplerParams>;
+  try {
+    if (s.characterId !== null) {
+      c = await spindle.characters.get(s.characterId, userId);
+      if (!c) throw new Error(`character ${s.characterId} not found`);
+    }
+    settings = await loadSettings(spindle, userId);
+    const systemMsg = await buildSessionSystemMessage(c, s, settings, userId);
+    // Inject the focus/pin context note (if state changed) before assembling
+    // conv, so it lands ahead of the trailing user message.
+    await emitContextNoteIfChanged(s, userId);
+    conv = [systemMsg, ...s.llmHistory];
+    // The user_suffix / assistant_prefill jailbreak is appended per request, not
+    // persisted into history. Capture its position so we can splice it out before
+    // saving llmHistory, otherwise it accumulates across turns and (for
+    // assistant_prefill) produces consecutive assistant messages.
+    const jailbreakSliceIdx = conv.length;
+    applyJailbreakNonSystem(conv, settings);
+    const jailbreakInserted = conv.length > jailbreakSliceIdx;
+    persistableHistory = (): LlmMessage[] => jailbreakInserted
+      ? [...conv.slice(1, jailbreakSliceIdx), ...conv.slice(jailbreakSliceIdx + 1)]
+      : conv.slice(1);
 
-  const assistantId = makeId("msg");
-  const assistant: ChatAssistantMessage = { id: assistantId, role: "assistant", ts: Date.now(), turn: 0, blocks: [], status: "streaming" };
-  s.messages.push(assistant);
+    assistantId = makeId("msg");
+    assistant = { id: assistantId, role: "assistant", ts: Date.now(), turn: 0, blocks: [], status: "streaming" };
+    s.messages.push(assistant);
 
-  const hasCharacter = s.characterId !== null;
-  const tools = makeInitialToolSchemas(hasCharacter);
-  const deferredToolSchemas = makeDeferredToolSchemaMap(hasCharacter);
-  const dispatch = makeToolDispatch();
-  const provider = await resolveProviderForConnection(s.connectionId, userId);
-  const samplerParams = buildSamplerParams(settings.samplers, settings.parallelToolCalls, provider);
+    const hasCharacter = s.characterId !== null;
+    tools = makeInitialToolSchemas(hasCharacter);
+    deferredToolSchemas = makeDeferredToolSchemaMap(hasCharacter);
+    dispatch = makeToolDispatch();
+    const provider = await resolveProviderForConnection(s.connectionId, userId);
+    samplerParams = buildSamplerParams(settings.samplers, settings.parallelToolCalls, provider);
+  } catch (setupErr) {
+    activeSessions.delete(scopedKey(userId, s.sessionId));
+    send({ type: "generation_error", sessionId: s.sessionId, error: (setupErr as Error).message }, userId);
+    void pushSessionStatus(s.sessionId, userId);
+    return;
+  }
   let currentTextBlock: AssistantBlock & { type: "text" } | null = null;
   let currentReasoningBlock: AssistantBlock & { type: "reasoning" } | null = null;
+  // Block count when the current turn started, so a mixed-syntax clean replaces
+  // only this turn's text blocks, not earlier turns'.
+  let turnStartBlocks = 0;
   const toolBlocks = new Map<string, AssistantBlock & { type: "tool" }>();
   let lastTurn = 0;
   let errored = false;
@@ -2061,6 +2373,7 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
         case "turn_started":
           assistant.turn = ev.turn; lastTurn = ev.turn;
           currentTextBlock = null; currentReasoningBlock = null;
+          turnStartBlocks = assistant.blocks.length;
           break;
         case "llm_token":
           if (!currentTextBlock) { currentTextBlock = { type: "text", content: ev.token }; assistant.blocks.push(currentTextBlock); }
@@ -2118,13 +2431,54 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
           break;
         }
         case "edits_resynced": {
-          if (s.characterId === null) break;
+          // Mirrors autosquashAndNotify for the mid-message squash path:
+          // reconcile s.edits AND the in-flight message's tool-block edit_ids so
+          // the consolidated merged patch is both revertable (via revert_session
+          // / revert_session_edits, which iterate s.edits) and correctly attributed
+          // per message. squash_session_edits only squashes the character scope.
+          if (!ev.absorbedToMerged) break;
+          const remap = ev.absorbedToMerged;
           const charId = s.characterId;
-          // Squash mutated the ledger; push the fresh view so the workshop
-          // Edits tab reflects the consolidated entries.
-          void loadLedger(spindle, characterScope(charId), userId)
-            .then((l) => send({ type: "scope_edits_pushed", scope: characterScope(charId), entries: entriesView(l) }, userId))
-            .catch((e) => log("warn", `edits resync failed: ${(e as Error).message}`));
+          const ledger = charId !== null ? await loadLedger(spindle, characterScope(charId), userId).catch(() => null) : null;
+          const view = ledger ? entriesView(ledger) : [];
+          let mutated = false;
+
+          // Drop absorbed ids from s.edits (keep any that double as a surviving
+          // merged target), then add the merged patch entries from the fresh view.
+          const absorbed = new Set(Object.keys(remap));
+          const mergedIds = new Set(Object.values(remap));
+          if (absorbed.size > 0) {
+            const before = s.edits.length;
+            s.edits = s.edits.filter((e) => !absorbed.has(e.id) || mergedIds.has(e.id));
+            if (s.edits.length !== before) mutated = true;
+            const have = new Set(s.edits.map((e) => e.id));
+            for (const e of view) if (mergedIds.has(e.id) && !have.has(e.id)) { s.edits.push(e); mutated = true; }
+          }
+
+          const msg = s.messages.find((m) => m.role === "assistant" && m.id === assistantId);
+          if (msg && msg.role === "assistant") {
+            for (const block of msg.blocks) {
+              if (block.type !== "tool" || block.edit_ids.length === 0) continue;
+              const remapped: string[] = [];
+              const seen = new Set<string>();
+              let changed = false;
+              for (const id of block.edit_ids) {
+                const mapped = remap[id] ?? id;
+                // "" means the id was absorbed by a null-collapse run with no
+                // merged successor: drop it from the block entirely.
+                if (mapped === "") { changed = true; continue; }
+                if (mapped !== id) changed = true;
+                if (!seen.has(mapped)) { seen.add(mapped); remapped.push(mapped); }
+              }
+              if (changed || remapped.length !== block.edit_ids.length) {
+                block.edit_ids = remapped;
+                mutated = true;
+              }
+            }
+          }
+
+          if (mutated) send({ type: "session_truncated", sessionId: s.sessionId, messages: s.messages, edits: s.edits }, userId);
+          if (charId !== null) send({ type: "scope_edits_pushed", scope: characterScope(charId), entries: view }, userId);
           break;
         }
         case "warning":
@@ -2137,11 +2491,15 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
             s.lastPromptTokens = ev.usage.prompt;
             emitContextUsage(s, resolveContextTokens(settings.samplers), userId);
           }
-          if (ev.cleanedContent !== undefined) replaceAssistantTextBlocks(assistant, ev.cleanedContent);
+          if (ev.cleanedContent !== undefined) replaceAssistantTextBlocks(assistant, ev.cleanedContent, turnStartBlocks);
           s.llmHistory = persistableHistory();
           await saveSession(spindle, s, userId).catch((e) => log("warn", `mid-stream save failed: ${(e as Error).message}`));
           break;
         case "paused_for_input":
+          // Mirror the frontend: persist the pause detail ("Task complete...",
+          // "Reached max turns...") as a block, or it vanishes on reload while
+          // staying visible live (backend/frontend block-array divergence).
+          if (ev.detail) assistant.blocks.push({ type: "warning", message: ev.detail });
           assistant.status = "complete";
           break;
       }
@@ -2225,9 +2583,19 @@ async function autosquashAndNotify(
           const seen = new Set<string>();
           let changed = false;
           for (const id of block.edit_ids) {
-            const mapped = summary.absorbedToMerged.get(id) ?? id;
-            if (mapped !== id) changed = true;
-            if (!seen.has(mapped)) { seen.add(mapped); remapped.push(mapped); }
+            const mappedTo = summary.absorbedToMerged.get(id);
+            if (mappedTo !== undefined) {
+              // Absorbed into a merged patch: remap to the merged id.
+              if (mappedTo !== id) changed = true;
+              if (!seen.has(mappedTo)) { seen.add(mappedTo); remapped.push(mappedTo); }
+            } else if (absorbed.has(id)) {
+              // Null-collapsed (run netted to no change): purged from the ledger
+              // with NO merged successor. Drop it, or the "Edits (N)" banner and
+              // per-message revert keep a dangling id that resolves to nothing.
+              changed = true;
+            } else {
+              if (!seen.has(id)) { seen.add(id); remapped.push(id); }
+            }
           }
           if (changed || remapped.length !== block.edit_ids.length) {
             block.edit_ids = remapped;
@@ -2308,21 +2676,32 @@ function captureUserId(userId: string): void {
       await broadcastBridgeStatusForUser(userId);
     })();
   }
+  sendHostVersionWarning(userId);
+}
+
+// The version check is fire-and-forget at module load; a user's first message
+// can arrive before it resolves, so getHostVersionWarning() returns null and the
+// warning is lost. Factor the send so it can also be re-broadcast once the check
+// completes (see initHostVersionCheck chaining below).
+function sendHostVersionWarning(userId: string): void {
   const warning = getHostVersionWarning();
-  if (warning) {
-    try {
-      send({
-        type: "host_version_warning",
-        hostVersion: warning.hostVersion,
-        minimum: warning.minimum,
-        message: warning.message,
-      }, userId);
-    } catch { /* */ }
-  }
+  if (!warning) return;
+  try {
+    send({
+      type: "host_version_warning",
+      hostVersion: warning.hostVersion,
+      minimum: warning.minimum,
+      message: warning.message,
+    }, userId);
+  } catch { /* */ }
 }
 
 void initPermissions({ info: (m) => log("info", m), warn: (m) => log("warn", m) });
-void initHostVersionCheck({ info: (m) => log("info", m), warn: (m) => log("warn", m) });
+void initHostVersionCheck({ info: (m) => log("info", m), warn: (m) => log("warn", m) })
+  // Re-broadcast once the check resolves, in case a user connected before the
+  // version cache was populated (the warning would otherwise be lost).
+  .then(() => { for (const uid of capturedUserIds) sendHostVersionWarning(uid); })
+  .catch(() => { /* check failure already logged */ });
 
 // On-request probe other extensions dial after their own perm change. The
 // host inheritance check runs first (so the caller observes its own missing
@@ -2405,6 +2784,7 @@ spindle.onFrontendMessage(async (raw: unknown, userId: string) => {
       case "free_tool_result": void handleFreeToolResult(msg.sessionId, msg.callId, userId); return;
       case "list_chats": await handleListChats(msg.characterId, msg.sessionId, userId); return;
       case "set_pinned_chat": await handleSetPinnedChat(msg.sessionId, msg.chatId, userId); return;
+      case "set_focus": await handleSetFocus(msg.sessionId, msg.characterId, userId); return;
       case "get_settings": await handleGetSettings(userId); return;
       case "update_settings": await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.cacheMode ?? "full", msg.parallelToolCalls ?? true, msg.tpmLimit ?? null, msg.debugLogging ?? false, userId); return;
       case "get_ui_prefs": await handleGetUiPrefs(userId); return;

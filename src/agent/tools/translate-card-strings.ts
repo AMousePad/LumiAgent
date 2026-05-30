@@ -255,11 +255,22 @@ Usage:
 
     if (include.has("world_book_entries")) {
       for (const wbId of c.world_book_ids ?? []) {
-        const entries = await ctx.spindle.world_books.entries.list(wbId, { userId: ctx.userId, limit: 1000 });
-        for (const e of entries.data) {
-          if (isNonEmptyString(e.content) && e.content.length >= minChars) {
-            items.push({ id: mkId(), text: e.content, kind: "plain", target: { kind: "world_book_entry", entryId: e.id } });
+        // Paginate per-book; a single limit:1000 call silently truncates a
+        // world book with more entries, dropping the overflow from the
+        // translation manifest with no signal to the agent. apply-glossary
+        // and survey-cjk already use this pattern.
+        let offset = 0;
+        let bookFetched = 0;
+        for (;;) {
+          const res = await ctx.spindle.world_books.entries.list(wbId, { userId: ctx.userId, limit: 500, offset });
+          for (const e of res.data) {
+            if (isNonEmptyString(e.content) && e.content.length >= minChars) {
+              items.push({ id: mkId(), text: e.content, kind: "plain", target: { kind: "world_book_entry", entryId: e.id } });
+            }
           }
+          bookFetched += res.data.length;
+          if (res.data.length === 0 || bookFetched >= res.total) break;
+          offset += res.data.length;
         }
       }
     }
@@ -338,7 +349,11 @@ Usage:
           label: dotted,
         });
       } else if (target.kind === "lumirealm_scriptstate_default") {
-        extensionMutations.push({ path: ["lumirealm", "payload", "scriptstate_defaults", target.key], before: item.text, after: t.text, label: `lumirealm.payload.scriptstate_defaults.${target.key}` });
+        // Bracket-encode non-identifier keys so the revert label round-trips
+        // through parsePath. A dot-joined key containing "."/"["/quotes would be
+        // mis-split on revert and write to the wrong nested path.
+        const keySeg = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(target.key) ? `.${target.key}` : `[${JSON.stringify(target.key)}]`;
+        extensionMutations.push({ path: ["lumirealm", "payload", "scriptstate_defaults", target.key], before: item.text, after: t.text, label: `lumirealm.payload.scriptstate_defaults${keySeg}` });
       } else if (target.kind === "character_field") {
         charFieldMutations.push({ field: target.field, before: item.text, after: t.text });
       } else if (target.kind === "alternate_greeting") {

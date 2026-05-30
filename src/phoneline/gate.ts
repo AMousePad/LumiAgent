@@ -1,10 +1,20 @@
 import type { SpindleAPI } from "lumiverse-spindle-types";
 import { discoverProviders } from "./registry";
 import { dialCheckWrite, dialCheckRead } from "./transport";
+import { parseExtensionPath } from "../agent/tools/_paths";
 
+// Resolve the owning provider id (first path key) through the SAME grammar the
+// writer uses. A plain regex only matched identifier-leading paths, so a
+// bracket-quoted first segment (`["lumirealm"].payload.x`) returned null and
+// the gate fell open, bypassing check_write/check_read on a provider-owned
+// subtree. parseExtensionPath resolves both forms to the same key.
 function firstSegment(extPath: string): string | null {
-  const m = /^([A-Za-z_][A-Za-z0-9_]*)/.exec(extPath);
-  return m ? m[1]! : null;
+  try {
+    const first = parseExtensionPath(extPath)[0];
+    return first && first.kind === "key" ? first.value : null;
+  } catch {
+    return null;
+  }
 }
 
 export interface ExtensionAccessCheck {

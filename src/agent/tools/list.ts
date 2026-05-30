@@ -273,6 +273,7 @@ Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole
       max_entries: { type: "integer", minimum: 1, maximum: 2000 },
       max_depth: { type: "integer", minimum: 1, maximum: 10 },
       character_id: { type: "string", description: "For char/rx/wb paths: defaults to the focused character." },
+      include_unattached: { type: "boolean", description: "path='wb' only: also list owned-but-unattached world books, each flagged with `attached`." },
     },
     required: ["path"],
     additionalProperties: false,

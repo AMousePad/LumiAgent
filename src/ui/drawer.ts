@@ -501,8 +501,16 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   // Splice the currently-selected connection id into a wire message when set.
   // Backend heals s.connectionId from this on every entry path; sites that
   // skip the spread would silently use whatever was last persisted.
-  const withConnection = <T extends object>(msg: T): T =>
-    state.connectionId ? { ...msg, connectionId: state.connectionId } : msg;
+  // Resolve against the live connection list: if the saved id was deleted, send
+  // the default the picker is actually showing (renderConnOptions falls back to
+  // it silently, so state.connectionId can hold a stale dead id otherwise).
+  const withConnection = <T extends object>(msg: T): T => {
+    let id = state.connectionId;
+    if (id && !state.connections.some((c) => c.id === id)) {
+      id = state.connections.find((c) => c.is_default)?.id ?? null;
+    }
+    return id ? { ...msg, connectionId: id } : msg;
+  };
 
   const refreshLists = () => {
     sendBackend({ type: "list_characters" });
@@ -653,6 +661,10 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     if (!state.sessionId || state.isGenerating || state.startingSession || state.compacting) return;
     state.compacting = true;
     updateCompactButton();
+    // Refresh composer + input locks: compaction holds the session for several
+    // seconds, during which Send must disable and the character / pin / connection
+    // controls must lock, exactly as they do during a generation.
+    updateComposer();
     sendBackend({ type: "compact_session", sessionId: state.sessionId });
   });
 
@@ -763,7 +775,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     }
   };
 
-  const handleRevertOutcome = async (editId: string, outcome: RevertOutcomeWire): Promise<void> => {
+  const handleRevertOutcome = async (editId: string, outcome: RevertOutcomeWire, scope: ScopeRef): Promise<void> => {
     if (outcome.kind === "clean" || outcome.kind === "noop_already_reverted") {
       const removed = new Set<string>([editId]);
       if (outcome.kind === "clean" && outcome.cascadedEditIds && outcome.cascadedEditIds.length > 0) {
@@ -781,6 +793,9 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     if (outcome.kind === "failed") {
       composerStatus.textContent = `Revert failed: ${outcome.error}`;
       composerStatus.classList.add("is-error");
+      // Reset the modal's revert button (stuck on "Reverting…"): only a clean
+      // revert pushes scope_edits_pushed, so a failure leaves it disabled.
+      if (state.diffModal) state.diffModal.setEdits(scopeEntries(workshopScope()));
       return;
     }
     // External-divergence path: spindle value drifted outside the agent.
@@ -795,8 +810,14 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       variant: "warning",
       confirmLabel: "Force revert",
     });
-    if (c.confirmed && state.characterId) {
-      sendBackend({ type: "revert_edit", characterId: state.characterId, editId, force: true });
+    if (c.confirmed) {
+      // Use the edit's own scope (persona / chat / preset / world_book /
+      // regex_script), not state.characterId, so a force-revert of a
+      // non-character edit hits the right ledger and works in no-character chats.
+      sendBackend({ type: "revert_edit", characterId: scope.id, editId, force: true, scope });
+    } else if (state.diffModal) {
+      // Cancelled the force-revert confirm: reset the modal's stuck button.
+      state.diffModal.setEdits(scopeEntries(workshopScope()));
     }
   };
 
@@ -975,11 +996,16 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   function makeThreadDeps() {
     return {
       onRevertEdit: async (editId: string) => {
-        if (!state.characterId) return;
-        sendBackend({ type: "revert_edit", characterId: state.characterId, editId });
+        // Use the edit's OWN scope, not state.characterId: an edit can be filed
+        // under persona/chat/preset/wb/rx, and in a no-character session
+        // state.characterId is null. Without this the inline Revert hit the
+        // wrong ledger (or was a dead no-op) — the modal path already does this.
+        const scope = state.edits.find((e) => e.id === editId)?.scope ?? activeScope();
+        if (!scope) return;
+        sendBackend({ type: "revert_edit", characterId: scope.id, editId, scope });
       },
       onRevertManyEdits: async (editIds: readonly string[]) => {
-        if (!state.characterId || editIds.length === 0) return;
+        if (editIds.length === 0) return;
         const c = await ctx.ui.showConfirm({
           title: `Revert ${editIds.length} edit${editIds.length === 1 ? "" : "s"}?`,
           message: "Reverts every live edit in this card. Cascade-affected siblings revert too. Workshop history keeps the records (use Undo revert to restore individual ones).",
@@ -987,7 +1013,20 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
           confirmLabel: "Revert all",
         });
         if (!c.confirmed) return;
-        sendBackend({ type: "revert_edits_bulk", characterId: state.characterId, editIds: [...editIds], ...(state.sessionId ? { sessionId: state.sessionId } : {}) });
+        // revert_edits_bulk addresses ONE ledger, but a card's edits can span
+        // scopes; group by each edit's scope and emit one bulk call per scope.
+        const byScope = new Map<string, { scope: ScopeRef; ids: string[] }>();
+        for (const editId of editIds) {
+          const scope = state.edits.find((e) => e.id === editId)?.scope ?? activeScope();
+          if (!scope) continue;
+          const key = scopeKeyString(scope);
+          let g = byScope.get(key);
+          if (!g) { g = { scope, ids: [] }; byScope.set(key, g); }
+          g.ids.push(editId);
+        }
+        for (const { scope, ids } of byScope.values()) {
+          sendBackend({ type: "revert_edits_bulk", characterId: scope.id, editIds: ids, scope, ...(state.sessionId ? { sessionId: state.sessionId } : {}) });
+        }
       },
       onOpenDiffModal: (initialEditId?: string) => openDiffs(initialEditId),
       onEditUserMessage: async (messageId: string, newContent: string, editsAction: "keep" | "revert") => {
@@ -1060,41 +1099,34 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     // The "(No character)" entry in the dropdown carries a sentinel id; the
     // rest of the UI/backend models the no-character state as null.
     const id = rawId === NO_CHARACTER_SENTINEL ? null : rawId;
-    const switchingAway = state.sessionId !== null && id !== state.characterId;
-    dlog("charCombo change", { newCharacterId: id, prevCharacterId: state.characterId, sessionId: state.sessionId, switchingAway });
-    if (switchingAway) {
-      // The active session belongs to a different character. Drop it from the
-      // UI so state.characterId stays the source of truth. The session file is
-      // safe on the backend, reloadable via Sessions modal.
-      state.sessionId = null;
-      state.messages = [];
-      state.edits = [];
-      state.streamingAssistant = null;
-      state.currentAssistantMessage = null;
-      persistUiPrefs();
+    if (id === state.characterId) return;
+    if (state.isGenerating || state.startingSession) {
+      composerStatus.textContent = "Wait for the current generation to finish before switching characters.";
+      composerStatus.classList.add("is-error");
+      renderCharOptions();
+      return;
     }
-    state.characterId = id;
-    state.chatsForCharacter = [];
-    state.pinnedChatId = null;
-    state.autoPinNeeded = !!id;
-    // Refresh the picker so the "(Active)" marker tracks the new selection.
-    renderCharOptions();
-    setChatPinned(false);
-    if (switchingAway) rerenderThread();
-    updateComposer();
-    updateSessionBar();
-    if (id) {
-      // Mirror the New chat button: spin up a fresh session for the picked
-      // character so the queued autopin from chats_pushed actually lands.
-      // Without this the user would see "no pin" until they manually click New.
-      startNewSession();
-      sendBackend({ type: "list_character_edits", characterId: id });
-      sendBackend({ type: "list_chats", characterId: id, ...(state.sessionId ? { sessionId: state.sessionId } : {}) });
+    composerStatus.classList.remove("is-error");
+    dlog("charCombo change", { newCharacterId: id, prevCharacterId: state.characterId, sessionId: state.sessionId });
+    if (state.sessionId !== null) {
+      // Switch focus in place, keeping the thread. The backend owns the switch
+      // (mutates the session, keeps the cached prompt prefix, learns the agent
+      // via a context note) and pushes authoritative state back via focus_set,
+      // which updates the picker / pin / per-character lists. The frontend does
+      // not mutate focus state itself.
+      sendBackend({ type: "set_focus", sessionId: state.sessionId, characterId: id });
     } else {
-      // No-character mode: still spin up a fresh session so the user can talk
-      // to the agent. Ledger/chat data stay empty; tool filtering and the
-      // one-sentence system-prompt directive handle the rest.
+      // No active session yet: create one focused on the pick.
+      state.characterId = id;
+      // Queue the newest chat to auto-pin once chats_pushed lands (the fresh
+      // session has no pin yet); without this the first pick leaves no pin.
+      state.autoPinNeeded = !!id;
+      renderCharOptions();
       startNewSession();
+      if (id) {
+        sendBackend({ type: "list_character_edits", characterId: id });
+        sendBackend({ type: "list_chats", characterId: id, ...(state.sessionId ? { sessionId: state.sessionId } : {}) });
+      }
     }
   });
   // Sends the full ui-prefs blob to the backend. Cheap enough to call on every
@@ -1624,6 +1656,13 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         promptArea.value = "";
         return;
       }
+      // handleUpdateSettings re-sends settings after every commit (blur / drag
+      // release). That async echo must not overwrite a text field the user is
+      // currently editing, or it silently discards characters typed during the
+      // round-trip. Skip the rewrite while one of the form's text fields is focused.
+      const active = document.activeElement;
+      if (active === personaArea || active === promptArea || active === jbArea
+        || active === wsCapInput || active === toolCapInput || active === tpmInput) return;
       personaArea.value = s.persona;
       personaArea.placeholder = "(empty: agent has no persona)";
       // Show the default body when override is null so the user can see what's
@@ -2116,19 +2155,20 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     }
   });
 
-  // Returns the id of the user message that's currently the rolling cache
-  // anchor (2 user-turns behind the latest). Anthropic-only gate on
-  // cacheMode, because that setting only governs cache_control marker
-  // stamping. Other providers (OpenAI, DeepSeek, Gemini, OpenRouter routes
-  // to them) auto-cache the prompt prefix upstream regardless, so the
-  // visual cue should still appear.
+  // Returns the id of the user message that's the backend's PRIMARY rolling
+  // cache anchor: 1 user-turn behind the latest, matching LAG_USER_TURNS=1 in
+  // cache-control.ts. (Was off by one — anchored 2 turns back — so the divider
+  // and the edit pre-warn pointed at the wrong message.) Anthropic-only gate on
+  // cacheMode, because that setting only governs cache_control marker stamping.
+  // Other providers (OpenAI, DeepSeek, Gemini, OpenRouter routes to them)
+  // auto-cache the prompt prefix upstream regardless, so the cue still appears.
   const rollingAnchorId = (): string | null => {
     const conn = state.connections.find((c) => c.id === state.connectionId);
     const isAnthropic = (conn?.provider ?? "").toLowerCase().startsWith("anthropic");
     if (isAnthropic && (state.settings?.cacheMode ?? "full") !== "full") return null;
     const userMsgs = state.messages.filter((m) => m.role === "user");
-    if (userMsgs.length <= 2) return null;
-    return userMsgs[userMsgs.length - 1 - 2]?.id ?? null;
+    if (userMsgs.length <= 1) return null;
+    return userMsgs[userMsgs.length - 1 - 1]?.id ?? null;
   };
 
   const isCacheInvalidating = (targetMessageId: string): boolean => {
@@ -2176,8 +2216,10 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     state.currentAssistantMessage = assistant;
     const handle = createStreamingAssistant({
       onRevertEdit: async (editId: string) => {
-        if (!state.characterId) return;
-        sendBackend({ type: "revert_edit", characterId: state.characterId, editId });
+        // Use the edit's own scope (see makeThreadDeps.onRevertEdit).
+        const scope = state.edits.find((e) => e.id === editId)?.scope ?? activeScope();
+        if (!scope) return;
+        sendBackend({ type: "revert_edit", characterId: scope.id, editId, scope });
       },
       onOpenDiffModal: (eid?: string) => openDiffs(eid),
     });
@@ -2311,6 +2353,10 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         // own across a session switch).
         composerStatus.classList.remove("is-error");
         composerStatus.textContent = "";
+        // Drop any live streaming pointers from a previously-loaded session so
+        // a still-running background generation can't keep mutating this thread.
+        state.streamingAssistant = null;
+        state.currentAssistantMessage = null;
         state.sessionId = msg.sessionId;
         state.characterId = msg.characterId;
         state.characterName = msg.characterName;
@@ -2355,6 +2401,17 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       }
       case "session_deleted":
         if (state.sessionId === msg.sessionId) {
+          // Deleting the ACTIVE session mid-generation: the backend aborts then
+          // immediately sends session_deleted, and the trailing generation_cancelled
+          // is then dropped (sessionId is now null). Reset the in-flight flags here
+          // or the composer stays wedged in "working..." with a dead cancel button.
+          state.isGenerating = false;
+          state.startingSession = false;
+          state.compacting = false;
+          state.reattachedGeneration = false;
+          state.streamingAssistant = null;
+          state.currentAssistantMessage = null;
+          clearStartTimeout();
           state.sessionId = null;
           state.messages = [];
           state.edits = [];
@@ -2385,9 +2442,13 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         for (const e of state.edits) (e as { reverted: boolean }).reverted = true;
         rerenderThread();
         updateSessionBar();
-        if (state.diffModal) state.diffModal.setEdits(state.edits);
+        if (state.diffModal) state.diffModal.setEdits(scopeEntries(workshopScope()));
         break;
       case "chat_event":
+        // Drop events for any session other than the one currently loaded.
+        // Loading a different session while this one streams would otherwise
+        // render its tokens / tool calls / edits into the wrong thread.
+        if (msg.sessionId !== state.sessionId) break;
         // While reattached to a generation we didn't track from its start,
         // the live stream is missing everything before the refresh. Rendering
         // it would build an incoherent partial bubble and fight the
@@ -2396,6 +2457,9 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         handleAgentEvent(msg.event, agentEventCtx);
         break;
       case "generation_done":
+        // A terminal event for a different (backgrounded) session must not
+        // finalize the currently-loaded thread.
+        if (msg.sessionId !== state.sessionId) break;
         if (state.reattachedGeneration && msg.sessionId === state.sessionId) {
           state.reattachedGeneration = false;
           state.isGenerating = false;
@@ -2411,6 +2475,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         if (state.characterId === null) sendBackend({ type: "list_characters_storage" });
         break;
       case "generation_cancelled":
+        if (msg.sessionId !== state.sessionId) break;
         if (state.reattachedGeneration && msg.sessionId === state.sessionId) {
           state.reattachedGeneration = false;
           state.isGenerating = false;
@@ -2423,6 +2488,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         updateComposer();
         break;
       case "generation_error":
+        if (msg.sessionId !== state.sessionId) break;
         if (state.reattachedGeneration && msg.sessionId === state.sessionId) {
           state.reattachedGeneration = false;
           state.isGenerating = false;
@@ -2461,7 +2527,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         updateComposer();
         break;
       case "edit_reverted":
-        handleRevertOutcome(msg.editId, msg.outcome);
+        handleRevertOutcome(msg.editId, msg.outcome, msg.scope);
         break;
       case "edits_reverted_bulk": {
         const removed = new Set<string>();
@@ -2506,6 +2572,15 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       case "session_truncated":
         state.messages = [...msg.messages];
         state.edits = [...msg.edits];
+        // The array was replaced with fresh objects. If a turn is in flight
+        // (mid-turn squash emits this), rebind the streaming pointer to the new
+        // element by id, else finalizeAssistantTurn would set "complete" on the
+        // orphaned old object and the live message stays "streaming" (no actions).
+        if (state.streamingAssistant && state.currentAssistantMessage) {
+          const reboundId = state.currentAssistantMessage.id;
+          const rebound = state.messages.find((m) => m.id === reboundId && m.role === "assistant");
+          if (rebound && rebound.role === "assistant") state.currentAssistantMessage = rebound;
+        }
         rerenderThread();
         virtualizer.scrollToBottom();
         updateSessionBar();
@@ -2535,6 +2610,44 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
           setChatPinned(msg.chatId !== null);
         }
         if (state.characterId) sendBackend({ type: "list_chats", characterId: state.characterId, sessionId: msg.sessionId });
+        break;
+      case "focus_set":
+        // Authoritative focus state from the backend (it owns the switch). The
+        // thread is preserved; only the focus marker, pin, and per-character
+        // lists refresh.
+        if (msg.sessionId === state.sessionId) {
+          const changed = msg.characterId !== state.characterId;
+          state.characterId = msg.characterId;
+          state.characterName = msg.characterName;
+          renderCharOptions();
+          updateComposer();
+          updateSessionBar();
+          // A no-op echo (same character) must NOT wipe a pin the backend still
+          // holds. Only a real switch clears the previous character's pin/chats.
+          if (changed) {
+            state.pinnedChatId = null;
+            state.chatsForCharacter = [];
+            state.autoPinNeeded = msg.characterId !== null;
+            setChatPinned(false);
+            if (msg.characterId) {
+              sendBackend({ type: "list_character_edits", characterId: msg.characterId });
+              sendBackend({ type: "list_chats", characterId: msg.characterId, sessionId: msg.sessionId });
+            } else {
+              // No-character focus: refresh the Lumiverse-scope workshop view.
+              sendBackend({ type: "list_characters_storage" });
+            }
+          }
+        }
+        break;
+      case "focus_rejected":
+        // The backend refused the switch (generation in flight, character gone).
+        // Non-destructive: snap the combo back to the real focus and surface a
+        // status line. Never touch the streaming bubble / composer-generating state.
+        if (msg.sessionId === state.sessionId) {
+          renderCharOptions();
+          composerStatus.textContent = msg.reason;
+          composerStatus.classList.add("is-error");
+        }
         break;
       case "settings_pushed":
         state.settings = {
@@ -2603,6 +2716,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         if (msg.sessionId === state.sessionId) {
           state.compacting = true;
           updateCompactButton();
+          updateComposer();
         }
         break;
       case "compaction_completed":
@@ -2660,7 +2774,10 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
           state.workshopFocusScope = null;
         }
         if (activeScope() && scopeKeyString(activeScope()!) === key) {
-          state.edits = state.edits.map((e) => ({ ...e, reverted: true }));
+          // Only THIS scope's ledger was cleared. state.edits is the cross-scope
+          // session mirror, so mark reverted only entries filed under this scope,
+          // not every edit (which would falsely zero other scopes' live counts).
+          state.edits = state.edits.map((e) => scopeKeyString(e.scope) === key ? { ...e, reverted: true } : e);
           rerenderThread();
         }
         updateSessionBar();

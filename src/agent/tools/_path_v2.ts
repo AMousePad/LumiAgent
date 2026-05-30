@@ -159,7 +159,25 @@ export class ExtensionRefusedError extends Error {
 }
 
 function splitTopLevel(path: string): readonly string[] {
-  return path.split("/").filter((s) => s.length > 0);
+  // Split on "/" but treat "[...]" bracket spans as opaque, so an extension
+  // object key containing "/" (emitted bracket-quoted by walkStringLeaves)
+  // survives instead of being shredded into wrong nested segments. Paths with
+  // no "/" inside brackets split identically to a plain split.
+  const out: string[] = [];
+  let cur = "";
+  let depth = 0;
+  for (const ch of path) {
+    if (ch === "[") depth++;
+    else if (ch === "]" && depth > 0) depth--;
+    if (ch === "/" && depth === 0) {
+      if (cur.length > 0) out.push(cur);
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  if (cur.length > 0) out.push(cur);
+  return out;
 }
 
 // Dispatch a `char/...` path into (characterId, subParts). Two forms:
@@ -458,6 +476,9 @@ export async function resolveWrite(
     const c = await ctx.spindle.characters.get(charId, ctx.userId);
     if (!c) throw new Error("character not found");
     const segs = parseExtensionPath(leaf.field);
+    if (segs.length === 0 || segs[0]!.kind !== "key") {
+      throw new Error(`extensions path must start with a named key, got '${leaf.field}'`);
+    }
     const next = setAtPath(c.extensions ?? {}, segs, nextValue) as Record<string, unknown>;
     await ctx.spindle.characters.update(charId, { extensions: next }, ctx.userId);
     // JSON-encode so the file stays consistent with set-tool extension writes

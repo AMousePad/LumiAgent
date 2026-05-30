@@ -25,8 +25,12 @@ export interface ToolCtx {
   // wire messages (same plumbing as user-driven workshop reverts).
   pushRevert(editId: string, outcome: RevertOutcomeWire): void;
   // The agent ran a squash. The loop emits an edits_resynced event the
-  // backend uses to push the fresh ledger view to the frontend.
-  pushLedgerResync(): void;
+  // backend uses to push the fresh ledger view to the frontend. Pass the
+  // absorbed → merged id map from squashMessage so the backend can rewrite
+  // tool-block edit_ids on the in-flight assistant message; without that
+  // map, the per-message "Revert all" button on the sealed phase points at
+  // patch ids the ledger no longer has and silently no-ops.
+  pushLedgerResync(absorbedToMerged?: Readonly<Record<string, string>>): void;
   // tool_search calls this to register newly-discovered deferred tools so the
   // loop expands the tools list passed to runLlmStream on subsequent turns.
   // Tools that ignore deferred state can leave this unset.

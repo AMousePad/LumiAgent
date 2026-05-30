@@ -7,7 +7,7 @@ import { wbLabel } from "./_surfaces";
 
 const PEEK_CHARS = 200;
 const TOP_N = 10;
-const CJK_RE = /[가-힣぀-ゟ゠-ヿ㐀-䶿一-鿿豈-﫿]/g;
+const CJK_RE = /[가-힣぀-ゟ゠-ヿ㐀-䶿一-鿿豈-﫿]/g;
 const HANGUL_NFC_RANGE = /[가-힣]+/g;
 const HANGUL_JAMO_RANGE = /[ᄀ-ᇿ]+/g;
 const MIRRORED_CHARACTER_FIELDS = new Set([

@@ -30,6 +30,12 @@ export interface AgentEventCtx {
   clearErrorBanners(): void;
 }
 
+// Block count on the current assistant message when this turn started, so a
+// mixed-syntax clean (turn_completed.cleanedContent) replaces only THIS turn's
+// text blocks, not earlier turns' prose. Safe as module state: events for the
+// one active session are processed sequentially (chat_event is session-gated).
+let turnStartBlocks = 0;
+
 // One handler per AgentEvent variant. Streaming events mutate the live bubble
 // and currentAssistantMessage directly. Terminal events (paused_for_input)
 // flush back to a static-rendered bubble so action buttons appear.
@@ -42,6 +48,7 @@ export function handleAgentEvent(ev: AgentEvent, ctx: AgentEventCtx): void {
       ctx.clearErrorBanners();
       ctx.adoptStreamingTurn(ev.assistantMessageId);
       if (ctx.state.currentAssistantMessage) ctx.state.currentAssistantMessage.turn = ev.turn;
+      turnStartBlocks = ctx.state.currentAssistantMessage?.blocks.length ?? 0;
       return;
     case "llm_token": {
       ctx.ensureStreamingTurn().appendToken(ev.token);
@@ -107,12 +114,23 @@ export function handleAgentEvent(ev: AgentEvent, ctx: AgentEventCtx): void {
         ctx.state.streamingAssistant?.setUsage(ev.usage);
       }
       if (ev.cleanedContent !== undefined) {
-        // Drop every streaming text block and re-add a single one at the
-        // tail. The post-stream rerender redraws from this state.
-        a.blocks = a.blocks.filter((b) => b.type !== "text");
-        if (ev.cleanedContent.trim().length > 0) {
-          a.blocks.push({ type: "text", content: ev.cleanedContent });
+        // Replace ONLY this turn's text blocks (at/after turnStartBlocks) with
+        // the single cleaned block at the first text position, preserving
+        // earlier turns' prose and this turn's tool/reasoning blocks. Wiping
+        // ALL text blocks deleted prior turns' text in multi-turn responses.
+        const cut = Math.max(0, Math.min(turnStartBlocks, a.blocks.length));
+        const head = a.blocks.slice(0, cut);
+        const rebuilt: AssistantBlock[] = [];
+        let inserted = false;
+        for (const b of a.blocks.slice(cut)) {
+          if (b.type === "text") {
+            if (!inserted) { if (ev.cleanedContent.trim().length > 0) rebuilt.push({ type: "text", content: ev.cleanedContent }); inserted = true; }
+          } else {
+            rebuilt.push(b);
+          }
         }
+        if (!inserted && ev.cleanedContent.trim().length > 0) rebuilt.push({ type: "text", content: ev.cleanedContent });
+        a.blocks = [...head, ...rebuilt];
       }
       return;
     }

@@ -64,7 +64,8 @@ export const fsEditTool = defineTool({
       return { content: `Error: ${(err as Error).message}\n\n${draftReuseNote(h, replace.length, "replace")}`, isError: true };
     }
 
-    await ws.writeText(ctx.spindle, ctx.userId, input.path, outcome.result);
+    const caps = await ws.resolveUserCaps(ctx.spindle, ctx.userId);
+    await ws.writeText(ctx.spindle, ctx.userId, input.path, outcome.result, caps);
     const diffPatch = buildEditPatch(`workspace:${input.path}`, current, outcome.result);
     const payload: Record<string, unknown> = {
       path: input.path,

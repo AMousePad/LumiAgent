@@ -27,7 +27,8 @@ Wraps the \`detach_module\` WS op so artifact uninstall + refresh hooks fire.`,
     },
     required: ["character_id", "module_id"],
   },
-  requiresCharacter: true,
+  // Takes an explicit character_id, never reads ctx.characterId.
+  requiresCharacter: false,
   execute: async (input, ctx) => {
     const provider = await findLumirealm(ctx);
     if (!provider) return { content: "Error: LumiRealm phone line not available (not installed or consent denied).", isError: true };

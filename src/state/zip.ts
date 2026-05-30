@@ -155,6 +155,12 @@ export function parseZip(input: Uint8Array): ZipEntry[] {
   const out: ZipEntry[] = [];
   let co = centralOffset;
   for (let i = 0; i < totalEntries; i++) {
+    // A forged centralOffset / totalEntries / nameLen can walk `co` off the end,
+    // so bounds-check before each DataView read (the 46-byte fixed central header
+    // must fit) and throw the structured error instead of a raw RangeError.
+    if (co < 0 || co + 46 > input.byteLength) {
+      throw new Error(`zip: central header out of bounds at ${co}`);
+    }
     if (view.getUint32(co, true) !== SIG_CENTRAL) {
       throw new Error(`zip: bad central header at ${co}`);
     }
@@ -176,6 +182,9 @@ export function parseZip(input: Uint8Array): ZipEntry[] {
     }
 
     // Local file header: skip header + name + extra to reach the data.
+    if (localHeaderOffset < 0 || localHeaderOffset + 30 > input.byteLength) {
+      throw new Error(`zip: local header out of bounds at ${localHeaderOffset}`);
+    }
     if (view.getUint32(localHeaderOffset, true) !== SIG_LOCAL) {
       throw new Error(`zip: bad local header at ${localHeaderOffset}`);
     }

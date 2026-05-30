@@ -29,15 +29,18 @@ interface SessionIndex {
 }
 
 function summarizeForIndex(s: PersistedSession): SessionIndexEntry {
+  // rebuildIndex feeds raw on-disk sessions here without normalizeLegacyEditScopes,
+  // so a legacy file with `edits` missing must not throw on `.length` / `.filter`.
+  const edits = Array.isArray(s.edits) ? s.edits : [];
   return {
     sessionId: s.sessionId,
     characterId: s.characterId,
     characterName: s.characterName,
     createdAt: s.createdAt,
     lastActivityAt: s.lastActivityAt,
-    messageCount: s.messages.length,
-    editCount: s.edits.length,
-    revertedEditCount: s.edits.filter((e) => e.reverted).length,
+    messageCount: Array.isArray(s.messages) ? s.messages.length : 0,
+    editCount: edits.length,
+    revertedEditCount: edits.filter((e) => e.reverted).length,
   };
 }
 
@@ -55,7 +58,12 @@ async function writeIndex(spindle: SpindleAPI, entries: readonly SessionIndexEnt
 
 async function upsertIndex(spindle: SpindleAPI, entry: SessionIndexEntry, userId: string): Promise<void> {
   const cur = await loadIndex(spindle, userId);
-  const next = [entry, ...(cur?.entries ?? []).filter((e) => e.sessionId !== entry.sessionId)];
+  // No (or stale-version) index: rebuild from the session files on disk first.
+  // Seeding a fresh single-entry index here would make a valid index.json exist,
+  // so listSessionSummaries' rebuild-on-null migration never fires and every
+  // pre-existing session stays hidden from the picker until re-saved.
+  const base = cur ? cur.entries : await rebuildIndex(spindle, userId);
+  const next = [entry, ...base.filter((e) => e.sessionId !== entry.sessionId)];
   await writeIndex(spindle, next, userId);
 }
 
@@ -72,10 +80,11 @@ export interface PersistedSession {
   readonly sessionId: string;
   // Null means "no character selected": a general-purpose session without
   // access to the path-based card surface, ledger, chat tools, or external
-  // providers. The agent is told to redirect character-specific work to a
-  // character-pinned session via the system prompt.
-  readonly characterId: string | null;
-  readonly characterName: string;
+  // providers. Mutable in place via set_focus (character switching keeps the
+  // thread and the cached prompt prefix; the change reaches the agent through
+  // a context note in llmHistory, not the system prompt).
+  characterId: string | null;
+  characterName: string;
   connectionId: string | null;
   readonly createdAt: number;
   lastActivityAt: number;
@@ -94,6 +103,15 @@ export interface PersistedSession {
   // snapshot was empty/missing; `undefined` means it hasn't been captured
   // yet (legacy sessions, or pending sessions whose first send hasn't run).
   frozenAgentNotes?: string | null;
+  // The compaction primer text (set when llmHistory collapses). Persisted so the
+  // edit / regenerate / continue / fork rebuild paths can re-prepend it and
+  // rebuild ONLY the post-compaction messages, instead of re-expanding the full
+  // pre-compaction thread and undoing the compaction.
+  compactionPrimer?: string;
+  // The {characterId, pinnedChatId} the agent was last told about via a context
+  // note. The send path emits a fresh note only when current state differs, so
+  // flipping focus / pin several times before sending collapses to one note.
+  lastContext?: { characterId: string | null; pinnedChatId: string | null };
 }
 
 function path(sessionId: string): string {
@@ -149,6 +167,20 @@ function normalizeLegacyEditScopes(s: PersistedSession): void {
   for (const e of s.edits) {
     const le = e as unknown as MutableLegacyEdit;
     if (!le.scope) le.scope = characterScope(le.characterId ?? s.characterId ?? "");
+  }
+  // Sessions compacted before compactionPrimer existed have compactedAt set but
+  // no primer. Recover ONLY from llmHistory[0] AND only when it matches the
+  // primer signature: a legacy session that was re-exploded by the old code
+  // (edit/regenerate before this fix) has the conversation's first real user
+  // message at index 0, NOT the primer — canonicalizing that would drop all
+  // pre-compaction context. When it doesn't match, leave undefined; the
+  // rebuild's full-rebuild fallback is the safe choice for an already-damaged
+  // legacy session.
+  if (s.compactedAt !== undefined && s.compactionPrimer === undefined && Array.isArray(s.llmHistory)) {
+    const first = s.llmHistory[0];
+    if (first && first.role === "user" && typeof first.content === "string" && first.content.startsWith("[The previous agent compacted")) {
+      s.compactionPrimer = first.content;
+    }
   }
 }
 

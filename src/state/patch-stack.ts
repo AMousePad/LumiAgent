@@ -337,6 +337,12 @@ export function tryRevert(file: FileState, patchId: string, live: string): Rever
     // shifted lines after a dependency is gone. In practice the unified
     // diffs we produce have short context and the misapply ends up visible
     // in the workshop diff card.
+    // Literal patches carry an ABSOLUTE value (the whole field), not a delta, so
+    // they have no inferable dependency on prior content and must NOT cascade on
+    // a hash mismatch: reverting a shadowed middle edit legitimately leaves the
+    // live value at the latest absolute set. Cascading them destroyed that later
+    // independent edit (reproduced: Bob->Robert then set Charles, revert the
+    // rename -> Bob, losing Charles).
     const next = applySinglePatch(cur, p);
     if (next === null) {
       p.reverted = true;

@@ -34,24 +34,50 @@ When a character is focused you rarely need this. \`query\` filters by name subs
   execute: async (input, ctx) => {
     const limit = Math.min(MAX_LIMIT, Math.max(1, Math.floor(input.limit ?? DEFAULT_LIMIT)));
     const offset = Math.max(0, Math.floor(input.offset ?? 0));
-    const res = await ctx.spindle.characters.list({ limit, offset, userId: ctx.userId });
     const q = input.query?.trim().toLowerCase();
-    let rows = res.data.map((c) => ({
+    const toRow = (c: { id: string; name: string; world_book_ids?: readonly string[] }) => ({
       id: c.id,
       name: c.name,
       world_book_count: c.world_book_ids?.length ?? 0,
-    }));
-    // With a query filter, the spindle `total` is the pre-filter library count,
-    // not the post-filter match count — surfacing it as `total` would tell the
-    // agent there are more matches on later pages when there aren't.
-    const filtered = q ? rows.filter((r) => r.name.toLowerCase().includes(q)) : rows;
+    });
+
+    if (!q) {
+      const res = await ctx.spindle.characters.list({ limit, offset, userId: ctx.userId });
+      const out = JSON.stringify({
+        total: res.total,
+        total_library: res.total,
+        offset,
+        returned: res.data.length,
+        characters: res.data.map(toRow),
+      }, null, 2);
+      return { content: await spillOrReturn(ctx, out, "list_characters") };
+    }
+
+    // A name query is a LIBRARY-WIDE filter: page through every character so a
+    // match on a later page isn't missed, then window the matches by
+    // offset/limit. The spindle `total` is the pre-filter count, so it can't be
+    // surfaced as the match total.
+    const matches: ReturnType<typeof toRow>[] = [];
+    let libraryTotal = 0;
+    let scanned = 0;
+    let pageOffset = 0;
+    for (;;) {
+      const res = await ctx.spindle.characters.list({ limit: MAX_LIMIT, offset: pageOffset, userId: ctx.userId });
+      libraryTotal = res.total;
+      scanned += res.data.length;
+      for (const c of res.data) if (c.name.toLowerCase().includes(q)) matches.push(toRow(c));
+      if (res.data.length === 0 || scanned >= res.total) break;
+      pageOffset += res.data.length;
+    }
+    const windowed = matches.slice(offset, offset + limit);
     const out = JSON.stringify({
-      total: q ? filtered.length : res.total,
-      total_library: res.total,
+      total: matches.length,
+      total_library: libraryTotal,
       offset,
-      returned: filtered.length,
-      ...(q ? { query: input.query, scanned: rows.length, note: "query filtered post-fetch on this page only; raise limit if you need broader coverage" } : {}),
-      characters: filtered,
+      returned: windowed.length,
+      query: input.query,
+      scanned,
+      characters: windowed,
     }, null, 2);
     return { content: await spillOrReturn(ctx, out, "list_characters") };
   },

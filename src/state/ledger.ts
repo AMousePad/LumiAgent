@@ -71,47 +71,76 @@ function emptyLedger(scope: ScopeRef): ScopedLedger {
   return { ...emptyLedgerV2(scope), externalEdits: [] };
 }
 
+const inflightLoads = new Map<string, Promise<ScopedLedger>>();
+const inflightAppends = new Map<string, number>();
+const LEDGER_CACHE_MAX = 512;
+
+// Bound the read-through cache over a long-lived (possibly multi-user shared)
+// worker. Never evict an entry with an in-flight load or append (forking a
+// second object for a held scope would reintroduce the cold-cache lost-update),
+// and every mutation persists so an evicted idle scope reloads current state.
+function pruneLedgerCache(): void {
+  if (ledgerCache.size <= LEDGER_CACHE_MAX) return;
+  for (const key of ledgerCache.keys()) {
+    if (ledgerCache.size <= LEDGER_CACHE_MAX) break;
+    if (inflightLoads.has(key) || (inflightAppends.get(key) ?? 0) > 0) continue;
+    ledgerCache.delete(key);
+  }
+}
+
 export async function loadLedger(spindle: SpindleAPI, scope: ScopeRef, userId: string): Promise<ScopedLedger> {
   const k = cacheKey(userId, scope);
   const cached = ledgerCache.get(k);
   if (cached) return cached;
-  const p = ledgerPath(scope);
-  let persisted = await spindle.userStorage.getJson<PersistedV3 | null>(p, { fallback: null, userId });
+  // Dedupe concurrent first-loads of the same scope. A turn emitting several
+  // edits to one cold (un-prewarmed, e.g. non-character) scope fires overlapping
+  // appendEntries that would each load a SEPARATE object and lose all but the
+  // last write, so share one in-flight load and one object.
+  const inflight = inflightLoads.get(k);
+  if (inflight) return inflight;
+  const load = (async (): Promise<ScopedLedger> => {
+    const p = ledgerPath(scope);
+    let persisted = await spindle.userStorage.getJson<PersistedV3 | null>(p, { fallback: null, userId });
 
-  // One-way migration: a character whose ledger predates scope-addressing
-  // still lives at the flat legacy path. Rewrap (lossless, no patch replay),
-  // write the new path, then drop the legacy file. New path is authoritative
-  // the instant it's written, so legacy removal is best-effort.
-  if ((!persisted || persisted.version !== 3) && scope.kind === "character") {
-    const legacy = await spindle.userStorage.getJson<LegacyPersistedV2 | null>(
-      legacyPath(scope.id),
-      { fallback: null, userId },
-    );
-    if (legacy && legacy.version === 2) {
-      const migrated: PersistedV3 = {
-        version: 3,
-        scope,
-        files: legacy.files,
-        structural: legacy.structural,
-        externalEdits: legacy.externalEdits ?? [],
-      };
-      await spindle.userStorage.write(p, JSON.stringify(migrated), userId);
-      try { await spindle.userStorage.delete(legacyPath(scope.id), userId); } catch { /* orphan legacy is harmless */ }
-      persisted = migrated;
+    // One-way migration: a character whose ledger predates scope-addressing
+    // still lives at the flat legacy path. Rewrap (lossless, no patch replay),
+    // write the new path, then drop the legacy file. New path is authoritative
+    // the instant it's written, so legacy removal is best-effort.
+    if ((!persisted || persisted.version !== 3) && scope.kind === "character") {
+      const legacy = await spindle.userStorage.getJson<LegacyPersistedV2 | null>(
+        legacyPath(scope.id),
+        { fallback: null, userId },
+      );
+      if (legacy && legacy.version === 2) {
+        const migrated: PersistedV3 = {
+          version: 3,
+          scope,
+          files: legacy.files,
+          structural: legacy.structural,
+          externalEdits: legacy.externalEdits ?? [],
+        };
+        await spindle.userStorage.write(p, JSON.stringify(migrated), userId);
+        try { await spindle.userStorage.delete(legacyPath(scope.id), userId); } catch { /* orphan legacy is harmless */ }
+        persisted = migrated;
+      }
     }
-  }
 
-  const ledger: ScopedLedger = !persisted || persisted.version !== 3
-    ? emptyLedger(scope)
-    : {
-        version: 3,
-        scope,
-        files: persisted.files,
-        structural: persisted.structural,
-        externalEdits: persisted.externalEdits ?? [],
-      };
-  ledgerCache.set(k, ledger);
-  return ledger;
+    const ledger: ScopedLedger = !persisted || persisted.version !== 3
+      ? emptyLedger(scope)
+      : {
+          version: 3,
+          scope,
+          files: persisted.files,
+          structural: persisted.structural,
+          externalEdits: persisted.externalEdits ?? [],
+        };
+    ledgerCache.set(k, ledger);
+    pruneLedgerCache();
+    return ledger;
+  })();
+  inflightLoads.set(k, load);
+  try { return await load; }
+  finally { inflightLoads.delete(k); }
 }
 
 async function persistLedger(spindle: SpindleAPI, ledger: ScopedLedger, userId: string): Promise<void> {
@@ -173,6 +202,12 @@ export async function appendEntries(
   userId: string,
 ): Promise<void> {
   if (entries.length === 0) return;
+  // Hold a ref for this scope so a concurrent loadLedger's prune can't evict the
+  // ledger object we're about to mutate+persist (which would fork a second copy
+  // and lose this update).
+  const ck = cacheKey(userId, scope);
+  inflightAppends.set(ck, (inflightAppends.get(ck) ?? 0) + 1);
+  try {
   const ledger = await loadLedger(spindle, scope, userId);
   for (const e of entries) {
     const r = e.record;
@@ -207,6 +242,10 @@ export async function appendEntries(
     }
   }
   await persistLedger(spindle, ledger, userId);
+  } finally {
+    const n = (inflightAppends.get(ck) ?? 1) - 1;
+    if (n <= 0) inflightAppends.delete(ck); else inflightAppends.set(ck, n);
+  }
 }
 
 export async function persistLedgerNow(spindle: SpindleAPI, ledger: ScopedLedger, userId: string): Promise<void> {
@@ -523,6 +562,33 @@ export function dropCache(scope: ScopeRef, userId?: string): void {
 // inside patch-stack on revert).
 export function laterEditsOnSameFile(_ledger: ScopedLedger, _editId: string): EditLogEntry[] {
   return [];
+}
+
+// Non-character scopes (persona / chat / preset / world_book / regex_script)
+// have no entity list to iterate, so the agent's own edits there are invisible
+// to character-ledger-only tools. Enumerate those ledger directories so
+// list_session_edits / revert_session_edits can span every scope the agent
+// wrote this session, not just the focused character.
+const NON_CHARACTER_SCOPE_KINDS = ["persona", "chat", "preset", "world_book", "regex_script"] as const;
+
+export async function listNonCharacterScopeLedgers(
+  spindle: SpindleAPI,
+  userId: string,
+): Promise<Array<{ scope: ScopeRef; ledger: ScopedLedger }>> {
+  const out: Array<{ scope: ScopeRef; ledger: ScopedLedger }> = [];
+  for (const kind of NON_CHARACTER_SCOPE_KINDS) {
+    let names: string[] = [];
+    try { names = await spindle.userStorage.list(`${LEDGER_DIR}/${kind}/`, userId); } catch { /* no dir yet */ }
+    for (const rel of names) {
+      const base = rel.split(/[\\/]/).pop() ?? "";
+      if (!base.endsWith(".json")) continue;
+      const id = base.slice(0, -5);
+      const scope: ScopeRef = { kind, id };
+      const ledger = await loadLedger(spindle, scope, userId).catch(() => null);
+      if (ledger) out.push({ scope, ledger });
+    }
+  }
+  return out;
 }
 
 // Re-export the entry record types for callers that used to import them via

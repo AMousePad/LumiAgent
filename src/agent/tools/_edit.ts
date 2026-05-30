@@ -117,7 +117,10 @@ function applyPaired(s: string, ascii: string, open: string, close: string): str
       const prevLetter = prev !== undefined && /\p{L}/u.test(prev);
       const nextLetter = next !== undefined && /\p{L}/u.test(next);
       if (ascii === "'" && prevLetter && nextLetter) {
-        out.push(close);
+        // A letter-flanked apostrophe (don't, rock'n'roll) is never a paired
+        // delimiter. Promoting it would inject a closing quote or, for a corner-
+        // bracket doc, a 」 into the middle of a word. Keep it ASCII.
+        out.push(chars[i]!);
       } else {
         out.push(isOpening(i) ? open : close);
       }

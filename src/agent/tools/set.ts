@@ -78,6 +78,13 @@ async function setExtension(ctx: ToolCtx, characterId: string, dotted: string, v
   const c = await ctx.spindle.characters.get(characterId, ctx.userId);
   if (!c) return "character not found";
   const segs = parseExtensionPath(dotted);
+  // The extensions root is always an object. A leading [index] would make
+  // setAtPath rebuild it as an array, wiping every key (including provider-owned
+  // subtrees the check_write gate protects), and firstSegment can't resolve an
+  // index to a provider so the gate falls open. Reject before writing.
+  if (segs.length === 0 || segs[0]!.kind !== "key") {
+    return `[PATH_NOT_FOUND] extensions path must start with a named key, got '${dotted}'.`;
+  }
   // Get the previous value to record in the ledger.
   let cur: unknown = c.extensions ?? {};
   for (const seg of segs) {
@@ -98,15 +105,21 @@ async function setExtension(ctx: ToolCtx, characterId: string, dotted: string, v
   };
 }
 
-async function setRegexScriptField(ctx: ToolCtx, scriptId: string, field: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string } | string> {
+async function setRegexScriptField(ctx: ToolCtx, scriptId: string, field: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string; valueEncoding?: "json" } | string> {
   const r = await ctx.spindle.regex_scripts.get(scriptId, ctx.userId);
   if (!r) return `regex script ${scriptId} not found`;
   const before = (r as unknown as Record<string, unknown>)[field];
   await ctx.spindle.regex_scripts.update(scriptId, { [field]: value } as RegexScriptUpdateDTO, ctx.userId);
-  return { before: stringify(before), after: stringify(value), label: r.name, surface: "regex_script", surfaceId: scriptId, field };
+  // Tag json ONLY for non-string values. String fields (find_regex,
+  // replace_string) are stored RAW to match the edit/rewrite route on the same
+  // leaf; tagging them would mismatch that route's untagged record and trigger
+  // a history-dropping encoding rebase. Non-string fields (disabled, sort_order)
+  // are set-only and must be json-tagged to round-trip on revert.
+  const isStr = typeof value === "string";
+  return { before: stringify(before), after: stringify(value), label: r.name, surface: "regex_script", surfaceId: scriptId, field, ...(isStr ? {} : { valueEncoding: "json" as const }) };
 }
 
-async function setWorldBookField(ctx: ToolCtx, id: string, field: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string; scopeOverride?: ScopeRef } | string> {
+async function setWorldBookField(ctx: ToolCtx, id: string, field: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string; scopeOverride?: ScopeRef; valueEncoding?: "json" } | string> {
   // wb/<id>/<field> is overloaded: id may be a book (name/description/metadata)
   // or an entry. Resolve by lookup so one path grammar covers both.
   const book = await ctx.spindle.world_books.get(id, ctx.userId).catch(() => null);
@@ -126,8 +139,15 @@ async function setWorldBookField(ctx: ToolCtx, id: string, field: string, value:
   if (!e) return `no world book or entry with id ${id}`;
   const before = (e as unknown as Record<string, unknown>)[field];
   await ctx.spindle.world_books.entries.update(id, { [field]: value } as WorldBookEntryUpdateDTO, ctx.userId);
+  const isStr = typeof value === "string";
   return {
+    // Tag json ONLY for non-string fields. String fields (content, comment) are
+    // stored RAW to match the edit/rewrite route on the same leaf (tagging would
+    // mismatch it and drop history via an encoding rebase, and json-escaping a
+    // multi-line prose field would also break the workshop diff). Non-string
+    // fields (constant, priority, position, disabled) are set-only and json-tagged.
     before: stringify(before), after: stringify(value), label: wbLabel(e), surface: "world_book_entry", surfaceId: id, field,
+    ...(isStr ? {} : { valueEncoding: "json" as const }),
     // No-character session: file under the owning book, not under the entry
     // id (scopeForLeafKey would otherwise treat the entry id as a book id and
     // store the patch in a ledger that never matches structural ops).

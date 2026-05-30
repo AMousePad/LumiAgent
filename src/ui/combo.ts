@@ -136,8 +136,12 @@ export function mountCombo(root: HTMLElement): ComboHandle {
     pop.style.display = "";
     root.classList.add("is-open");
     search.value = "";
-    activeIndex = Math.max(0, filtered.findIndex((it) => it.id === value));
+    // Rebuild `filtered` to the full item list BEFORE computing activeIndex; a
+    // prior search left it narrowed, so findIndex against the stale array would
+    // highlight (and Enter would select) the wrong row.
     renderList();
+    activeIndex = Math.max(0, filtered.findIndex((it) => it.id === value));
+    updateActive();
     queueMicrotask(() => search.focus());
   };
 
@@ -156,7 +160,7 @@ export function mountCombo(root: HTMLElement): ComboHandle {
   };
 
   trigger.addEventListener("click", () => { isOpen ? close() : open(); });
-  search.addEventListener("input", () => { activeIndex = filtered.length > 0 ? 0 : -1; renderList(); });
+  search.addEventListener("input", () => { renderList(); activeIndex = filtered.length > 0 ? 0 : -1; updateActive(); });
   search.addEventListener("keydown", (ev) => {
     if (ev.key === "ArrowDown") { ev.preventDefault(); if (filtered.length > 0) { activeIndex = Math.min(filtered.length - 1, activeIndex + 1); updateActive(); } }
     else if (ev.key === "ArrowUp") { ev.preventDefault(); if (filtered.length > 0) { activeIndex = Math.max(0, activeIndex - 1); updateActive(); } }

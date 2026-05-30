@@ -10,19 +10,6 @@ export interface ExternalProviderSummary {
 }
 
 export interface GeneralPromptParams {
-  // Empty string = no character focused (All Characters mode). The focus
-  // section tells the agent to address characters by id; char/ paths and
-  // whole-card tools default to the focus when one is set.
-  readonly characterName: string;
-  // The focused character's id, so the agent can contrast it with explicit
-  // char/<id>/... addressing. null in All Characters mode.
-  readonly characterId: string | null;
-  readonly externalProviders: readonly ExternalProviderSummary[];
-  // Already-concatenated system-prompt fragments fetched from each discovered
-  // phone-line provider's `op: "system_prompt"`. Empty string when no provider
-  // contributed. The agent loop fetches this per-send, so any extension can
-  // condition its contribution on the active character's state.
-  readonly extensionSystemPrompts: string;
   readonly persona: string;
   // null → use the built-in technical body. Non-null replaces only the body;
   // the chat / external / extension-contributed sections are still appended.
@@ -39,9 +26,6 @@ export interface GeneralPromptParams {
 }
 
 export function buildGeneralSystemPrompt(params: GeneralPromptParams): string {
-  const extensionSection = params.extensionSystemPrompts.trim().length > 0
-    ? `\n\n${params.extensionSystemPrompts.trim()}`
-    : "";
   // Single stable string regardless of pin state. The agent learns the live
   // pin status by calling `read_chat_messages` (no chat_id), which returns
   // either the pinned chat's messages or `{pinned: false}` so the agent can
@@ -61,44 +45,59 @@ export function buildGeneralSystemPrompt(params: GeneralPromptParams): string {
     ? ""
     : `\n\n# Deferred tools (fetch via tool_search)\n\nThe schemas for the tools listed below are NOT loaded. Calling them directly fails because the provider does not know their parameter shape. To use one, first call \`tool_search({ query: "select:<name>[,<name>...]" })\`. Its result is a \`<functions>\` block that registers the schemas; the tool then becomes callable on the next turn. Keyword search (\`tool_search({ query: "regex" })\`) works too.\n\nDeferred tools available:\n${params.deferredToolNames.map((n) => `- ${n}`).join("\n")}\n\nDo not invent tools that are not in this list and not loaded at the top of the prompt. If the tool you need is not visible anywhere, say so in chat instead of guessing.`;
 
-  const externalSection = params.externalProviders.length === 0
-    ? ""
-    : `\n\n# External providers (other extensions)\n\nThe following extensions have opted in to expose data through the phone-line protocol. Use \`list_external\` / \`read_external\` / \`grep_external\` (cross-item regex search, optional \`field_prefix\` to scope) / \`edit_external\` / \`update_external\`, keyed on \`surface_id\`.\n\n` + params.externalProviders.map((p) => {
-        const surfaceLines = p.surfaces.map((s) =>
-          `    - \`${s.id}\` (${s.scope}): ${s.label}. ${s.description.slice(0, 240)}${s.description.length > 240 ? "..." : ""}`,
-        ).join("\n");
-        return `- **${p.name}**\n${surfaceLines}`;
-      }).join("\n");
-
-  // Order:
-  //   1. Persona (always present, defines the agent's character)
-  //   2. Active-character context line
-  //   3. Body, either the built-in technical prompt or the user's override
-  //   4. Dynamic sections (chat / external / extension contributions), always appended
-  // The dynamic sections describe the current character's CONTEXT, not behaviour,
-  // so they're appended regardless of whether the user has overridden the body.
   const personaBlock = params.persona && params.persona.trim().length > 0
     ? `${params.persona.trim()}\n\n---\n\n`
     : "";
 
-  // Focus section. Short and placed AFTER the frozen body so a focus switch
-  // (an in-session action) only rebuilds this trailing chunk, not the cached
-  // prefix (persona + body).
-  const focusSection = params.characterName.trim().length > 0
-    ? `\n\n# Focus\n\nFocused on character "${params.characterName}"${params.characterId ? ` (id \`${params.characterId}\`)` : ""}. Unqualified \`char/<field>\` paths and the default of whole-card tools (grep / audit_card_coverage / survey_cjk / list / inspect / update_character / apply_glossary) target this character. To work on a DIFFERENT character without changing focus, address it by id: \`char/<otherId>/<field>\` for read / edit / rewrite / set, or pass \`character_id\` to a whole-card tool. \`list_characters\` finds ids.`
-    : "\n\n# Focus\n\nNo character is focused (All Characters mode). Address a character by id: \`char/<id>/<field>\` for read / edit / rewrite / set, or pass \`character_id\` to a whole-card tool (grep / audit_card_coverage / survey_cjk / list / inspect / update_character / apply_glossary). Call \`list_characters\` to find the id of the character the user means. Unqualified \`char/<field>\` paths fail with [NO_TARGET] until you pass an id or the user focuses a character via the picker.";
+  // Character-agnostic so the cached prefix is identical across every session
+  // and every focused character. The live focus (and any per-character
+  // extension guidance / external surfaces) arrives as a "[Context update ...]"
+  // note in the conversation, emitted by the send path when focus or pin
+  // changes, so switching characters never invalidates this prefix.
+  const addressingSection = "\n\n# Addressing characters\n\nYour current focus, and any pinned chat, is stated in the latest \"[Context update ...]\" note in the conversation. Unqualified `char/<field>` paths and the default of whole-card tools (grep / audit_card_coverage / survey_cjk / list / inspect / update_character / apply_glossary) target the focused character. Address any OTHER character by id: `char/<id>/<field>` for read / edit / rewrite / set, or pass `character_id` to a whole-card tool. With no focus, unqualified `char/<field>` fails with [NO_TARGET]; call `list_characters` to find ids.";
 
   const body = params.systemPromptOverride !== null && params.systemPromptOverride.trim().length > 0
     ? params.systemPromptOverride
     : BUILTIN_PROMPT_BODY;
 
-  return `${personaBlock}${body}${extensionSection}${chatSection}${externalSection}${focusSection}${agentNotesSection}${deferredToolsSection}
+  return `${personaBlock}${body}${chatSection}${addressingSection}${agentNotesSection}${deferredToolsSection}
 
 # When to stop
 
 When the user's last request is **fulfilled by tool calls** (the file has actually changed), write a short summary of what changed and stop without calling any tool. The user will tell you what to do next. Only call finish(summary) when the user explicitly says the entire task is done.
 
 A summary is not a substitute for the work. If you only described what should happen but no \`edit_*\` / \`update_*\` / \`create_*\` / \`delete_*\` / \`apply_glossary\` tool was called for the user's request, the request is NOT fulfilled — go do the writes first.`;
+}
+
+export interface ContextNoteParams {
+  // "" when no character is focused.
+  readonly characterName: string;
+  readonly characterId: string | null;
+  readonly pinnedChat: boolean;
+  readonly externalProviders: readonly ExternalProviderSummary[];
+  // Concatenated phone-line `system_prompt` contributions for the focused
+  // character. Empty string when none contributed.
+  readonly extensionSystemPrompts: string;
+}
+
+// One-shot note appended to llmHistory (NOT the cached system prompt) when
+// focus or pin changes, so the agent learns the new state without invalidating
+// the cached prefix. Kept terse: the head line plus only the per-character
+// guidance that has no static home.
+export function buildContextNote(params: ContextNoteParams): string {
+  const focus = params.characterName.trim().length > 0
+    ? `focused on "${params.characterName}"${params.characterId ? ` (id \`${params.characterId}\`)` : ""}`
+    : "not focused on any character";
+  const pin = params.pinnedChat ? "A chat is pinned." : "No chat is pinned.";
+  const parts = [`[Context update from the system: you are now ${focus}. ${pin} Re-read any character or chat details you cached before this.]`];
+  if (params.extensionSystemPrompts.trim().length > 0) parts.push(params.extensionSystemPrompts.trim());
+  if (params.externalProviders.length > 0) {
+    const lines = params.externalProviders.flatMap((p) =>
+      p.surfaces.map((s) => `- \`${s.id}\` (${s.scope}): ${s.label}. ${s.description.slice(0, 240)}${s.description.length > 240 ? "..." : ""}`),
+    );
+    parts.push(`External provider surfaces (use list_external / read_external / edit_external / update_external / grep_external, keyed on surface_id):\n${lines.join("\n")}`);
+  }
+  return parts.join("\n\n");
 }
 
 export const BUILTIN_PROMPT_BODY = `# Path-based read & edit (USE THESE FIRST)

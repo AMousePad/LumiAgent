@@ -25,11 +25,14 @@ export const listDatabanksTool = defineTool({
   execute: async (input, ctx) => {
     try {
       let scopeId = input.scope_id;
-      if (input.scope === "character" && scopeId === undefined) scopeId = ctx.characterId;
-      if (input.scope === "chat" && scopeId === undefined) scopeId = ctx.pinnedChatId;
+      // Falsy guard, not === undefined: in a no-character session ctx.characterId
+      // is coerced to "" (and pinnedChatId can be null). Forwarding scopeId:"" /
+      // null mis-scopes or errors host-side, so drop empties.
+      if (input.scope === "character" && !scopeId) scopeId = ctx.characterId || undefined;
+      if (input.scope === "chat" && !scopeId) scopeId = ctx.pinnedChatId || undefined;
       const res = await ctx.spindle.databanks.list({
         ...(input.scope ? { scope: input.scope } : {}),
-        ...(scopeId !== undefined ? { scopeId } : {}),
+        ...(scopeId ? { scopeId } : {}),
         limit: input.limit ?? 200,
         offset: input.offset ?? 0,
         userId: ctx.userId,

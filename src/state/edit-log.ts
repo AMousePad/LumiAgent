@@ -114,7 +114,11 @@ function entryUpdateFromDTO(e: WorldBookEntryDTO): WorldBookEntryUpdateDTO {
 }
 
 function entryCreateFromDTO(e: WorldBookEntryDTO): WorldBookEntryCreateDTO {
-  return entryUpdateFromDTO(e) as WorldBookEntryCreateDTO;
+  // Keep the id: the host's create honors a supplied entry id (like regex
+  // script_id and prompt block id), so delete-revert restores the SAME id.
+  // Dropping it minted a fresh UUID, orphaning prior field-edit ledger patches
+  // and the read/edit gate (both keyed on the entry id).
+  return { ...entryUpdateFromDTO(e), id: e.id } as WorldBookEntryCreateDTO;
 }
 
 function regexUpdateFromDTO(r: RegexScriptDTO): RegexScriptUpdateDTO {
@@ -142,7 +146,7 @@ function regexUpdateFromDTO(r: RegexScriptDTO): RegexScriptUpdateDTO {
 
 function personaCreateFromDTO(p: PersonaDTO): PersonaCreateDTO {
   // Truthiness gates would drop deliberately-blank fields (description: "",
-  // is_default: false, attached_world_book_id: "" / null for detached) — on
+  // is_default: false, attached_world_book_id: "" / null for detached). On
   // revert the spindle would substitute its own defaults instead of restoring
   // the user's chosen blank state. Use undefined-checks instead so the create
   // DTO mirrors the snapshot.
@@ -201,24 +205,28 @@ function personaScalarUpdate(field: string, decoded: unknown): PersonaUpdateDTO 
 
 function worldBookCreateFromDTO(b: WorldBookDTO): WorldBookCreateDTO {
   const out: WorldBookCreateDTO = { name: b.name };
-  if (b.description) out.description = b.description;
+  // !== undefined, not truthiness: a deliberately-blank description ("") must
+  // survive delete-revert instead of being replaced by the spindle default.
+  if (b.description !== undefined) out.description = b.description;
   if (b.metadata && Object.keys(b.metadata).length > 0) out.metadata = b.metadata;
   return out;
 }
 
 function presetCreateFromDTO(p: UserPresetDTO): UserPresetCreateDTO {
   const out: UserPresetCreateDTO = { name: p.name, provider: p.provider };
-  if (p.engine) out.engine = p.engine;
-  if (p.parameters) out.parameters = p.parameters;
-  if (p.prompts) out.prompts = p.prompts;
-  if (p.metadata) out.metadata = p.metadata;
+  if (p.engine !== undefined) out.engine = p.engine;
+  if (p.parameters !== undefined) out.parameters = p.parameters;
+  if (p.prompts !== undefined) out.prompts = p.prompts;
+  if (p.metadata !== undefined) out.metadata = p.metadata;
   return out;
 }
 
 function blockCreateFromDTO(b: PromptBlockDTO): PromptBlockCreateDTO {
-  const { id: _id, ...rest } = b;
-  void _id;
-  return rest as PromptBlockCreateDTO;
+  // Keep the id: the host's create honors a supplied id (like regex script_id),
+  // so delete-revert restores the SAME block id. Dropping it minted a fresh
+  // UUID, orphaning the preset_block edit/read gate (keyed presetId:blockId) and
+  // any prior field-edit ledger entries on the old id.
+  return { ...b } as PromptBlockCreateDTO;
 }
 
 type PathSegment = { kind: "key"; value: string } | { kind: "index"; value: number };
@@ -279,7 +287,13 @@ function parsePath(path: string): PathSegment[] {
       const inner = path.slice(i + 1, end);
       if (/^\d+$/.test(inner)) {
         segments.push({ kind: "index", value: parseInt(inner, 10) });
-      } else if ((inner.startsWith("'") && inner.endsWith("'")) || (inner.startsWith('"') && inner.endsWith('"'))) {
+      } else if (inner.startsWith('"') && inner.endsWith('"') && inner.length >= 2) {
+        // JSON.parse to undo the encoder's JSON.stringify escaping; keeps the
+        // revert write-back path's key identical to the forward read's key.
+        let key: string;
+        try { key = JSON.parse(inner) as string; } catch { key = inner.slice(1, -1); }
+        segments.push({ kind: "key", value: key });
+      } else if (inner.startsWith("'") && inner.endsWith("'") && inner.length >= 2) {
         segments.push({ kind: "key", value: inner.slice(1, -1) });
       } else {
         throw new Error(`bracket contents must be a number or quoted string: [${inner}]`);
@@ -500,12 +514,16 @@ export async function readLiveValue(
       const e = await spindle.world_books.entries.get(r.surfaceId, userId);
       if (!e) return null;
       const v = (e as unknown as Record<string, unknown>)[r.field];
+      // update_world_book_entry edits non-string metadata (arrays/bools/numbers)
+      // JSON-encoded + tagged; decode-compare like the extension surface.
+      if (r.valueEncoding === "json") return JSON.stringify(v === undefined ? null : v);
       return typeof v === "string" ? v : null;
     }
     case "regex_script": {
       const s = await spindle.regex_scripts.get(r.surfaceId, userId);
       if (!s) return null;
       const v = (s as unknown as Record<string, unknown>)[r.field];
+      if (r.valueEncoding === "json") return JSON.stringify(v === undefined ? null : v);
       return typeof v === "string" ? v : null;
     }
     case "persona_field": {
@@ -588,7 +606,15 @@ async function revertFieldEditV2(
     },
   };
   const live = await readLiveValue(spindle, entryView, characterId, userId);
-  if (live === null) return { kind: "failed", editId, error: "surface no longer exists" };
+  if (live === null) {
+    // The surface was deleted out from under this field edit (typically by
+    // reverting the structural create that made it). The edit is moot: drop its
+    // whole FileState so it stops lingering as a permanently-unrevertable ghost,
+    // and report a no-op so the UI drops the row instead of erroring.
+    ledger.files = ledger.files.filter((f) => f !== file);
+    await persistLedgerNow(spindle, ledger, userId);
+    return { kind: "noop_already_reverted", editId };
+  }
 
   // If the spindle value has drifted from our expected hash, an external edit
   // slipped in. Fold it in first so the timeline is honest, then proceed.
@@ -680,11 +706,15 @@ export async function writeFieldValue(
       return;
     }
     case "world_book_entry": {
-      await spindle.world_books.entries.update(surfaceId, { [field]: value } as WorldBookEntryUpdateDTO, userId);
+      // JSON-tagged metadata (non-string fields) must decode so arrays/bools/
+      // numbers write back as their real type, not the literal JSON string.
+      const wv = valueEncoding === "json" ? JSON.parse(value) : value;
+      await spindle.world_books.entries.update(surfaceId, { [field]: wv } as WorldBookEntryUpdateDTO, userId);
       return;
     }
     case "regex_script": {
-      await spindle.regex_scripts.update(surfaceId, { [field]: value } as RegexScriptUpdateDTO, userId);
+      const rv = valueEncoding === "json" ? JSON.parse(value) : value;
+      await spindle.regex_scripts.update(surfaceId, { [field]: rv } as RegexScriptUpdateDTO, userId);
       return;
     }
     case "persona_field": {

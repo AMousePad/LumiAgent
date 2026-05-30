@@ -10,7 +10,7 @@ import type {
   ToolResult,
   ToolSchema,
 } from "../types";
-import { encodeAssistantTurn, encodeToolResults } from "./protocol";
+import { encodeAssistantTurn, encodeToolResults, coalesceConsecutiveTurns } from "./protocol";
 import { runLlmStream } from "./llm";
 import { withRollingCacheBreakpoint } from "./cache-control";
 import { LoopDetector } from "./loop-detector";
@@ -290,6 +290,12 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
     readonly edits: EditRecord[];
     readonly reverts: Array<{ editId: string; outcome: RevertOutcomeWire }>;
     resync: boolean;
+    // squash_session_edits passes the absorbed → merged id map so the backend
+    // can rewrite tool-block edit_ids on the in-flight assistant message,
+    // matching what autosquashAndNotify does at end-of-message. Without this
+    // the per-block "Revert all" affordance points at IDs the ledger no
+    // longer has.
+    resyncRemap?: Record<string, string>;
   }
 
   function makeCallCtx(buffer: CallBuffer): ToolCtx {
@@ -309,7 +315,12 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
       setFinished: (s) => { finishedSummary = s; },
       pushEdit: (rec) => { buffer.edits.push(rec); },
       pushRevert: (editId, outcome) => { buffer.reverts.push({ editId, outcome }); },
-      pushLedgerResync: () => { buffer.resync = true; },
+      pushLedgerResync: (remap) => {
+        buffer.resync = true;
+        if (remap && Object.keys(remap).length > 0) {
+          buffer.resyncRemap = { ...(buffer.resyncRemap ?? {}), ...remap };
+        }
+      },
       discoverTools: (names) => {
         for (const n of names) {
           if (deferredSchemas[n]) discoveredToolNames.add(n);
@@ -375,7 +386,7 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
     let sawDoneEvent = false;
     try {
       for await (const ev of runLlmStream(input.spindle, {
-        messages: withRollingCacheBreakpoint(conv, input.cacheMode ?? "full"),
+        messages: withRollingCacheBreakpoint(coalesceConsecutiveTurns(conv), input.cacheMode ?? "full"),
         tools: effectiveTools,
         ...(input.connectionId !== undefined ? { connectionId: input.connectionId } : {}),
         ...(input.parameters !== undefined ? { parameters: input.parameters } : {}),
@@ -418,7 +429,7 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
 
     if (usage === undefined) {
       try {
-        usage = await estimateUsage(input.spindle, input.userId, withRollingCacheBreakpoint(conv, input.cacheMode ?? "full"), content, reasoning, input.tokenizerModelId);
+        usage = await estimateUsage(input.spindle, input.userId, withRollingCacheBreakpoint(coalesceConsecutiveTurns(conv), input.cacheMode ?? "full"), content, reasoning, input.tokenizerModelId);
       } catch { /* keep undefined: UI just hides the strip */ }
     }
 
@@ -517,7 +528,11 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
           content: "[SYSTEM: Your previous reply contained tool-call syntax as text (e.g. <invoke>, <tool_use>, <function_call>, <tool_call> tags). Text-encoded tool calls are NOT executed in their text form, they only run through the provider's native tool-use channel. Re-issue the same call(s) properly now.]",
         });
         yield { type: "warning", message: "The model wrote tool syntax as text instead of calling through the native channel. Nudged once. If it happens again I'll parse and dispatch as a fallback." };
-        yield { type: "turn_completed", turn: turnNum, finish_reason: finishReason, ...(usage !== undefined ? { usage } : {}) };
+        // Carry the cleaned text so the turn-scoped block fold strips the raw
+        // <invoke>/<tool_call> markup from THIS retried turn's display block.
+        // Without it the raw pseudo-XML persists in the bubble (the turn-scoped
+        // clean can't reach back from a later turn).
+        yield { type: "turn_completed", turn: turnNum, finish_reason: finishReason, cleanedContent: stripTextToolCallSyntax(content), ...(usage !== undefined ? { usage } : {}) };
         continue;
       }
       const { recovered, cleaned } = parseTextFormToolCalls(content);
@@ -580,7 +595,9 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
         isError = true;
       } else {
         try {
-          resultText = await fn(tc.args, makeCallCtx(buffer));
+          const r = await fn(tc.args, makeCallCtx(buffer));
+          resultText = r.content;
+          if (r.isError === true) isError = true;
         } catch (err) {
           resultText = `Error: ${(err as Error).message}`;
           isError = true;
@@ -648,7 +665,9 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
       results.push({ call_id: oc.tc.call_id, name: oc.tc.name, content: oc.resultText, ...(oc.isError ? { is_error: true } : {}) });
       for (const e of editsForCall) yield { type: "edit_logged", entry: e };
       for (const r of oc.buffer.reverts) { revertedThisTurn = true; yield { type: "revert_logged", editId: r.editId, outcome: r.outcome }; }
-      if (oc.buffer.resync) yield { type: "edits_resynced" };
+      if (oc.buffer.resync) yield oc.buffer.resyncRemap
+        ? { type: "edits_resynced", absorbedToMerged: oc.buffer.resyncRemap }
+        : { type: "edits_resynced" };
       yield {
         type: "tool_finished",
         call_id: oc.tc.call_id,

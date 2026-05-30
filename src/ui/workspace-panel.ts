@@ -132,6 +132,9 @@ export function mountWorkspacePanel(deps: WorkspacePanelDeps): WorkspacePanelHan
   let selectedIsDirectory = false;
   let selectedSize = 0;
   let selectedIsSystem = false;
+  // Tracks an open text editor with unsaved changes, so a ws_changed echo (our
+  // own save fires one) doesn't tear the textarea down mid-edit.
+  let editorDirty = false;
   // path -> bool indicating in-flight list request, to avoid duplicate requests.
   const pendingList = new Set<string>();
 
@@ -197,15 +200,6 @@ export function mountWorkspacePanel(deps: WorkspacePanelDeps): WorkspacePanelHan
           if (entry.isDirectory) {
             if (expanded.has(entry.path)) expanded.delete(entry.path);
             else { expanded.add(entry.path); if (!dirCache.has(entry.path)) requestList(entry.path); }
-          } else if (entry.sizeBytes < 4 * 1024 * 1024) {
-            // Auto-preview small files. Binary types (images / audio / video)
-            // need ws_download (base64 + mime) so the bytes survive intact;
-            // text types use ws_read_text. ws_download_ready arrives back
-            // with the path so the pane can render image / audio / video
-            // inline without a download dialog.
-            const kind = previewKind(entry.path);
-            if (kind === "text") deps.sendBackend({ type: "ws_read_text", path: entry.path });
-            else if (kind !== "binary") deps.sendBackend({ type: "ws_download", path: entry.path });
           }
           renderTree();
           renderPane();
@@ -221,6 +215,7 @@ export function mountWorkspacePanel(deps: WorkspacePanelDeps): WorkspacePanelHan
 
   const renderPane = (): void => {
     pane.innerHTML = "";
+    editorDirty = false;
     if (!selectedPath) {
       pane.appendChild(el("div", "la-ws-pane-empty", "Select a file or folder."));
       return;
@@ -248,6 +243,10 @@ export function mountWorkspacePanel(deps: WorkspacePanelDeps): WorkspacePanelHan
       if (!newName || newName === basename(selectedPath!)) return;
       const to = joinPath(dirname(selectedPath!), newName);
       deps.sendBackend({ type: "ws_move", from: selectedPath!, to });
+      // Re-target the selection to the new path so the pane (title + Download /
+      // Delete buttons) doesn't keep acting on the now-vanished old path.
+      selectedPath = to;
+      renderPane();
     });
     actions.appendChild(rename);
     if (!selectedIsDirectory) {
@@ -274,6 +273,7 @@ export function mountWorkspacePanel(deps: WorkspacePanelDeps): WorkspacePanelHan
       if (c.confirmed) {
         deps.sendBackend({ type: "ws_delete", path: selectedPath!, recursive: selectedIsDirectory });
         selectedPath = null;
+        renderPane();
       }
     });
     actions.appendChild(del);
@@ -300,7 +300,12 @@ export function mountWorkspacePanel(deps: WorkspacePanelDeps): WorkspacePanelHan
         const previewWrap = el("div", "la-ws-preview");
         previewWrap.textContent = "Loading preview...";
         pane.appendChild(previewWrap);
-        // Content arrives via onTextPushed (text) or onDownloadReady (image / audio / video).
+        // renderPane owns the fetch (not the tree-row click), so a re-render
+        // after save / rename / external change re-requests the content instead
+        // of leaving the wrap stuck on "Loading preview...". Content arrives via
+        // onTextPushed (text) or onDownloadReady (image / audio / video).
+        if (kind === "text") deps.sendBackend({ type: "ws_read_text", path: selectedPath });
+        else deps.sendBackend({ type: "ws_download", path: selectedPath });
       }
     }
   };
@@ -394,6 +399,7 @@ export function mountWorkspacePanel(deps: WorkspacePanelDeps): WorkspacePanelHan
       let savedValue = content;
       const markDirty = (): void => {
         const dirty = editor.value !== savedValue;
+        editorDirty = dirty;
         saveBtn.disabled = !dirty;
         statusLabel.textContent = dirty ? "Unsaved changes" : "Saved";
         statusLabel.classList.toggle("is-dirty", dirty);
@@ -403,6 +409,7 @@ export function mountWorkspacePanel(deps: WorkspacePanelDeps): WorkspacePanelHan
         const next = editor.value;
         deps.sendBackend({ type: "ws_write_text", path, content: next });
         savedValue = next;
+        editorDirty = false;
         saveBtn.disabled = true;
         statusLabel.textContent = "Saved";
         statusLabel.classList.remove("is-dirty");
@@ -424,6 +431,17 @@ export function mountWorkspacePanel(deps: WorkspacePanelDeps): WorkspacePanelHan
       // Cheap because list_text only requests immediate children of root and
       // currently-expanded folders re-fetch on demand.
       refresh();
+      // Re-render the pane too: a rename/delete that originated elsewhere (or
+      // the backend confirming one) must not leave the pane showing a stale or
+      // orphaned file. BUT our own ws_write_text save also echoes ws_changed, and
+      // renderPane re-fetches + remounts the textarea: skip it while the user is
+      // focused in or has unsaved changes in the editor, or we drop their work.
+      const wrap = pane.querySelector(".la-ws-preview");
+      if ((wrap && wrap.contains(document.activeElement)) || editorDirty) {
+        setStatus("Workspace updated.");
+        return;
+      }
+      renderPane();
       setStatus("Workspace updated.");
     },
     onDownloadReady(path, dataBase64, mimeType) {

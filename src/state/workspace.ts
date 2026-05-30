@@ -24,6 +24,21 @@ export const DEFAULT_WORKSPACE_CAPS: WorkspaceCaps = {
   maxFileBytes: WORKSPACE_MAX_FILE_BYTES,
 };
 
+// Per-user caps from the saved settings. Use this from any tool that writes
+// to the workspace (fs_write, fs_edit, fs_unzip, …) so the user's configured
+// workspaceCapBytes override is honored. The default-arg path on writeText /
+// writeBinary uses DEFAULT_WORKSPACE_CAPS, which is hardcoded 5 GB. Without
+// this helper, agent-side writes silently bypass the user's setting.
+export async function resolveUserCaps(spindle: SpindleAPI, userId: string): Promise<WorkspaceCaps> {
+  const { loadSettings, resolveWorkspaceCap } = await import("./settings");
+  const settings = await loadSettings(spindle, userId);
+  return {
+    maxTotalBytes: resolveWorkspaceCap(settings),
+    maxFiles: WORKSPACE_MAX_FILES,
+    maxFileBytes: WORKSPACE_MAX_FILE_BYTES,
+  };
+}
+
 export interface FileNode {
   readonly name: string;
   readonly path: string;
@@ -39,7 +54,12 @@ export function normaliseRelPath(input: string): string {
   while (p.startsWith("/")) p = p.slice(1);
   while (p.endsWith("/")) p = p.slice(0, -1);
   if (p === "" || p === ".") return "";
-  const parts = p.split("/");
+  const parts = p.split("/").map((seg) =>
+    // Windows strips trailing dots/spaces from a path component at the FS layer,
+    // so "tools.md." resolves to "tools.md". Strip them here too, else an
+    // exact-match system-file guard (system-files.ts) is bypassable by appending
+    // a dot/space. After stripping, a segment that became empty is invalid.
+    seg.replace(/[ .]+$/, ""));
   for (const seg of parts) {
     if (seg === "" || seg === "." || seg === "..") {
       throw new Error(`invalid path segment in '${input}': '${seg}'`);
@@ -117,7 +137,10 @@ export async function readBinary(spindle: SpindleAPI, userId: string, relPath: s
 }
 
 export async function writeText(spindle: SpindleAPI, userId: string, relPath: string, content: string, caps: WorkspaceCaps = DEFAULT_WORKSPACE_CAPS): Promise<void> {
-  await ensureUnderCaps(spindle, userId, content.length, relPath, caps);
+  // Caps are byte caps and the host stores UTF-8, so measure encoded bytes, not
+  // UTF-16 code units. content.length undercounts multibyte text (CJK, emoji) by
+  // up to 3x, which would let it slip past the per-file and total caps.
+  await ensureUnderCaps(spindle, userId, new TextEncoder().encode(content).byteLength, relPath, caps);
   await ensureParentDir(spindle, userId, relPath);
   await spindle.userStorage.write(absPath(relPath), content, userId);
 }
@@ -150,6 +173,21 @@ export async function movePath(spindle: SpindleAPI, userId: string, fromRel: str
   const { checkMoveAllowed } = await import("./system-files");
   const guard = checkMoveAllowed(a);
   if (guard.protected) throw new Error(guard.reason ?? "protected path");
+  // Also guard the DESTINATION: the host move is renameSync, which silently
+  // overwrites an existing target, so moving onto a protected system file
+  // (agent.md, custom_tools/*) would destroy it despite the source-side guard.
+  const destGuard = checkMoveAllowed(b);
+  if (destGuard.protected) throw new Error(`refusing to overwrite a protected path: ${b}`);
+  // The host move is renameSync, which silently overwrites an existing file (and
+  // the rename UI does no existence check), so a rename onto an existing sibling
+  // would destroy it with no prompt. Refuse when the destination already exists.
+  // Skip the exists-check for a case-only rename: on a case-insensitive host FS
+  // stat(b) resolves to the source itself, which would wrongly block a legit
+  // Foo.txt -> foo.txt rename.
+  if (a !== b && a.toLowerCase() !== b.toLowerCase()) {
+    const existing = await stat(spindle, userId, b);
+    if (existing) throw new Error(`destination already exists: ${b}`);
+  }
   await ensureParentDir(spindle, userId, b);
   await spindle.userStorage.move(absPath(a), absPath(b), userId);
 }

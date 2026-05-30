@@ -64,8 +64,13 @@ function inlineMarkdown(input: string, codeSpans: Map<string, string>): string {
 
   out = escapeHtml(out);
 
-  out = out.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_m, alt: string, src: string) => `<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}">`);
-  out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, text: string, href: string) => `<a href="${escapeHtml(href)}">${text}</a>`);
+  // src / alt / href are captured from the already-escaped string (escapeHtml ran
+  // above), so they must NOT be escaped again: a URL like `?a=1&b=2` is already
+  // `&amp;` here, and re-escaping bakes a literal `&amp;` into the href. The
+  // single prior escape still neutralizes quote-breakout, and the sanitizer
+  // (isAllowedUrl + attribute allowlist) gates the scheme.
+  out = out.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_m, alt: string, src: string) => `<img src="${src}" alt="${alt}">`);
+  out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, text: string, href: string) => `<a href="${href}">${text}</a>`);
   out = out.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
   out = out.replace(/__([^_\n]+)__/g, "<strong>$1</strong>");
   out = out.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");

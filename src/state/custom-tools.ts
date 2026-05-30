@@ -98,6 +98,13 @@ export function validateManifest(raw: unknown): CustomToolManifest {
 
 // ─── Storage ───
 
+// Same identifier shape validateManifest enforces on save. Reused on load and
+// delete so an LLM-supplied name like "../foo" can't escape CUSTOM_TOOLS_DIR
+// and target arbitrary userStorage paths.
+function isValidToolName(name: string): boolean {
+  return typeof name === "string" && /^[a-z][a-z0-9_]{0,63}$/i.test(name);
+}
+
 function manifestPath(name: string): string {
   return `${CUSTOM_TOOLS_DIR}/${name}/tool.json`;
 }
@@ -115,6 +122,7 @@ export async function loadCustomTool(
   userId: string,
   name: string,
 ): Promise<CustomToolManifest | null> {
+  if (!isValidToolName(name)) return null;
   const stored = await spindle.userStorage.getJson<unknown>(manifestPath(name), { fallback: null, userId });
   if (!stored) return null;
   try { return validateManifest(stored); } catch { return null; }
@@ -125,6 +133,7 @@ export async function deleteCustomTool(
   userId: string,
   name: string,
 ): Promise<boolean> {
+  if (!isValidToolName(name)) return false;
   try {
     await spindle.userStorage.delete(manifestPath(name), userId);
     try { await spindle.userStorage.delete(`${CUSTOM_TOOLS_DIR}/${name}`, userId); } catch { /* dir may not exist as a separate entry */ }
@@ -255,6 +264,10 @@ function substituteString(s: string, scope: Record<string, unknown>): unknown {
       if (name.startsWith("$")) throw new Error(`unknown ref '{{${name}}}'`);
       return match;
     }
+    // found but null/undefined (e.g. a dotted ref into a missing sub-key):
+    // emit empty, not the literal strings "undefined" / "null" that
+    // JSON.stringify(undefined) / String-coercion would inject.
+    if (value === undefined || value === null) return "";
     if (typeof value === "string") return value;
     if (typeof value === "number" || typeof value === "boolean") return String(value);
     return JSON.stringify(value);
@@ -327,9 +340,23 @@ export async function runCustomTool(
     const fn = opts.dispatch[callName]!;
     const substitutedArgs = step.args ? (substituteValue(step.args, scope) as Record<string, unknown>) : {};
 
+    // Stamp the active frame onto step ctx so a nested custom_tool_run reads
+    // the parent's depth/deadline/budget instead of starting fresh. Without
+    // this, recursion is unbounded and the per-recipe timeout is per-frame.
+    const stepCtx = {
+      ...ctx,
+      __customToolDepth: opts.depth,
+      __customToolDeadline: opts.deadline,
+      __customToolStepBudget: opts.stepBudget,
+    } as ToolCtx;
+
     // Built-in tools return JSON strings; we try to parse so downstream steps
     // can index into structured fields. Fall back to the raw string if not JSON.
-    const raw = await fn(substitutedArgs, ctx);
+    // A step that signals isError aborts the recipe — silently swallowing it
+    // would let later steps reference garbage from the failed call.
+    const r = await fn(substitutedArgs, stepCtx);
+    if (r.isError === true) throw new Error(`step[${i}] '${callName}' failed: ${r.content}`);
+    const raw = r.content;
     const parsed = typeof raw === "string" ? tryParseJSON(raw) : raw;
     lastResult = parsed;
     if (step.save_as) {

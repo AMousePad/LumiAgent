@@ -75,6 +75,12 @@ function grepLeaf(
       hits.push({ path: leafKey, surface, surface_label: surfaceLabel, line: i + 1, match: lineMatches[k]!, preview });
     }
   }
+  // The top-of-loop check only flags truncation when a LATER line is left
+  // unscanned. If the budget fills exactly on the last line (or a mid-line
+  // clamp leaves more matches), the loop ends naturally with stoppedEarly false,
+  // so the caller emits no truncated_at / leaves_unscanned and silently drops
+  // the remaining leaves. Flag it here too when the budget is exhausted.
+  if (hits.length >= maxRemaining) stoppedEarly = true;
   return { hits, lastLineScanned, totalLines, stoppedEarly };
 }
 

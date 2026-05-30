@@ -29,26 +29,35 @@ const DIAL_TIMEOUT_MS = 15_000;
 async function dial<T>(spindle: SpindleAPI, extId: string, request: PhoneLineRequest): Promise<T> {
   const existing = (request as { callId?: string }).callId;
   const enriched = { ...request, callId: existing ?? makeCallId() } as PhoneLineRequest;
+  // The request channel is a single global slot keyed only by extension id. The
+  // next dial's sync() must not overwrite it while THIS dial's read is still
+  // pending at the host, or the host reads back the wrong envelope. So advance
+  // the chain on the underlying read settling, NOT the timeout-raced result.
+  let readSettled: Promise<unknown> = Promise.resolve();
   const run = async (): Promise<T> => {
     spindle.rpcPool.sync(PHONELINE_REQUEST_CHANNEL, enriched);
+    const readP = spindle.rpcPool.read<T>(PHONELINE_ENDPOINT(extId));
+    readSettled = readP.then(() => undefined, () => undefined);
     let timer: ReturnType<typeof setTimeout> | null = null;
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => reject(new Error(`phoneline dial to '${extId}' timed out after ${DIAL_TIMEOUT_MS}ms`)), DIAL_TIMEOUT_MS);
     });
     try {
-      return await Promise.race([
-        spindle.rpcPool.read<T>(PHONELINE_ENDPOINT(extId)),
-        timeout,
-      ]);
+      return await Promise.race([readP, timeout]);
     } finally {
       if (timer !== null) clearTimeout(timer);
     }
   };
-  const next = dialChain.then(run, run);
-  // Keep the chain alive even if this dial rejected, so a failure on one
-  // caller doesn't poison every later dial.
-  dialChain = next.catch(() => undefined);
-  return next;
+  const caller = dialChain.then(run, run);
+  // Gate the next dial on this dial's read settling, so a timed-out-but-still-
+  // pending read can't have its slot clobbered. But bound the wait with a grace
+  // window: a genuinely hung host read must NOT deadlock the global chain
+  // forever (the whole point of the per-dial timeout). Worst case the chain is
+  // held ~caller-timeout + grace, then released. readSettled never rejects.
+  const settleOrGrace = (): Promise<unknown> =>
+    Promise.race([readSettled, new Promise((res) => setTimeout(res, DIAL_TIMEOUT_MS))]);
+  dialChain = caller.then(settleOrGrace, settleOrGrace);
+  return caller;
 }
 
 export function dialDescribe(spindle: SpindleAPI, extId: string): Promise<SurfaceManifest> {

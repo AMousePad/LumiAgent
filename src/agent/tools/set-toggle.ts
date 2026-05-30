@@ -29,7 +29,9 @@ Toggle definitions (what toggles exist, what type, what default) live in module 
     },
     required: ["chat_id", "key", "value"],
   },
-  requiresCharacter: true,
+  // Chat-scoped (explicit chat_id, never reads ctx.characterId), so it must stay
+  // available in no-character sessions like the other explicit-id tools.
+  requiresCharacter: false,
   execute: async (input, ctx) => {
     const provider = await findLumirealm(ctx);
     if (!provider) return { content: "Error: LumiRealm phone line not available (not installed or consent denied).", isError: true };

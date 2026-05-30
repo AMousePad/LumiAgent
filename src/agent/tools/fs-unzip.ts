@@ -23,6 +23,7 @@ export const fsUnzipTool = defineTool({
     const { parseZip } = await import("../../state/zip");
     const bytes = await ws.readBinary(ctx.spindle, ctx.userId, input.zip_path);
     const entries = parseZip(bytes);
+    const caps = await ws.resolveUserCaps(ctx.spindle, ctx.userId);
     let written = 0;
     let totalBytes = 0;
     for (const entry of entries) {
@@ -33,7 +34,7 @@ export const fsUnzipTool = defineTool({
         throw new Error(`unsafe zip entry path: '${entry.path}'`);
       }
       const target = input.dest_dir === "" ? rel : `${input.dest_dir}/${rel}`;
-      await ws.writeBinary(ctx.spindle, ctx.userId, target, entry.bytes);
+      await ws.writeBinary(ctx.spindle, ctx.userId, target, entry.bytes, caps);
       written++;
       totalBytes += entry.bytes.byteLength;
     }

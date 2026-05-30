@@ -23,10 +23,13 @@ export const listChatMessagesTool = defineTool({
     },
     required: [],
   },
-  requiresCharacter: true,
+  // Chat-scoped; stays available in no-character sessions so the agent can
+  // discover message ids for the chat it pinned (matches the ungated chat/ edit surface).
+  requiresCharacter: false,
   execute: async (input, ctx) => {
     let chatId = input.chat_id;
-    if (!chatId) {
+    // "pinned" is read_chat_messages' documented alias, treat it like omitted.
+    if (!chatId || chatId === "pinned") {
       if (!ctx.pinnedChatId) return { content: "Error: No chat_id provided and no chat is pinned. Either pass chat_id or have the user pin a chat.", isError: true };
       chatId = ctx.pinnedChatId;
     }
