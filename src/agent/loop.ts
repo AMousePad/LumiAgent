@@ -309,6 +309,7 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
       characterId: input.characterId ?? "",
       assistantMessageId: input.assistantMessageId,
       pinnedChatId: input.pinnedChatId,
+      ...(input.connectionId !== undefined ? { connectionId: input.connectionId } : {}),
       signal,
       contextTokens: input.contextTokens ?? DEFAULT_CONTEXT_TOKENS,
       recentReads,

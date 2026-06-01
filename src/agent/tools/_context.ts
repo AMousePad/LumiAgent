@@ -15,6 +15,10 @@ export interface ToolCtx {
   // squash_session_edits) read it. Empty string only in synthetic/test contexts.
   readonly assistantMessageId: string;
   readonly pinnedChatId: string | null;
+  // The connection the agent is running on (the drawer's selection). Tools that
+  // call the host generate/dry-run surfaces pass it so they don't fall back to
+  // the user's default connection, which may not exist.
+  readonly connectionId?: string | undefined;
   readonly signal: AbortSignal;
   readonly contextTokens: number;
   readonly recentReads: RecentReadsCache;

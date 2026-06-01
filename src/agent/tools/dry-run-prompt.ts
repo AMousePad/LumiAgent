@@ -30,9 +30,15 @@ export const dryRunPromptTool = defineTool({
       return { content: JSON.stringify({ error: "no chat_id given and no pinned chat. Pass chat_id, or pin a chat first." }), isError: true };
     }
     try {
+      // Fall back to the agent's own connection so dry-run doesn't depend on the
+      // user having a default connection flagged. The host's resolveConnection
+      // throws "No connection profile found" when no id is passed and no default
+      // exists; the chat path always passes its connection, so chat works while
+      // this tool didn't for users without a default.
+      const connectionId = input.connection_id ?? ctx.connectionId;
       const result = await ctx.spindle.generate.dryRun({
         chatId,
-        ...(input.connection_id ? { connectionId: input.connection_id } : {}),
+        ...(connectionId ? { connectionId } : {}),
         ...(input.persona_id ? { personaId: input.persona_id } : {}),
         ...(input.preset_id ? { presetId: input.preset_id } : {}),
       }, ctx.userId);

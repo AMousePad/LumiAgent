@@ -35650,9 +35650,10 @@ var init_dry_run_prompt = __esm(() => {
         return { content: JSON.stringify({ error: "no chat_id given and no pinned chat. Pass chat_id, or pin a chat first." }), isError: true };
       }
       try {
+        const connectionId = input.connection_id ?? ctx.connectionId;
         const result = await ctx.spindle.generate.dryRun({
           chatId,
-          ...input.connection_id ? { connectionId: input.connection_id } : {},
+          ...connectionId ? { connectionId } : {},
           ...input.persona_id ? { personaId: input.persona_id } : {},
           ...input.preset_id ? { presetId: input.preset_id } : {}
         }, ctx.userId);
@@ -37602,6 +37603,7 @@ async function* runAgent(input) {
       characterId: input.characterId ?? "",
       assistantMessageId: input.assistantMessageId,
       pinnedChatId: input.pinnedChatId,
+      ...input.connectionId !== undefined ? { connectionId: input.connectionId } : {},
       signal,
       contextTokens: input.contextTokens ?? DEFAULT_CONTEXT_TOKENS,
       recentReads,
