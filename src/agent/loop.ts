@@ -18,10 +18,42 @@ import { newEditEntry } from "../state/edit-log";
 import { dlog } from "../log";
 import { characterScope } from "../types";
 import { writeTmp } from "../state/tmp-store";
-import { isReadOnlyTool, maxResultSizeCharsFor, RecentReadsCache, type ToolCtx, type ToolFn } from "./tools";
+import { isReadOnlyTool, maxResultSizeCharsFor, RecentReadsCache, type ToolCtx, type ToolFn, type QueuedImage } from "./tools";
 
 const PARALLEL_TOOL_CONCURRENCY = 5;
 const SPILL_ENVELOPE_SENTINEL = "{\n  \"spilled\": true";
+
+// Fill base64 into image parts that carry only a workspace `path`, reading the
+// file just before the wire. Persisted history keeps the ref (empty data) so the
+// session JSON never holds image bytes. A missing file degrades to a text note
+// rather than an empty-image 400. Returns the same array when nothing hydrated.
+async function hydrateImageRefs(
+  conv: readonly LlmMessage[],
+  spindle: SpindleAPI,
+  userId: string,
+  cache: Map<string, string>,
+): Promise<LlmMessage[]> {
+  const needsWork = conv.some((m) => typeof m.content !== "string" && m.content.some((p) => p.type === "image" && p.path && p.data.length === 0));
+  if (!needsWork) return conv as LlmMessage[];
+  const ws = await import("../state/workspace");
+  const out: LlmMessage[] = [];
+  for (const m of conv) {
+    if (typeof m.content === "string") { out.push(m); continue; }
+    const parts: LlmMessagePart[] = [];
+    for (const p of m.content) {
+      if (p.type !== "image" || !p.path || p.data.length > 0) { parts.push(p); continue; }
+      let b64 = cache.get(p.path);
+      if (b64 === undefined) {
+        try { b64 = Buffer.from(await ws.readBinary(spindle, userId, p.path)).toString("base64"); }
+        catch { b64 = ""; }
+        cache.set(p.path, b64);
+      }
+      parts.push(b64.length > 0 ? { type: "image", data: b64, mime_type: p.mime_type } : { type: "text", text: `[image unavailable: ${p.path}]` });
+    }
+    out.push({ ...m, content: parts });
+  }
+  return out;
+}
 
 interface SpillCapInfo {
   readonly unit: "chars" | "tokens";
@@ -84,6 +116,12 @@ export interface RunAgentInput {
   readonly startingTurn?: number | undefined;
   readonly signal?: AbortSignal | undefined;
   readonly contextTokens?: number | undefined;
+  // Recent-read cache for the edit freshness gates. When the backend passes a
+  // session-scoped instance, reads survive across user messages (the gate's TTL
+  // + per-write hash check still bound staleness), so a read in one turn
+  // satisfies an edit in the next. Omitted in tests / synthetic runs, where a
+  // fresh per-run cache is fine.
+  readonly recentReads?: RecentReadsCache | undefined;
   // Hard ceiling on a single tool-call result in tokens. Anything bigger gets
   // redirected to a session-scoped tmp file with a small envelope returned to
   // the model. Resolved by the backend from AgentSettings.toolOutputCapTokens.
@@ -284,11 +322,14 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
 
   const deferredSchemas = input.deferredToolSchemas ?? {};
   const discoveredToolNames = seedDiscoveredFromHistory(input.conversation, deferredSchemas);
-  const recentReads = new RecentReadsCache();
+  const recentReads = input.recentReads ?? new RecentReadsCache();
+  // base64 by attachment path, reused across turns within this run.
+  const imageHydrationCache = new Map<string, string>();
 
   interface CallBuffer {
     readonly edits: EditRecord[];
     readonly reverts: Array<{ editId: string; outcome: RevertOutcomeWire }>;
+    readonly images: QueuedImage[];
     resync: boolean;
     // squash_session_edits passes the absorbed → merged id map so the backend
     // can rewrite tool-block edit_ids on the in-flight assistant message,
@@ -316,6 +357,7 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
       setFinished: (s) => { finishedSummary = s; },
       pushEdit: (rec) => { buffer.edits.push(rec); },
       pushRevert: (editId, outcome) => { buffer.reverts.push({ editId, outcome }); },
+      queueImage: (img) => { buffer.images.push(img); },
       pushLedgerResync: (remap) => {
         buffer.resync = true;
         if (remap && Object.keys(remap).length > 0) {
@@ -385,9 +427,12 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
     let streamedReasoningChars = 0;
     let streamedTokenChars = 0;
     let sawDoneEvent = false;
+    // Hydrate image refs into base64 for the wire only; conv keeps the refs so
+    // persisted history stays byte-light.
+    const requestConv = await hydrateImageRefs(conv, input.spindle, input.userId, imageHydrationCache);
     try {
       for await (const ev of runLlmStream(input.spindle, {
-        messages: withRollingCacheBreakpoint(coalesceConsecutiveTurns(conv), input.cacheMode ?? "full"),
+        messages: withRollingCacheBreakpoint(coalesceConsecutiveTurns(requestConv), input.cacheMode ?? "full"),
         tools: effectiveTools,
         ...(input.connectionId !== undefined ? { connectionId: input.connectionId } : {}),
         ...(input.parameters !== undefined ? { parameters: input.parameters } : {}),
@@ -430,7 +475,7 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
 
     if (usage === undefined) {
       try {
-        usage = await estimateUsage(input.spindle, input.userId, withRollingCacheBreakpoint(coalesceConsecutiveTurns(conv), input.cacheMode ?? "full"), content, reasoning, input.tokenizerModelId);
+        usage = await estimateUsage(input.spindle, input.userId, withRollingCacheBreakpoint(coalesceConsecutiveTurns(requestConv), input.cacheMode ?? "full"), content, reasoning, input.tokenizerModelId);
       } catch { /* keep undefined: UI just hides the strip */ }
     }
 
@@ -567,6 +612,7 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
     if (toolCalls.length > 0) anyToolCallThisRun = true;
     const results: ToolResult[] = [];
     const newEdits: EditLogEntry[] = [];
+    const queuedImages: QueuedImage[] = [];
     let revertedThisTurn = false;
 
     interface CallOutcome {
@@ -580,7 +626,7 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
     }
 
     const executeOne = async (tc: ToolCall): Promise<CallOutcome> => {
-      const buffer: CallBuffer = { edits: [], reverts: [], resync: false };
+      const buffer: CallBuffer = { edits: [], reverts: [], images: [], resync: false };
       const fn = input.dispatch[tc.name];
       if (!fn) {
         const msg = `Unknown tool '${tc.name}'. Available: ${Object.keys(input.dispatch).join(", ")}`;
@@ -663,6 +709,7 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
         newEditEntry(input.sessionId, rec.scope ?? characterScope(input.characterId ?? ""), oc.tc.call_id, oc.tc.name, turnNum, rec, input.assistantMessageId),
       );
       newEdits.push(...editsForCall);
+      queuedImages.push(...oc.buffer.images);
       results.push({ call_id: oc.tc.call_id, name: oc.tc.name, content: oc.resultText, ...(oc.isError ? { is_error: true } : {}) });
       for (const e of editsForCall) yield { type: "edit_logged", entry: e };
       for (const r of oc.buffer.reverts) { revertedThisTurn = true; yield { type: "revert_logged", editId: r.editId, outcome: r.outcome }; }
@@ -724,6 +771,17 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
 
     conv.push(encodeAssistantTurn(content, toolCalls, reasoning));
     if (results.length > 0) conv.push(encodeToolResults(results));
+
+    // Images a tool asked the model to view. Tool results are text-only, so they
+    // ride as a user-role message right after the batch. Pushed onto conv, which
+    // the backend persists as llmHistory, so the view survives the rest of the
+    // session (a later history rebuild from s.messages drops it; re-view if so).
+    if (queuedImages.length > 0) {
+      const imageParts: LlmMessagePart[] = queuedImages.map((q) => ({ type: "image", data: "", mime_type: q.mime_type, path: q.path }));
+      const labels = queuedImages.map((q) => q.label).join(", ");
+      imageParts.push({ type: "text", text: `[Viewing image${queuedImages.length > 1 ? "s" : ""}: ${labels}]` });
+      conv.push({ role: "user", content: imageParts });
+    }
 
     // Loop detection with progress known. Any forward motion this turn clears
     // the detector, so repetition that coexists with progress never fires.

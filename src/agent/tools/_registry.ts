@@ -25,6 +25,9 @@ import { fsReadTool } from "./fs-read";
 import { fsStatTool } from "./fs-stat";
 import { fsUnzipTool } from "./fs-unzip";
 import { fsWriteTool } from "./fs-write";
+import { viewImageTool } from "./view-image";
+import { webSearchTool } from "./web-search";
+import { webFetchTool } from "./web-fetch";
 import { fsZipTool } from "./fs-zip";
 import { grepTool } from "./grep";
 import { grepChatMessagesTool } from "./grep-chat-messages";
@@ -141,7 +144,7 @@ const READ_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   // Tmp handle reads
   "tmp_stat", "tmp_list", "tmp_read", "tmp_grep",
   // Workspace reads
-  "fs_list", "fs_read", "fs_stat",
+  "fs_list", "fs_read", "fs_stat", "view_image",
   // Chat reads
   "chat_stats", "list_chat_messages", "grep_chat_messages",
   "list_chats_for_character", "read_chat_messages",
@@ -181,6 +184,8 @@ const PER_TOOL_RESULT_CAP_CHARS: Readonly<Record<string, number>> = {
   audit_card_coverage: Number.POSITIVE_INFINITY,
   dry_run_prompt: Number.POSITIVE_INFINITY,
   fs_read: Number.POSITIVE_INFINITY,
+  web_search: Number.POSITIVE_INFINITY,
+  web_fetch: Number.POSITIVE_INFINITY,
   // Compact metadata / list / search outputs.
   inspect: 12_000,
   list: 20_000,
@@ -229,6 +234,9 @@ registry.register(fsListTool);
 registry.register(fsMkdirTool);
 registry.register(fsMoveTool);
 registry.register(fsReadTool);
+registry.register(viewImageTool);
+registry.register(webSearchTool);
+registry.register(webFetchTool);
 registry.register(fsStatTool);
 registry.register(fsUnzipTool);
 registry.register(fsWriteTool);

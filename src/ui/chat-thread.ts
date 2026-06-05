@@ -419,7 +419,40 @@ export function renderUserMessage(msg: ChatUserMessage, deps?: ChatThreadDeps): 
   const isPre = deps?.isPreCompaction?.(msg.ts) ?? false;
   const wrap = el("div", `la-msg la-msg-user${isPre ? " la-pre-compaction" : ""}`);
   const bubble = el("div", "la-msg-bubble");
-  bubble.textContent = msg.content;
+  const hasImages = !!msg.images && msg.images.length > 0;
+  const hasFiles = !!msg.files && msg.files.length > 0;
+  if (hasImages) {
+    const imgs = el("div", "la-msg-images");
+    for (const im of msg.images!) {
+      const img = document.createElement("img");
+      img.className = "la-msg-image";
+      img.alt = "attachment";
+      void import("./image-cache").then((m) => m.loadImage(im.path, (url) => {
+        if (url) img.src = url;
+        else img.classList.add("la-msg-image-missing");
+      }));
+      imgs.appendChild(img);
+    }
+    bubble.appendChild(imgs);
+  }
+  if (hasFiles) {
+    const fs = el("div", "la-msg-files");
+    for (const f of msg.files!) {
+      const chip = el("div", "la-msg-file");
+      chip.append(el("span", "la-msg-file-name", f.name), el("span", "la-msg-file-size", `${f.size} B`));
+      fs.appendChild(chip);
+    }
+    bubble.appendChild(fs);
+  }
+  if (hasImages || hasFiles) {
+    if (msg.content.length > 0) {
+      const txt = el("div", "la-msg-text");
+      txt.textContent = msg.content;
+      bubble.appendChild(txt);
+    }
+  } else {
+    bubble.textContent = msg.content;
+  }
   wrap.appendChild(bubble);
 
   // Pre-compaction: model-level actions would silently undo the compaction.

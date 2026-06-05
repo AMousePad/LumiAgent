@@ -307,6 +307,11 @@ ${LOADERS_CSS}
 
 /* Inline error banner — shown in the thread when generation fails. */
 .la-error-banner {
+  /* Sits outside the virtualizer's spacer. The spacer + its absolute inner are
+     positioned, so without an explicit stacking context the message layer
+     paints over this static sibling and eats the dismiss-button click. */
+  position: relative;
+  z-index: 1;
   border: 1px solid var(--lumiverse-danger);
   background: var(--lumiverse-danger-015);
   color: var(--lumiverse-danger);
@@ -1296,6 +1301,94 @@ ${LOADERS_CSS}
 .la-send-btn:hover:not(:disabled) { background: var(--lumiverse-primary-hover); }
 .la-send-btn:disabled { background: var(--lumiverse-secondary); cursor: not-allowed; opacity: 0.6; }
 .la-send-btn svg { width: 18px; height: 18px; }
+.la-attach-btn {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  background: transparent;
+  border: none;
+  color: var(--lumiverse-text-muted);
+  cursor: pointer;
+  margin-right: 6px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: background var(--lumiverse-transition-fast), color var(--lumiverse-transition-fast);
+}
+.la-attach-btn:hover { background: var(--lumiverse-bg-hover); color: var(--lumiverse-text); }
+.la-attach-btn svg { width: 18px; height: 18px; }
+.la-attachments {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  padding: 4px 2px 8px;
+}
+.la-attachment { position: relative; width: 56px; height: 56px; }
+.la-attachment img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  border-radius: var(--lumiverse-radius);
+  border: 1px solid var(--lumiverse-border);
+}
+.la-attachment-remove {
+  position: absolute; top: -6px; right: -6px;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  border: none;
+  background: var(--lumiverse-bg-elevated);
+  color: var(--lumiverse-text);
+  box-shadow: var(--lumiverse-shadow-sm, 0 1px 3px rgba(0,0,0,0.3));
+  cursor: pointer;
+  font-size: 13px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+}
+.la-composer.la-composer-dragover { outline: 2px dashed var(--lumiverse-primary); outline-offset: -4px; }
+.la-file-attachment {
+  position: relative;
+  display: flex; flex-direction: column;
+  gap: 3px;
+  width: 170px;
+  padding: 6px 22px 7px 10px;
+  border-radius: var(--lumiverse-radius);
+  border: 1px solid var(--lumiverse-border);
+  background: var(--lumiverse-bg-elevated);
+}
+.la-file-attachment.is-error { border-color: var(--lumiverse-danger); }
+.la-file-attachment-name { font-size: 12px; color: var(--lumiverse-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.la-file-attachment-size { font-size: 10px; color: var(--lumiverse-text-muted); }
+.la-file-attachment.is-error .la-file-attachment-size { color: var(--lumiverse-danger); }
+/* Upload progress: a thin track that fills as chunks send. Hidden once ready. */
+.la-file-progress {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--lumiverse-border);
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity var(--lumiverse-transition-fast);
+}
+.la-file-attachment.is-uploading .la-file-progress { opacity: 1; }
+.la-file-progress-bar {
+  height: 100%;
+  width: 0%;
+  background: var(--lumiverse-primary);
+  transition: width var(--lumiverse-transition-fast);
+}
+.la-file-attachment.is-error .la-file-progress-bar { background: var(--lumiverse-danger); }
+.la-msg-files { display: flex; flex-wrap: wrap; gap: 6px; }
+.la-msg-file {
+  display: flex; flex-direction: column; gap: 2px;
+  max-width: 220px;
+  padding: 6px 10px;
+  border-radius: var(--lumiverse-radius);
+  border: 1px solid var(--lumiverse-border);
+  background: var(--lumiverse-bg);
+}
+.la-msg-file-name { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.la-msg-file-size { font-size: 10px; color: var(--lumiverse-text-muted); }
+.la-msg-images { display: flex; flex-wrap: wrap; gap: 6px; }
+.la-msg-text { margin-top: 6px; white-space: pre-wrap; }
+.la-msg-image {
+  max-width: 220px; max-height: 220px;
+  border-radius: var(--lumiverse-radius);
+  border: 1px solid var(--lumiverse-border);
+  object-fit: contain;
+}
 .la-cancel-btn {
   width: 36px; height: 36px;
   border-radius: 50%;

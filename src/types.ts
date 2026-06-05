@@ -11,7 +11,10 @@ import type {
 
 export type LlmMessagePart =
   | { type: "text"; text: string; cache_control?: Record<string, unknown> }
-  | { type: "image"; data: string; mime_type: string; cache_control?: Record<string, unknown> }
+  // `path` (workspace-relative) is the persisted reference; `data` holds base64
+  // only transiently after hydration just before the wire. Persisted history
+  // carries path with an empty data so the session JSON stays small.
+  | { type: "image"; data: string; mime_type: string; path?: string; cache_control?: Record<string, unknown> }
   | { type: "audio"; data: string; mime_type: string; cache_control?: Record<string, unknown> }
   | { type: "tool_use"; id: string; name: string; input: Record<string, unknown>; cache_control?: Record<string, unknown>; thought_signature?: string }
   | { type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean; cache_control?: Record<string, unknown> };
@@ -197,11 +200,46 @@ export type RevertOutcomeWire =
   | { kind: "external_diverged"; editId: string; currentSample: string; expectedSample: string }
   | { kind: "failed"; editId: string; error: string };
 
+// A user-attached image, stored as a reference to a workspace file under
+// attachments/{sessionId}/ rather than inline base64, so session JSON stays
+// small and the bytes are visible / deletable in the Files tab.
+export interface MessageImage {
+  readonly path: string;
+  readonly mime_type: string;
+}
+
+// Wire shape for an attachment on send_message: the frontend picks the workspace
+// `path` (it knows the sessionId) and ships the base64 once; the backend writes
+// the file and keeps only the MessageImage ref.
+export interface WireImage {
+  readonly path: string;
+  readonly data: string;
+  readonly mime_type: string;
+}
+
+// A non-image file attachment, stored as a workspace file under
+// attachments/{sessionId}/. Small text files carry their content inline so the
+// agent sees them immediately; larger/binary files are path refs it fs_reads.
+export interface MessageFile {
+  readonly path: string;
+  readonly name: string;
+  readonly size: number;
+  readonly mime: string;
+  readonly kind: "text" | "binary";
+  readonly inlineContent?: string;
+}
+
+// Wire shape for a file on send_message. Bytes are streamed separately via
+// ws_upload_part; this carries only the ref (+ inline text for small files).
+export type WireFile = MessageFile;
+
 export interface ChatUserMessage {
   readonly id: string;
   readonly role: "user";
   readonly ts: number;
   readonly content: string;
+  readonly images?: readonly MessageImage[];
+  readonly files?: readonly MessageFile[];
 }
 
 export type AssistantBlock =
@@ -301,7 +339,7 @@ export type FrontendToBackend =
   | { type: "list_sessions"; characterId?: string | null | undefined }
   | { type: "load_session"; sessionId: string }
   | { type: "start_session"; sessionId: string; characterId: string | null; connectionId?: string | undefined }
-  | { type: "send_message"; sessionId: string; userMessageId: string; content: string; connectionId?: string | undefined }
+  | { type: "send_message"; sessionId: string; userMessageId: string; content: string; connectionId?: string | undefined; images?: readonly WireImage[] | undefined; files?: readonly WireFile[] | undefined }
   | { type: "continue_session"; sessionId: string; connectionId?: string | undefined }
   | { type: "cancel_generation"; sessionId: string }
   | { type: "delete_session"; sessionId: string }
@@ -323,6 +361,7 @@ export type FrontendToBackend =
   | { type: "get_ui_prefs" }
   | { type: "update_ui_prefs"; connectionId: string | null; lastSessionId: string | null }
   | { type: "ws_list"; path: string }
+  | { type: "ws_read_image"; path: string }
   | { type: "ws_read_text"; path: string }
   | { type: "ws_write_text"; path: string; content: string }
   | { type: "ws_duplicate"; path: string }
@@ -374,6 +413,9 @@ export type BackendToFrontend =
   | { type: "ws_text_pushed"; path: string; content: string; sizeBytes: number }
   | { type: "ws_changed" }
   | { type: "ws_download_ready"; path: string; dataBase64: string; mimeType: string }
+  | { type: "ws_image_ready"; path: string; dataBase64: string; mimeType: string }
+  | { type: "ws_image_error"; path: string; error: string }
+  | { type: "ws_upload_complete"; transferId: string; path: string }
   | { type: "ws_zip_ready"; dataBase64: string; filename: string }
   | { type: "ws_error"; error: string }
   | { type: "context_usage"; sessionId: string; promptTokens: number; contextTokens: number; percentUsed: number }

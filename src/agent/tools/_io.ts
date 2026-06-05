@@ -39,6 +39,18 @@ export function readBudgetChars(ctx: ToolCtx): number {
   return readBudgetTokens(ctx) * 3;
 }
 
+const PREVIEW_CHARS = 2000;
+
+// Preview prefix for a spilled payload. Snaps to the last newline in range so
+// the teaser never cuts mid-line (ported from Claude Code's generatePreview).
+function generatePreview(content: string, maxChars: number): { preview: string; hasMore: boolean } {
+  if (content.length <= maxChars) return { preview: content, hasMore: false };
+  const head = content.slice(0, maxChars);
+  const lastNewline = head.lastIndexOf("\n");
+  const cut = lastNewline > maxChars * 0.5 ? lastNewline : maxChars;
+  return { preview: content.slice(0, cut), hasMore: true };
+}
+
 export async function spillOrReturn(
   ctx: ToolCtx,
   payload: string,
@@ -49,7 +61,7 @@ export async function spillOrReturn(
   if (payload.length <= budgetChars) return payload;
   const { writeTmp } = await import("../../state/tmp-store");
   const info = await writeTmp(ctx.spindle, ctx.sessionId, ctx.userId, payload, origin);
-  const peek = payload.slice(0, Math.min(800, Math.floor(budgetChars * 0.4)));
+  const { preview: peek } = generatePreview(payload, PREVIEW_CHARS);
   return JSON.stringify({
     spilled: true,
     tmp_handle: info.handle,

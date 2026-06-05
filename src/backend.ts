@@ -11,13 +11,18 @@ import type {
   EditLogEntry,
   FrontendToBackend,
   LlmMessage,
+  LlmMessagePart,
+  MessageImage,
+  MessageFile,
+  WireImage,
+  WireFile,
   RevertOutcomeWire,
   ScopeRef,
   CharacterStorageEntry,
   SessionStatusWire,
 } from "./types";
 import { runAgent } from "./agent/loop";
-import { listDeferredToolNames, makeDeferredToolSchemaMap, makeInitialToolSchemas, makeToolDispatch, toolRequiresCharacter } from "./agent/tools";
+import { listDeferredToolNames, makeDeferredToolSchemaMap, makeInitialToolSchemas, makeToolDispatch, RecentReadsCache, toolRequiresCharacter } from "./agent/tools";
 import { systemMessageWithCache } from "./agent/cache-control";
 import { buildGeneralSystemPrompt, buildContextNote } from "./tasks/general";
 import { revertEditWithCheck, revertEdit, writeFieldValue } from "./state/edit-log";
@@ -59,6 +64,19 @@ function scopedKey(userId: string, id: string): string {
 }
 
 const activeSessions = new Map<string, AbortController>();
+
+// Recent-read caches keyed by `${userId}:${sessionId}`, kept across messages so
+// a `read` in one turn satisfies an `edit` in the next (the gate's TTL +
+// per-write hash check still catch staleness). Lives for the worker's
+// lifetime, cleared on session delete. A worker restart just forces a re-read.
+const recentReadsBySession = new Map<string, RecentReadsCache>();
+
+function recentReadsFor(userId: string, sessionId: string): RecentReadsCache {
+  const key = scopedKey(userId, sessionId);
+  let cache = recentReadsBySession.get(key);
+  if (!cache) { cache = new RecentReadsCache(); recentReadsBySession.set(key, cache); }
+  return cache;
+}
 
 // Sessions the user has started but never sent a message in. We keep them
 // in memory only; they never hit disk. The first send_message promotes the
@@ -905,6 +923,7 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
       toolOutputCapTokens: resolveToolOutputCapTokens(settings),
       tokenizerModelId: await resolveModelForConnection(s.connectionId, userId),
       maxTurns: 8, startingTurn: 0, cacheMode: settings.cacheMode, tpmLimit: settings.tpmLimit, signal: ac.signal,
+      recentReads: recentReadsFor(userId, sessionId),
     })) {
       send({ type: "chat_event", sessionId, event: ev }, userId);
       switch (ev.type) {
@@ -1051,6 +1070,18 @@ function base64ToBytes(b64: string): Uint8Array {
   return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
 }
 
+// Read an image file as base64 for the frontend to render a thumbnail. Separate
+// from ws_download (which the workspace panel owns and routes to a file save).
+async function handleWsReadImage(path: string, userId: string): Promise<void> {
+  try {
+    const ws = await import("./state/workspace");
+    const bytes = await ws.readBinary(spindle, userId, path);
+    send({ type: "ws_image_ready", path, dataBase64: bytesToBase64(bytes), mimeType: guessMimeType(path) }, userId);
+  } catch (err) {
+    send({ type: "ws_image_error", path, error: (err as Error).message }, userId);
+  }
+}
+
 async function handleWsList(path: string, userId: string): Promise<void> {
   try {
     const ws = await import("./state/workspace");
@@ -1186,6 +1217,7 @@ async function handleWsUploadPart(transferId: string, path: string, dataBase64: 
       const { workspaceCaps } = await resolveCapsForUser(userId);
       await ws.writeBinary(spindle, userId, path, merged, workspaceCaps);
       send({ type: "ws_changed" }, userId);
+      send({ type: "ws_upload_complete", transferId, path }, userId);
     }
   } catch (err) {
     clearUploadBuffer(key);
@@ -1480,14 +1512,53 @@ async function handleContinueSession(sessionId: string, connectionId: string | u
   void handleSendMessageInternal(s, userId, connectionId);
 }
 
+// Persist attachment bytes to workspace files under attachments/{sessionId}/ and
+// return small path refs. The frontend chooses the path (it knows sessionId); we
+// validate it stays inside this session's attachment folder.
+async function persistAttachments(sessionId: string, userId: string, wire: readonly WireImage[] | undefined): Promise<MessageImage[]> {
+  if (!wire || wire.length === 0) return [];
+  const ws = await import("./state/workspace");
+  const { workspaceCaps } = await resolveCapsForUser(userId);
+  const prefix = `attachments/${sessionId}/`;
+  const out: MessageImage[] = [];
+  for (const img of wire) {
+    if (!img.path.startsWith(prefix) || img.path.includes("..")) {
+      log("warn", `rejected attachment path outside session folder: ${img.path}`);
+      continue;
+    }
+    try {
+      await ws.writeBinary(spindle, userId, img.path, base64ToBytes(img.data), workspaceCaps);
+      out.push({ path: img.path, mime_type: img.mime_type });
+    } catch (err) {
+      log("warn", `attachment write failed for ${img.path}: ${(err as Error).message}`);
+    }
+  }
+  return out;
+}
+
+// Validate file refs (bytes arrived via chunked upload) and keep the ones whose
+// path is inside this session's attachment folder.
+function acceptFiles(sessionId: string, wire: readonly WireFile[] | undefined): MessageFile[] {
+  if (!wire || wire.length === 0) return [];
+  const prefix = `attachments/${sessionId}/`;
+  const out: MessageFile[] = [];
+  for (const f of wire) {
+    if (!f.path.startsWith(prefix) || f.path.includes("..")) { log("warn", `rejected file path outside session folder: ${f.path}`); continue; }
+    out.push({ path: f.path, name: f.name, size: f.size, mime: f.mime, kind: f.kind, ...(f.inlineContent !== undefined ? { inlineContent: f.inlineContent } : {}) });
+  }
+  return out;
+}
+
 async function handleSendMessage(
   sessionId: string,
   userMessageId: string,
   content: string,
   connectionId: string | undefined,
   userId: string,
+  wireImages?: readonly WireImage[],
+  wireFiles?: readonly WireFile[],
 ): Promise<void> {
-  log("info", `send_message sessionId=${sessionId} userMessageId=${userMessageId} contentLen=${content.length}`);
+  log("info", `send_message sessionId=${sessionId} userMessageId=${userMessageId} contentLen=${content.length} images=${wireImages?.length ?? 0} files=${wireFiles?.length ?? 0}`);
   if (activeSessions.has(scopedKey(userId, sessionId))) {
     send({ type: "generation_error", sessionId, error: "session already has a generation in flight" }, userId);
     return;
@@ -1498,9 +1569,11 @@ async function handleSendMessage(
     send({ type: "generation_error", sessionId, error: `session ${sessionId} not found` }, userId);
     return;
   }
-  const userMsg: ChatUserMessage = { id: userMessageId, role: "user", ts: Date.now(), content };
+  const images = await persistAttachments(sessionId, userId, wireImages);
+  const files = acceptFiles(sessionId, wireFiles);
+  const userMsg: ChatUserMessage = { id: userMessageId, role: "user", ts: Date.now(), content, ...(images.length > 0 ? { images } : {}), ...(files.length > 0 ? { files } : {}) };
   s.messages.push(userMsg);
-  s.llmHistory.push({ role: "user", content });
+  s.llmHistory.push({ role: "user", content: userLlmContent(content, images, files) });
   await saveSession(spindle, s, userId);
   if (wasPending) {
     // Now persisted; drop the in-memory hold so future loads come from disk.
@@ -1529,11 +1602,16 @@ async function handleDeleteSession(sessionId: string, userId: string): Promise<v
   const ac = activeSessions.get(scopedKey(userId, sessionId));
   if (ac) ac.abort();
   pendingSessions.delete(scopedKey(userId, sessionId));
+  recentReadsBySession.delete(scopedKey(userId, sessionId));
   await deleteSessionFile(spindle, sessionId, userId);
   try {
     const { clearSessionTmp } = await import("./state/tmp-store");
     await clearSessionTmp(spindle, sessionId, userId);
   } catch (err) { log("warn", `tmp cleanup failed for ${sessionId}: ${(err as Error).message}`); }
+  try {
+    const ws = await import("./state/workspace");
+    await ws.remove(spindle, userId, `attachments/${sessionId}`);
+  } catch { /* no attachments folder for this session */ }
   send({ type: "session_deleted", sessionId }, userId);
   void handleListSessions(undefined, userId);
 }
@@ -1946,11 +2024,40 @@ async function handleRevertSession(sessionId: string, userId: string): Promise<v
 }
 
 // Rebuild llmHistory from session.messages. Used after truncating for edit / regenerate.
+// User-turn content: a plain string when there are no images, else a multipart
+// array with image parts (so vision models receive them). Images go first so
+// the trailing text reads as the instruction about them.
+// A text preamble describing attached files: each file's workspace path so the
+// agent can fs_read it, with small text files inlined verbatim.
+function filePreamble(files: readonly MessageFile[]): string {
+  const lines: string[] = ["[Attached files — read any of these from the workspace with fs_read]"];
+  for (const f of files) {
+    lines.push(`- ${f.path} (${f.name}, ${f.size} bytes, ${f.mime || f.kind})`);
+    if (f.kind === "text" && f.inlineContent !== undefined) {
+      lines.push("", "```", f.inlineContent, "```", "");
+    }
+  }
+  return lines.join("\n");
+}
+
+function userLlmContent(content: string, images?: readonly MessageImage[], files?: readonly MessageFile[]): string | LlmMessagePart[] {
+  const hasImages = !!images && images.length > 0;
+  const hasFiles = !!files && files.length > 0;
+  if (!hasImages && !hasFiles) return content;
+  const text = hasFiles ? [content.trim(), filePreamble(files!)].filter((s) => s.length > 0).join("\n\n") : content;
+  if (!hasImages) return text.length > 0 ? text : content;
+  // Persist image path refs with empty data; the loop hydrates base64 from the
+  // file just before the wire so session JSON never carries image bytes.
+  const parts: LlmMessagePart[] = images!.map((img) => ({ type: "image", data: "", mime_type: img.mime_type, path: img.path }));
+  if (text.trim().length > 0) parts.push({ type: "text", text });
+  return parts;
+}
+
 function rebuildLlmHistory(messages: readonly (ChatUserMessage | ChatAssistantMessage)[]): LlmMessage[] {
   const out: LlmMessage[] = [];
   for (const m of messages) {
     if (m.role === "user") {
-      out.push({ role: "user", content: m.content });
+      out.push({ role: "user", content: userLlmContent(m.content, m.images, m.files) });
       continue;
     }
     const toolCalls: ToolCall[] = [];
@@ -2173,7 +2280,11 @@ async function handleEditUserMessage(sessionId: string, messageId: string, newCo
   }
 
   // Truncate session: keep messages[0..idx-1], replace messages[idx] with new content, drop the rest.
-  const editedMsg: ChatUserMessage = { id: messageId, role: "user", ts: Date.now(), content: newContent };
+  // Carry the original attachments over: a text edit shouldn't drop them.
+  const prevMsg = s.messages[idx]!.role === "user" ? (s.messages[idx] as ChatUserMessage) : undefined;
+  const prevImages = prevMsg?.images;
+  const prevFiles = prevMsg?.files;
+  const editedMsg: ChatUserMessage = { id: messageId, role: "user", ts: Date.now(), content: newContent, ...(prevImages && prevImages.length > 0 ? { images: prevImages } : {}), ...(prevFiles && prevFiles.length > 0 ? { files: prevFiles } : {}) };
   s.messages = [...s.messages.slice(0, idx), editedMsg];
   s.llmHistory = rebuildLlmHistoryScoped(s, s.messages);
   delete s.lastContext;
@@ -2366,6 +2477,7 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
       tokenizerModelId: await resolveModelForConnection(s.connectionId, userId),
       maxTurns: DEFAULT_MAX_TURNS_PER_MESSAGE, startingTurn: lastTurn,
       cacheMode: settings.cacheMode, tpmLimit: settings.tpmLimit, signal: ac.signal,
+      recentReads: recentReadsFor(userId, s.sessionId),
       callFrontend: (op, args, timeoutMs) => callFrontend(userId, op, args, timeoutMs),
     })) {
       send({ type: "chat_event", sessionId: s.sessionId, event: ev }, userId);
@@ -2768,7 +2880,8 @@ spindle.onFrontendMessage(async (raw: unknown, userId: string) => {
       case "list_sessions": await handleListSessions(msg.characterId, userId); return;
       case "load_session": await handleLoadSession(msg.sessionId, userId); return;
       case "start_session": void handleStartSession(msg.sessionId, msg.characterId, msg.connectionId, userId); return;
-      case "send_message": void handleSendMessage(msg.sessionId, msg.userMessageId, msg.content, msg.connectionId, userId); return;
+      case "send_message": void handleSendMessage(msg.sessionId, msg.userMessageId, msg.content, msg.connectionId, userId, msg.images, msg.files); return;
+      case "ws_read_image": void handleWsReadImage(msg.path, userId); return;
       case "continue_session": void handleContinueSession(msg.sessionId, msg.connectionId, userId); return;
       case "cancel_generation": handleCancelGeneration(msg.sessionId, userId); return;
       case "delete_session": await handleDeleteSession(msg.sessionId, userId); return;

@@ -6,7 +6,6 @@ import type { ToolResult } from "./_framework";
 
 const CHAT_MESSAGES_DEFAULT_LIMIT = 100;
 const CHAT_MESSAGES_MAX_LIMIT = 500;
-const CHAT_MESSAGE_PREVIEW_CHARS = 1200;
 
 export async function readChatMessagesImpl(
   ctx: ToolCtx,
@@ -20,29 +19,23 @@ export async function readChatMessagesImpl(
   if (!chat) return { content: `Error: chat ${chatId} not found`, isError: true };
   const all = await ctx.spindle.chat.getMessages(chatId);
   const slice = all.slice(offset, offset + limit);
-  const messages = slice.map((m, i) => {
-    const content = m.content.length > CHAT_MESSAGE_PREVIEW_CHARS
-      ? `${m.content.slice(0, CHAT_MESSAGE_PREVIEW_CHARS)} […${m.content.length - CHAT_MESSAGE_PREVIEW_CHARS} more chars…]`
-      : m.content;
-    return {
-      idx: offset + i,
-      id: m.id,
-      role: m.role,
-      content,
-      swipe_count: m.swipes.length,
-      active_swipe: m.swipe_id,
-    };
-  });
+  const messages = slice.map((m, i) => ({
+    idx: offset + i,
+    id: m.id,
+    role: m.role,
+    content: m.content,
+    swipe_count: m.swipes.length,
+    active_swipe: m.swipe_id,
+  }));
   const payload = JSON.stringify({
     chat_id: chatId,
     chat_name: chat.name,
     total: all.length,
     offset,
     returned: messages.length,
-    truncated_per_message: CHAT_MESSAGE_PREVIEW_CHARS,
     messages,
   }, null, 2);
-  const out = await spillOrReturn(ctx, payload, `read_chat_messages:${chatId}`, "If you only need a few specific messages, narrow the offset/limit. For search, use grep_chat_messages instead.");
+  const out = await spillOrReturn(ctx, payload, `read_chat_messages:${chatId}`, `To read just the latest messages in full, re-call with offset near ${all.length} (e.g. offset ${Math.max(0, all.length - 3)}, limit 3). For search, use grep_chat_messages.`);
   return { content: out };
 }
 

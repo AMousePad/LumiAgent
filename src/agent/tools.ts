@@ -1,9 +1,10 @@
 import type { ToolSchema } from "../types";
 import { isDeferredTool, isReadOnlyTool, listDeferredToolNames, maxResultSizeCharsFor, registry } from "./tools/_registry";
 import { formatZodError } from "./tools/_framework";
-import type { ToolCtx as SharedToolCtx } from "./tools/_context";
+import type { ToolCtx as SharedToolCtx, QueuedImage as SharedQueuedImage } from "./tools/_context";
 
 export type ToolCtx = SharedToolCtx;
+export type QueuedImage = SharedQueuedImage;
 export { RecentReadsCache } from "./tools/_context";
 export { isDeferredTool, isReadOnlyTool, listDeferredToolNames, maxResultSizeCharsFor } from "./tools/_registry";
 

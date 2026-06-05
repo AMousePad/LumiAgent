@@ -43,6 +43,19 @@ export interface ToolCtx {
   // the sandboxed backend lacks (e.g. Chrome's built-in Translator API).
   // Resolves with the frontend's response or rejects on timeout/error.
   callFrontend?(op: string, args: unknown, timeoutMs?: number): Promise<unknown>;
+  // Queue an image for the model to see. Tool results are text-only, so a tool
+  // that wants the model to view an image hands it here; the loop injects it as
+  // a user-role image message after the tool batch. Unset in contexts that
+  // can't render images.
+  queueImage?(img: QueuedImage): void;
+}
+
+export interface QueuedImage {
+  // Workspace path to the image bytes; the loop injects a path ref and the
+  // hydration step reads it just before the wire (no base64 in persisted state).
+  readonly path: string;
+  readonly mime_type: string;
+  readonly label: string;
 }
 
 interface RecentRead { readonly ts: number; readonly hash: string | null; }

@@ -70,12 +70,6 @@ function triggerDownload(blob: Blob, filename: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
-async function bytesToBase64(bytes: Uint8Array): Promise<string> {
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
-  return btoa(binary);
-}
-
 // Pick a preview mode by extension. Binary previews go through ws_download
 // (returns base64 + mime); text previews go through ws_read_text. Unknown
 // types default to text and the user can still download to inspect.
@@ -319,27 +313,17 @@ export function mountWorkspacePanel(deps: WorkspacePanelDeps): WorkspacePanelHan
 
   refreshBtn.addEventListener("click", refresh);
 
-  // Lumiverse caps SPINDLE_BACKEND_MSG at 4MB. Stay well clear with 2MB raw
-  // per chunk (~2.7MB base64). For files under one chunk we still go through
-  // the chunked path to keep the assembly logic uniform.
-  const UPLOAD_CHUNK_BYTES = 2 * 1024 * 1024;
-
   uploadBtn.addEventListener("click", async () => {
     try {
       const targetDir = selectedPath && selectedIsDirectory ? selectedPath : "";
       const files = await deps.ctx.uploads.pickFile({ multiple: true, maxSizeBytes: 25 * 1024 * 1024 });
       if (files.length === 0) return;
+      const { streamUpload } = await import("./file-upload");
       for (const file of files) {
         const path = joinPath(targetDir, file.name);
-        const total = Math.max(1, Math.ceil(file.bytes.length / UPLOAD_CHUNK_BYTES));
         const transferId = `up_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-        for (let i = 0; i < total; i++) {
-          const start = i * UPLOAD_CHUNK_BYTES;
-          const chunk = file.bytes.subarray(start, Math.min(file.bytes.length, start + UPLOAD_CHUNK_BYTES));
-          const dataBase64 = await bytesToBase64(chunk);
-          deps.sendBackend({ type: "ws_upload_part", transferId, path, dataBase64, index: i, total });
-        }
-        setStatus(`Uploading ${file.name} (${total} part${total === 1 ? "" : "s"})...`);
+        setStatus(`Uploading ${file.name}...`);
+        await streamUpload(deps.sendBackend, path, file.bytes, transferId);
       }
     } catch (err) {
       setStatus(`Upload failed: ${(err as Error).message}`, true);

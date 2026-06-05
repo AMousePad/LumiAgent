@@ -14,6 +14,215 @@ var __export = (target, all) => {
 };
 var __esm = (fn, res) => () => (fn && (res = fn(fn = 0)), res);
 
+// src/ui/image-cache.ts
+var exports_image_cache = {};
+__export(exports_image_cache, {
+  seedImage: () => seedImage,
+  resolveImage: () => resolveImage,
+  loadImage: () => loadImage,
+  failImage: () => failImage,
+  configureImageCache: () => configureImageCache
+});
+function configureImageCache(request) {
+  requestFn = request;
+}
+function seedImage(path, dataUrl) {
+  cache.set(path, dataUrl);
+}
+function resolveImage(path, dataUrl) {
+  cache.set(path, dataUrl);
+  const w = waiters.get(path);
+  if (w) {
+    waiters.delete(path);
+    for (const f of w)
+      f(dataUrl);
+  }
+}
+function failImage(path) {
+  const w = waiters.get(path);
+  if (w) {
+    waiters.delete(path);
+    for (const f of w)
+      f(null);
+  }
+}
+function loadImage(path, cb) {
+  const hit = cache.get(path);
+  if (hit !== undefined) {
+    cb(hit);
+    return;
+  }
+  const arr = waiters.get(path) ?? [];
+  arr.push(cb);
+  waiters.set(path, arr);
+  if (arr.length === 1)
+    requestFn?.(path);
+}
+var cache, waiters, requestFn = null;
+var init_image_cache = __esm(() => {
+  cache = new Map;
+  waiters = new Map;
+});
+
+// src/ui/file-upload.ts
+var exports_file_upload = {};
+__export(exports_file_upload, {
+  streamUpload: () => streamUpload,
+  safeAttachmentName: () => safeAttachmentName,
+  isTextFile: () => isTextFile,
+  bytesToBase64: () => bytesToBase64,
+  UPLOAD_CHUNK_BYTES: () => UPLOAD_CHUNK_BYTES,
+  MAX_FILES: () => MAX_FILES,
+  INLINE_TEXT_BYTES: () => INLINE_TEXT_BYTES
+});
+function isTextFile(file) {
+  if (file.type.startsWith("text/"))
+    return true;
+  if (file.type === "application/json" || file.type === "application/xml")
+    return true;
+  const ext = file.name.toLowerCase().split(".").pop() ?? "";
+  return TEXT_EXTS.has(ext);
+}
+function safeAttachmentName(name) {
+  const cleaned = name.replace(/[^A-Za-z0-9._-]/g, "_").replace(/\.{2,}/g, "_");
+  return cleaned.length > 0 ? cleaned.slice(0, 120) : "file";
+}
+function bytesToBase64(bytes) {
+  let binary = "";
+  const chunk = 32768;
+  for (let i = 0;i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+async function streamUpload(send, path, bytes, transferId, onProgress) {
+  const total = Math.max(1, Math.ceil(bytes.length / UPLOAD_CHUNK_BYTES));
+  for (let i = 0;i < total; i++) {
+    const slice = bytes.subarray(i * UPLOAD_CHUNK_BYTES, Math.min(bytes.length, (i + 1) * UPLOAD_CHUNK_BYTES));
+    send({ type: "ws_upload_part", transferId, path, dataBase64: bytesToBase64(slice), index: i, total });
+    onProgress?.((i + 1) / total);
+    if (i < total - 1)
+      await new Promise((r) => setTimeout(r, 0));
+  }
+}
+var MAX_FILES = 5, INLINE_TEXT_BYTES, UPLOAD_CHUNK_BYTES, TEXT_EXTS;
+var init_file_upload = __esm(() => {
+  INLINE_TEXT_BYTES = 16 * 1024;
+  UPLOAD_CHUNK_BYTES = 2 * 1024 * 1024;
+  TEXT_EXTS = new Set([
+    "txt",
+    "md",
+    "markdown",
+    "json",
+    "jsonl",
+    "csv",
+    "tsv",
+    "xml",
+    "yaml",
+    "yml",
+    "html",
+    "htm",
+    "css",
+    "js",
+    "ts",
+    "tsx",
+    "jsx",
+    "py",
+    "rb",
+    "go",
+    "rs",
+    "java",
+    "c",
+    "h",
+    "cpp",
+    "lua",
+    "sh",
+    "ini",
+    "toml",
+    "log",
+    "srt",
+    "vtt",
+    "sql",
+    "svg"
+  ]);
+});
+
+// src/ui/image-resize.ts
+var exports_image_resize = {};
+__export(exports_image_resize, {
+  resizeBlob: () => resizeBlob,
+  resizeBase64: () => resizeBase64,
+  isSupportedImage: () => isSupportedImage,
+  MAX_IMAGES: () => MAX_IMAGES
+});
+function isSupportedImage(type) {
+  return SUPPORTED.has(type);
+}
+function canvasToBase64(canvas, mime, quality) {
+  const url = canvas.toDataURL(mime, quality);
+  const comma = url.indexOf(",");
+  return comma >= 0 ? url.slice(comma + 1) : "";
+}
+async function blobToBase64(blob) {
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  let binary = "";
+  for (let i = 0;i < buf.length; i++)
+    binary += String.fromCharCode(buf[i]);
+  return btoa(binary);
+}
+function drawScaled(bitmap, edge) {
+  const scale = Math.min(1, edge / Math.max(bitmap.width, bitmap.height));
+  const w = Math.max(1, Math.round(bitmap.width * scale));
+  const h = Math.max(1, Math.round(bitmap.height * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const cx = canvas.getContext("2d");
+  if (!cx)
+    throw new Error("2D canvas context unavailable");
+  cx.drawImage(bitmap, 0, 0, w, h);
+  return canvas;
+}
+async function resizeBase64(data, mimeType) {
+  const bin = atob(data);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0;i < bin.length; i++)
+    bytes[i] = bin.charCodeAt(i);
+  return resizeBlob(new Blob([bytes], { type: mimeType || "image/png" }));
+}
+async function resizeBlob(blob) {
+  const type = blob.type || "image/png";
+  if (!isSupportedImage(type))
+    throw new Error(`Unsupported image type: ${type || "unknown"}`);
+  if (blob.size <= MAX_B64_PER_IMAGE * 0.7) {
+    const data = await blobToBase64(blob);
+    if (data.length <= MAX_B64_PER_IMAGE)
+      return { data, mime_type: type };
+  }
+  const bitmap = await createImageBitmap(blob);
+  try {
+    for (const edge of [MAX_EDGE, 1000, 700]) {
+      const canvas = drawScaled(bitmap, edge);
+      for (const q of [0.85, 0.7, 0.55, 0.4]) {
+        const data2 = canvasToBase64(canvas, "image/jpeg", q);
+        if (data2.length > 0 && data2.length <= MAX_B64_PER_IMAGE) {
+          return { data: data2, mime_type: "image/jpeg" };
+        }
+      }
+    }
+    const data = canvasToBase64(drawScaled(bitmap, 512), "image/jpeg", 0.3);
+    if (!data)
+      throw new Error("Image encoding failed");
+    return { data, mime_type: "image/jpeg" };
+  } finally {
+    bitmap.close();
+  }
+}
+var MAX_IMAGES = 4, MAX_EDGE = 1568, MAX_B64_PER_IMAGE = 700000, SUPPORTED;
+var init_image_resize = __esm(() => {
+  SUPPORTED = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+});
+
 // src/ui/translator-bridge.ts
 var exports_translator_bridge = {};
 __export(exports_translator_bridge, {
@@ -1017,6 +1226,11 @@ ${LOADERS_CSS}
 
 /* Inline error banner — shown in the thread when generation fails. */
 .la-error-banner {
+  /* Sits outside the virtualizer's spacer. The spacer + its absolute inner are
+     positioned, so without an explicit stacking context the message layer
+     paints over this static sibling and eats the dismiss-button click. */
+  position: relative;
+  z-index: 1;
   border: 1px solid var(--lumiverse-danger);
   background: var(--lumiverse-danger-015);
   color: var(--lumiverse-danger);
@@ -2006,6 +2220,94 @@ ${LOADERS_CSS}
 .la-send-btn:hover:not(:disabled) { background: var(--lumiverse-primary-hover); }
 .la-send-btn:disabled { background: var(--lumiverse-secondary); cursor: not-allowed; opacity: 0.6; }
 .la-send-btn svg { width: 18px; height: 18px; }
+.la-attach-btn {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  background: transparent;
+  border: none;
+  color: var(--lumiverse-text-muted);
+  cursor: pointer;
+  margin-right: 6px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: background var(--lumiverse-transition-fast), color var(--lumiverse-transition-fast);
+}
+.la-attach-btn:hover { background: var(--lumiverse-bg-hover); color: var(--lumiverse-text); }
+.la-attach-btn svg { width: 18px; height: 18px; }
+.la-attachments {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  padding: 4px 2px 8px;
+}
+.la-attachment { position: relative; width: 56px; height: 56px; }
+.la-attachment img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  border-radius: var(--lumiverse-radius);
+  border: 1px solid var(--lumiverse-border);
+}
+.la-attachment-remove {
+  position: absolute; top: -6px; right: -6px;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  border: none;
+  background: var(--lumiverse-bg-elevated);
+  color: var(--lumiverse-text);
+  box-shadow: var(--lumiverse-shadow-sm, 0 1px 3px rgba(0,0,0,0.3));
+  cursor: pointer;
+  font-size: 13px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+}
+.la-composer.la-composer-dragover { outline: 2px dashed var(--lumiverse-primary); outline-offset: -4px; }
+.la-file-attachment {
+  position: relative;
+  display: flex; flex-direction: column;
+  gap: 3px;
+  width: 170px;
+  padding: 6px 22px 7px 10px;
+  border-radius: var(--lumiverse-radius);
+  border: 1px solid var(--lumiverse-border);
+  background: var(--lumiverse-bg-elevated);
+}
+.la-file-attachment.is-error { border-color: var(--lumiverse-danger); }
+.la-file-attachment-name { font-size: 12px; color: var(--lumiverse-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.la-file-attachment-size { font-size: 10px; color: var(--lumiverse-text-muted); }
+.la-file-attachment.is-error .la-file-attachment-size { color: var(--lumiverse-danger); }
+/* Upload progress: a thin track that fills as chunks send. Hidden once ready. */
+.la-file-progress {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--lumiverse-border);
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity var(--lumiverse-transition-fast);
+}
+.la-file-attachment.is-uploading .la-file-progress { opacity: 1; }
+.la-file-progress-bar {
+  height: 100%;
+  width: 0%;
+  background: var(--lumiverse-primary);
+  transition: width var(--lumiverse-transition-fast);
+}
+.la-file-attachment.is-error .la-file-progress-bar { background: var(--lumiverse-danger); }
+.la-msg-files { display: flex; flex-wrap: wrap; gap: 6px; }
+.la-msg-file {
+  display: flex; flex-direction: column; gap: 2px;
+  max-width: 220px;
+  padding: 6px 10px;
+  border-radius: var(--lumiverse-radius);
+  border: 1px solid var(--lumiverse-border);
+  background: var(--lumiverse-bg);
+}
+.la-msg-file-name { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.la-msg-file-size { font-size: 10px; color: var(--lumiverse-text-muted); }
+.la-msg-images { display: flex; flex-wrap: wrap; gap: 6px; }
+.la-msg-text { margin-top: 6px; white-space: pre-wrap; }
+.la-msg-image {
+  max-width: 220px; max-height: 220px;
+  border-radius: var(--lumiverse-radius);
+  border: 1px solid var(--lumiverse-border);
+  object-fit: contain;
+}
 .la-cancel-btn {
   width: 36px; height: 36px;
   border-radius: 50%;
@@ -4417,7 +4719,42 @@ function renderUserMessage(msg, deps) {
   const isPre = deps?.isPreCompaction?.(msg.ts) ?? false;
   const wrap = el2("div", `la-msg la-msg-user${isPre ? " la-pre-compaction" : ""}`);
   const bubble = el2("div", "la-msg-bubble");
-  bubble.textContent = msg.content;
+  const hasImages = !!msg.images && msg.images.length > 0;
+  const hasFiles = !!msg.files && msg.files.length > 0;
+  if (hasImages) {
+    const imgs = el2("div", "la-msg-images");
+    for (const im of msg.images) {
+      const img = document.createElement("img");
+      img.className = "la-msg-image";
+      img.alt = "attachment";
+      Promise.resolve().then(() => (init_image_cache(), exports_image_cache)).then((m) => m.loadImage(im.path, (url) => {
+        if (url)
+          img.src = url;
+        else
+          img.classList.add("la-msg-image-missing");
+      }));
+      imgs.appendChild(img);
+    }
+    bubble.appendChild(imgs);
+  }
+  if (hasFiles) {
+    const fs = el2("div", "la-msg-files");
+    for (const f of msg.files) {
+      const chip = el2("div", "la-msg-file");
+      chip.append(el2("span", "la-msg-file-name", f.name), el2("span", "la-msg-file-size", `${f.size} B`));
+      fs.appendChild(chip);
+    }
+    bubble.appendChild(fs);
+  }
+  if (hasImages || hasFiles) {
+    if (msg.content.length > 0) {
+      const txt = el2("div", "la-msg-text");
+      txt.textContent = msg.content;
+      bubble.appendChild(txt);
+    }
+  } else {
+    bubble.textContent = msg.content;
+  }
   wrap.appendChild(bubble);
   if (isPre) {
     if (deps?.onForkMessage) {
@@ -6686,12 +7023,6 @@ function triggerDownload(blob, filename) {
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
-async function bytesToBase64(bytes) {
-  let binary = "";
-  for (let i = 0;i < bytes.length; i++)
-    binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
-}
 function previewKind(path) {
   const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
   if (["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "svg", "avif"].includes(ext))
@@ -6924,24 +7255,18 @@ This lives under custom_tools/. The agent's saved tool recipes are stored here �
     renderTree();
   };
   refreshBtn.addEventListener("click", refresh);
-  const UPLOAD_CHUNK_BYTES = 2 * 1024 * 1024;
   uploadBtn.addEventListener("click", async () => {
     try {
       const targetDir = selectedPath && selectedIsDirectory ? selectedPath : "";
       const files = await deps.ctx.uploads.pickFile({ multiple: true, maxSizeBytes: 25 * 1024 * 1024 });
       if (files.length === 0)
         return;
+      const { streamUpload: streamUpload2 } = await Promise.resolve().then(() => (init_file_upload(), exports_file_upload));
       for (const file of files) {
         const path = joinPath(targetDir, file.name);
-        const total = Math.max(1, Math.ceil(file.bytes.length / UPLOAD_CHUNK_BYTES));
         const transferId = `up_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-        for (let i = 0;i < total; i++) {
-          const start = i * UPLOAD_CHUNK_BYTES;
-          const chunk = file.bytes.subarray(start, Math.min(file.bytes.length, start + UPLOAD_CHUNK_BYTES));
-          const dataBase64 = await bytesToBase64(chunk);
-          deps.sendBackend({ type: "ws_upload_part", transferId, path, dataBase64, index: i, total });
-        }
-        setStatus(`Uploading ${file.name} (${total} part${total === 1 ? "" : "s"})...`);
+        setStatus(`Uploading ${file.name}...`);
+        await streamUpload2(deps.sendBackend, path, file.bytes, transferId);
       }
     } catch (err) {
       setStatus(`Upload failed: ${err.message}`, true);
@@ -7326,6 +7651,11 @@ function mountDrawer(ctx) {
     contextTokens: 128000,
     pendingMessage: null,
     pendingMessageId: null,
+    attachments: [],
+    fileAttachments: [],
+    attachmentSessionId: null,
+    pendingMessageImages: null,
+    pendingMessageFiles: null,
     startSessionTimeout: null,
     streamingAssistant: null,
     currentAssistantMessage: null,
@@ -7452,6 +7782,14 @@ function mountDrawer(ctx) {
   textarea.rows = 1;
   textarea.placeholder = "Ask anything";
   const composerActions = el7("div", "la-composer-actions");
+  const attachBtn = el7("button", "la-attach-btn");
+  attachBtn.type = "button";
+  attachBtn.setAttribute("aria-label", "Attach image");
+  attachBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
+  const fileInput = document.createElement("input");
+  fileInput.type = "file";
+  fileInput.multiple = true;
+  fileInput.style.display = "none";
   const sendBtn = el7("button", "la-send-btn");
   sendBtn.setAttribute("aria-label", "Send");
   sendBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>';
@@ -7475,11 +7813,14 @@ function mountDrawer(ctx) {
   const compactTipSub = el7("div", "la-compact-tooltip-sub", "Click to compact now.");
   compactTip.append(compactTipMain, compactTipSub);
   compactBtn.appendChild(compactTip);
-  composerActions.append(compactBtn, sendBtn, cancelBtn);
+  composerActions.append(compactBtn, attachBtn, sendBtn, cancelBtn);
   composerArea.append(textarea, composerActions);
+  const composerAttachments = el7("div", "la-attachments");
+  composerAttachments.style.display = "none";
   const composerStatus = el7("div", "la-composer-status");
-  composerInner.append(composerArea, composerStatus);
+  composerInner.append(composerAttachments, composerArea, composerStatus);
   composer.appendChild(composerInner);
+  composer.appendChild(fileInput);
   const dumpGeometry = () => {
     const threadRect = thread.getBoundingClientRect();
     const composerRect = composer.getBoundingClientRect();
@@ -7574,6 +7915,7 @@ function mountDrawer(ctx) {
   window.addEventListener("resize", detectMouseyOverlap);
   root.append(header, thread, composer);
   const sendBackend = (msg) => ctx.sendToBackend(msg);
+  Promise.resolve().then(() => (init_image_cache(), exports_image_cache)).then((m) => m.configureImageCache((path) => sendBackend({ type: "ws_read_image", path })));
   const withConnection = (msg) => {
     let id = state.connectionId;
     if (id && !state.connections.some((c) => c.id === id)) {
@@ -7731,7 +8073,7 @@ function mountDrawer(ctx) {
       textarea.disabled = false;
       const st = state.sessionStatus;
       const statusFresh = !!st && st.sessionId === state.sessionId;
-      const hasText = textarea.value.trim().length > 0;
+      const hasText = textarea.value.trim().length > 0 || state.attachments.length > 0 || state.fileAttachments.length > 0;
       const recoverable = statusFresh && st.phase === "idle" && st.lastAssistantStatus === "errored" && st.lastAssistantEmpty && st.lastAssistantId !== null;
       const lastRole = statusFresh ? st.lastMessageRole : state.messages[state.messages.length - 1]?.role ?? null;
       if (hasText) {
@@ -7747,7 +8089,10 @@ function mountDrawer(ctx) {
         sendMode = "disabled";
         setComposerStatus(state.sessionId ? "" : "Type a message and press Send. A new session will start automatically.");
       }
-      sendBtn.disabled = sendMode === "disabled";
+      const uploading = state.fileAttachments.some((a) => a.status === "uploading");
+      sendBtn.disabled = sendMode === "disabled" || uploading;
+      if (uploading)
+        setComposerStatus("Uploading attachments…");
     }
     updateLocks();
     updateCompactButton();
@@ -8110,6 +8455,12 @@ Revert those edits to the character now, or leave them applied?`;
     state.streamingAssistant = null;
     state.pendingMessage = null;
     state.pendingMessageId = null;
+    state.attachments = [];
+    state.fileAttachments = [];
+    state.attachmentSessionId = null;
+    state.pendingMessageImages = null;
+    state.pendingMessageFiles = null;
+    renderAttachments();
     state.contextPromptTokens = 0;
     state.sessionStatus = null;
     state.reattachedGeneration = false;
@@ -8340,7 +8691,7 @@ Revert those edits to the character now, or leave them applied?`;
         sendBackend({ type: "delete_session", sessionId: state.sessionId });
     }
   });
-  const MAX_ICON_BYTES = 2 * 1024 * 1024;
+  const MAX_ICON_BYTES = 2097152;
   const readImageAsDataUrl = (bytes, mimeType) => {
     let binary = "";
     for (let i = 0;i < bytes.length; i++)
@@ -8574,7 +8925,7 @@ Revert those edits to the character now, or leave them applied?`;
         samplerBag = { ...s.samplers };
       jbArea.value = s.jailbreak ?? "";
       jbPlacement.value = s.jailbreakPlacement ?? "system_suffix";
-      const wsDefault = s.workspaceCapDefaultBytes ?? 5 * 1024 * 1024 * 1024;
+      const wsDefault = s.workspaceCapDefaultBytes ?? 5368709120;
       wsCapInput.placeholder = `${Math.round(wsDefault / 1024 / 1024)}`;
       wsCapInput.value = s.workspaceCapBytes ? String(Math.round(s.workspaceCapBytes / 1024 / 1024)) : "";
       const toolDefault = s.toolOutputCapDefaultTokens ?? 8000;
@@ -8805,7 +9156,7 @@ Revert those edits to the character now, or leave them applied?`;
       };
     }
   };
-  const MAX_MOUSEY_BYTES = 4 * 1024 * 1024;
+  const MAX_MOUSEY_BYTES = 4194304;
   const openIconSettingsModal = () => {
     const handle = ctx.ui.showModal({ title: "Visuals & display name", width: 520, maxHeight: 720 });
     const wrap = el7("div", "la-icon-settings");
@@ -8963,12 +9314,187 @@ Revert those edits to the character now, or leave them applied?`;
     wrap.appendChild(status);
     handle.root.appendChild(wrap);
   };
-  const appendUserMessage = (text) => {
+  const formatBytes = (n) => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1048576).toFixed(1)} MB`;
+  const renderAttachments = () => {
+    composerAttachments.replaceChildren();
+    if (state.attachments.length === 0 && state.fileAttachments.length === 0) {
+      composerAttachments.style.display = "none";
+      updateComposer();
+      return;
+    }
+    composerAttachments.style.display = "";
+    for (const att of state.attachments) {
+      const chip = el7("div", "la-attachment");
+      const img = document.createElement("img");
+      img.src = `data:${att.mime_type};base64,${att.data}`;
+      img.alt = "attachment";
+      const rm = el7("button", "la-attachment-remove");
+      rm.type = "button";
+      rm.setAttribute("aria-label", "Remove attachment");
+      rm.textContent = "×";
+      rm.addEventListener("click", () => {
+        state.attachments = state.attachments.filter((a) => a.id !== att.id);
+        renderAttachments();
+      });
+      chip.append(img, rm);
+      composerAttachments.appendChild(chip);
+    }
+    for (const att of state.fileAttachments) {
+      const chip = el7("div", `la-file-attachment${att.status === "uploading" ? " is-uploading" : ""}${att.status === "error" ? " is-error" : ""}`);
+      chip.setAttribute("data-att-id", att.id);
+      const sizeText = att.status === "error" ? `failed: ${att.error ?? "upload error"}` : formatBytes(att.size);
+      chip.append(el7("span", "la-file-attachment-name", att.name), el7("span", "la-file-attachment-size", sizeText));
+      const progress = el7("div", "la-file-progress");
+      const bar = el7("div", "la-file-progress-bar");
+      bar.style.width = `${Math.round(att.progress * 100)}%`;
+      progress.appendChild(bar);
+      chip.appendChild(progress);
+      const rm = el7("button", "la-attachment-remove");
+      rm.type = "button";
+      rm.setAttribute("aria-label", "Remove file");
+      rm.textContent = "×";
+      rm.addEventListener("click", () => {
+        state.fileAttachments = state.fileAttachments.filter((a) => a.id !== att.id);
+        renderAttachments();
+      });
+      chip.appendChild(rm);
+      composerAttachments.appendChild(chip);
+    }
+    updateComposer();
+  };
+  const addImageBlobs = async (blobs) => {
+    const { resizeBlob: resizeBlob2, isSupportedImage: isSupportedImage2, MAX_IMAGES: MAX_IMAGES2 } = await Promise.resolve().then(() => (init_image_resize(), exports_image_resize));
+    for (const blob of blobs) {
+      if (state.attachments.length >= MAX_IMAGES2) {
+        composerStatus.textContent = `Up to ${MAX_IMAGES2} images per message.`;
+        composerStatus.classList.add("is-error");
+        break;
+      }
+      if (!isSupportedImage2(blob.type))
+        continue;
+      try {
+        const r = await resizeBlob2(blob);
+        state.attachments.push({ id: makeId("att"), data: r.data, mime_type: r.mime_type });
+        composerStatus.classList.remove("is-error");
+        renderAttachments();
+      } catch (err) {
+        composerStatus.textContent = `Couldn't attach image: ${err.message}`;
+        composerStatus.classList.add("is-error");
+      }
+    }
+  };
+  const extForMime = (mime) => {
+    switch (mime) {
+      case "image/png":
+        return "png";
+      case "image/jpeg":
+        return "jpg";
+      case "image/gif":
+        return "gif";
+      case "image/webp":
+        return "webp";
+      default:
+        return "img";
+    }
+  };
+  const buildImagePayload = async (sid) => {
+    const { seedImage: seedImage2 } = await Promise.resolve().then(() => (init_image_cache(), exports_image_cache));
+    const wire = [];
+    const refs = [];
+    for (const att of state.attachments) {
+      const path = `attachments/${sid}/${att.id}.${extForMime(att.mime_type)}`;
+      seedImage2(path, `data:${att.mime_type};base64,${att.data}`);
+      wire.push({ path, data: att.data, mime_type: att.mime_type });
+      refs.push({ path, mime_type: att.mime_type });
+    }
+    return { wire, refs };
+  };
+  const pendingUploads = new Map;
+  const composerSid = () => {
+    if (state.sessionId)
+      return state.sessionId;
+    if (!state.attachmentSessionId)
+      state.attachmentSessionId = makeId("sess");
+    return state.attachmentSessionId;
+  };
+  const setChipProgress = (att) => {
+    const chip = composerAttachments.querySelector(`[data-att-id="${att.id}"]`);
+    if (!chip)
+      return;
+    chip.classList.toggle("is-uploading", att.status === "uploading");
+    chip.classList.toggle("is-error", att.status === "error");
+    const bar = chip.querySelector(".la-file-progress-bar");
+    if (bar)
+      bar.style.width = `${Math.round(att.progress * 100)}%`;
+  };
+  const uploadAttachment = async (att) => {
+    const transferId = makeId("up");
+    const acked = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (pendingUploads.delete(transferId))
+          reject(new Error("upload timed out"));
+      }, 300000);
+      pendingUploads.set(transferId, { resolve: () => {
+        clearTimeout(timer);
+        resolve();
+      }, reject: (e) => {
+        clearTimeout(timer);
+        reject(e);
+      } });
+    });
+    try {
+      const { streamUpload: streamUpload2 } = await Promise.resolve().then(() => (init_file_upload(), exports_file_upload));
+      const bytes = new Uint8Array(await att.file.arrayBuffer());
+      await streamUpload2(sendBackend, att.path, bytes, transferId, (frac) => {
+        att.progress = Math.min(0.95, frac * 0.95);
+        setChipProgress(att);
+      });
+      await acked;
+      att.status = "ready";
+      att.progress = 1;
+    } catch (err) {
+      att.status = "error";
+      att.error = err.message;
+    } finally {
+      pendingUploads.delete(transferId);
+      setChipProgress(att);
+      updateComposer();
+    }
+  };
+  const addFiles = async (files) => {
+    const { isTextFile: isTextFile2, INLINE_TEXT_BYTES: INLINE_TEXT_BYTES2, MAX_FILES: MAX_FILES2, safeAttachmentName: safeAttachmentName2 } = await Promise.resolve().then(() => (init_file_upload(), exports_file_upload));
+    for (const file of files) {
+      if (state.fileAttachments.length >= MAX_FILES2) {
+        composerStatus.textContent = `Up to ${MAX_FILES2} files per message.`;
+        composerStatus.classList.add("is-error");
+        break;
+      }
+      const kind = isTextFile2(file) ? "text" : "binary";
+      let inlineContent;
+      if (kind === "text" && file.size <= INLINE_TEXT_BYTES2) {
+        try {
+          inlineContent = await file.text();
+        } catch {}
+      }
+      const id = makeId("file");
+      const path = `attachments/${composerSid()}/${id}-${safeAttachmentName2(file.name)}`;
+      const att = { id, file, name: file.name, size: file.size, mime: file.type, kind, ...inlineContent !== undefined ? { inlineContent } : {}, path, status: "uploading", progress: 0 };
+      state.fileAttachments.push(att);
+      composerStatus.classList.remove("is-error");
+      renderAttachments();
+      uploadAttachment(att);
+    }
+    updateComposer();
+  };
+  const readyFileRefs = () => state.fileAttachments.filter((a) => a.status === "ready").map((att) => ({ path: att.path, name: att.name, size: att.size, mime: att.mime, kind: att.kind, ...att.inlineContent !== undefined ? { inlineContent: att.inlineContent } : {} }));
+  const appendUserMessage = (text, images, files) => {
     const msg = {
       id: makeId("msg"),
       role: "user",
       ts: Date.now(),
-      content: text
+      content: text,
+      ...images && images.length > 0 ? { images } : {},
+      ...files && files.length > 0 ? { files } : {}
     };
     state.messages.push(msg);
     if (state.messages.length === 1 && thread.contains(emptyState))
@@ -8977,13 +9503,15 @@ Revert those edits to the character now, or leave them applied?`;
     virtualizer.scrollToBottom();
     return msg;
   };
-  const dispatchSendForExisting = (sessionId, messageId, text) => {
-    dlog("dispatchSendForExisting (LLM call)", { sessionId, messageId, textLen: text.length });
+  const dispatchSendForExisting = (sessionId, messageId, text, images, files) => {
+    dlog("dispatchSendForExisting (LLM call)", { sessionId, messageId, textLen: text.length, images: images?.length ?? 0, files: files?.length ?? 0 });
     sendBackend(withConnection({
       type: "send_message",
       sessionId,
       userMessageId: messageId,
-      content: text
+      content: text,
+      ...images && images.length > 0 ? { images } : {},
+      ...files && files.length > 0 ? { files } : {}
     }));
     state.reattachedGeneration = false;
     state.isGenerating = true;
@@ -8995,11 +9523,14 @@ Revert those edits to the character now, or leave them applied?`;
       state.startSessionTimeout = null;
     }
   };
-  const doSend = () => {
+  let sending = false;
+  const doSend = async () => {
     const text = textarea.value.trim();
-    if (state.isGenerating || state.startingSession || state.compacting)
+    if (sending || state.isGenerating || state.startingSession || state.compacting)
       return;
-    if (text.length === 0) {
+    const hasImages = state.attachments.length > 0;
+    const hasFiles = state.fileAttachments.length > 0;
+    if (text.length === 0 && !hasImages && !hasFiles) {
       if (sendMode === "recover") {
         const targetId = state.sessionStatus?.lastAssistantId;
         if (!targetId || !state.sessionId)
@@ -9031,29 +9562,59 @@ Revert those edits to the character now, or leave them applied?`;
       }
       return;
     }
-    textarea.value = "";
-    composerStatus.classList.remove("is-error");
-    if (state.sessionId) {
-      const msg = appendUserMessage(text);
-      dispatchSendForExisting(state.sessionId, msg.id, text);
+    if (state.fileAttachments.some((a) => a.status === "uploading")) {
+      composerStatus.textContent = "Wait for attachments to finish uploading.";
+      composerStatus.classList.add("is-error");
       return;
     }
-    const sessionId = makeId("sess");
-    state.sessionId = sessionId;
+    textarea.value = "";
+    composerStatus.classList.remove("is-error");
+    const isNew = !state.sessionId;
+    const sid = composerSid();
+    const fileRefs = readyFileRefs();
+    sending = true;
+    updateComposer();
+    let imageWire;
+    let imageRefs;
+    try {
+      const img = await buildImagePayload(sid);
+      imageWire = img.wire;
+      imageRefs = img.refs;
+    } catch (err) {
+      composerStatus.textContent = `Attachment failed: ${err.message}`;
+      composerStatus.classList.add("is-error");
+      sending = false;
+      updateComposer();
+      return;
+    }
+    sending = false;
+    composerStatus.textContent = "";
+    state.attachments = [];
+    state.fileAttachments = [];
+    state.attachmentSessionId = null;
+    renderAttachments();
+    if (!isNew) {
+      const msg = appendUserMessage(text, imageRefs, fileRefs);
+      dispatchSendForExisting(sid, msg.id, text, imageWire, fileRefs);
+      return;
+    }
+    state.sessionId = sid;
     state.messages = [];
     state.edits = [];
     state.contextPromptTokens = 0;
     state.sessionStatus = null;
     state.startingSession = true;
     rerenderThread();
-    const userMsg = appendUserMessage(text);
+    const userMsg = appendUserMessage(text, imageRefs, fileRefs);
     state.pendingMessage = text;
     state.pendingMessageId = userMsg.id;
+    state.pendingMessageImages = imageWire.length > 0 ? imageWire : null;
+    state.pendingMessageFiles = fileRefs.length > 0 ? fileRefs : null;
     updateSessionBar();
     updateComposer();
     sendBackend(withConnection({
       type: "start_session",
-      sessionId,
+      sessionId: sid,
       characterId: state.characterId
     }));
     clearStartTimeout();
@@ -9063,13 +9624,64 @@ Revert those edits to the character now, or leave them applied?`;
       state.startingSession = false;
       state.pendingMessage = null;
       state.pendingMessageId = null;
+      state.pendingMessageImages = null;
+      state.pendingMessageFiles = null;
       state.startSessionTimeout = null;
       composerStatus.textContent = "Backend did not respond to start_session. Restart Lumiverse (start.ps1 -b) to pick up the new backend, then hard-refresh.";
       composerStatus.classList.add("is-error");
       updateComposer();
     }, 8000);
   };
-  sendBtn.addEventListener("click", doSend);
+  const intake = (files) => {
+    const imgs = files.filter((f) => f.type.startsWith("image/"));
+    const rest = files.filter((f) => !f.type.startsWith("image/"));
+    if (imgs.length > 0)
+      addImageBlobs(imgs);
+    if (rest.length > 0)
+      addFiles(rest);
+  };
+  sendBtn.addEventListener("click", () => void doSend());
+  attachBtn.addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", () => {
+    if (fileInput.files && fileInput.files.length > 0)
+      intake([...fileInput.files]);
+    fileInput.value = "";
+  });
+  textarea.addEventListener("paste", (ev) => {
+    const items = ev.clipboardData?.items;
+    if (!items)
+      return;
+    const blobs = [];
+    for (const it of items) {
+      if (it.kind === "file") {
+        const f = it.getAsFile();
+        if (f)
+          blobs.push(f);
+      }
+    }
+    if (blobs.length > 0) {
+      ev.preventDefault();
+      intake(blobs);
+    }
+  });
+  composer.addEventListener("dragover", (ev) => {
+    if (ev.dataTransfer && [...ev.dataTransfer.items].some((i) => i.kind === "file")) {
+      ev.preventDefault();
+      composer.classList.add("la-composer-dragover");
+    }
+  });
+  composer.addEventListener("dragleave", (ev) => {
+    if (ev.target === composer)
+      composer.classList.remove("la-composer-dragover");
+  });
+  composer.addEventListener("drop", (ev) => {
+    composer.classList.remove("la-composer-dragover");
+    const files = ev.dataTransfer?.files;
+    if (!files || files.length === 0)
+      return;
+    ev.preventDefault();
+    intake([...files]);
+  });
   cancelBtn.addEventListener("click", () => {
     if (!state.sessionId)
       return;
@@ -9230,11 +9842,15 @@ Revert those edits to the character now, or leave them applied?`;
         if (state.pendingMessage !== null && state.pendingMessageId !== null) {
           const text = state.pendingMessage;
           const id = state.pendingMessageId;
+          const imgs = state.pendingMessageImages ?? undefined;
+          const files = state.pendingMessageFiles ?? undefined;
           state.pendingMessage = null;
           state.pendingMessageId = null;
+          state.pendingMessageImages = null;
+          state.pendingMessageFiles = null;
           dlog("session_started: dispatching queued message (this triggers an LLM call)", { sessionId: msg.sessionId, messageId: id, textLen: text.length });
           updateSessionBar();
-          dispatchSendForExisting(msg.sessionId, id, text);
+          dispatchSendForExisting(msg.sessionId, id, text, imgs, files);
         } else {
           state.messages = [];
           state.edits = [];
@@ -9253,6 +9869,10 @@ Revert those edits to the character now, or leave them applied?`;
         state.messages = [...msg.messages];
         state.edits = [...msg.edits];
         state.compactedAt = msg.compactedAt ?? null;
+        state.attachments = [];
+        state.fileAttachments = [];
+        state.attachmentSessionId = null;
+        renderAttachments();
         if (msg.characterId === null)
           charCombo.setValue(NO_CHARACTER_SENTINEL, true);
         else if (state.characters.some((c) => c.id === msg.characterId))
@@ -9556,6 +10176,20 @@ Revert those edits to the character now, or leave them applied?`;
       case "ws_download_ready":
         state.workspacePanel?.onDownloadReady(msg.path, msg.dataBase64, msg.mimeType);
         break;
+      case "ws_image_ready":
+        Promise.resolve().then(() => (init_image_cache(), exports_image_cache)).then((m) => m.resolveImage(msg.path, `data:${msg.mimeType};base64,${msg.dataBase64}`));
+        break;
+      case "ws_image_error":
+        Promise.resolve().then(() => (init_image_cache(), exports_image_cache)).then((m) => m.failImage(msg.path));
+        break;
+      case "ws_upload_complete": {
+        const p = pendingUploads.get(msg.transferId);
+        if (p) {
+          pendingUploads.delete(msg.transferId);
+          p.resolve();
+        }
+        break;
+      }
       case "ws_zip_ready":
         state.workspacePanel?.onZipReady(msg.dataBase64, msg.filename);
         break;
@@ -9601,6 +10235,10 @@ Revert those edits to the character now, or leave them applied?`;
             } else if (msg.op === "ask_user_question") {
               const { showAskUserQuestion: showAskUserQuestion2 } = await Promise.resolve().then(() => exports_ask_user_modal);
               result = await showAskUserQuestion2(msg.args);
+            } else if (msg.op === "image_resize") {
+              const { resizeBase64: resizeBase642 } = await Promise.resolve().then(() => (init_image_resize(), exports_image_resize));
+              const a = msg.args;
+              result = await resizeBase642(a.data, a.mime_type);
             } else {
               sendBackend({ type: "frontend_rpc_response", rpcId: msg.rpcId, error: `unknown rpc op '${msg.op}'` });
               return;

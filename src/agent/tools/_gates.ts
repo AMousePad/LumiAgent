@@ -2,7 +2,7 @@ import type { ToolCtx } from "./_context";
 import type { ReadGate } from "./_framework";
 import { sha256 } from "../../state/patch-stack";
 
-const RECENT_READ_WINDOW_MS = 10 * 60_000;
+const RECENT_READ_WINDOW_MS = 60 * 60_000;
 
 export function ensureRecentRead(
   ctx: ToolCtx,
@@ -12,7 +12,7 @@ export function ensureRecentRead(
   const surface = gate.surface(input);
   const age = ctx.recentReads.ageMs(surface);
   if (age !== null && age <= RECENT_READ_WINDOW_MS) return null;
-  return `Error: [NOT_READ_RECENTLY] this edit targets '${surface}', which you haven't read in this turn. ${gate.hint(surface)} Re-read it first, then retry the edit using bytes copied verbatim from the read output.`;
+  return `Error: [NOT_READ_RECENTLY] this edit targets '${surface}', which you haven't read recently. ${gate.hint(surface)} Re-read it first, then retry the edit using bytes copied verbatim from the read output.`;
 }
 
 export function markRead(ctx: ToolCtx, key: string): void {

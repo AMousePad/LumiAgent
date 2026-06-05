@@ -10,6 +10,10 @@ import type {
   CharacterStorageEntry,
   EditLogEntry,
   FrontendToBackend,
+  MessageImage,
+  MessageFile,
+  WireImage,
+  WireFile,
   RevertOutcomeWire,
   ScopeRef,
   SessionStatusWire,
@@ -111,6 +115,18 @@ interface UiState {
   contextTokens: number;
   pendingMessage: string | null;
   pendingMessageId: string | null;
+  // Resized image attachments queued in the composer (base64 + mime), sent with
+  // the next message. The workspace path is assigned at send time (needs sessionId).
+  attachments: { id: string; data: string; mime_type: string }[];
+  // Non-image file attachments queued in the composer. Uploaded (chunked) to the
+  // workspace at ATTACH time so send is instant; only refs go on the message.
+  fileAttachments: { id: string; file: File; name: string; size: number; mime: string; kind: "text" | "binary"; inlineContent?: string; path: string; status: "uploading" | "ready" | "error"; progress: number; error?: string }[];
+  // Session id the queued attachments were uploaded under. For a not-yet-started
+  // session this is generated eagerly so attach-time paths match the send.
+  attachmentSessionId: string | null;
+  // Wire attachments carried with pendingMessage across the start_session round-trip.
+  pendingMessageImages: readonly WireImage[] | null;
+  pendingMessageFiles: readonly WireFile[] | null;
   startSessionTimeout: ReturnType<typeof setTimeout> | null;
   streamingAssistant: AssistantHandle | null;
   currentAssistantMessage: ChatAssistantMessage | null;
@@ -196,6 +212,11 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     contextTokens: 128_000,
     pendingMessage: null,
     pendingMessageId: null,
+    attachments: [],
+    fileAttachments: [],
+    attachmentSessionId: null,
+    pendingMessageImages: null,
+    pendingMessageFiles: null,
     startSessionTimeout: null,
     streamingAssistant: null,
     currentAssistantMessage: null,
@@ -319,7 +340,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     s.addEventListener("click", () => {
       textarea.value = item.send;
       autosizeTextarea();
-      doSend();
+      void doSend();
     });
     suggestions.appendChild(s);
   }
@@ -340,6 +361,14 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   textarea.rows = 1;
   textarea.placeholder = "Ask anything";
   const composerActions = el("div", "la-composer-actions");
+  const attachBtn = el("button", "la-attach-btn") as HTMLButtonElement;
+  attachBtn.type = "button";
+  attachBtn.setAttribute("aria-label", "Attach image");
+  attachBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
+  const fileInput = document.createElement("input");
+  fileInput.type = "file";
+  fileInput.multiple = true;
+  fileInput.style.display = "none";
   const sendBtn = el("button", "la-send-btn") as HTMLButtonElement;
   sendBtn.setAttribute("aria-label", "Send");
   sendBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>';
@@ -368,11 +397,14 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   compactTip.append(compactTipMain, compactTipSub);
   compactBtn.appendChild(compactTip);
 
-  composerActions.append(compactBtn, sendBtn, cancelBtn);
+  composerActions.append(compactBtn, attachBtn, sendBtn, cancelBtn);
   composerArea.append(textarea, composerActions);
+  const composerAttachments = el("div", "la-attachments");
+  composerAttachments.style.display = "none";
   const composerStatus = el("div", "la-composer-status");
-  composerInner.append(composerArea, composerStatus);
+  composerInner.append(composerAttachments, composerArea, composerStatus);
   composer.appendChild(composerInner);
+  composer.appendChild(fileInput);
 
   // ───── debug snapshot ─────
   // Call __laGeom() from devtools to dump every layout number relevant to
@@ -497,6 +529,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   root.append(header, thread, composer);
 
   const sendBackend = (msg: FrontendToBackend) => ctx.sendToBackend(msg);
+  void import("./image-cache").then((m) => m.configureImageCache((path) => sendBackend({ type: "ws_read_image", path })));
 
   // Splice the currently-selected connection id into a wire message when set.
   // Backend heals s.connectionId from this on every entry path; sites that
@@ -713,7 +746,9 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
 
       const st = state.sessionStatus;
       const statusFresh = !!st && st.sessionId === state.sessionId;
-      const hasText = textarea.value.trim().length > 0;
+      // Attachments alone are sendable (image/file-only message), so they count
+      // as content for send-mode purposes.
+      const hasText = textarea.value.trim().length > 0 || state.attachments.length > 0 || state.fileAttachments.length > 0;
       const recoverable = statusFresh && st!.phase === "idle"
         && st!.lastAssistantStatus === "errored" && st!.lastAssistantEmpty
         && st!.lastAssistantId !== null;
@@ -740,7 +775,10 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         sendMode = "disabled";
         setComposerStatus(state.sessionId ? "" : "Type a message and press Send. A new session will start automatically.");
       }
-      sendBtn.disabled = sendMode === "disabled";
+      // Block send until every queued file finishes uploading.
+      const uploading = state.fileAttachments.some((a) => a.status === "uploading");
+      sendBtn.disabled = sendMode === "disabled" || uploading;
+      if (uploading) setComposerStatus("Uploading attachments…");
     }
     updateLocks();
     updateCompactButton();
@@ -1162,6 +1200,12 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     state.streamingAssistant = null;
     state.pendingMessage = null;
     state.pendingMessageId = null;
+    state.attachments = [];
+    state.fileAttachments = [];
+    state.attachmentSessionId = null;
+    state.pendingMessageImages = null;
+    state.pendingMessageFiles = null;
+    renderAttachments();
     // A fresh pending session gets no status / context_usage push from the
     // backend (nothing generates yet), so reset the context-derived UI here
     // or the compaction wheel keeps showing the previous session's usage.
@@ -2026,12 +2070,188 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     handle.root.appendChild(wrap);
   };
 
-  const appendUserMessage = (text: string): ChatUserMessage => {
+  const formatBytes = (n: number): string => n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(0)} KB` : `${(n / (1024 * 1024)).toFixed(1)} MB`;
+
+  const renderAttachments = (): void => {
+    composerAttachments.replaceChildren();
+    if (state.attachments.length === 0 && state.fileAttachments.length === 0) {
+      composerAttachments.style.display = "none"; updateComposer(); return;
+    }
+    composerAttachments.style.display = "";
+    for (const att of state.attachments) {
+      const chip = el("div", "la-attachment");
+      const img = document.createElement("img");
+      img.src = `data:${att.mime_type};base64,${att.data}`;
+      img.alt = "attachment";
+      const rm = el("button", "la-attachment-remove") as HTMLButtonElement;
+      rm.type = "button";
+      rm.setAttribute("aria-label", "Remove attachment");
+      rm.textContent = "×";
+      rm.addEventListener("click", () => {
+        state.attachments = state.attachments.filter((a) => a.id !== att.id);
+        renderAttachments();
+      });
+      chip.append(img, rm);
+      composerAttachments.appendChild(chip);
+    }
+    for (const att of state.fileAttachments) {
+      const chip = el("div", `la-file-attachment${att.status === "uploading" ? " is-uploading" : ""}${att.status === "error" ? " is-error" : ""}`);
+      chip.setAttribute("data-att-id", att.id);
+      const sizeText = att.status === "error" ? `failed: ${att.error ?? "upload error"}` : formatBytes(att.size);
+      chip.append(
+        el("span", "la-file-attachment-name", att.name),
+        el("span", "la-file-attachment-size", sizeText),
+      );
+      const progress = el("div", "la-file-progress");
+      const bar = el("div", "la-file-progress-bar");
+      bar.style.width = `${Math.round(att.progress * 100)}%`;
+      progress.appendChild(bar);
+      chip.appendChild(progress);
+      const rm = el("button", "la-attachment-remove") as HTMLButtonElement;
+      rm.type = "button";
+      rm.setAttribute("aria-label", "Remove file");
+      rm.textContent = "×";
+      rm.addEventListener("click", () => {
+        state.fileAttachments = state.fileAttachments.filter((a) => a.id !== att.id);
+        renderAttachments();
+      });
+      chip.appendChild(rm);
+      composerAttachments.appendChild(chip);
+    }
+    updateComposer();
+  };
+
+  const addImageBlobs = async (blobs: readonly Blob[]): Promise<void> => {
+    const { resizeBlob, isSupportedImage, MAX_IMAGES } = await import("./image-resize");
+    for (const blob of blobs) {
+      if (state.attachments.length >= MAX_IMAGES) {
+        composerStatus.textContent = `Up to ${MAX_IMAGES} images per message.`;
+        composerStatus.classList.add("is-error");
+        break;
+      }
+      if (!isSupportedImage(blob.type)) continue;
+      try {
+        const r = await resizeBlob(blob);
+        state.attachments.push({ id: makeId("att"), data: r.data, mime_type: r.mime_type });
+        composerStatus.classList.remove("is-error");
+        renderAttachments();
+      } catch (err) {
+        composerStatus.textContent = `Couldn't attach image: ${(err as Error).message}`;
+        composerStatus.classList.add("is-error");
+      }
+    }
+  };
+
+  const extForMime = (mime: string): string => {
+    switch (mime) {
+      case "image/png": return "png";
+      case "image/jpeg": return "jpg";
+      case "image/gif": return "gif";
+      case "image/webp": return "webp";
+      default: return "img";
+    }
+  };
+
+  // Assign a workspace path per attachment (sessionId is known by send time),
+  // pre-seed the image cache so the sent bubble renders instantly, and return
+  // the wire payload (path + bytes) plus the persisted refs.
+  const buildImagePayload = async (sid: string): Promise<{ wire: WireImage[]; refs: MessageImage[] }> => {
+    const { seedImage } = await import("./image-cache");
+    const wire: WireImage[] = [];
+    const refs: MessageImage[] = [];
+    for (const att of state.attachments) {
+      const path = `attachments/${sid}/${att.id}.${extForMime(att.mime_type)}`;
+      seedImage(path, `data:${att.mime_type};base64,${att.data}`);
+      wire.push({ path, data: att.data, mime_type: att.mime_type });
+      refs.push({ path, mime_type: att.mime_type });
+    }
+    return { wire, refs };
+  };
+
+  // Outstanding chunked uploads keyed by transferId; resolved by ws_upload_complete.
+  const pendingUploads = new Map<string, { resolve: () => void; reject: (e: Error) => void }>();
+  type FileAtt = (typeof state.fileAttachments)[number];
+
+  // Session id the queued attachments upload under. For a not-yet-started
+  // session, generated eagerly so attach-time paths match the eventual send.
+  const composerSid = (): string => {
+    if (state.sessionId) return state.sessionId;
+    if (!state.attachmentSessionId) state.attachmentSessionId = makeId("sess");
+    return state.attachmentSessionId;
+  };
+
+  // Update one file chip's progress bar / status in place (no full re-render).
+  const setChipProgress = (att: FileAtt): void => {
+    const chip = composerAttachments.querySelector(`[data-att-id="${att.id}"]`);
+    if (!chip) return;
+    chip.classList.toggle("is-uploading", att.status === "uploading");
+    chip.classList.toggle("is-error", att.status === "error");
+    const bar = chip.querySelector(".la-file-progress-bar") as HTMLElement | null;
+    if (bar) bar.style.width = `${Math.round(att.progress * 100)}%`;
+  };
+
+  // Stream a file to its workspace path on attach. Chunk-sent progress caps at
+  // 95%; the backend ack (ws_upload_complete) flips it to ready.
+  const uploadAttachment = async (att: FileAtt): Promise<void> => {
+    const transferId = makeId("up");
+    const acked = new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => { if (pendingUploads.delete(transferId)) reject(new Error("upload timed out")); }, 5 * 60_000);
+      pendingUploads.set(transferId, { resolve: () => { clearTimeout(timer); resolve(); }, reject: (e) => { clearTimeout(timer); reject(e); } });
+    });
+    try {
+      const { streamUpload } = await import("./file-upload");
+      const bytes = new Uint8Array(await att.file.arrayBuffer());
+      await streamUpload(sendBackend, att.path, bytes, transferId, (frac) => { att.progress = Math.min(0.95, frac * 0.95); setChipProgress(att); });
+      await acked;
+      att.status = "ready"; att.progress = 1;
+    } catch (err) {
+      att.status = "error"; att.error = (err as Error).message;
+    } finally {
+      pendingUploads.delete(transferId);
+      setChipProgress(att);
+      updateComposer();
+    }
+  };
+
+  const addFiles = async (files: readonly File[]): Promise<void> => {
+    const { isTextFile, INLINE_TEXT_BYTES, MAX_FILES, safeAttachmentName } = await import("./file-upload");
+    for (const file of files) {
+      if (state.fileAttachments.length >= MAX_FILES) {
+        composerStatus.textContent = `Up to ${MAX_FILES} files per message.`;
+        composerStatus.classList.add("is-error");
+        break;
+      }
+      const kind: "text" | "binary" = isTextFile(file) ? "text" : "binary";
+      let inlineContent: string | undefined;
+      if (kind === "text" && file.size <= INLINE_TEXT_BYTES) {
+        try { inlineContent = await file.text(); } catch { /* fall back to ref-only */ }
+      }
+      const id = makeId("file");
+      const path = `attachments/${composerSid()}/${id}-${safeAttachmentName(file.name)}`;
+      const att: FileAtt = { id, file, name: file.name, size: file.size, mime: file.type, kind, ...(inlineContent !== undefined ? { inlineContent } : {}), path, status: "uploading", progress: 0 };
+      state.fileAttachments.push(att);
+      composerStatus.classList.remove("is-error");
+      renderAttachments();
+      void uploadAttachment(att);
+    }
+    updateComposer();
+  };
+
+  // Wire refs from the already-uploaded (ready) file attachments. Errored
+  // uploads are dropped.
+  const readyFileRefs = (): WireFile[] =>
+    state.fileAttachments
+      .filter((a) => a.status === "ready")
+      .map((att) => ({ path: att.path, name: att.name, size: att.size, mime: att.mime, kind: att.kind, ...(att.inlineContent !== undefined ? { inlineContent: att.inlineContent } : {}) }));
+
+  const appendUserMessage = (text: string, images?: readonly MessageImage[], files?: readonly MessageFile[]): ChatUserMessage => {
     const msg: ChatUserMessage = {
       id: makeId("msg"),
       role: "user",
       ts: Date.now(),
       content: text,
+      ...(images && images.length > 0 ? { images } : {}),
+      ...(files && files.length > 0 ? { files } : {}),
     };
     state.messages.push(msg);
     if (state.messages.length === 1 && thread.contains(emptyState)) thread.removeChild(emptyState);
@@ -2040,13 +2260,15 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     return msg;
   };
 
-  const dispatchSendForExisting = (sessionId: string, messageId: string, text: string): void => {
-    dlog("dispatchSendForExisting (LLM call)", { sessionId, messageId, textLen: text.length });
+  const dispatchSendForExisting = (sessionId: string, messageId: string, text: string, images?: readonly WireImage[], files?: readonly WireFile[]): void => {
+    dlog("dispatchSendForExisting (LLM call)", { sessionId, messageId, textLen: text.length, images: images?.length ?? 0, files: files?.length ?? 0 });
     sendBackend(withConnection({
       type: "send_message",
       sessionId,
       userMessageId: messageId,
       content: text,
+      ...(images && images.length > 0 ? { images } : {}),
+      ...(files && files.length > 0 ? { files } : {}),
     }));
     // This client is tracking the generation from its start, so the live
     // stream is coherent: never treat it as a reattach.
@@ -2062,13 +2284,17 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     }
   };
 
-  const doSend = (): void => {
+  let sending = false;
+  const doSend = async (): Promise<void> => {
     const text = textarea.value.trim();
-    if (state.isGenerating || state.startingSession || state.compacting) return;
+    if (sending || state.isGenerating || state.startingSession || state.compacting) return;
 
-    // Empty send: the action is whatever sendMode resolved to in
-    // updateComposer (authoritative-status driven). Never recompute here.
-    if (text.length === 0) {
+    const hasImages = state.attachments.length > 0;
+    const hasFiles = state.fileAttachments.length > 0;
+
+    // Empty send with no attachments: the action is whatever sendMode resolved
+    // to in updateComposer (authoritative-status driven). Never recompute here.
+    if (text.length === 0 && !hasImages && !hasFiles) {
       if (sendMode === "recover") {
         const targetId = state.sessionStatus?.lastAssistantId;
         if (!targetId || !state.sessionId) return;
@@ -2103,31 +2329,66 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       return; // disabled: nothing to send
     }
 
-    textarea.value = "";
-    composerStatus.classList.remove("is-error");
-
-    if (state.sessionId) {
-      const msg = appendUserMessage(text);
-      dispatchSendForExisting(state.sessionId, msg.id, text);
+    // Files upload on attach; block send until they finish. The send button is
+    // already disabled while uploading, so this is just a safety net.
+    if (state.fileAttachments.some((a) => a.status === "uploading")) {
+      composerStatus.textContent = "Wait for attachments to finish uploading.";
+      composerStatus.classList.add("is-error");
       return;
     }
 
-    const sessionId = makeId("sess");
-    state.sessionId = sessionId;
+    textarea.value = "";
+    composerStatus.classList.remove("is-error");
+
+    const isNew = !state.sessionId;
+    const sid = composerSid();
+    const fileRefs = readyFileRefs();
+
+    // Images are small (resized) and ride inline; build them now. Guard re-entry
+    // across the brief async build.
+    sending = true;
+    updateComposer();
+    let imageWire: WireImage[]; let imageRefs: MessageImage[];
+    try {
+      const img = await buildImagePayload(sid);
+      imageWire = img.wire; imageRefs = img.refs;
+    } catch (err) {
+      composerStatus.textContent = `Attachment failed: ${(err as Error).message}`;
+      composerStatus.classList.add("is-error");
+      sending = false;
+      updateComposer();
+      return;
+    }
+    sending = false;
+    composerStatus.textContent = "";
+    state.attachments = [];
+    state.fileAttachments = [];
+    state.attachmentSessionId = null;
+    renderAttachments();
+
+    if (!isNew) {
+      const msg = appendUserMessage(text, imageRefs, fileRefs);
+      dispatchSendForExisting(sid, msg.id, text, imageWire, fileRefs);
+      return;
+    }
+
+    state.sessionId = sid;
     state.messages = [];
     state.edits = [];
     state.contextPromptTokens = 0;
     state.sessionStatus = null;
     state.startingSession = true;
     rerenderThread();
-    const userMsg = appendUserMessage(text);
+    const userMsg = appendUserMessage(text, imageRefs, fileRefs);
     state.pendingMessage = text;
     state.pendingMessageId = userMsg.id;
+    state.pendingMessageImages = imageWire.length > 0 ? imageWire : null;
+    state.pendingMessageFiles = fileRefs.length > 0 ? fileRefs : null;
     updateSessionBar();
     updateComposer();
     sendBackend(withConnection({
       type: "start_session",
-      sessionId,
+      sessionId: sid,
       characterId: state.characterId,
     }));
     clearStartTimeout();
@@ -2136,6 +2397,8 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       state.startingSession = false;
       state.pendingMessage = null;
       state.pendingMessageId = null;
+      state.pendingMessageImages = null;
+      state.pendingMessageFiles = null;
       state.startSessionTimeout = null;
       composerStatus.textContent = "Backend did not respond to start_session. Restart Lumiverse (start.ps1 -b) to pick up the new backend, then hard-refresh.";
       composerStatus.classList.add("is-error");
@@ -2143,7 +2406,47 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     }, 8000);
   };
 
-  sendBtn.addEventListener("click", doSend);
+  // Route attachments: images to the vision path, everything else to file upload.
+  const intake = (files: readonly File[]): void => {
+    const imgs = files.filter((f) => f.type.startsWith("image/"));
+    const rest = files.filter((f) => !f.type.startsWith("image/"));
+    if (imgs.length > 0) void addImageBlobs(imgs);
+    if (rest.length > 0) void addFiles(rest);
+  };
+  sendBtn.addEventListener("click", () => void doSend());
+  attachBtn.addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", () => {
+    if (fileInput.files && fileInput.files.length > 0) intake([...fileInput.files]);
+    fileInput.value = "";
+  });
+  textarea.addEventListener("paste", (ev) => {
+    const items = ev.clipboardData?.items;
+    if (!items) return;
+    const blobs: File[] = [];
+    for (const it of items) {
+      if (it.kind === "file") {
+        const f = it.getAsFile();
+        if (f) blobs.push(f);
+      }
+    }
+    if (blobs.length > 0) { ev.preventDefault(); intake(blobs); }
+  });
+  composer.addEventListener("dragover", (ev) => {
+    if (ev.dataTransfer && [...ev.dataTransfer.items].some((i) => i.kind === "file")) {
+      ev.preventDefault();
+      composer.classList.add("la-composer-dragover");
+    }
+  });
+  composer.addEventListener("dragleave", (ev) => {
+    if (ev.target === composer) composer.classList.remove("la-composer-dragover");
+  });
+  composer.addEventListener("drop", (ev) => {
+    composer.classList.remove("la-composer-dragover");
+    const files = ev.dataTransfer?.files;
+    if (!files || files.length === 0) return;
+    ev.preventDefault();
+    intake([...files]);
+  });
   cancelBtn.addEventListener("click", () => {
     if (!state.sessionId) return;
     sendBackend({ type: "cancel_generation", sessionId: state.sessionId });
@@ -2151,7 +2454,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   textarea.addEventListener("keydown", (ev) => {
     if ((ev.metaKey || ev.ctrlKey) && ev.key === "Enter") {
       ev.preventDefault();
-      doSend();
+      void doSend();
     }
   });
 
@@ -2334,11 +2637,15 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         if (state.pendingMessage !== null && state.pendingMessageId !== null) {
           const text = state.pendingMessage;
           const id = state.pendingMessageId;
+          const imgs = state.pendingMessageImages ?? undefined;
+          const files = state.pendingMessageFiles ?? undefined;
           state.pendingMessage = null;
           state.pendingMessageId = null;
+          state.pendingMessageImages = null;
+          state.pendingMessageFiles = null;
           dlog("session_started: dispatching queued message (this triggers an LLM call)", { sessionId: msg.sessionId, messageId: id, textLen: text.length });
           updateSessionBar();
-          dispatchSendForExisting(msg.sessionId, id, text);
+          dispatchSendForExisting(msg.sessionId, id, text, imgs, files);
         } else {
           state.messages = [];
           state.edits = [];
@@ -2363,6 +2670,11 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         state.messages = [...msg.messages];
         state.edits = [...msg.edits];
         state.compactedAt = msg.compactedAt ?? null;
+        // Drop composer attachments queued against the previous session.
+        state.attachments = [];
+        state.fileAttachments = [];
+        state.attachmentSessionId = null;
+        renderAttachments();
         if (msg.characterId === null) charCombo.setValue(NO_CHARACTER_SENTINEL, true);
         else if (state.characters.some((c) => c.id === msg.characterId)) charCombo.setValue(msg.characterId, true);
         // Refresh picker labels so "(Active)" tracks the loaded session's char.
@@ -2699,6 +3011,17 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       case "ws_download_ready":
         state.workspacePanel?.onDownloadReady(msg.path, msg.dataBase64, msg.mimeType);
         break;
+      case "ws_image_ready":
+        void import("./image-cache").then((m) => m.resolveImage(msg.path, `data:${msg.mimeType};base64,${msg.dataBase64}`));
+        break;
+      case "ws_image_error":
+        void import("./image-cache").then((m) => m.failImage(msg.path));
+        break;
+      case "ws_upload_complete": {
+        const p = pendingUploads.get(msg.transferId);
+        if (p) { pendingUploads.delete(msg.transferId); p.resolve(); }
+        break;
+      }
       case "ws_zip_ready":
         state.workspacePanel?.onZipReady(msg.dataBase64, msg.filename);
         break;
@@ -2754,6 +3077,10 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
             } else if (msg.op === "ask_user_question") {
               const { showAskUserQuestion } = await import("./ask-user-modal");
               result = await showAskUserQuestion(msg.args as Parameters<typeof showAskUserQuestion>[0]);
+            } else if (msg.op === "image_resize") {
+              const { resizeBase64 } = await import("./image-resize");
+              const a = msg.args as { data: string; mime_type: string };
+              result = await resizeBase64(a.data, a.mime_type);
             } else {
               sendBackend({ type: "frontend_rpc_response", rpcId: msg.rpcId, error: `unknown rpc op '${msg.op}'` });
               return;

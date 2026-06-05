@@ -1,5 +1,5 @@
 {
-  "version": "0.4.8",
+  "version": "0.5.0",
   "name": "LumiAgent",
   "identifier": "lumiagent",
   "author": "amousepad",
@@ -29,7 +29,8 @@
     "image_gen",
     "images",
     "generation_parameters",
-    "macro_interceptor"
+    "macro_interceptor",
+    "web_search"
   ],
   "requested_capabilities": [
     "dynamic_code_execution", 
