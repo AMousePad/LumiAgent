@@ -39,47 +39,14 @@ type CtxWithDispatch = ToolCtx & {
 
 export const customToolRunTool = defineTool({
   name: "custom_tool_run",
-  description: `Run multiple built-in tool calls in one turn. Two patterns:
+  description: `Run multiple built-in tool calls in one turn (worked examples in the system prompt's "Piping tool calls" section).
+- Chain: step N saves with \`save_as\`, step N+1 references via \`{{$var}}\`.
+- Fan-out: each step \`save_as\`s; the runtime returns all bindings as one object.
+Use whenever you'd call tool A then feed its value into tool B, or call several tools whose results you all want — the intermediates stay in the interpreter, never round-trip through your tool_result stream.
 
-Chain (pipe outputs forward): step N saves its result with \`save_as\`, step N+1 references it via \`{{$var}}\`.
-Fan-out (gather independent calls): each step \`save_as\`s its result; the runtime returns all saved bindings as one object.
-
-Use this whenever you'd otherwise call tool A, copy a value into tool B (chain) or call several tools whose results you all want (fan-out). The intermediate results live in the interpreter, never round-trip through your tool_result stream, never get re-typed.
-
-Reference syntax inside step args (and inside an optional \`return\`):
-  "{{$body}}"             — whole-string ref returns the raw value (array/object/etc.)
-  "prefix {{$body}} end"  — embedded ref coerces to string
-  "{{$pick.picks[0].id}}" — dotted path + bracket index
-
-Chain example: pick a random world-book entry and read it.
-  custom_tool_run({
-    steps: [
-      { call: "list",        args: { path: "wb/<bookId>" }, save_as: "entries" },
-      { call: "random_pick", args: { items: "{{$entries.entries}}" }, save_as: "pick" },
-      { call: "read",        args: { path: "{{$pick.picks[0].path}}/content" } }
-    ]
-  })
-Returns the final \`read\` result (only the last step's value, since only the final step has nothing depending on it — but you can still \`save_as\` it if you want it explicitly named).
-
-Fan-out example: gather every editable surface inventory at once.
-  custom_tool_run({
-    steps: [
-      { call: "list",          args: { path: "wb" },              save_as: "world_books" },
-      { call: "inspect",       args: { path: "rx" },              save_as: "regex_scripts" },
-      { call: "list",          args: { path: "char/extensions" }, save_as: "extensions" },
-      { call: "list_external", args: { surface_id: "module_envelope" }, save_as: "modules" }
-    ]
-  })
-Returns \`{world_books, regex_scripts, extensions, modules}\` because every step has a \`save_as\` and no \`return\` is specified.
-
-Return rules:
-- \`return\` is explicit  → that's the result (templates allowed).
-- No \`return\`, any \`save_as\`s → object of all saved bindings.
-- No \`return\`, no \`save_as\` → just the final step's parsed result.
-
-Budget: 400 steps / depth 4 / 60s wall-clock.
-
-(The \`name\` form runs a saved recipe; default to inline \`steps\` for any one-off chain or fan-out.)`,
+Ref syntax in step args / optional \`return\`: \`{{$body}}\` (raw value), \`prefix {{$body}} end\` (coerced string), \`{{$pick.picks[0].id}}\` (dotted path + index).
+Returns: explicit \`return\` → that; else any \`save_as\` → object of all bindings; else the final step's result.
+Budget: 400 steps / depth 4 / 60s. The \`name\` form runs a saved recipe; default to inline \`steps\`.`,
   inputSchema,
   jsonSchema: {
     type: "object",

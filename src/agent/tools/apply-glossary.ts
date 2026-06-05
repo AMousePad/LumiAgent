@@ -64,20 +64,11 @@ const inputSchema = z.object({
 
 export const applyGlossaryTool = defineTool({
   name: "apply_glossary",
-  description: `Apply a phrase-to-translation map across the union of surfaces in one call. Replacements are sorted longest-first to avoid the shorter-key-clobbers-longer-key footgun. Per-surface, all hits are batched and written as one edit (one diff card per surface in the chat).
+  description: `Apply a phrase-to-translation map across the union of surfaces in one call, sorted longest-first to avoid shorter-key-clobbers-longer-key. Each surface's hits batch into one edit (one diff card). Scopes default to character + world_books + regex_scripts.replace_string + extensions string leaves; \`find_regex\` is never touched.
 
-Safety: by default this refuses single-character CJK keys, which cause substring collisions (Korean '비' → 'Rain' corrupts '비명' → 'Rain명'). Pass allow_short_cjk=true only if you know what you're doing. Use dry_run=true first to see hit counts before committing.
+Safety: refuses single-character CJK keys by default (substring collisions: '비'→'Rain' corrupts '비명'→'Rain명'); pass allow_short_cjk=true only after auditing. Run dry_run=true first to see hit counts.
 
-Scopes (default: character + world_books + regex_scripts.replace_string + extensions string leaves). Regex find_regex patterns are never touched (would break regex syntax).
-
-Returns:
-- \`dry_run\`              — whether this was a dry run.
-- \`entries_in_glossary\`  — count of keys you passed.
-- \`total_replacements\`   — sum of hits across all surfaces.
-- \`surfaces_affected\`    — number of distinct surfaces touched.
-- \`per_entry_hits\`       — object mapping each key to its hit count.
-- \`per_surface\`          — array of \`{surface, surfaceId, field, hits}\` so you can verify which surfaces actually changed.
-- \`note\`                 — short summary string.`,
+Returns \`{dry_run, entries_in_glossary, total_replacements, surfaces_affected, per_entry_hits, per_surface:[{surface,surfaceId,field,hits}], note}\` — check per_surface to confirm what actually changed.`,
   inputSchema,
   jsonSchema: {
     type: "object",

@@ -86,24 +86,12 @@ function grepLeaf(
 
 export const grepTool = defineTool({
   name: "grep",
-  description: `Search every editable string surface of the active character (its fields, \`char/extensions/*\`, character-scoped regex, and attached world books) with a regex. Does NOT walk \`persona/\` \`chat/\` \`preset/\` (use \`read\` / \`list\` / \`grep_chat_messages\` for those).
+  description: `Regex over every editable string surface of the active character (fields, \`char/extensions/*\`, character-scoped regex, attached world books). Does NOT walk \`persona/\`/\`chat/\`/\`preset/\` (use \`read\`/\`list\`/\`grep_chat_messages\` there). The primary verification tool: confirm cross-references or settle a structural claim ("does \`lang::1\` actually appear in this script?") before reading or editing. One grep beats a dozen partial reads.
 
-Returns:
-- \`pattern\`, \`flags\`, \`max_matches\`, \`max_hits_per_line\` — echoes of the request, for verification.
-- \`leaves_scanned\` / \`leaves_skipped\` / \`leaves_with_matches\` — coverage counters.
-- \`match_count\`, \`truncated\` — total hits returned, and whether the cap fired.
-- \`hits\` — array of \`{path, surface, surface_label, line, match, preview}\`. \`path\` is a leaf you can pass straight to \`read\` / \`inspect\` / \`edit\`.
-- \`truncated_at\` (only when capped) — \`{path, line, total_lines, leaves_unscanned}\` so you can resume.
+Returns \`hits[]\` of \`{path, surface, surface_label, line, match, preview}\` — \`path\` is a leaf you can pass straight to \`read\`/\`inspect\`/\`edit\` — plus coverage counters and, when capped, \`truncated_at: {path, line, total_lines, leaves_unscanned}\` to resume.
 
-The primary verification tool. Use this to confirm cross-references, locate where a string lives, or settle a structural claim (e.g. "does \`lang::1\` actually appear in this script?") before reading or editing. One grep call beats a dozen partial reads.
-
-Budgets and truncation:
-- max_matches caps total returned hits across the search (default ${GREP_DEFAULT_MAX}, max ${GREP_MAX_CAP}).
-- max_hits_per_line caps hits returned per line (default ${GREP_DEFAULT_HITS_PER_LINE}). For dense single-character patterns (\`[가-힣]\`, \`[一-鿿]\`, etc.) keep it at 1 so one line with 50 matches doesn't burn the whole budget. Raise it when the pattern matches distinct multi-char tokens.
-- When the cap is hit, the result includes \`truncated_at\`: the leaf path, the last line scanned in that leaf, the leaf's total line count, and the count of leaves left entirely unscanned. Re-run with a tighter pattern, narrower include_paths, or read the remaining range of the partially-scanned leaf directly.
-
-Scoping:
-- include_paths / exclude_paths filter the character-surface walk by path prefix: \`char/\`, \`rx/\`, \`wb/\`, \`char/extensions/...\`. e.g. \`include_paths: ['rx/']\` to search only regex scripts; \`exclude_paths: ['char/first_mes', 'char/alternate_greetings']\` to skip prose fields. \`persona/\` \`chat/\` \`preset/\` prefixes match nothing here (not walked).`,
+- max_matches caps total hits (default ${GREP_DEFAULT_MAX}, max ${GREP_MAX_CAP}); max_hits_per_line caps per-line (default ${GREP_DEFAULT_HITS_PER_LINE}). Keep per-line at 1 for dense single-char patterns (\`[가-힣]\`, \`[一-鿿]\`); raise it for distinct multi-char tokens.
+- include_paths/exclude_paths filter the walk by prefix (\`char/\`, \`rx/\`, \`wb/\`, \`char/extensions/...\`).`,
   inputSchema,
   jsonSchema: {
     type: "object",

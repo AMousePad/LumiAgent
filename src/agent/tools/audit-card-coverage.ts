@@ -224,19 +224,9 @@ function buildCoverageWarning(matchRuns: number, samplesShown: number, densities
 
 export const auditCardCoverageTool = defineTool({
   name: "audit_card_coverage",
-  description: `Audit every editable string leaf on the character (top-level fields, alternate_greetings, regex_scripts find/replace, world_book entries content/comment, every extension string leaf) for remaining content in a target script.
+  description: `Audit every editable string leaf on the character (fields, alternate_greetings, regex find/replace, world_book content/comment, every extension string leaf) for remaining content in a target script. THE completion gate: call before claiming a translation task done — any leaf with match_chars > 0 (beyond ones you intentionally left) means NOT done.
 
-The completion gate. Call this before claiming a translation task is done. If it returns any leaves with match_chars > 0 (other than ones you intentionally left), you are not done.
-
-For each leaf with matches the report carries three signals you should read together:
-
-- match_chars / match_runs / match_ratio — totals.
-- density_by_quartile — match chars and distinct runs in each quartile of the leaf, labelled by line range. A non-zero quartile that no sample touches is content you have not seen.
-- samples — stratified across the leaf (one per quartile that has matches, plus the longest distinct run), each carrying its enclosing line so syntactic context (literal, comment, gated branch) is visible.
-
-If the leaf's coverage_warning fires, samples cover only a fraction of the matches. Read the full leaf or run grep over the uncovered quartiles before classifying.
-
-Sorted by match_chars descending so the worst offenders surface first.`,
+Per matched leaf: \`match_chars/match_runs/match_ratio\` totals; \`density_by_quartile\` (a non-zero quartile no sample touches is content you haven't seen); \`samples\` stratified across the leaf with each match's enclosing line for syntactic context (literal/comment/gated branch). When \`coverage_warning\` fires, samples cover only a fraction — read the full leaf or grep the uncovered quartiles before classifying. Sorted worst-first.`,
   inputSchema,
   jsonSchema: {
     type: "object",

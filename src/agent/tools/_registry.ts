@@ -114,9 +114,30 @@ const DEFERRED_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   // Custom-tool authoring. custom_tool_run stays loaded; saved recipes are rare.
   "custom_tool_save", "custom_tool_list", "custom_tool_delete",
   // Genuinely-niche utilities.
-  "roll_dice", "count_cjk_chars", "test_regex",
+  "roll_dice", "count_cjk_chars", "test_regex", "random_pick",
   // Mid-task user prompt, rare.
   "ask_user_question",
+  // Multi-step planning aid; fetched when a task warrants a checklist.
+  "todo_write",
+  // Web (search + fetch). Only when the user asks to look something up.
+  "web_search", "web_fetch",
+  // Vision: fetched when the user has an image in the workspace to view.
+  "view_image",
+  // Bulk translation surface. Fetched once a translation/CJK task is underway;
+  // the prompt body still names them as the completion gate so the agent knows
+  // to tool_search them.
+  "apply_glossary", "translate_card_strings", "audit_card_coverage", "survey_cjk",
+  // External-provider (phone-line) tools. Useless without an active provider;
+  // the context note announces surfaces when one is present.
+  "list_external", "read_external", "edit_external", "update_external", "grep_external",
+  // Metadata mutators. Path-based set/edit cover the common cases; these are
+  // for the long-tail non-string fields.
+  "update_character", "update_regex_script", "update_world_book_entry",
+  // Session edit-ledger management. Niche; the workshop UI is the usual path.
+  "list_session_edits", "revert_session_edits", "squash_session_edits",
+  // Workspace + tmp long-tail. Core reads (fs_read/fs_write/fs_list/fs_edit/
+  // fs_delete) and spill readers (tmp_read/tmp_grep) stay loaded.
+  "fs_zip", "fs_unzip", "fs_move", "fs_mkdir", "fs_stat", "tmp_stat", "tmp_list",
   // LumiRealm-specific mutations. Each is rare per session; deferred until
   // the agent confirms the user is on a LumiRealm-imported card / module.
   "asset_rename", "asset_delete",
