@@ -2,6 +2,8 @@ import { ToolRegistry } from "./_framework";
 
 import { applyGlossaryTool } from "./apply-glossary";
 import { askUserQuestionTool } from "./ask-user-question";
+import { attachWorldBookToChatTool } from "./attach-world-book-to-chat";
+import { listChatWorldBooksTool } from "./list-chat-world-books";
 import { assetDeleteTool } from "./asset-delete";
 import { assetRenameTool } from "./asset-rename";
 import { auditCardCoverageTool } from "./audit-card-coverage";
@@ -103,6 +105,7 @@ const DEFERRED_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   "count_tokens", "resolve_macros",
   "list_variables", "read_variable",
   "list_activated_world_info", "list_active_regex_scripts", "list_chat_memories",
+  "list_chat_world_books", "attach_world_book_to_chat",
   "list_personas", "read_persona", "read_persona_world_book",
   "list_databanks", "read_databank", "list_databank_documents", "read_databank_document",
   "list_connections", "read_connection",
@@ -175,6 +178,7 @@ const READ_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   "dry_run_prompt", "resolve_macros", "count_tokens",
   "list_variables", "read_variable",
   "list_activated_world_info", "list_active_regex_scripts", "list_chat_memories",
+  "list_chat_world_books",
   "list_personas", "read_persona", "read_persona_world_book",
   "list_databanks", "read_databank", "list_databank_documents", "read_databank_document",
   "list_connections", "read_connection",
@@ -229,6 +233,8 @@ export function maxResultSizeCharsFor(name: string): number | null {
 
 registry.register(applyGlossaryTool);
 registry.register(askUserQuestionTool);
+registry.register(attachWorldBookToChatTool);
+registry.register(listChatWorldBooksTool);
 registry.register(assetDeleteTool);
 registry.register(assetRenameTool);
 registry.register(auditCardCoverageTool);

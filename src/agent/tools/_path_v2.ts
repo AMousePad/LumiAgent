@@ -569,7 +569,7 @@ export { assertExtensionWriteAllowed };
 // non-focused character round-trips through resolveRead unambiguously. rx / wb
 // leaves carry a characterScope override so edits found here file under the
 // owning character even when it differs from the session focus.
-export async function* iterateAllLeaves(ctx: ToolCtx, characterId: string): AsyncGenerator<ResolvedLeaf> {
+export async function* iterateAllLeaves(ctx: ToolCtx, characterId: string, opts?: { wbScope?: "attached" | "all" }): AsyncGenerator<ResolvedLeaf> {
   const c = await ctx.spindle.characters.get(characterId, ctx.userId);
   if (!c) return;
   const charScope = characterScope(characterId);
@@ -643,17 +643,29 @@ export async function* iterateAllLeaves(ctx: ToolCtx, characterId: string): Asyn
     if (r.data.length === 0 || rOff + r.data.length >= r.total) break;
     rOff += r.data.length;
   }
-  // World book entries (attached books only).
-  for (const wbId of c.world_book_ids ?? []) {
+  // World book entries. Attached books always. wbScope "all" also walks the
+  // user's unattached (global) books, which default discovery never reaches.
+  const attachedSet = new Set(c.world_book_ids ?? []);
+  const wbIds: string[] = [...attachedSet];
+  if (opts?.wbScope === "all") {
+    const owned = await ctx.spindle.world_books.list({ limit: 1000, userId: ctx.userId });
+    for (const wb of owned.data) if (!attachedSet.has(wb.id)) wbIds.push(wb.id);
+  }
+  for (const wbId of wbIds) {
+    const attached = attachedSet.has(wbId);
+    // Unattached books aren't this character's; file edits under the book's own
+    // ledger, not the focused character. Tag the label so the model sees scope.
+    const wbScope: ScopeRef = attached ? charScope : { kind: "world_book", id: wbId };
+    const tag = attached ? "" : " [global]";
     let wOff = 0;
     while (true) {
       const r = await ctx.spindle.world_books.entries.list(wbId, { limit: 500, userId: ctx.userId, offset: wOff });
       for (const e of r.data) {
         if (typeof e.content === "string") {
-          yield { key: `wb/${e.id}/content`, surface: "world_book_entry", surfaceId: e.id, surfaceLabel: wbLabel(e), field: "content", value: e.content, scope: charScope };
+          yield { key: `wb/${e.id}/content`, surface: "world_book_entry", surfaceId: e.id, surfaceLabel: `${wbLabel(e)}${tag}`, field: "content", value: e.content, scope: wbScope };
         }
         if (typeof e.comment === "string" && e.comment.length > 0) {
-          yield { key: `wb/${e.id}/comment`, surface: "world_book_entry", surfaceId: e.id, surfaceLabel: wbLabel(e), field: "comment", value: e.comment, scope: charScope };
+          yield { key: `wb/${e.id}/comment`, surface: "world_book_entry", surfaceId: e.id, surfaceLabel: `${wbLabel(e)}${tag}`, field: "comment", value: e.comment, scope: wbScope };
         }
       }
       if (r.data.length === 0 || wOff + r.data.length >= r.total) break;

@@ -158,7 +158,7 @@ Use the native structured tool_use channel. Text-encoded calls (\`<invoke>\`, JS
 When the user asks "where is X coming from" or "why is the AI saying Y", first \`dry_run_prompt\` (the exact assembled prompt; defaults to the pinned chat, so if none is pinned tell the user to pin one) and \`tmp_grep\` the suspect token. Don't surface-search before that. Content can live in any of:
 
 - Character fields, including the whole \`char/extensions/*\` blob (\`list({path:"char/extensions"})\` + \`grep\`)
-- World books (\`grep({include_paths:["wb/"]})\`; entries fire conditionally, present != firing)
+- World books bind in 4 layers: character (\`char/world_book_ids\`), persona (\`persona/<id>/attached_world_book_id\`), chat ("This Chat Only", \`attach_world_book_to_chat\`), and global "Always Active" (host setting, not exposed). \`list_chat_world_books\` shows the first three for a chat. Default \`list\`/\`grep\` see only character-attached: pass \`grep({world_scope:"all"})\` to search the rest, \`list({path:"wb",include_unattached:true})\` to find them. Entries fire conditionally, present != firing.
 - Regex scripts: character, global, chat-scoped (\`list_active_regex_scripts({target})\`)
 - Personas (the active persona description is {{user}}; can carry a world book)
 - Databanks (RAG) and chat memory (\`list_chat_memories\`)

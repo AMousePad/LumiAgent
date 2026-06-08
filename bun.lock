@@ -12,7 +12,7 @@
       "devDependencies": {
         "@types/bun": "latest",
         "@types/diff": "^8.0.0",
-        "lumiverse-spindle-types": "0.5.19",
+        "lumiverse-spindle-types": "0.5.21",
         "typescript": "^5.5.0",
       },
     },
@@ -30,7 +30,7 @@
 
     "diff": ["diff@9.0.0", "", {}, "sha512-svtcdpS8CgJyqAjEQIXdb3OjhFVVYjzGAPO8WGCmRbrml64SPw/jJD4GoE98aR7r25A0XcgrK3F02yw9R/vhQw=="],
 
-    "lumiverse-spindle-types": ["lumiverse-spindle-types@0.5.19", "", {}, "sha512-Pva6rxNCOCWNM1p6cD0V83XSJTkiqrL22J0sVKDtBxjtgK7+Bb2J0bTwS31qVL5OloD4MqWbtGlFspUR6PHIsg=="],
+    "lumiverse-spindle-types": ["lumiverse-spindle-types@0.5.21", "", {}, "sha512-OOiYNEAQBrG7IKZGVegOE9hJ3+NGT2MA/peiPFhLHAnUcylLZ6D6j52WInq+W8UyKFnI7WAnxSxZUjFsItK9mw=="],
 
     "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 

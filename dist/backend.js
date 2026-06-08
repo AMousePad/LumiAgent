@@ -18474,17 +18474,146 @@ The runtime always appends an automatic "Other" option that lets the user type a
   });
 });
 
+// src/agent/tools/attach-world-book-to-chat.ts
+var inputSchema3, attachWorldBookToChatTool;
+var init_attach_world_book_to_chat = __esm(() => {
+  init_zod();
+  init__framework();
+  inputSchema3 = exports_external.object({
+    world_book_id: exports_external.string().min(1),
+    action: exports_external.enum(["attach", "detach"]).optional(),
+    chat_id: exports_external.string().optional()
+  }).strict();
+  attachWorldBookToChatTool = defineTool({
+    name: "attach_world_book_to_chat",
+    description: `Attach or detach a world book to a chat (the "This Chat Only" binding). Writes \`chat.metadata.chat_world_book_ids\`. Defaults to the pinned chat and \`action: "attach"\`.
+
+This is a different layer than character attachment (\`char/world_book_ids\`) or persona attachment (\`persona/<id>/attached_world_book_id\`): a chat-bound book is active for this one chat regardless of character. Idempotent: re-attaching an already-bound book is a no-op. Does not create the book, pass an existing world_book_id (\`create({path:"wb"})\` first if needed).`,
+    inputSchema: inputSchema3,
+    jsonSchema: {
+      type: "object",
+      properties: {
+        world_book_id: { type: "string", description: "Id of an existing world book." },
+        action: { type: "string", enum: ["attach", "detach"], description: "Default 'attach'." },
+        chat_id: { type: "string", description: "Chat to bind. Defaults to the pinned chat." }
+      },
+      required: ["world_book_id"]
+    },
+    requiresCharacter: false,
+    execute: async (input, ctx) => {
+      const chatId = input.chat_id ?? ctx.pinnedChatId;
+      if (!chatId)
+        return { content: "Error: no chat_id and no pinned chat. Pin a chat or pass chat_id.", isError: true };
+      const action = input.action ?? "attach";
+      try {
+        if (action === "attach") {
+          const wb = await ctx.spindle.world_books.get(input.world_book_id, ctx.userId);
+          if (!wb)
+            return { content: `Error: world book '${input.world_book_id}' not found`, isError: true };
+        }
+        const chat = await ctx.spindle.chats.get(chatId, ctx.userId);
+        if (!chat)
+          return { content: `Error: chat '${chatId}' not found`, isError: true };
+        const metadata = { ...chat.metadata ?? {} };
+        const raw = metadata["chat_world_book_ids"];
+        const current = Array.isArray(raw) ? raw.filter((v) => typeof v === "string") : [];
+        const has = current.includes(input.world_book_id);
+        let next;
+        if (action === "attach") {
+          if (has)
+            return { content: JSON.stringify({ ok: true, chat_id: chatId, world_book_id: input.world_book_id, action, changed: false, chat_world_book_ids: current }) };
+          next = [...current, input.world_book_id];
+        } else {
+          if (!has)
+            return { content: JSON.stringify({ ok: true, chat_id: chatId, world_book_id: input.world_book_id, action, changed: false, chat_world_book_ids: current }) };
+          next = current.filter((id) => id !== input.world_book_id);
+        }
+        metadata["chat_world_book_ids"] = next;
+        await ctx.spindle.chats.update(chatId, { metadata }, ctx.userId);
+        return { content: JSON.stringify({ ok: true, chat_id: chatId, world_book_id: input.world_book_id, action, changed: true, chat_world_book_ids: next }, null, 2) };
+      } catch (err) {
+        return { content: `Error: ${err.message}`, isError: true };
+      }
+    }
+  });
+});
+
+// src/agent/tools/list-chat-world-books.ts
+var inputSchema4, listChatWorldBooksTool;
+var init_list_chat_world_books = __esm(() => {
+  init_zod();
+  init__framework();
+  inputSchema4 = exports_external.object({
+    chat_id: exports_external.string().optional()
+  }).strict();
+  listChatWorldBooksTool = defineTool({
+    name: "list_chat_world_books",
+    description: `List every world book bound to a chat, grouped by binding scope: character (\`char/world_book_ids\`), persona (active persona's attached book), and chat ("This Chat Only", \`chat.metadata.chat_world_book_ids\`). Defaults to the pinned chat.
+
+Use this, not \`list({path:"wb"})\`, to answer "what lorebooks are active for this chat" \u2014 plain \`list\` only sees character-attached books and reports the others as unattached. Global "Always Active" books are a fourth layer the host doesn't expose to extensions, so they're reported under \`global_unavailable\`.`,
+    inputSchema: inputSchema4,
+    jsonSchema: {
+      type: "object",
+      properties: {
+        chat_id: { type: "string", description: "Chat to inspect. Defaults to the pinned chat." }
+      },
+      required: []
+    },
+    requiresCharacter: false,
+    execute: async (input, ctx) => {
+      const chatId = input.chat_id ?? ctx.pinnedChatId;
+      if (!chatId)
+        return { content: "Error: no chat_id and no pinned chat. Pin a chat or pass chat_id.", isError: true };
+      try {
+        const chat = await ctx.spindle.chats.get(chatId, ctx.userId);
+        if (!chat)
+          return { content: `Error: chat '${chatId}' not found`, isError: true };
+        const seen = new Set;
+        const rows = [];
+        const addBook = async (id, scope) => {
+          if (seen.has(id))
+            return;
+          seen.add(id);
+          const wb = await ctx.spindle.world_books.get(id, ctx.userId);
+          if (!wb)
+            return;
+          const meta3 = await ctx.spindle.world_books.entries.list(id, { limit: 1, userId: ctx.userId });
+          rows.push({ world_book_id: id, label: wb.name, entries: meta3.total, scope });
+        };
+        const character = await ctx.spindle.characters.get(chat.character_id, ctx.userId);
+        for (const id of character?.world_book_ids ?? [])
+          await addBook(id, "character");
+        const persona = await ctx.spindle.personas.getActive(ctx.userId);
+        if (persona?.attached_world_book_id)
+          await addBook(persona.attached_world_book_id, "persona");
+        const rawChatIds = (chat.metadata ?? {})["chat_world_book_ids"];
+        const chatIds = Array.isArray(rawChatIds) ? rawChatIds.filter((v) => typeof v === "string") : [];
+        for (const id of chatIds)
+          await addBook(id, "chat");
+        return { content: JSON.stringify({
+          chat_id: chatId,
+          count: rows.length,
+          books: rows,
+          global_unavailable: "Always-Active (global) books live in the user setting `globalWorldBooks`, which the host does not expose to this agent. They are not listed here."
+        }, null, 2) };
+      } catch (err) {
+        return { content: `Error: ${err.message}`, isError: true };
+      }
+    }
+  });
+});
+
 // src/agent/tools/asset-delete.ts
 async function findLumirealm(ctx) {
   const { discoverProviders: discoverProviders2 } = await Promise.resolve().then(() => (init_registry(), exports_registry));
   const providers = await discoverProviders2(ctx.spindle, ctx.userId);
   return providers.find((p) => p.id === "lumirealm") ?? null;
 }
-var inputSchema3, assetDeleteTool;
+var inputSchema5, assetDeleteTool;
 var init_asset_delete = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema3 = exports_external.object({
+  inputSchema5 = exports_external.object({
     source: exports_external.union([
       exports_external.object({ kind: exports_external.literal("character"), character_id: exports_external.string().min(1) }),
       exports_external.object({ kind: exports_external.literal("module"), module_id: exports_external.string().min(1) })
@@ -18496,7 +18625,7 @@ var init_asset_delete = __esm(() => {
     description: `Delete a LumiRealm asset (character or module). Removes it from the asset_index. References to the asset name in regex replace_string / bg-html / macros will resolve to nothing after deletion, so grep for the name and clean those up.
 
 Wraps the \`delete_asset\` WS op so the LumiRealm runtime refresh hooks fire.`,
-    inputSchema: inputSchema3,
+    inputSchema: inputSchema5,
     jsonSchema: {
       type: "object",
       properties: {
@@ -18535,11 +18664,11 @@ async function findLumirealm2(ctx) {
   const providers = await discoverProviders2(ctx.spindle, ctx.userId);
   return providers.find((p) => p.id === "lumirealm") ?? null;
 }
-var inputSchema4, assetRenameTool;
+var inputSchema6, assetRenameTool;
 var init_asset_rename = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema4 = exports_external.object({
+  inputSchema6 = exports_external.object({
     source: exports_external.union([
       exports_external.object({ kind: exports_external.literal("character"), character_id: exports_external.string().min(1) }),
       exports_external.object({ kind: exports_external.literal("module"), module_id: exports_external.string().min(1) })
@@ -18552,7 +18681,7 @@ var init_asset_rename = __esm(() => {
     description: `Rename a LumiRealm asset (character-scoped or module-scoped). The new name is what \`{{img::NAME}}\` / \`{{emotion::NAME}}\` / \`<img="NAME">\` macros in regex \`replace_string\` and bg-html will reference. After rename, grep the card and update every reference to the old name.
 
 Wraps the \`rename_asset\` WS op so the LumiRealm runtime refresh hooks fire (asset map propagation, attached-character invalidation).`,
-    inputSchema: inputSchema4,
+    inputSchema: inputSchema6,
     jsonSchema: {
       type: "object",
       properties: {
@@ -19122,7 +19251,7 @@ async function assertExtensionReadAllowed(ctx, characterId, extPath) {
   if (!res.ok)
     throw new ExtensionRefusedError(`char/extensions/${extPath}`, "read", res.message ?? "extension refused read at this path");
 }
-async function* iterateAllLeaves(ctx, characterId) {
+async function* iterateAllLeaves(ctx, characterId, opts) {
   const c = await ctx.spindle.characters.get(characterId, ctx.userId);
   if (!c)
     return;
@@ -19188,16 +19317,27 @@ async function* iterateAllLeaves(ctx, characterId) {
       break;
     rOff += r.data.length;
   }
-  for (const wbId of c.world_book_ids ?? []) {
+  const attachedSet = new Set(c.world_book_ids ?? []);
+  const wbIds = [...attachedSet];
+  if (opts?.wbScope === "all") {
+    const owned = await ctx.spindle.world_books.list({ limit: 1000, userId: ctx.userId });
+    for (const wb of owned.data)
+      if (!attachedSet.has(wb.id))
+        wbIds.push(wb.id);
+  }
+  for (const wbId of wbIds) {
+    const attached = attachedSet.has(wbId);
+    const wbScope = attached ? charScope : { kind: "world_book", id: wbId };
+    const tag = attached ? "" : " [global]";
     let wOff = 0;
     while (true) {
       const r = await ctx.spindle.world_books.entries.list(wbId, { limit: 500, userId: ctx.userId, offset: wOff });
       for (const e of r.data) {
         if (typeof e.content === "string") {
-          yield { key: `wb/${e.id}/content`, surface: "world_book_entry", surfaceId: e.id, surfaceLabel: wbLabel(e), field: "content", value: e.content, scope: charScope };
+          yield { key: `wb/${e.id}/content`, surface: "world_book_entry", surfaceId: e.id, surfaceLabel: `${wbLabel(e)}${tag}`, field: "content", value: e.content, scope: wbScope };
         }
         if (typeof e.comment === "string" && e.comment.length > 0) {
-          yield { key: `wb/${e.id}/comment`, surface: "world_book_entry", surfaceId: e.id, surfaceLabel: wbLabel(e), field: "comment", value: e.comment, scope: charScope };
+          yield { key: `wb/${e.id}/comment`, surface: "world_book_entry", surfaceId: e.id, surfaceLabel: `${wbLabel(e)}${tag}`, field: "comment", value: e.comment, scope: wbScope };
         }
       }
       if (r.data.length === 0 || wOff + r.data.length >= r.total)
@@ -19440,7 +19580,7 @@ function buildCoverageWarning(matchRuns, samplesShown, densities) {
   const uncoveredQuartiles = densities.filter((d) => d.runs > 0).map((d) => d.range).join(", ");
   return `Samples below cover ${samplesShown} of ${matchRuns} distinct runs in this leaf. Density spans ${uncoveredQuartiles}. Read the full leaf, or grep with a tighter regex / offset, before concluding it's clean.`;
 }
-var LANG_PATTERNS, inputSchema5, LINE_CONTEXT_BEFORE = 60, LINE_CONTEXT_AFTER = 60, MAX_SAMPLES = 5, auditCardCoverageTool;
+var LANG_PATTERNS, inputSchema7, LINE_CONTEXT_BEFORE = 60, LINE_CONTEXT_AFTER = 60, MAX_SAMPLES = 5, auditCardCoverageTool;
 var init_audit_card_coverage = __esm(() => {
   init_zod();
   init__framework();
@@ -19454,7 +19594,7 @@ var init_audit_card_coverage = __esm(() => {
     arabic: { name: "Arabic", regex: /[\u0600-\u06FF]/g },
     cyrillic: { name: "Cyrillic", regex: /[\u0400-\u04FF]/g }
   };
-  inputSchema5 = exports_external.object({
+  inputSchema7 = exports_external.object({
     source_lang: exports_external.enum(["ko", "ja", "zh", "cjk", "arabic", "cyrillic"]).optional().describe("Which script to look for. 'cjk' covers Korean/Japanese/Chinese together. Default 'cjk'."),
     min_chars: exports_external.number().int().min(0).max(1e4).optional().describe("Skip leaves with fewer matching chars than this. Default 1."),
     include_paths: exports_external.array(exports_external.string()).optional().describe("Restrict to leaves whose path starts with one of these prefixes."),
@@ -19467,7 +19607,7 @@ var init_audit_card_coverage = __esm(() => {
     description: `Audit every editable string leaf on the character (fields, alternate_greetings, regex find/replace, world_book content/comment, every extension string leaf) for remaining content in a target script. THE completion gate: call before claiming a translation task done \u2014 any leaf with match_chars > 0 (beyond ones you intentionally left) means NOT done.
 
 Per matched leaf: \`match_chars/match_runs/match_ratio\` totals; \`density_by_quartile\` (a non-zero quartile no sample touches is content you haven't seen); \`samples\` stratified across the leaf with each match's enclosing line for syntactic context (literal/comment/gated branch). When \`coverage_warning\` fires, samples cover only a fraction \u2014 read the full leaf or grep the uncovered quartiles before classifying. Sorted worst-first.`,
-    inputSchema: inputSchema5,
+    inputSchema: inputSchema7,
     jsonSchema: {
       type: "object",
       properties: {
@@ -19579,17 +19719,17 @@ function resolveChatId(input, ctx) {
     return { error: "No chat_id provided and no chat is pinned. Either pass chat_id or have the user pin a chat." };
   return ctx.pinnedChatId;
 }
-var inputSchema6, chatStatsTool;
+var inputSchema8, chatStatsTool;
 var init_chat_stats = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema6 = exports_external.object({
+  inputSchema8 = exports_external.object({
     chat_id: exports_external.string().optional()
   });
   chatStatsTool = defineTool({
     name: "chat_stats",
     description: "Call this first when the user references a chat. Cheap orientation: returns total_messages, total_chars, longest_message_chars, by_role counts, first_ts, last_ts. Use the result to choose between read_chat_messages (small), list_chat_messages (skim), or grep_chat_messages (search). Omit chat_id to use the pinned chat.",
-    inputSchema: inputSchema6,
+    inputSchema: inputSchema8,
     jsonSchema: {
       type: "object",
       properties: { chat_id: { type: "string", description: "Optional. Omit to use the pinned chat." } },
@@ -19645,7 +19785,7 @@ function classifyChar(code) {
       return label;
   return null;
 }
-var CJK_RANGES, inputSchema7, countCjkCharsTool;
+var CJK_RANGES, inputSchema9, countCjkCharsTool;
 var init_count_cjk_chars = __esm(() => {
   init_zod();
   init__framework();
@@ -19661,11 +19801,11 @@ var init_count_cjk_chars = __esm(() => {
     [63744, 64255, "cjk_compat"],
     [65382, 65439, "halfwidth_kana"]
   ];
-  inputSchema7 = exports_external.object({ text: exports_external.string() });
+  inputSchema9 = exports_external.object({ text: exports_external.string() });
   countCjkCharsTool = defineTool({
     name: "count_cjk_chars",
     description: "Count Korean / Japanese / Chinese characters in a string, broken down by script.",
-    inputSchema: inputSchema7,
+    inputSchema: inputSchema9,
     jsonSchema: {
       type: "object",
       properties: { text: { type: "string" } },
@@ -19693,13 +19833,13 @@ var init_count_cjk_chars = __esm(() => {
 function asObject(v) {
   return v && typeof v === "object" && !Array.isArray(v) ? v : {};
 }
-var inputSchema8, createTool;
+var inputSchema10, createTool;
 var init_create2 = __esm(() => {
   init_zod();
   init__framework();
   init__surfaces();
   init__path_v2();
-  inputSchema8 = exports_external.object({
+  inputSchema10 = exports_external.object({
     path: exports_external.string().min(2).describe("Container to create a child in. See description for the grammar."),
     value: exports_external.unknown().optional().describe("The new entity's fields (object), or a string for a greeting.")
   }).strict();
@@ -19718,7 +19858,7 @@ Containers:
 - \`char/alternate_fields/<field>\` -> a variant for description / personality / scenario. value: { content (required), label?, index? } (or a bare string for content).
 
 Returns the new id (and book/preset id for nested creates).`,
-    inputSchema: inputSchema8,
+    inputSchema: inputSchema10,
     jsonSchema: {
       type: "object",
       properties: {
@@ -19956,13 +20096,13 @@ async function listAllEntries(ctx, bookId) {
   }
   return out;
 }
-var inputSchema9, deleteTool;
+var inputSchema11, deleteTool;
 var init_delete = __esm(() => {
   init_zod();
   init__framework();
   init__surfaces();
   init__path_v2();
-  inputSchema9 = exports_external.object({
+  inputSchema11 = exports_external.object({
     path: exports_external.string().min(3).describe("Entity to delete. Same path grammar as `read` / `edit`.")
   }).strict();
   deleteTool = defineTool({
@@ -19979,7 +20119,7 @@ Deletable paths:
 - \`char/alternate_fields/<field>/<variantId>\` -> a variant from description / personality / scenario.
 
 Caveat: a recreated book / preset / persona gets a fresh id on revert; external references to the old id (e.g. a character's world_book_ids) are not rewired.`,
-    inputSchema: inputSchema9,
+    inputSchema: inputSchema11,
     jsonSchema: {
       type: "object",
       properties: { path: { type: "string", description: "Entity path. See description." } },
@@ -20475,17 +20615,17 @@ var init_custom_tools = __esm(() => {
 });
 
 // src/agent/tools/custom-tool-delete.ts
-var inputSchema10, customToolDeleteTool;
+var inputSchema12, customToolDeleteTool;
 var init_custom_tool_delete = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema10 = exports_external.object({
+  inputSchema12 = exports_external.object({
     name: exports_external.string().min(1)
   });
   customToolDeleteTool = defineTool({
     name: "custom_tool_delete",
     description: "Delete a custom tool manifest. Also remember to remove its line from workspace/custom_tools/tools.md.",
-    inputSchema: inputSchema10,
+    inputSchema: inputSchema12,
     jsonSchema: {
       type: "object",
       properties: { name: { type: "string" } },
@@ -20500,15 +20640,15 @@ var init_custom_tool_delete = __esm(() => {
 });
 
 // src/agent/tools/custom-tool-list.ts
-var inputSchema11, customToolListTool;
+var inputSchema13, customToolListTool;
 var init_custom_tool_list = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema11 = exports_external.object({});
+  inputSchema13 = exports_external.object({});
   customToolListTool = defineTool({
     name: "custom_tool_list",
     description: "List every custom tool the agent has authored in this workspace. Returns name, description, param count, step count. Cheap; call this whenever you suspect a recipe already exists for the user's request.",
-    inputSchema: inputSchema11,
+    inputSchema: inputSchema13,
     jsonSchema: { type: "object", properties: {}, required: [] },
     execute: async (_input, ctx) => {
       const ct = await Promise.resolve().then(() => (init_custom_tools(), exports_custom_tools));
@@ -20519,11 +20659,11 @@ var init_custom_tool_list = __esm(() => {
 });
 
 // src/agent/tools/custom-tool-run.ts
-var inputSchema12, customToolRunTool;
+var inputSchema14, customToolRunTool;
 var init_custom_tool_run = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema12 = exports_external.object({
+  inputSchema14 = exports_external.object({
     name: exports_external.string().min(1).optional(),
     steps: exports_external.array(exports_external.object({
       call: exports_external.string().min(1),
@@ -20545,7 +20685,7 @@ Use whenever you'd call tool A then feed its value into tool B, or call several 
 Ref syntax in step args / optional \`return\`: \`{{$body}}\` (raw value), \`prefix {{$body}} end\` (coerced string), \`{{$pick.picks[0].id}}\` (dotted path + index).
 Returns: explicit \`return\` \u2192 that; else any \`save_as\` \u2192 object of all bindings; else the final step's result.
 Budget: 400 steps / depth 4 / 60s. The \`name\` form runs a saved recipe; default to inline \`steps\`.`,
-    inputSchema: inputSchema12,
+    inputSchema: inputSchema14,
     jsonSchema: {
       type: "object",
       properties: {
@@ -20619,17 +20759,17 @@ Budget: 400 steps / depth 4 / 60s. The \`name\` form runs a saved recipe; defaul
 });
 
 // src/agent/tools/custom-tool-save.ts
-var inputSchema13, customToolSaveTool;
+var inputSchema15, customToolSaveTool;
 var init_custom_tool_save = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema13 = exports_external.object({
+  inputSchema15 = exports_external.object({
     manifest: exports_external.record(exports_external.string(), exports_external.unknown())
   });
   customToolSaveTool = defineTool({
     name: "custom_tool_save",
     description: "Save (or overwrite) a custom tool manifest. The manifest must declare a name (a-z, 0-9, _), a description, a params object, and an ordered steps array. Each step calls a built-in tool with args that can reference `{{param_name}}` (from inputs) or `{{$var_name}}` (from earlier `save_as` bindings). After saving, update workspace/custom_tools/tools.md to keep the index in sync.",
-    inputSchema: inputSchema13,
+    inputSchema: inputSchema15,
     jsonSchema: {
       type: "object",
       properties: {
@@ -20878,7 +21018,7 @@ var init__drafts = __esm(() => {
 });
 
 // src/agent/tools/edit-external.ts
-var inputSchema14, gate, editExternalTool;
+var inputSchema16, gate, editExternalTool;
 var init_edit_external = __esm(() => {
   init_zod();
   init__framework();
@@ -20886,7 +21026,7 @@ var init_edit_external = __esm(() => {
   init__patch();
   init__gates();
   init__drafts();
-  inputSchema14 = exports_external.object({
+  inputSchema16 = exports_external.object({
     surface_id: exports_external.string().min(1),
     item_id: exports_external.string().min(1),
     field: exports_external.string().min(1),
@@ -20914,7 +21054,7 @@ Usage:
 - The edit will fail if \`find\` is not unique in the field. Either provide more surrounding context to make it unique or set \`replace_all: true\`.
 - For non-string values or wholesale replacement, use \`update_external\`.
 - If a prior call returned a draft handle, pass \`replace_handle\` instead of re-emitting the literal replacement.`,
-    inputSchema: inputSchema14,
+    inputSchema: inputSchema16,
     jsonSchema: {
       type: "object",
       properties: {
@@ -21026,7 +21166,7 @@ ${draftReuseNote(h, replace.length, "replace")}`, isError: true };
 });
 
 // src/agent/tools/edit.ts
-var inputSchema15, gate2, editTool;
+var inputSchema17, gate2, editTool;
 var init_edit = __esm(() => {
   init_zod();
   init__framework();
@@ -21035,7 +21175,7 @@ var init_edit = __esm(() => {
   init__gates();
   init__drafts();
   init__path_v2();
-  inputSchema15 = exports_external.object({
+  inputSchema17 = exports_external.object({
     path: exports_external.string().min(3).describe("Slash-separated path. Same grammar as `read`."),
     find: exports_external.string().min(1).describe("Exact substring to locate. Must be unique unless replace_all=true."),
     replace: exports_external.string().optional().describe("Replacement text. Mutually exclusive with replace_handle."),
@@ -21066,7 +21206,7 @@ Returns:
 - \`snippet\`      \u2014 short context window around the first hit, post-replace.
 - \`patch\`        \u2014 \`{additions, deletions, hunks}\` jsdiff-structured for the UI.
 - \`recovered_via\` (only on fallback) \u2014 name of the recovery strategy that matched. Leading warning line precedes the JSON.`,
-    inputSchema: inputSchema15,
+    inputSchema: inputSchema17,
     jsonSchema: {
       type: "object",
       properties: {
@@ -21158,17 +21298,17 @@ ${body}`;
 });
 
 // src/agent/tools/finish.ts
-var inputSchema16, finishTool;
+var inputSchema18, finishTool;
 var init_finish = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema16 = exports_external.object({
+  inputSchema18 = exports_external.object({
     summary: exports_external.string().min(1)
   });
   finishTool = defineTool({
     name: "finish",
     description: "Declare the entire task complete. Use only when the user explicitly indicates everything is done. Normally just stop without calling a tool and the conversation will pause for the user's next message.",
-    inputSchema: inputSchema16,
+    inputSchema: inputSchema18,
     jsonSchema: {
       type: "object",
       properties: { summary: { type: "string" } },
@@ -31175,18 +31315,18 @@ var init_workspace = __esm(() => {
 });
 
 // src/agent/tools/fs-delete.ts
-var inputSchema17, fsDeleteTool;
+var inputSchema19, fsDeleteTool;
 var init_fs_delete = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema17 = exports_external.object({
+  inputSchema19 = exports_external.object({
     path: exports_external.string().min(1),
     recursive: exports_external.boolean().optional()
   });
   fsDeleteTool = defineTool({
     name: "fs_delete",
     description: "Delete a workspace file or directory. Directories must be empty unless recursive=true.",
-    inputSchema: inputSchema17,
+    inputSchema: inputSchema19,
     jsonSchema: {
       type: "object",
       properties: {
@@ -31213,7 +31353,7 @@ var init_fs_delete = __esm(() => {
 });
 
 // src/agent/tools/fs-edit.ts
-var inputSchema18, gate3, fsEditTool;
+var inputSchema20, gate3, fsEditTool;
 var init_fs_edit = __esm(() => {
   init_zod();
   init__framework();
@@ -31221,7 +31361,7 @@ var init_fs_edit = __esm(() => {
   init__patch();
   init__gates();
   init__drafts();
-  inputSchema18 = exports_external.object({
+  inputSchema20 = exports_external.object({
     path: exports_external.string().min(1),
     find: exports_external.string().min(1),
     replace: exports_external.string().optional(),
@@ -31237,7 +31377,7 @@ var init_fs_edit = __esm(() => {
   fsEditTool = defineTool({
     name: "fs_edit",
     description: "Find/replace inside a workspace text file. Requires a recent fs_read on the same path in this turn. Same unique-find discipline as the card edit tools.",
-    inputSchema: inputSchema18,
+    inputSchema: inputSchema20,
     jsonSchema: {
       type: "object",
       properties: {
@@ -31300,17 +31440,17 @@ ${draftReuseNote(h, replace.length, "replace")}`, isError: true };
 });
 
 // src/agent/tools/fs-list.ts
-var inputSchema19, fsListTool;
+var inputSchema21, fsListTool;
 var init_fs_list = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema19 = exports_external.object({
+  inputSchema21 = exports_external.object({
     path: exports_external.string().optional()
   });
   fsListTool = defineTool({
     name: "fs_list",
     description: "List entries in the agent's workspace at a given directory. Pass an empty path for the root. Returns [{name, path, isDirectory, sizeBytes, modifiedAt}]. The workspace persists across sessions and is shared with the user via the Files tab in the Workshop.",
-    inputSchema: inputSchema19,
+    inputSchema: inputSchema21,
     jsonSchema: {
       type: "object",
       properties: {
@@ -31330,17 +31470,17 @@ var init_fs_list = __esm(() => {
 });
 
 // src/agent/tools/fs-mkdir.ts
-var inputSchema20, fsMkdirTool;
+var inputSchema22, fsMkdirTool;
 var init_fs_mkdir = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema20 = exports_external.object({
+  inputSchema22 = exports_external.object({
     path: exports_external.string().min(1)
   });
   fsMkdirTool = defineTool({
     name: "fs_mkdir",
     description: "Create an empty directory in the workspace. Intermediate directories are created automatically by fs_write, so use this only when you need an empty folder.",
-    inputSchema: inputSchema20,
+    inputSchema: inputSchema22,
     jsonSchema: {
       type: "object",
       properties: {
@@ -31357,18 +31497,18 @@ var init_fs_mkdir = __esm(() => {
 });
 
 // src/agent/tools/fs-move.ts
-var inputSchema21, fsMoveTool;
+var inputSchema23, fsMoveTool;
 var init_fs_move = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema21 = exports_external.object({
+  inputSchema23 = exports_external.object({
     from: exports_external.string().min(1),
     to: exports_external.string().min(1)
   });
   fsMoveTool = defineTool({
     name: "fs_move",
     description: "Move or rename a workspace path. Works on both files and directories.",
-    inputSchema: inputSchema21,
+    inputSchema: inputSchema23,
     jsonSchema: {
       type: "object",
       properties: {
@@ -31386,12 +31526,12 @@ var init_fs_move = __esm(() => {
 });
 
 // src/agent/tools/fs-read.ts
-var inputSchema22, fsReadTool;
+var inputSchema24, fsReadTool;
 var init_fs_read = __esm(() => {
   init_zod();
   init__framework();
   init__gates();
-  inputSchema22 = exports_external.object({
+  inputSchema24 = exports_external.object({
     path: exports_external.string().min(1),
     offset: exports_external.number().int().positive().optional(),
     limit: exports_external.number().int().positive().optional()
@@ -31399,7 +31539,7 @@ var init_fs_read = __esm(() => {
   fsReadTool = defineTool({
     name: "fs_read",
     description: "Read a workspace text file with line numbers and pagination.",
-    inputSchema: inputSchema22,
+    inputSchema: inputSchema24,
     jsonSchema: {
       type: "object",
       properties: {
@@ -31426,17 +31566,17 @@ var init_fs_read = __esm(() => {
 });
 
 // src/agent/tools/fs-stat.ts
-var inputSchema23, fsStatTool;
+var inputSchema25, fsStatTool;
 var init_fs_stat = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema23 = exports_external.object({
+  inputSchema25 = exports_external.object({
     path: exports_external.string().min(1)
   });
   fsStatTool = defineTool({
     name: "fs_stat",
     description: "Get metadata for a single workspace path. Returns isDirectory, sizeBytes, modifiedAt. Returns null when the path doesn't exist.",
-    inputSchema: inputSchema23,
+    inputSchema: inputSchema25,
     jsonSchema: {
       type: "object",
       properties: {
@@ -31640,18 +31780,18 @@ function parseZip(input) {
 var CRC_TABLE = null, SIG_LOCAL = 67324752, SIG_CENTRAL = 33639248, SIG_EOCD = 101010256;
 
 // src/agent/tools/fs-unzip.ts
-var inputSchema24, fsUnzipTool;
+var inputSchema26, fsUnzipTool;
 var init_fs_unzip = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema24 = exports_external.object({
+  inputSchema26 = exports_external.object({
     zip_path: exports_external.string().min(1),
     dest_dir: exports_external.string()
   });
   fsUnzipTool = defineTool({
     name: "fs_unzip",
     description: "Extract a workspace .zip into a destination directory. STORE and DEFLATE are supported. Rejects entries with path traversal ('..') or absolute paths. Subject to the same per-file and total workspace caps as fs_write.",
-    inputSchema: inputSchema24,
+    inputSchema: inputSchema26,
     jsonSchema: {
       type: "object",
       properties: {
@@ -31684,12 +31824,12 @@ var init_fs_unzip = __esm(() => {
 });
 
 // src/agent/tools/fs-write.ts
-var inputSchema25, fsWriteTool;
+var inputSchema27, fsWriteTool;
 var init_fs_write = __esm(() => {
   init_zod();
   init__framework();
   init__drafts();
-  inputSchema25 = exports_external.object({
+  inputSchema27 = exports_external.object({
     path: exports_external.string().min(1),
     content: exports_external.string().optional(),
     content_handle: exports_external.string().optional()
@@ -31699,7 +31839,7 @@ var init_fs_write = __esm(() => {
   fsWriteTool = defineTool({
     name: "fs_write",
     description: "Create or overwrite a text file in the workspace. Use fs_edit for find/replace on existing files. Pass `content` for a literal payload or `content_handle` to reuse a stashed draft. Subject to per-file size cap and per-user storage cap.",
-    inputSchema: inputSchema25,
+    inputSchema: inputSchema27,
     jsonSchema: {
       type: "object",
       properties: {
@@ -31754,16 +31894,16 @@ function mimeForExt(ext) {
       return "application/octet-stream";
   }
 }
-var IMAGE_EXTS, MAX_B64 = 3600000, inputSchema26, viewImageTool;
+var IMAGE_EXTS, MAX_B64 = 3600000, inputSchema28, viewImageTool;
 var init_view_image = __esm(() => {
   init_zod();
   init__framework();
   IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp"]);
-  inputSchema26 = exports_external.object({ path: exports_external.string().min(1) }).strict();
+  inputSchema28 = exports_external.object({ path: exports_external.string().min(1) }).strict();
   viewImageTool = defineTool({
     name: "view_image",
     description: "Load an image file from the workspace so you can actually see it (needs a vision-capable connection). Pass a workspace path like 'screenshots/rule.png'. The image becomes visible to you on the next step. Supported: png, jpg, gif, webp.",
-    inputSchema: inputSchema26,
+    inputSchema: inputSchema28,
     jsonSchema: {
       type: "object",
       properties: { path: { type: "string", description: "Workspace-relative image path." } },
@@ -31837,11 +31977,11 @@ function buildMarkdown(res) {
   return lines.join(`
 `).trim();
 }
-var inputSchema27, webSearchTool;
+var inputSchema29, webSearchTool;
 var init_web_search = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema27 = exports_external.object({
+  inputSchema29 = exports_external.object({
     query: exports_external.string().min(2),
     count: exports_external.number().int().positive().optional(),
     scrape: exports_external.boolean().optional(),
@@ -31850,7 +31990,7 @@ var init_web_search = __esm(() => {
   webSearchTool = defineTool({
     name: "web_search",
     description: "Search the public web via the user's configured Lumiverse web search provider. Returns ranked results (title, URL, snippet); with scrape on (default) it also fetches and returns the top pages' extracted text. The `query` must be a short keyword-heavy search phrase a human would type ('latest OpenRouter pricing', 'Claude Sonnet release notes'), NOT a sentence, answer, or roleplay narration. Pass `save_to` (a workspace path like 'research/topic.md') to also write the results + page text to a file. Requires the user to have web search enabled in Lumiverse Settings.",
-    inputSchema: inputSchema27,
+    inputSchema: inputSchema29,
     jsonSchema: {
       type: "object",
       properties: {
@@ -31903,11 +32043,11 @@ var init_web_search = __esm(() => {
 });
 
 // src/agent/tools/web-fetch.ts
-var inputSchema28, webFetchTool;
+var inputSchema30, webFetchTool;
 var init_web_fetch = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema28 = exports_external.object({
+  inputSchema30 = exports_external.object({
     url: exports_external.string().url(),
     save_to: exports_external.string().optional(),
     as: exports_external.enum(["text", "image"]).optional()
@@ -31915,7 +32055,7 @@ var init_web_fetch = __esm(() => {
   webFetchTool = defineTool({
     name: "web_fetch",
     description: "Fetch a single URL through the Lumiverse CORS proxy and optionally save it to the workspace. Default `as: 'text'` returns the raw body (HTML/JSON/text) and, with `save_to`, writes it to a workspace file. Use `as: 'image'` with a required `save_to` to download an image (png/jpg/gif/webp) straight to the workspace as bytes (the image data is not dumped into the reply). Pair with web_search: search first, then web_fetch the URLs worth keeping.",
-    inputSchema: inputSchema28,
+    inputSchema: inputSchema30,
     jsonSchema: {
       type: "object",
       properties: {
@@ -31984,18 +32124,18 @@ var init_web_fetch = __esm(() => {
 });
 
 // src/agent/tools/fs-zip.ts
-var inputSchema29, fsZipTool;
+var inputSchema31, fsZipTool;
 var init_fs_zip = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema29 = exports_external.object({
+  inputSchema31 = exports_external.object({
     paths: exports_external.array(exports_external.string()).min(1),
     output: exports_external.string().min(1)
   });
   fsZipTool = defineTool({
     name: "fs_zip",
     description: "Bundle one or more workspace paths into a .zip file (STORE method, no compression). Folders are walked recursively. Use this to package generated assets for the user to download, or to consolidate scratch output before deleting the originals.",
-    inputSchema: inputSchema29,
+    inputSchema: inputSchema31,
     jsonSchema: {
       type: "object",
       properties: {
@@ -32091,13 +32231,13 @@ function grepLeaf(text, re, leafKey, surface, surfaceLabel, maxRemaining, maxHit
     stoppedEarly = true;
   return { hits, lastLineScanned, totalLines, stoppedEarly };
 }
-var GREP_DEFAULT_MAX = 50, GREP_MAX_CAP = 200, GREP_PREVIEW_CHARS = 150, GREP_DEFAULT_HITS_PER_LINE = 1, inputSchema30, grepTool;
+var GREP_DEFAULT_MAX = 50, GREP_MAX_CAP = 200, GREP_PREVIEW_CHARS = 150, GREP_DEFAULT_HITS_PER_LINE = 1, inputSchema32, grepTool;
 var init_grep = __esm(() => {
   init_zod();
   init__framework();
   init__path_v2();
   init__context();
-  inputSchema30 = exports_external.object({
+  inputSchema32 = exports_external.object({
     pattern: exports_external.string().min(1).describe("ECMAScript regex pattern. The global flag is added automatically."),
     flags: exports_external.string().optional().describe("Extra regex flags (i/m/s/u). 'g' is implied."),
     case_insensitive: exports_external.boolean().optional(),
@@ -32105,7 +32245,8 @@ var init_grep = __esm(() => {
     exclude_paths: exports_external.array(exports_external.string()).optional().describe("Skip leaves whose path starts with any of these prefixes."),
     max_matches: exports_external.number().int().positive().max(GREP_MAX_CAP).optional().describe(`Cap on total returned hits across all leaves. Default ${GREP_DEFAULT_MAX}, max ${GREP_MAX_CAP}.`),
     max_hits_per_line: exports_external.number().int().positive().max(50).optional().describe(`Cap on hits returned per line. Default ${GREP_DEFAULT_HITS_PER_LINE}. Keep at 1 when the pattern matches dense single characters (e.g. CJK glyphs) so a single line full of matches doesn't burn the entire max_matches budget.`),
-    character_id: exports_external.string().optional().describe("Character to search. Defaults to the focused character.")
+    character_id: exports_external.string().optional().describe("Character to search. Defaults to the focused character."),
+    world_scope: exports_external.enum(["attached", "all"]).optional().describe("World books to search. 'attached' (default) only this character's books; 'all' also includes the user's unattached global lorebooks (their entries are labeled [global]).")
   }).strict();
   grepTool = defineTool({
     name: "grep",
@@ -32115,7 +32256,7 @@ Returns \`hits[]\` of \`{path, surface, surface_label, line, match, preview}\` \
 
 - max_matches caps total hits (default ${GREP_DEFAULT_MAX}, max ${GREP_MAX_CAP}); max_hits_per_line caps per-line (default ${GREP_DEFAULT_HITS_PER_LINE}). Keep per-line at 1 for dense single-char patterns (\`[\uAC00-\uD7A3]\`, \`[\u4E00-\u9FFF]\`); raise it for distinct multi-char tokens.
 - include_paths/exclude_paths filter the walk by prefix (\`char/\`, \`rx/\`, \`wb/\`, \`char/extensions/...\`).`,
-    inputSchema: inputSchema30,
+    inputSchema: inputSchema32,
     jsonSchema: {
       type: "object",
       properties: {
@@ -32126,7 +32267,8 @@ Returns \`hits[]\` of \`{path, surface, surface_label, line, match, preview}\` \
         exclude_paths: { type: "array", items: { type: "string" } },
         max_matches: { type: "integer", minimum: 1, maximum: GREP_MAX_CAP, description: `default ${GREP_DEFAULT_MAX}` },
         max_hits_per_line: { type: "integer", minimum: 1, maximum: 50, description: `default ${GREP_DEFAULT_HITS_PER_LINE}` },
-        character_id: { type: "string", description: "Defaults to the focused character." }
+        character_id: { type: "string", description: "Defaults to the focused character." },
+        world_scope: { type: "string", enum: ["attached", "all"], description: "'all' also searches the user's unattached global lorebooks (entries labeled [global]). Default 'attached'." }
       },
       required: ["pattern"],
       additionalProperties: false
@@ -32163,7 +32305,7 @@ Returns \`hits[]\` of \`{path, surface, surface_label, line, match, preview}\` \
       let leavesWithMatches = 0;
       let truncatedAt = null;
       const eligibleLeaves = [];
-      for await (const leaf of iterateAllLeaves(ctx, target)) {
+      for await (const leaf of iterateAllLeaves(ctx, target, { wbScope: input.world_scope ?? "attached" })) {
         leavesScanned++;
         if (include.length > 0 && !include.some((p) => leaf.key.startsWith(p))) {
           leavesFiltered++;
@@ -32231,11 +32373,11 @@ function resolveChatId2(input, ctx) {
     return { error: "No chat_id provided and no chat is pinned. Either pass chat_id or have the user pin a chat." };
   return ctx.pinnedChatId;
 }
-var CHAT_GREP_DEFAULT_MAX = 50, CHAT_GREP_MAX_CAP = 500, CHAT_GREP_PREVIEW_CHARS = 160, inputSchema31, grepChatMessagesTool;
+var CHAT_GREP_DEFAULT_MAX = 50, CHAT_GREP_MAX_CAP = 500, CHAT_GREP_PREVIEW_CHARS = 160, inputSchema33, grepChatMessagesTool;
 var init_grep_chat_messages = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema31 = exports_external.object({
+  inputSchema33 = exports_external.object({
     chat_id: exports_external.string().optional(),
     pattern: exports_external.string(),
     flags: exports_external.string().optional(),
@@ -32245,7 +32387,7 @@ var init_grep_chat_messages = __esm(() => {
   grepChatMessagesTool = defineTool({
     name: "grep_chat_messages",
     description: "Regex search across message contents. Returns hits with idx, id, role, line, match, preview. Use this for any 'where did we say X' question on a big chat, before falling back to read_chat_messages. Omit chat_id to use the pinned chat.",
-    inputSchema: inputSchema31,
+    inputSchema: inputSchema33,
     jsonSchema: {
       type: "object",
       properties: {
@@ -32324,11 +32466,11 @@ var init_grep_chat_messages = __esm(() => {
 });
 
 // src/agent/tools/grep-external.ts
-var inputSchema32, grepExternalTool;
+var inputSchema34, grepExternalTool;
 var init_grep_external = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema32 = exports_external.object({
+  inputSchema34 = exports_external.object({
     surface_id: exports_external.string().min(1),
     pattern: exports_external.string().min(1),
     character_id: exports_external.string().optional(),
@@ -32345,7 +32487,7 @@ Usage:
 - \`field_prefix\` scopes the walk to a path subtree, path-segment aware. Examples: \`module.regex\` matches \`module.regex\`, \`module.regex[0]\`, \`module.regex.x\`; does NOT match \`module.regex_v2\`.
 - Per-character surfaces are filtered to items attached to the active character.
 - \`head\` caps the hit count (default 200, max 2000); response includes \`truncated\` when hit.`,
-    inputSchema: inputSchema32,
+    inputSchema: inputSchema34,
     jsonSchema: {
       type: "object",
       properties: {
@@ -32555,7 +32697,7 @@ async function inspectWorldBook(ctx, bookId) {
     largest: top
   };
 }
-var PEEK_CHARS = 200, TOP_N = 10, CJK_RE2, HANGUL_NFC_RANGE, HANGUL_JAMO_RANGE, MIRRORED_CHARACTER_FIELDS, inputSchema33, inspectTool;
+var PEEK_CHARS = 200, TOP_N = 10, CJK_RE2, HANGUL_NFC_RANGE, HANGUL_JAMO_RANGE, MIRRORED_CHARACTER_FIELDS, inputSchema35, inspectTool;
 var init_inspect = __esm(() => {
   init_zod();
   init__framework();
@@ -32574,7 +32716,7 @@ var init_inspect = __esm(() => {
     "post_history_instructions",
     "mes_example"
   ]);
-  inputSchema33 = exports_external.object({
+  inputSchema35 = exports_external.object({
     path: exports_external.string().min(2).describe("Path or container path. See description for forms.")
   }).strict();
   inspectTool = defineTool({
@@ -32603,7 +32745,7 @@ Container paths return aggregate / metadata:
   wb/<id>               book aggregate (entries, disabled, constant, total chars, top-10 by size)
 
 One tool, one path argument.`,
-    inputSchema: inputSchema33,
+    inputSchema: inputSchema35,
     jsonSchema: {
       type: "object",
       properties: { path: { type: "string", description: "Surface path. See description for leaf vs container forms." } },
@@ -32906,14 +33048,14 @@ async function listPresetBlocks(ctx, presetId, maxEntries) {
     };
   });
 }
-var inputSchema34, listTool;
+var inputSchema36, listTool;
 var init_list = __esm(() => {
   init_zod();
   init__framework();
   init__context();
   init__surfaces();
   init__path_v2();
-  inputSchema34 = exports_external.object({
+  inputSchema36 = exports_external.object({
     path: exports_external.string().describe("Container path. Empty / 'char' for the character overview. 'rx' for regex scripts. 'wb' for world books. 'wb/<bookId>' for entries in a book. 'char/alternate_greetings' for all greetings. 'char/extensions[/dotted]' for an extensions subtree. 'persona' for all personas. 'preset' for all presets. 'preset/<presetId>' for a preset's blocks."),
     max_entries: exports_external.number().int().positive().max(2000).optional().describe("Max items returned. Default 200."),
     max_depth: exports_external.number().int().positive().max(10).optional().describe("Recursion depth (only used for extensions traversal). Default 4."),
@@ -32948,7 +33090,7 @@ Each returned row carries:
 - \`entries\`  \u2014 only on \`world_book\` rows: total entry count in the book. Read this, not \`size\`, to gauge book volume.
 
 Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole via \`inspect\`; to \`read\` / \`edit\` a string leaf, append the field name (\`rx/<scriptId>/find_regex\` or \`/replace_string\`; \`wb/<entryId>/content\` or \`/comment\`). Leaf paths (\`char/<field>\`, \`char/alternate_greetings/<idx>\`, \`char/extensions/<dotted>\`) are directly read/editable.`,
-    inputSchema: inputSchema34,
+    inputSchema: inputSchema36,
     jsonSchema: {
       type: "object",
       properties: {
@@ -33030,7 +33172,7 @@ Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole
 });
 
 // src/agent/tools/rewrite.ts
-var inputSchema35, gate4, rewriteTool;
+var inputSchema37, gate4, rewriteTool;
 var init_rewrite = __esm(() => {
   init_zod();
   init__framework();
@@ -33038,7 +33180,7 @@ var init_rewrite = __esm(() => {
   init__gates();
   init__drafts();
   init__path_v2();
-  inputSchema35 = exports_external.object({
+  inputSchema37 = exports_external.object({
     path: exports_external.string().min(3).describe("Slash-separated path. Same grammar as `read` / `edit`."),
     new_content: exports_external.string().optional().describe("Full replacement text. Mutually exclusive with new_content_handle."),
     new_content_handle: exports_external.string().optional().describe("Handle of a previously-stashed draft.")
@@ -33062,7 +33204,7 @@ Returns:
 - \`path\`         \u2014 canonical leaf path that was written.
 - \`before_chars\`, \`after_chars\` \u2014 body size before vs after.
 - \`patch\`        \u2014 \`{additions, deletions, hunks}\` jsdiff-structured for the UI.`,
-    inputSchema: inputSchema35,
+    inputSchema: inputSchema37,
     jsonSchema: {
       type: "object",
       properties: {
@@ -33309,7 +33451,7 @@ async function setPersonaAttachedWorldBook(ctx, personaId, field, value) {
     field
   };
 }
-var inputSchema36, setTool;
+var inputSchema38, setTool;
 var init_set = __esm(() => {
   init_zod();
   init__framework();
@@ -33317,7 +33459,7 @@ var init_set = __esm(() => {
   init__surfaces();
   init__path_v2();
   init_edit_log();
-  inputSchema36 = exports_external.object({
+  inputSchema38 = exports_external.object({
     path: exports_external.string().min(3).describe("Slash-separated path. Same grammar as `read` / `edit`."),
     value: exports_external.unknown().describe("The new value. Any JSON-encodable type (string, number, boolean, array, object, null). Wholesale replacement at the path.")
   }).strict();
@@ -33341,7 +33483,7 @@ Returns:
 - \`path\` \u2014 path written.
 - \`before_chars\`, \`after_chars\` \u2014 string length before vs after (non-string values are JSON-stringified for measurement).
 - \`before_peek\`, \`after_peek\` \u2014 first 120 chars of each side, for verification.`,
-    inputSchema: inputSchema36,
+    inputSchema: inputSchema38,
     jsonSchema: {
       type: "object",
       properties: {
@@ -33457,11 +33599,11 @@ async function findLumirealm3(ctx) {
   const providers = await discoverProviders2(ctx.spindle, ctx.userId);
   return providers.find((p) => p.id === "lumirealm") ?? null;
 }
-var inputSchema37, setChatVariableTool;
+var inputSchema39, setChatVariableTool;
 var init_set_chat_variable = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema37 = exports_external.object({
+  inputSchema39 = exports_external.object({
     chat_id: exports_external.string().min(1),
     key: exports_external.string().min(1),
     value: exports_external.string().nullable()
@@ -33473,7 +33615,7 @@ var init_set_chat_variable = __esm(() => {
 This is a per-chat runtime patch, not a card-level edit. Trigger \`setvar\` effects will overwrite this when they fire. For values that should survive every trigger run (the card-side baseline), edit \`char/extensions/lumirealm.payload.scriptstate_defaults\` instead.
 
 Lua state keys (\`__name\`) need a valid JSON string in \`value\`; the runtime won't re-encode.`,
-    inputSchema: inputSchema37,
+    inputSchema: inputSchema39,
     jsonSchema: {
       type: "object",
       properties: {
@@ -33508,11 +33650,11 @@ async function findLumirealm4(ctx) {
   const providers = await discoverProviders2(ctx.spindle, ctx.userId);
   return providers.find((p) => p.id === "lumirealm") ?? null;
 }
-var inputSchema38, setDefaultVariablesTextTool;
+var inputSchema40, setDefaultVariablesTextTool;
 var init_set_default_variables_text = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema38 = exports_external.object({
+  inputSchema40 = exports_external.object({
     character_id: exports_external.string().min(1),
     text: exports_external.string().nullable()
   });
@@ -33521,7 +33663,7 @@ var init_set_default_variables_text = __esm(() => {
     description: `Set or clear the per-user override of LumiRealm default variables. This is the Risu-parity master text shown in State \u2192 Variables \u2192 Default for the current user only. Pass \`null\` to revert to the card-side baseline.
 
 For changes that every user of the card should see, edit \`char/extensions/lumirealm.payload.scriptstate_defaults\` (the card-side baseline object) instead.`,
-    inputSchema: inputSchema38,
+    inputSchema: inputSchema40,
     jsonSchema: {
       type: "object",
       properties: {
@@ -33554,11 +33696,11 @@ async function findLumirealm5(ctx) {
   const providers = await discoverProviders2(ctx.spindle, ctx.userId);
   return providers.find((p) => p.id === "lumirealm") ?? null;
 }
-var inputSchema39, setToggleTool;
+var inputSchema41, setToggleTool;
 var init_set_toggle = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema39 = exports_external.object({
+  inputSchema41 = exports_external.object({
     chat_id: exports_external.string().min(1),
     key: exports_external.string().min(1),
     value: exports_external.string().nullable()
@@ -33568,7 +33710,7 @@ var init_set_toggle = __esm(() => {
     description: `Set or clear a LumiRealm module-toggle value for the named chat. Writes to \`chat.metadata.macro_variables.global["toggle_<key>"]\`. Pass \`null\` for value to clear.
 
 Toggle definitions (what toggles exist, what type, what default) live in module envelopes at \`module.customModuleToggle\` (DSL), edit those via \`edit_external\` on the envelope. This tool changes the value in the current chat.`,
-    inputSchema: inputSchema39,
+    inputSchema: inputSchema41,
     jsonSchema: {
       type: "object",
       properties: {
@@ -33598,11 +33740,11 @@ Toggle definitions (what toggles exist, what type, what default) live in module 
 });
 
 // src/agent/tools/list-characters.ts
-var DEFAULT_LIMIT = 100, MAX_LIMIT = 500, inputSchema40, listCharactersTool;
+var DEFAULT_LIMIT = 100, MAX_LIMIT = 500, inputSchema42, listCharactersTool;
 var init_list_characters = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema40 = exports_external.object({
+  inputSchema42 = exports_external.object({
     query: exports_external.string().optional().describe("Case-insensitive substring filter on the character name."),
     offset: exports_external.number().int().min(0).optional().describe("Pagination offset. Default 0."),
     limit: exports_external.number().int().positive().max(MAX_LIMIT).optional().describe(`Max characters to return. Default ${DEFAULT_LIMIT}, max ${MAX_LIMIT}.`)
@@ -33614,7 +33756,7 @@ var init_list_characters = __esm(() => {
 Use this to find the id of the character the user is talking about, then address it with \`char/<id>/<field>\` paths or the \`character_id\` argument on whole-card tools (grep / audit / survey / list / inspect / update_character / apply_glossary).
 
 When a character is focused you rarely need this. \`query\` filters by name substring.`,
-    inputSchema: inputSchema40,
+    inputSchema: inputSchema42,
     jsonSchema: {
       type: "object",
       properties: {
@@ -33678,11 +33820,11 @@ When a character is focused you rarely need this. \`query\` filters by name subs
 });
 
 // src/agent/tools/list-chat-messages.ts
-var CHAT_LIST_SNIPPET_CHARS = 80, inputSchema41, listChatMessagesTool;
+var CHAT_LIST_SNIPPET_CHARS = 80, inputSchema43, listChatMessagesTool;
 var init_list_chat_messages = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema41 = exports_external.object({
+  inputSchema43 = exports_external.object({
     chat_id: exports_external.string().optional(),
     offset: exports_external.number().optional(),
     limit: exports_external.number().optional()
@@ -33690,7 +33832,7 @@ var init_list_chat_messages = __esm(() => {
   listChatMessagesTool = defineTool({
     name: "list_chat_messages",
     description: "Skim a chat's messages as metadata only: idx, id, role, char count, and an 80-char snippet per message. Cheap on tokens. Use for picking which specific messages to read in full afterwards. Omit chat_id to use the pinned chat.",
-    inputSchema: inputSchema41,
+    inputSchema: inputSchema43,
     jsonSchema: {
       type: "object",
       properties: {
@@ -33737,18 +33879,18 @@ var init_list_chat_messages = __esm(() => {
 });
 
 // src/agent/tools/list-chats-for-character.ts
-var inputSchema42, listChatsForCharacterTool;
+var inputSchema44, listChatsForCharacterTool;
 var init_list_chats_for_character = __esm(() => {
   init_zod();
   init__framework();
   init__context();
-  inputSchema42 = exports_external.object({
+  inputSchema44 = exports_external.object({
     character_id: exports_external.string().optional().describe("Character whose chats to list. Defaults to the focused character.")
   }).strict();
   listChatsForCharacterTool = defineTool({
     name: "list_chats_for_character",
     description: "List all of a character's chat sessions. Returns id, name, updated_at, message_count, is_active (whether the host is currently showing this chat). Defaults to the focused character; pass character_id to list another character's chats. Use this to discover what chats exist before reading messages, or to suggest one for the user to pin.",
-    inputSchema: inputSchema42,
+    inputSchema: inputSchema44,
     jsonSchema: { type: "object", properties: { character_id: { type: "string", description: "Defaults to the focused character." } }, required: [] },
     requiresCharacter: false,
     execute: async (input, ctx) => {
@@ -33781,11 +33923,11 @@ var init_list_chats_for_character = __esm(() => {
 });
 
 // src/agent/tools/list-external.ts
-var inputSchema43, listExternalTool;
+var inputSchema45, listExternalTool;
 var init_list_external = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema43 = exports_external.object({
+  inputSchema45 = exports_external.object({
     surface_id: exports_external.string().min(1),
     character_id: exports_external.string().optional()
   });
@@ -33800,7 +33942,7 @@ Usage:
 Returns:
 - \`total\` \u2014 total item count after attachment filter.
 - \`items\` \u2014 array of \`{id, label, brief?}\`. \`id\` is what you pass to \`read_external\` / \`edit_external\` as \`item_id\`. \`brief\` is provider-defined metadata (counts, flags, kind) varying per surface.`,
-    inputSchema: inputSchema43,
+    inputSchema: inputSchema45,
     jsonSchema: {
       type: "object",
       properties: {
@@ -33832,13 +33974,13 @@ Returns:
 });
 
 // src/agent/tools/list-session-edits.ts
-var inputSchema44, listSessionEditsTool;
+var inputSchema46, listSessionEditsTool;
 var init_list_session_edits = __esm(() => {
   init_zod();
   init__framework();
   init_ledger();
   init__context();
-  inputSchema44 = exports_external.object({
+  inputSchema46 = exports_external.object({
     scope: exports_external.enum(["current_message", "current_session", "all_sessions"]).optional().describe("current_message: just this response. current_session: every edit you've made in this session. all_sessions: every agent-authored edit on this character across every session (useful when the user asks about prior conversations). Default current_message."),
     include_reverted: exports_external.boolean().optional().describe("Include already-reverted edits. Default false."),
     limit: exports_external.number().int().positive().max(500).optional()
@@ -33852,7 +33994,7 @@ Usage:
 - Returns one row per patch: edit_id, surface, surface_id, surface_label, field, ts, reverted, session_id.
 - Pass returned ids to \`revert_session_edits\` or \`squash_session_edits\`.
 - Cross-session revert requires \`allow_cross_session: true\` on \`revert_session_edits\`.`,
-    inputSchema: inputSchema44,
+    inputSchema: inputSchema46,
     jsonSchema: {
       type: "object",
       properties: {
@@ -33947,11 +34089,11 @@ async function findLumirealm6(ctx) {
   const providers = await discoverProviders2(ctx.spindle, ctx.userId);
   return providers.find((p) => p.id === "lumirealm") ?? null;
 }
-var inputSchema45, moduleAttachTool;
+var inputSchema47, moduleAttachTool;
 var init_module_attach = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema45 = exports_external.object({
+  inputSchema47 = exports_external.object({
     character_id: exports_external.string().min(1),
     module_id: exports_external.string().min(1)
   });
@@ -33960,7 +34102,7 @@ var init_module_attach = __esm(() => {
     description: `Attach a LumiRealm module to a character. Adds the module's lorebook + regex artifacts to the character and makes its triggers, bg-html embedding, and toggle DSL active in chats for that character. Use \`list_external({surface_id:"module_envelope"})\` first to see available modules.
 
 Wraps the \`attach_module\` WS op so artifact install + refresh hooks fire.`,
-    inputSchema: inputSchema45,
+    inputSchema: inputSchema47,
     jsonSchema: {
       type: "object",
       properties: {
@@ -33993,11 +34135,11 @@ async function findLumirealm7(ctx) {
   const providers = await discoverProviders2(ctx.spindle, ctx.userId);
   return providers.find((p) => p.id === "lumirealm") ?? null;
 }
-var inputSchema46, moduleDetachTool;
+var inputSchema48, moduleDetachTool;
 var init_module_detach = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema46 = exports_external.object({
+  inputSchema48 = exports_external.object({
     character_id: exports_external.string().min(1),
     module_id: exports_external.string().min(1)
   });
@@ -34006,7 +34148,7 @@ var init_module_detach = __esm(() => {
     description: `Detach a LumiRealm module from a character. Removes its installed lorebook + regex artifacts and stops its triggers / bg-html / toggles from running for that character. The module envelope stays in the user's library (not deleted).
 
 Wraps the \`detach_module\` WS op so artifact uninstall + refresh hooks fire.`,
-    inputSchema: inputSchema46,
+    inputSchema: inputSchema48,
     jsonSchema: {
       type: "object",
       properties: {
@@ -34034,11 +34176,11 @@ Wraps the \`detach_module\` WS op so artifact uninstall + refresh hooks fire.`,
 });
 
 // src/agent/tools/random-pick.ts
-var inputSchema47, randomPickTool;
+var inputSchema49, randomPickTool;
 var init_random_pick = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema47 = exports_external.object({
+  inputSchema49 = exports_external.object({
     items: exports_external.array(exports_external.unknown()),
     count: exports_external.number().optional(),
     replacement: exports_external.boolean().optional()
@@ -34053,7 +34195,7 @@ Returns:
 - \`count\`       \u2014 how many were picked.
 - \`replacement\` \u2014 whether duplicates were allowed.
 - \`picks\`       \u2014 array of the chosen items, same element type you passed in. If \`items\` was \`[{path, label}, ...]\` then \`picks[0].path\` is the pick's path.`,
-    inputSchema: inputSchema47,
+    inputSchema: inputSchema49,
     jsonSchema: {
       type: "object",
       properties: {
@@ -34090,13 +34232,13 @@ Returns:
 });
 
 // src/agent/tools/read.ts
-var inputSchema48, readTool;
+var inputSchema50, readTool;
 var init_read = __esm(() => {
   init_zod();
   init__framework();
   init__gates();
   init__path_v2();
-  inputSchema48 = exports_external.object({
+  inputSchema50 = exports_external.object({
     path: exports_external.string().min(3).describe("Slash-separated path to a string leaf. Examples: 'char/description', 'char/first_mes', 'char/alternate_greetings/0', 'char/extensions/lumirealm.payload.background_html_source', 'rx/<scriptId>/replace_string', 'wb/<entryId>/content', 'wb/<entryId>/comment'."),
     offset: exports_external.number().int().positive().optional().describe("1-based starting line number."),
     limit: exports_external.number().int().positive().optional().describe("Max lines to return.")
@@ -34122,7 +34264,7 @@ Path grammar:
 Records the path as 'recently read' so a subsequent \`edit\` on the same path passes the read-gate.
 
 Returns: a plain string body. Most of the time that's line-numbered text (\`   1\\tcontent line\\n   2\\t...\`). If the body would exceed the per-call budget it spills, and you get JSON of the form \`{spilled: true, tmp_handle: "tmp_...", peek, total_chars, total_lines, hint}\` \u2014 pass \`tmp_handle\` to \`tmp_grep\` / \`tmp_read\` / \`tmp_stat\` from there.`,
-    inputSchema: inputSchema48,
+    inputSchema: inputSchema50,
     jsonSchema: {
       type: "object",
       properties: {
@@ -34183,11 +34325,11 @@ async function readChatMessagesImpl(ctx, chatId, offsetIn, limitIn) {
   const out = await spillOrReturn(ctx, payload, `read_chat_messages:${chatId}`, `To read just the latest messages in full, re-call with offset near ${all.length} (e.g. offset ${Math.max(0, all.length - 3)}, limit 3). For search, use grep_chat_messages.`);
   return { content: out };
 }
-var CHAT_MESSAGES_DEFAULT_LIMIT = 100, CHAT_MESSAGES_MAX_LIMIT = 500, inputSchema49, readChatMessagesTool;
+var CHAT_MESSAGES_DEFAULT_LIMIT = 100, CHAT_MESSAGES_MAX_LIMIT = 500, inputSchema51, readChatMessagesTool;
 var init_read_chat_messages = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema49 = exports_external.object({
+  inputSchema51 = exports_external.object({
     chat_id: exports_external.string().optional(),
     offset: exports_external.number().optional(),
     limit: exports_external.number().optional()
@@ -34202,7 +34344,7 @@ Usage:
 - Returns messages in chronological order with role / content / send_date / swipe metadata. Active swipe is the \`content\` field; other swipes live on \`swipes[]\`.
 - Default limit 100, cap 500. Most chats fit in one call.
 - If \`chat_id\` is "pinned" but no chat is pinned, returns \`{pinned: false, note}\` and the agent should ask the user to pin one.`,
-    inputSchema: inputSchema49,
+    inputSchema: inputSchema51,
     jsonSchema: {
       type: "object",
       properties: {
@@ -34227,12 +34369,12 @@ Usage:
 });
 
 // src/agent/tools/read-external.ts
-var inputSchema50, readExternalTool;
+var inputSchema52, readExternalTool;
 var init_read_external = __esm(() => {
   init_zod();
   init__framework();
   init__gates();
-  inputSchema50 = exports_external.object({
+  inputSchema52 = exports_external.object({
     surface_id: exports_external.string().min(1),
     item_id: exports_external.string().min(1),
     field: exports_external.string().optional()
@@ -34247,7 +34389,7 @@ Usage:
 - Big results spill to a tmp handle.
 
 Returns: JSON \`{surface_id, item_id, field, value_chars, value}\`. \`value\` is the raw string when the field is a string, otherwise the JSON-stringified payload (string form, not a parsed object). Spilled responses become a tmp envelope \`{spilled: true, tmp_handle, peek, ...}\` \u2014 pass \`tmp_handle\` to \`tmp_grep\` / \`tmp_read\`.`,
-    inputSchema: inputSchema50,
+    inputSchema: inputSchema52,
     jsonSchema: {
       type: "object",
       properties: {
@@ -34458,7 +34600,7 @@ var init_sessions = __esm(() => {
 });
 
 // src/agent/tools/revert-session-edits.ts
-var inputSchema51, revertSessionEditsTool;
+var inputSchema53, revertSessionEditsTool;
 var init_revert_session_edits = __esm(() => {
   init_zod();
   init__framework();
@@ -34466,7 +34608,7 @@ var init_revert_session_edits = __esm(() => {
   init_edit_log();
   init_sessions();
   init__context();
-  inputSchema51 = exports_external.object({
+  inputSchema53 = exports_external.object({
     edit_ids: exports_external.array(exports_external.string().min(1)).min(1).max(50).describe("Edit ids from list_session_edits."),
     allow_cross_session: exports_external.boolean().optional().describe("Allow reverting edits you made in a DIFFERENT chat session. Default false: only current-session edits are revertable. Opt in only when the user asks to undo work from an earlier conversation.")
   }).strict();
@@ -34479,7 +34621,7 @@ Usage:
 - Set \`allow_cross_session: true\` to revert edits from earlier sessions on this character. Use sparingly; the user from those earlier sessions doesn't know about the change.
 - Cascade-aware: if a later edit depended on a reverted one and can no longer apply, it gets reverted too and listed under \`cascadedEditIds\`.
 - Edit ids come from \`list_session_edits\`.`,
-    inputSchema: inputSchema51,
+    inputSchema: inputSchema53,
     jsonSchema: {
       type: "object",
       properties: {
@@ -34583,17 +34725,17 @@ Usage:
 });
 
 // src/agent/tools/roll-dice.ts
-var inputSchema52, rollDiceTool;
+var inputSchema54, rollDiceTool;
 var init_roll_dice = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema52 = exports_external.object({
+  inputSchema54 = exports_external.object({
     spec: exports_external.string().min(1)
   });
   rollDiceTool = defineTool({
     name: "roll_dice",
     description: "Roll dice in standard NdM[+K] notation, e.g. '3d6', '1d20+4', '2d10-1'. Returns each roll and the total. Use this instead of guessing numbers when the user asks for a dice roll.",
-    inputSchema: inputSchema52,
+    inputSchema: inputSchema54,
     jsonSchema: {
       type: "object",
       properties: { spec: { type: "string", description: "Dice spec, e.g. '3d6+2'." } },
@@ -34624,13 +34766,13 @@ var init_roll_dice = __esm(() => {
 });
 
 // src/agent/tools/squash-session-edits.ts
-var inputSchema53, squashSessionEditsTool;
+var inputSchema55, squashSessionEditsTool;
 var init_squash_session_edits = __esm(() => {
   init_zod();
   init__framework();
   init_ledger();
   init__context();
-  inputSchema53 = exports_external.object({
+  inputSchema55 = exports_external.object({
     phase_label: exports_external.string().max(120).optional().describe("Optional label for what this phase represented (e.g. 'translation pass', 'tone refactor'). Stored on the merged patch's description.")
   }).strict();
   squashSessionEditsTool = defineTool({
@@ -34641,7 +34783,7 @@ Usage:
 - Call mid-response to commit a phase of work before starting another (translation pass \u2192 seal \u2192 tone refactor).
 - End-of-message autosquash never merges across sealed patches; phases stay revertable as discrete units.
 - If never called, all edits in this response get auto-squashed into one patch per file at the end of the message.`,
-    inputSchema: inputSchema53,
+    inputSchema: inputSchema55,
     jsonSchema: {
       type: "object",
       properties: {
@@ -34739,14 +34881,14 @@ async function loadAllWorldBookEntries2(ctx, c) {
   }
   return out;
 }
-var SURVEY_DEFAULT_MIN_LEN = 2, SURVEY_DEFAULT_TOP_N = 60, CJK_RUN_RE, inputSchema54, surveyCjkTool;
+var SURVEY_DEFAULT_MIN_LEN = 2, SURVEY_DEFAULT_TOP_N = 60, CJK_RUN_RE, inputSchema56, surveyCjkTool;
 var init_survey_cjk = __esm(() => {
   init_zod();
   init__framework();
   init__context();
   init__surfaces();
   CJK_RUN_RE = /[\u3040-\u309F\u30A0-\u30FF\u31F0-\u31FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F\uF900-\uFAFF]+/g;
-  inputSchema54 = exports_external.object({
+  inputSchema56 = exports_external.object({
     scopes: exports_external.array(exports_external.enum(["character", "world_books", "regex_scripts", "extensions"])).optional(),
     min_length: exports_external.number().optional(),
     top_n: exports_external.number().optional(),
@@ -34762,7 +34904,7 @@ Returns:
 - \`total_runs\`         \u2014 sum of occurrences across all surfaces.
 - \`returned\`, \`truncated\` \u2014 how many made it into \`top\` and whether some were dropped.
 - \`top\` \u2014 array of \`{text, count, distinct_surfaces, sample_surfaces}\`, sorted by count descending. \`sample_surfaces\` is up to 4 surface names where the run appears.`,
-    inputSchema: inputSchema54,
+    inputSchema: inputSchema56,
     jsonSchema: {
       type: "object",
       properties: {
@@ -34847,11 +34989,11 @@ Returns:
 });
 
 // src/agent/tools/test-regex.ts
-var inputSchema55, testRegexTool;
+var inputSchema57, testRegexTool;
 var init_test_regex = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema55 = exports_external.object({
+  inputSchema57 = exports_external.object({
     pattern: exports_external.string(),
     flags: exports_external.string().optional(),
     sample: exports_external.string()
@@ -34859,7 +35001,7 @@ var init_test_regex = __esm(() => {
   testRegexTool = defineTool({
     name: "test_regex",
     description: "Compile a regex and test it against a sample. Returns whether it matches, the match, and capture groups.",
-    inputSchema: inputSchema55,
+    inputSchema: inputSchema57,
     jsonSchema: {
       type: "object",
       properties: {
@@ -34899,7 +35041,7 @@ function looksLikeRegexPattern(s) {
 function isNonEmptyString(v) {
   return typeof v === "string" && v.length > 0;
 }
-var INCLUDE_VALUES, inputSchema56, DEFAULT_INCLUDE, CODE_EFFECT_TYPES, SETVAR_LIKE_TYPES, ALERT_LIKE_TYPES, RUNLLM_TYPES, DEFAULT_MIN_CHARS = 2, translateCardStringsTool;
+var INCLUDE_VALUES, inputSchema58, DEFAULT_INCLUDE, CODE_EFFECT_TYPES, SETVAR_LIKE_TYPES, ALERT_LIKE_TYPES, RUNLLM_TYPES, DEFAULT_MIN_CHARS = 2, translateCardStringsTool;
 var init_translate_card_strings = __esm(() => {
   init_zod();
   init__framework();
@@ -34913,7 +35055,7 @@ var init_translate_card_strings = __esm(() => {
     "alternate_greetings",
     "world_book_entries"
   ];
-  inputSchema56 = exports_external.object({
+  inputSchema58 = exports_external.object({
     source_lang: exports_external.string().min(2).max(10).describe("BCP-47 source language tag (e.g. 'ko', 'ja', 'zh-Hans'). Chrome's Translator API picks the on-device model from this."),
     target_lang: exports_external.string().min(2).max(10).describe("BCP-47 target language tag (e.g. 'en'). Same caveat as source_lang."),
     include: exports_external.array(exports_external.enum(INCLUDE_VALUES)).optional().describe("Which surfaces to translate. Default: regex_scripts + lumirealm_bghtml + lumirealm_triggers + lumirealm_scriptstate. Skips alternate_greetings, character_fields, world_book_entries by default since those are prose you should review yourself. lumirealm_triggers covers all trigger string surfaces: triggerlua/triggercode code blobs (literal extraction only), setvar/addvar/setdefaultvar values, alert displays, runLLM prompts."),
@@ -34951,7 +35093,7 @@ Usage:
 - \`include\` defaults to mechanical surfaces (regex_scripts + lumirealm_bghtml + lumirealm_lua + lumirealm_scriptstate). Prose surfaces are opt-in.
 - Requires Chrome desktop with the Translator API for the source\u2192target pair.
 - After application, use \`list_session_edits\` + \`read\` to proof-check each touched path.`,
-    inputSchema: inputSchema56,
+    inputSchema: inputSchema58,
     jsonSchema: {
       type: "object",
       properties: {
@@ -35354,11 +35496,11 @@ function grepText(text, re, maxRemaining) {
   }
   return out;
 }
-var TMP_GREP_DEFAULT_MAX = 100, TMP_GREP_MAX_CAP = 1000, GREP_PREVIEW_CHARS2 = 150, inputSchema57, tmpGrepTool;
+var TMP_GREP_DEFAULT_MAX = 100, TMP_GREP_MAX_CAP = 1000, GREP_PREVIEW_CHARS2 = 150, inputSchema59, tmpGrepTool;
 var init_tmp_grep = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema57 = exports_external.object({
+  inputSchema59 = exports_external.object({
     handle: exports_external.string(),
     pattern: exports_external.string(),
     flags: exports_external.string().optional(),
@@ -35373,7 +35515,7 @@ Returns:
 - \`handle\`, \`pattern\`, \`flags\` \u2014 request echoes.
 - \`match_count\`, \`truncated\` \u2014 total hits returned, and whether the cap fired.
 - \`hits\` \u2014 array of \`{line, match, preview}\`. \`line\` is 1-indexed against the tmp file, \`preview\` is the line trimmed to ~150 chars.`,
-    inputSchema: inputSchema57,
+    inputSchema: inputSchema59,
     jsonSchema: {
       type: "object",
       properties: {
@@ -35418,15 +35560,15 @@ Returns:
 });
 
 // src/agent/tools/tmp-list.ts
-var inputSchema58, tmpListTool;
+var inputSchema60, tmpListTool;
 var init_tmp_list = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema58 = exports_external.object({});
+  inputSchema60 = exports_external.object({});
   tmpListTool = defineTool({
     name: "tmp_list",
     description: "List active tmp handles for this user across all sessions. Returns newest-first with handle, origin, total_chars, total_lines, createdAt. Per-user cap is 50 files OR 30MB; oldest are auto-evicted on the next spill.",
-    inputSchema: inputSchema58,
+    inputSchema: inputSchema60,
     jsonSchema: { type: "object", properties: {}, required: [] },
     execute: async (_input, ctx) => {
       const { listAllTmpForUser: listAllTmpForUser2, TMP_MAX_FILES_PER_USER: TMP_MAX_FILES_PER_USER2, TMP_MAX_BYTES_PER_USER: TMP_MAX_BYTES_PER_USER2 } = await Promise.resolve().then(() => (init_tmp_store(), exports_tmp_store));
@@ -35446,11 +35588,11 @@ var init_tmp_list = __esm(() => {
 });
 
 // src/agent/tools/tmp-read.ts
-var TMP_READ_DEFAULT_LIMIT = 200, TMP_READ_MAX_LIMIT = 4000, inputSchema59, tmpReadTool;
+var TMP_READ_DEFAULT_LIMIT = 200, TMP_READ_MAX_LIMIT = 4000, inputSchema61, tmpReadTool;
 var init_tmp_read = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema59 = exports_external.object({
+  inputSchema61 = exports_external.object({
     handle: exports_external.string(),
     offset: exports_external.number().optional(),
     limit: exports_external.number().optional()
@@ -35464,7 +35606,7 @@ For JSON-shaped spills (\`list\`, \`inspect\`, \`grep\`, \`audit_card_coverage\`
 For prose spills (chat logs, large string leaves), reading by offset/limit is fine. Always pair this tool with \`tmp_stat\` first to learn total_lines before deciding on a range.
 
 Returns: a string body. First line is a metadata header \`[origin=..., total_lines=N, total_chars=M]\` followed by the line-numbered slice. Not JSON, parse line-by-line.`,
-    inputSchema: inputSchema59,
+    inputSchema: inputSchema61,
     jsonSchema: {
       type: "object",
       properties: {
@@ -35492,11 +35634,11 @@ ${sliced}` : sliced;
 });
 
 // src/agent/tools/tmp-stat.ts
-var inputSchema60, tmpStatTool;
+var inputSchema62, tmpStatTool;
 var init_tmp_stat = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema60 = exports_external.object({
+  inputSchema62 = exports_external.object({
     handle: exports_external.string()
   });
   tmpStatTool = defineTool({
@@ -35508,7 +35650,7 @@ Returns:
 - \`total_chars\`, \`total_lines\` \u2014 body size.
 - \`createdAt\`            \u2014 ms epoch.
 - \`origin\`               \u2014 short tag of the tool that produced the spill (e.g. \`read:char/first_mes\`, \`list:wb/<id>\`).`,
-    inputSchema: inputSchema60,
+    inputSchema: inputSchema62,
     jsonSchema: {
       type: "object",
       properties: { handle: { type: "string" } },
@@ -35525,12 +35667,12 @@ Returns:
 });
 
 // src/agent/tools/update-character.ts
-var inputSchema61, updateCharacterTool;
+var inputSchema63, updateCharacterTool;
 var init_update_character = __esm(() => {
   init_zod();
   init__framework();
   init__context();
-  inputSchema61 = exports_external.object({
+  inputSchema63 = exports_external.object({
     patch: exports_external.record(exports_external.string(), exports_external.unknown()),
     character_id: exports_external.string().optional()
   });
@@ -35542,7 +35684,7 @@ Usage:
 - Pass only the fields to change in \`patch\`.
 - For a single field's find/replace use \`edit({path: "char/<field>", ...})\`.
 - For wholesale overwrite of a single field use \`rewrite\` or \`set\`.`,
-    inputSchema: inputSchema61,
+    inputSchema: inputSchema63,
     jsonSchema: {
       type: "object",
       properties: {
@@ -35596,11 +35738,11 @@ Usage:
 });
 
 // src/agent/tools/update-external.ts
-var inputSchema62, updateExternalTool;
+var inputSchema64, updateExternalTool;
 var init_update_external = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema62 = exports_external.object({
+  inputSchema64 = exports_external.object({
     surface_id: exports_external.string().min(1),
     item_id: exports_external.string().min(1),
     field: exports_external.string().min(1),
@@ -35613,7 +35755,7 @@ var init_update_external = __esm(() => {
 Usage:
 - Use for non-string fields (arrays, objects, numbers) or when overwriting the entire field.
 - For find/replace inside a long string field, prefer \`edit_external\`.`,
-    inputSchema: inputSchema62,
+    inputSchema: inputSchema64,
     jsonSchema: {
       type: "object",
       properties: {
@@ -35671,12 +35813,12 @@ Usage:
 });
 
 // src/agent/tools/update-regex-script.ts
-var inputSchema63, updateRegexScriptTool;
+var inputSchema65, updateRegexScriptTool;
 var init_update_regex_script = __esm(() => {
   init_zod();
   init__framework();
   init__path_v2();
-  inputSchema63 = exports_external.object({
+  inputSchema65 = exports_external.object({
     script_id: exports_external.string().min(1),
     patch: exports_external.record(exports_external.string(), exports_external.unknown())
   });
@@ -35688,7 +35830,7 @@ Usage:
 - Path-based \`edit\` / \`rewrite\` only address \`rx/<id>/find_regex\` and \`rx/<id>/replace_string\`. Metadata goes through here: \`name\`, \`flags\`, \`disabled\`, \`placement\`, \`target\`, \`sort_order\`, \`description\`, \`folder\`.
 - Pass only the fields to change in \`patch\`.
 - Works in a no-character session (operates by \`script_id\`), like \`edit\` / \`rewrite\` / \`set\` on \`rx/\`.`,
-    inputSchema: inputSchema63,
+    inputSchema: inputSchema65,
     jsonSchema: {
       type: "object",
       properties: {
@@ -35720,12 +35862,12 @@ Usage:
 });
 
 // src/agent/tools/update-world-book-entry.ts
-var inputSchema64, updateWorldBookEntryTool;
+var inputSchema66, updateWorldBookEntryTool;
 var init_update_world_book_entry = __esm(() => {
   init_zod();
   init__framework();
   init__surfaces();
-  inputSchema64 = exports_external.object({
+  inputSchema66 = exports_external.object({
     entry_id: exports_external.string().min(1),
     patch: exports_external.record(exports_external.string(), exports_external.unknown())
   });
@@ -35738,7 +35880,7 @@ Usage:
 - Pass only the fields to change in \`patch\`.
 - For content edits prefer \`edit\` / \`rewrite\`.
 - Works in a no-character session (operates by \`entry_id\`), like \`edit\` / \`rewrite\` / \`set\` on \`wb/\`.`,
-    inputSchema: inputSchema64,
+    inputSchema: inputSchema66,
     jsonSchema: {
       type: "object",
       properties: {
@@ -35772,11 +35914,11 @@ Usage:
 });
 
 // src/agent/tools/count-tokens.ts
-var inputSchema65, countTokensTool;
+var inputSchema67, countTokensTool;
 var init_count_tokens = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema65 = exports_external.object({
+  inputSchema67 = exports_external.object({
     text: exports_external.string().optional(),
     chat_id: exports_external.string().optional(),
     model: exports_external.string().optional()
@@ -35786,7 +35928,7 @@ var init_count_tokens = __esm(() => {
   countTokensTool = defineTool({
     name: "count_tokens",
     description: "Server-side token count using the active model's real tokenizer. Pass `text` for an arbitrary string or `chat_id` for a stored chat (omit chat_id to use the pinned chat). Optional `model` overrides the tokenizer. Returns { total_tokens, model, tokenizer_name, approximate }.",
-    inputSchema: inputSchema65,
+    inputSchema: inputSchema67,
     jsonSchema: {
       type: "object",
       properties: {
@@ -35819,11 +35961,11 @@ var init_count_tokens = __esm(() => {
 });
 
 // src/agent/tools/dry-run-prompt.ts
-var inputSchema66, dryRunPromptTool;
+var inputSchema68, dryRunPromptTool;
 var init_dry_run_prompt = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema66 = exports_external.object({
+  inputSchema68 = exports_external.object({
     chat_id: exports_external.string().optional(),
     connection_id: exports_external.string().optional(),
     persona_id: exports_external.string().optional(),
@@ -35832,7 +35974,7 @@ var init_dry_run_prompt = __esm(() => {
   dryRunPromptTool = defineTool({
     name: "dry_run_prompt",
     description: "Run Lumiverse's prompt-assembly pipeline without calling the LLM. Returns the exact messages that would be sent, plus a per-block breakdown (system / persona / world info entries / character fields / chat memory / chat history / etc.), token count, model, provider, world-info activation stats, and memory stats. The definitive way to answer 'why is the AI saying X' or 'what's actually in the prompt'. Defaults to the pinned chat. The full messages array often spills to a tmp handle.",
-    inputSchema: inputSchema66,
+    inputSchema: inputSchema68,
     jsonSchema: {
       type: "object",
       properties: {
@@ -35881,15 +36023,15 @@ var init_dry_run_prompt = __esm(() => {
 });
 
 // src/agent/tools/get-active-chat.ts
-var inputSchema67, getActiveChatTool;
+var inputSchema69, getActiveChatTool;
 var init_get_active_chat = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema67 = exports_external.object({}).strict();
+  inputSchema69 = exports_external.object({}).strict();
   getActiveChatTool = defineTool({
     name: "get_active_chat",
     description: "Get the user's currently active chat (whatever the frontend is showing). Different from the pinned chat \u2014 pinned is what this agent session reads from; active is what the user is looking at right now in their main chat panel. Returns null if no chat is open.",
-    inputSchema: inputSchema67,
+    inputSchema: inputSchema69,
     jsonSchema: { type: "object", properties: {}, required: [] },
     requiresCharacter: true,
     execute: async (_input, ctx) => {
@@ -35906,12 +36048,12 @@ var init_get_active_chat = __esm(() => {
 });
 
 // src/agent/tools/list-active-regex-scripts.ts
-var TARGETS, inputSchema68, listActiveRegexScriptsTool;
+var TARGETS, inputSchema70, listActiveRegexScriptsTool;
 var init_list_active_regex_scripts = __esm(() => {
   init_zod();
   init__framework();
   TARGETS = ["prompt", "response", "display"];
-  inputSchema68 = exports_external.object({
+  inputSchema70 = exports_external.object({
     target: exports_external.enum(TARGETS),
     chat_id: exports_external.string().optional(),
     character_id: exports_external.string().optional(),
@@ -35925,7 +36067,7 @@ Usage:
 - \`target\`: \`prompt\` runs on text sent to the model, \`response\` runs on raw model output before storage, \`display\` runs at render time on stored content.
 - Merges global + character + chat scopes and orders by scope tier then sort_order, matching Lumiverse's runtime ordering.
 - Use to figure out what's rewriting the model's output before digging into individual scripts.`,
-    inputSchema: inputSchema68,
+    inputSchema: inputSchema70,
     jsonSchema: {
       type: "object",
       properties: {
@@ -35971,11 +36113,11 @@ Usage:
 });
 
 // src/agent/tools/list-activated-world-info.ts
-var inputSchema69, listActivatedWorldInfoTool;
+var inputSchema71, listActivatedWorldInfoTool;
 var init_list_activated_world_info = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema69 = exports_external.object({
+  inputSchema71 = exports_external.object({
     chat_id: exports_external.string().optional()
   }).strict();
   listActivatedWorldInfoTool = defineTool({
@@ -35986,7 +36128,7 @@ Usage:
 - Returns { id, comment, keys, source: 'keyword'|'vector', score? } per entry.
 - Use to debug "is this lorebook entry actually firing?" before reading the entry's content.
 - Defaults to pinned chat.`,
-    inputSchema: inputSchema69,
+    inputSchema: inputSchema71,
     jsonSchema: {
       type: "object",
       properties: {
@@ -36011,11 +36153,11 @@ Usage:
 });
 
 // src/agent/tools/list-chat-memories.ts
-var inputSchema70, listChatMemoriesTool;
+var inputSchema72, listChatMemoriesTool;
 var init_list_chat_memories = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema70 = exports_external.object({
+  inputSchema72 = exports_external.object({
     chat_id: exports_external.string().optional(),
     top_k: exports_external.number().int().min(1).max(50).optional()
   }).strict();
@@ -36028,7 +36170,7 @@ Usage:
 - Response includes { chunks, formatted, count, enabled, settingsSource }.
 - Defaults to pinned chat.
 - Use to understand what historical context is being surfaced into the current generation.`,
-    inputSchema: inputSchema70,
+    inputSchema: inputSchema72,
     jsonSchema: {
       type: "object",
       properties: {
@@ -36057,15 +36199,15 @@ Usage:
 });
 
 // src/agent/tools/get-lumiverse-version.ts
-var inputSchema71, getLumiverseVersionTool;
+var inputSchema73, getLumiverseVersionTool;
 var init_get_lumiverse_version = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema71 = exports_external.object({}).strict();
+  inputSchema73 = exports_external.object({}).strict();
   getLumiverseVersionTool = defineTool({
     name: "get_lumiverse_version",
     description: "Get the running Lumiverse backend and frontend semantic version strings. Useful when the user reports a bug or behaviour that depends on a specific build \u2014 surface the version before guessing.",
-    inputSchema: inputSchema71,
+    inputSchema: inputSchema73,
     jsonSchema: { type: "object", properties: {}, required: [] },
     execute: async (_input, ctx) => {
       try {
@@ -36082,15 +36224,15 @@ var init_get_lumiverse_version = __esm(() => {
 });
 
 // src/agent/tools/get-user-info.ts
-var inputSchema72, getUserInfoTool;
+var inputSchema74, getUserInfoTool;
 var init_get_user_info = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema72 = exports_external.object({}).strict();
+  inputSchema74 = exports_external.object({}).strict();
   getUserInfoTool = defineTool({
     name: "get_user_info",
     description: "Get the user's Lumiverse role (`user` / `admin` / `operator`) and visibility (whether they have the app open in any browser session right now). Useful for tailoring suggestions or skipping toasts when the user can't see them.",
-    inputSchema: inputSchema72,
+    inputSchema: inputSchema74,
     jsonSchema: { type: "object", properties: {}, required: [] },
     execute: async (_input, ctx) => {
       try {
@@ -36107,15 +36249,15 @@ var init_get_user_info = __esm(() => {
 });
 
 // src/agent/tools/list-connections.ts
-var inputSchema73, listConnectionsTool;
+var inputSchema75, listConnectionsTool;
 var init_list_connections = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema73 = exports_external.object({}).strict();
+  inputSchema75 = exports_external.object({}).strict();
   listConnectionsTool = defineTool({
     name: "list_connections",
     description: "List the user's configured LLM connection profiles. Returns id, name, provider, api_url, model, is_default, has_api_key (boolean \u2014 never the actual key). Use to see what providers/models are available, or to figure out which connection a chat is using.",
-    inputSchema: inputSchema73,
+    inputSchema: inputSchema75,
     jsonSchema: { type: "object", properties: {}, required: [] },
     execute: async (_input, ctx) => {
       try {
@@ -36139,11 +36281,11 @@ var init_list_connections = __esm(() => {
 });
 
 // src/agent/tools/list-databank-documents.ts
-var inputSchema74, listDatabankDocumentsTool;
+var inputSchema76, listDatabankDocumentsTool;
 var init_list_databank_documents = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema74 = exports_external.object({
+  inputSchema76 = exports_external.object({
     databank_id: exports_external.string().min(1),
     limit: exports_external.number().int().min(1).max(500).optional(),
     offset: exports_external.number().int().min(0).optional()
@@ -36151,7 +36293,7 @@ var init_list_databank_documents = __esm(() => {
   listDatabankDocumentsTool = defineTool({
     name: "list_databank_documents",
     description: "List documents in a databank. Returns metadata only \u2014 id, name, mime_type, file_size, total_chunks, status. Use read_databank_document to fetch a document's full extracted text.",
-    inputSchema: inputSchema74,
+    inputSchema: inputSchema76,
     jsonSchema: {
       type: "object",
       properties: {
@@ -36188,11 +36330,11 @@ var init_list_databank_documents = __esm(() => {
 });
 
 // src/agent/tools/list-databanks.ts
-var inputSchema75, listDatabanksTool;
+var inputSchema77, listDatabanksTool;
 var init_list_databanks = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema75 = exports_external.object({
+  inputSchema77 = exports_external.object({
     scope: exports_external.enum(["global", "character", "chat"]).optional(),
     scope_id: exports_external.string().nullable().optional(),
     limit: exports_external.number().int().min(1).max(500).optional(),
@@ -36201,7 +36343,7 @@ var init_list_databanks = __esm(() => {
   listDatabanksTool = defineTool({
     name: "list_databanks",
     description: "List the user's databanks (RAG document collections). Optional scope filter: global / character / chat. Pass scope_id to scope to a specific character or chat (omit for the active character / pinned chat as the natural default). Returns metadata only \u2014 id, name, scope, document_count, enabled.",
-    inputSchema: inputSchema75,
+    inputSchema: inputSchema77,
     jsonSchema: {
       type: "object",
       properties: {
@@ -36244,18 +36386,18 @@ var init_list_databanks = __esm(() => {
 });
 
 // src/agent/tools/list-personas.ts
-var inputSchema76, listPersonasTool;
+var inputSchema78, listPersonasTool;
 var init_list_personas = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema76 = exports_external.object({
+  inputSchema78 = exports_external.object({
     limit: exports_external.number().int().min(1).max(500).optional(),
     offset: exports_external.number().int().min(0).optional()
   }).strict();
   listPersonasTool = defineTool({
     name: "list_personas",
     description: "List the user's personas (identity profiles used as the {{user}} side of chats). Returns metadata only \u2014 id, name, title, folder, is_default, attached_world_book_id, image_id, description char count. Use read_persona for a specific one's full description and metadata.",
-    inputSchema: inputSchema76,
+    inputSchema: inputSchema78,
     jsonSchema: {
       type: "object",
       properties: {
@@ -36291,18 +36433,18 @@ var init_list_personas = __esm(() => {
 });
 
 // src/agent/tools/list-variables.ts
-var inputSchema77, listVariablesTool;
+var inputSchema79, listVariablesTool;
 var init_list_variables = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema77 = exports_external.object({
+  inputSchema79 = exports_external.object({
     scope: exports_external.enum(["chat", "local", "global", "macro"]),
     chat_id: exports_external.string().optional()
   }).strict();
   listVariablesTool = defineTool({
     name: "list_variables",
     description: "List all variables in a given scope. Scopes: `chat` (chat.metadata.chat_variables, persisted across generations, what Risu/LumiRealm Lua and triggers write via setvar / setChatVar), `macro` (chat.metadata.macro_variables, LumiRealm's macro-state store, separate path from chat_variables), `local` (chat-bound ephemeral runtime variables), `global` (user-level). Pass chat_id for chat/local/macro scopes (defaults to pinned chat).",
-    inputSchema: inputSchema77,
+    inputSchema: inputSchema79,
     jsonSchema: {
       type: "object",
       properties: {
@@ -36349,17 +36491,17 @@ var init_list_variables = __esm(() => {
 });
 
 // src/agent/tools/read-connection.ts
-var inputSchema78, readConnectionTool;
+var inputSchema80, readConnectionTool;
 var init_read_connection = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema78 = exports_external.object({
+  inputSchema80 = exports_external.object({
     connection_id: exports_external.string().min(1)
   }).strict();
   readConnectionTool = defineTool({
     name: "read_connection",
     description: "Read a single LLM connection profile by id. Returns full metadata including custom fields. API keys are never exposed (only `has_api_key` boolean).",
-    inputSchema: inputSchema78,
+    inputSchema: inputSchema80,
     jsonSchema: {
       type: "object",
       properties: {
@@ -36381,17 +36523,17 @@ var init_read_connection = __esm(() => {
 });
 
 // src/agent/tools/read-databank.ts
-var inputSchema79, readDatabankTool;
+var inputSchema81, readDatabankTool;
 var init_read_databank = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema79 = exports_external.object({
+  inputSchema81 = exports_external.object({
     databank_id: exports_external.string().min(1)
   }).strict();
   readDatabankTool = defineTool({
     name: "read_databank",
     description: "Read a single databank's metadata (name, description, scope, enabled, document count). Use list_databank_documents and read_databank_document to drill into contents.",
-    inputSchema: inputSchema79,
+    inputSchema: inputSchema81,
     jsonSchema: {
       type: "object",
       properties: {
@@ -36413,18 +36555,18 @@ var init_read_databank = __esm(() => {
 });
 
 // src/agent/tools/read-databank-document.ts
-var inputSchema80, readDatabankDocumentTool;
+var inputSchema82, readDatabankDocumentTool;
 var init_read_databank_document = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema80 = exports_external.object({
+  inputSchema82 = exports_external.object({
     document_id: exports_external.string().min(1),
     meta_only: exports_external.boolean().optional()
   }).strict();
   readDatabankDocumentTool = defineTool({
     name: "read_databank_document",
     description: "Read a databank document. Returns metadata always; with meta_only=false (default), also returns the full extracted text content (spills to a tmp handle if large).",
-    inputSchema: inputSchema80,
+    inputSchema: inputSchema82,
     jsonSchema: {
       type: "object",
       properties: {
@@ -36451,12 +36593,12 @@ var init_read_databank_document = __esm(() => {
 });
 
 // src/agent/tools/read-persona.ts
-var inputSchema81, readPersonaTool;
+var inputSchema83, readPersonaTool;
 var init_read_persona = __esm(() => {
   init_zod();
   init__framework();
   init__gates();
-  inputSchema81 = exports_external.object({
+  inputSchema83 = exports_external.object({
     persona_id: exports_external.string().optional(),
     which: exports_external.enum(["active", "default"]).optional()
   }).strict().refine((v) => !(v.persona_id !== undefined && v.which !== undefined), {
@@ -36465,7 +36607,7 @@ var init_read_persona = __esm(() => {
   readPersonaTool = defineTool({
     name: "read_persona",
     description: "Read a single persona's full content. Pass `persona_id` for a specific one, or `which: 'active'` for the currently-selected persona / `which: 'default'` for the user's default. Returns full description plus all metadata. The persona's description text gets injected into the prompt as {{user}} / {{persona}}. Records the persona's name / title / description as recently read so a subsequent `edit` / `rewrite` on `persona/<id>/<field>` passes the read-gate.",
-    inputSchema: inputSchema81,
+    inputSchema: inputSchema83,
     jsonSchema: {
       type: "object",
       properties: {
@@ -36501,11 +36643,11 @@ var init_read_persona = __esm(() => {
 });
 
 // src/agent/tools/read-persona-world-book.ts
-var inputSchema82, readPersonaWorldBookTool;
+var inputSchema84, readPersonaWorldBookTool;
 var init_read_persona_world_book = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema82 = exports_external.object({
+  inputSchema84 = exports_external.object({
     persona_id: exports_external.string().min(1)
   }).strict();
   readPersonaWorldBookTool = defineTool({
@@ -36518,7 +36660,7 @@ Usage:
 - To attach / change / detach the persona's world book itself: \`set({path: "persona/<personaId>/attached_world_book_id", value: "<worldBookId>"})\` (\`null\` detaches).
 - This returns metadata only, not entry bodies, so it does NOT satisfy the edit gate. To edit an entry, \`read({path: "persona/<personaId>/wb/<entryId>/content"})\` first (that read records the gate), then \`edit\` / \`rewrite\` the same path.
 - Returns null if the persona has no attached WB.`,
-    inputSchema: inputSchema82,
+    inputSchema: inputSchema84,
     jsonSchema: {
       type: "object",
       properties: {
@@ -36540,11 +36682,11 @@ Usage:
 });
 
 // src/agent/tools/read-variable.ts
-var inputSchema83, readVariableTool;
+var inputSchema85, readVariableTool;
 var init_read_variable = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema83 = exports_external.object({
+  inputSchema85 = exports_external.object({
     scope: exports_external.enum(["chat", "local", "global", "macro"]),
     key: exports_external.string().min(1),
     chat_id: exports_external.string().optional()
@@ -36552,7 +36694,7 @@ var init_read_variable = __esm(() => {
   readVariableTool = defineTool({
     name: "read_variable",
     description: "Read a single variable by name from a given scope (chat / local / global / macro). `chat` is chat.metadata.chat_variables (Risu/LumiRealm setvar target). `macro` is chat.metadata.macro_variables (LumiRealm macro-state, separate path). Returns { exists, value }. For chat/local/macro scopes, chat_id defaults to the pinned chat.",
-    inputSchema: inputSchema83,
+    inputSchema: inputSchema85,
     jsonSchema: {
       type: "object",
       properties: {
@@ -36618,11 +36760,11 @@ var init_read_variable = __esm(() => {
 });
 
 // src/agent/tools/resolve-macros.ts
-var inputSchema84, resolveMacrosTool;
+var inputSchema86, resolveMacrosTool;
 var init_resolve_macros = __esm(() => {
   init_zod();
   init__framework();
-  inputSchema84 = exports_external.object({
+  inputSchema86 = exports_external.object({
     template: exports_external.string().min(1),
     chat_id: exports_external.string().optional(),
     character_id: exports_external.string().optional(),
@@ -36631,7 +36773,7 @@ var init_resolve_macros = __esm(() => {
   resolveMacrosTool = defineTool({
     name: "resolve_macros",
     description: "Resolve `{{macro}}` placeholders in arbitrary text using Lumiverse's macro engine. Always runs in non-committing dry mode (`commit: false`) so extension macro handlers don't side-effect. Pass chat_id (defaults to pinned) for chat-scoped macros (variables, history, etc.) and use_active_character to bind {{char}} / character fields to the currently active card. Returns { text, diagnostics }.",
-    inputSchema: inputSchema84,
+    inputSchema: inputSchema86,
     jsonSchema: {
       type: "object",
       properties: {
@@ -36667,7 +36809,7 @@ var init_resolve_macros = __esm(() => {
 });
 
 // src/agent/tools/todo-write.ts
-var todoSchema, inputSchema85, todoWriteTool;
+var todoSchema, inputSchema87, todoWriteTool;
 var init_todo_write = __esm(() => {
   init_zod();
   init__framework();
@@ -36676,7 +36818,7 @@ var init_todo_write = __esm(() => {
     activeForm: exports_external.string().min(1).describe("Present-continuous form ('Running tests', 'Fixing the bug')."),
     status: exports_external.enum(["pending", "in_progress", "completed"]).describe("Current state of the task.")
   }).strict();
-  inputSchema85 = exports_external.object({
+  inputSchema87 = exports_external.object({
     todos: exports_external.array(todoSchema).min(1).describe("The full updated todo list. Replaces the previous list wholesale, not a partial patch. At most one item should be 'in_progress' at a time.")
   }).strict();
   todoWriteTool = defineTool({
@@ -36699,7 +36841,7 @@ Rules:
 - At most ONE item should be 'in_progress' at a time.
 - Mark items 'completed' as soon as they're done. Don't batch completions.
 - Drop items that are no longer relevant by omitting them from the new list.`,
-    inputSchema: inputSchema85,
+    inputSchema: inputSchema87,
     jsonSchema: {
       type: "object",
       properties: {
@@ -36769,12 +36911,12 @@ ${lines.join(`
 `)}
 </functions>`;
 }
-var inputSchema86, toolSearchTool;
+var inputSchema88, toolSearchTool;
 var init_tool_search = __esm(() => {
   init_zod();
   init__framework();
   init__registry();
-  inputSchema86 = exports_external.object({
+  inputSchema88 = exports_external.object({
     query: exports_external.string().min(1).describe("Either 'select:Name1,Name2' to fetch named tools directly, or a free-text keyword search (matches against tool name + description)."),
     max_results: exports_external.number().int().positive().max(20).optional().describe("Max keyword-search results (default 5). Ignored for select: queries.")
   }).strict();
@@ -36790,7 +36932,7 @@ Query forms:
 - "select:read_persona,list_personas" - fetch these exact tools by name
 - "regex" - keyword search, returns up to max_results best matches
 - "lorebook entry" - multi-word keyword search`,
-    inputSchema: inputSchema86,
+    inputSchema: inputSchema88,
     jsonSchema: {
       type: "object",
       properties: {
@@ -36909,6 +37051,8 @@ var init__registry = __esm(() => {
   init__framework();
   init_apply_glossary();
   init_ask_user_question();
+  init_attach_world_book_to_chat();
+  init_list_chat_world_books();
   init_asset_delete();
   init_asset_rename();
   init_audit_card_coverage();
@@ -37002,6 +37146,8 @@ var init__registry = __esm(() => {
     "list_activated_world_info",
     "list_active_regex_scripts",
     "list_chat_memories",
+    "list_chat_world_books",
+    "attach_world_book_to_chat",
     "list_personas",
     "read_persona",
     "read_persona_world_book",
@@ -37090,6 +37236,7 @@ var init__registry = __esm(() => {
     "list_activated_world_info",
     "list_active_regex_scripts",
     "list_chat_memories",
+    "list_chat_world_books",
     "list_personas",
     "read_persona",
     "read_persona_world_book",
@@ -37131,6 +37278,8 @@ var init__registry = __esm(() => {
   };
   registry2.register(applyGlossaryTool);
   registry2.register(askUserQuestionTool);
+  registry2.register(attachWorldBookToChatTool);
+  registry2.register(listChatWorldBooksTool);
   registry2.register(assetDeleteTool);
   registry2.register(assetRenameTool);
   registry2.register(auditCardCoverageTool);
@@ -38375,7 +38524,7 @@ Use the native structured tool_use channel. Text-encoded calls (\`<invoke>\`, JS
 When the user asks "where is X coming from" or "why is the AI saying Y", first \`dry_run_prompt\` (the exact assembled prompt; defaults to the pinned chat, so if none is pinned tell the user to pin one) and \`tmp_grep\` the suspect token. Don't surface-search before that. Content can live in any of:
 
 - Character fields, including the whole \`char/extensions/*\` blob (\`list({path:"char/extensions"})\` + \`grep\`)
-- World books (\`grep({include_paths:["wb/"]})\`; entries fire conditionally, present != firing)
+- World books bind in 4 layers: character (\`char/world_book_ids\`), persona (\`persona/<id>/attached_world_book_id\`), chat ("This Chat Only", \`attach_world_book_to_chat\`), and global "Always Active" (host setting, not exposed). \`list_chat_world_books\` shows the first three for a chat. Default \`list\`/\`grep\` see only character-attached: pass \`grep({world_scope:"all"})\` to search the rest, \`list({path:"wb",include_unattached:true})\` to find them. Entries fire conditionally, present != firing.
 - Regex scripts: character, global, chat-scoped (\`list_active_regex_scripts({target})\`)
 - Personas (the active persona description is {{user}}; can carry a world book)
 - Databanks (RAG) and chat memory (\`list_chat_memories\`)
@@ -38576,7 +38725,7 @@ function subscribeToMissingChanges(handler) {
 }
 // spindle.json
 var spindle_default = {
-  version: "0.5.0",
+  version: "0.5.2",
   name: "LumiAgent",
   identifier: "lumiagent",
   author: "amousepad",
