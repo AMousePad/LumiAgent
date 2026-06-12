@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
-import { type ToolCtx, resolveCharacterTarget, noTargetResult } from "./_context";
+import { type ToolCtx, resolveCharacterTarget, resolveCharacterTargetOptional, noTargetResult } from "./_context";
 import { parseExtensionPath, getAtPath } from "./_paths";
 import { wbLabel } from "./_surfaces";
 import { ExtensionRefusedError, ALTERNATE_FIELD_NAMES, readAltFieldArray, isAlternateFieldName, type AlternateFieldName } from "./_path_v2";
@@ -9,7 +9,7 @@ const inputSchema = z.object({
   path: z.string().describe("Container path. Empty / 'char' for the character overview. 'rx' for regex scripts. 'wb' for world books. 'wb/<bookId>' for entries in a book. 'char/alternate_greetings' for all greetings. 'char/extensions[/dotted]' for an extensions subtree. 'persona' for all personas. 'preset' for all presets. 'preset/<presetId>' for a preset's blocks."),
   max_entries: z.number().int().positive().max(2000).optional().describe("Max items returned. Default 200."),
   max_depth: z.number().int().positive().max(10).optional().describe("Recursion depth (only used for extensions traversal). Default 4."),
-  include_unattached: z.boolean().optional().describe("Only meaningful for path='wb': also list world books the user owns but hasn't attached to this character. Each row carries an `attached` flag. Use when picking a destination for a new world_book_entry."),
+  include_unattached: z.boolean().optional().describe("path='wb' only: list all owned world books, not just the character's attached ones. Works with no focused character; with one, rows carry an `attached` flag."),
   character_id: z.string().optional().describe("For char/rx/wb paths: which character. Defaults to the focused character."),
 }).strict();
 
@@ -106,10 +106,15 @@ async function listRegex(ctx: ToolCtx, characterId: string, maxEntries: number):
   return out;
 }
 
-async function listWorldBooks(ctx: ToolCtx, characterId: string, maxEntries: number, includeUnattached: boolean): Promise<ListEntry[]> {
-  const c = await ctx.spindle.characters.get(characterId, ctx.userId);
-  if (!c) throw new Error(`character ${characterId} not found`);
-  const attached = new Set(c.world_book_ids ?? []);
+async function listWorldBooks(ctx: ToolCtx, characterId: string | null, maxEntries: number, includeUnattached: boolean): Promise<ListEntry[]> {
+  // characterId may be null only with includeUnattached: the whole library is
+  // character-independent, the character just annotates `attached`.
+  const attached = new Set<string>();
+  if (characterId !== null) {
+    const c = await ctx.spindle.characters.get(characterId, ctx.userId);
+    if (!c) throw new Error(`character ${characterId} not found`);
+    for (const id of c.world_book_ids ?? []) attached.add(id);
+  }
   const wbIds = includeUnattached
     ? (await ctx.spindle.world_books.list({ limit: 1000, userId: ctx.userId })).data.map((wb) => wb.id)
     : [...attached];
@@ -120,7 +125,7 @@ async function listWorldBooks(ctx: ToolCtx, characterId: string, maxEntries: num
     if (!wb) continue;
     const meta = await ctx.spindle.world_books.entries.list(wbId, { limit: 1, userId: ctx.userId });
     const entry: ListEntry = { path: `wb/${wbId}`, type: "world_book", label: wb.name, entries: meta.total };
-    if (includeUnattached) (entry as ListEntry & { attached: boolean }).attached = attached.has(wbId);
+    if (includeUnattached && characterId !== null) (entry as ListEntry & { attached: boolean }).attached = attached.has(wbId);
     out.push(entry);
   }
   return out;
@@ -273,7 +278,7 @@ Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole
       max_entries: { type: "integer", minimum: 1, maximum: 2000 },
       max_depth: { type: "integer", minimum: 1, maximum: 10 },
       character_id: { type: "string", description: "For char/rx/wb paths: defaults to the focused character." },
-      include_unattached: { type: "boolean", description: "path='wb' only: also list owned-but-unattached world books, each flagged with `attached`." },
+      include_unattached: { type: "boolean", description: "path='wb' only: list all owned world books (not just attached). Works with no focused character; with one, rows carry `attached`." },
     },
     required: ["path"],
     additionalProperties: false,
@@ -290,10 +295,15 @@ Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole
         || path === "preset" || path === "presets" || path.startsWith("preset/");
       // wb/<bookId> entry listing is book-id-scoped, needs no character.
       const wbEntryListing = path.startsWith("wb/") || path.startsWith("world_books/");
+      // Whole-library world-book listing (include_unattached) is character-
+      // independent: the character only annotates `attached`. Don't gate it.
+      const wbWholeLibrary = (path === "wb" || path === "world_books") && input.include_unattached === true;
       let target = "";
-      if (!personaOrPreset && !wbEntryListing) {
+      if (!personaOrPreset && !wbEntryListing && !wbWholeLibrary) {
         try { target = resolveCharacterTarget(ctx, input.character_id); }
         catch (err) { const nt = noTargetResult(err); if (nt) return nt; throw err; }
+      } else if (wbWholeLibrary) {
+        target = resolveCharacterTargetOptional(ctx, input.character_id) ?? "";
       }
       let entries: ListEntry[];
       if (path === "" || path === "char" || path === "character") {
@@ -311,7 +321,7 @@ Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole
       } else if (path === "rx" || path === "regex_scripts") {
         entries = await listRegex(ctx, target, maxEntries);
       } else if (path === "wb" || path === "world_books") {
-        entries = await listWorldBooks(ctx, target, maxEntries, input.include_unattached === true);
+        entries = await listWorldBooks(ctx, target === "" ? null : target, maxEntries, input.include_unattached === true);
       } else if (path.startsWith("wb/") || path.startsWith("world_books/")) {
         const bookId = path.split("/")[1] ?? "";
         if (!bookId) return { content: "Error: wb/<bookId> requires a book id", isError: true };

@@ -116,6 +116,15 @@ export function resolveCharacterTarget(ctx: ToolCtx, explicit?: string | null): 
   );
 }
 
+// Non-throwing variant: explicit id, else focus, else null. For whole-library
+// tools that only need a character to annotate (e.g. world-book attachment
+// status), not to function.
+export function resolveCharacterTargetOptional(ctx: ToolCtx, explicit?: string | null): string | null {
+  if (typeof explicit === "string" && explicit.length > 0) return explicit;
+  if (ctx.characterId !== null && ctx.characterId.length > 0) return ctx.characterId;
+  return null;
+}
+
 // Chat-bound variant: explicit chat_id wins, else the session's pinned chat,
 // else NoTargetError.
 export function resolveChatTarget(ctx: ToolCtx, explicit?: string | null): string {

@@ -441,11 +441,8 @@ async function emitContextNoteIfChanged(s: PersistedSession, userId: string): Pr
   const entry: LlmMessage = { role: "user", content: note };
   const lastIdx = s.llmHistory.length - 1;
   const lastMsg = lastIdx >= 0 ? s.llmHistory[lastIdx]! : undefined;
-  // Splice before a genuine trailing user turn so the note lands ahead of it.
-  // A tool_results message is ALSO role "user", so splicing before it would drop
-  // the note between an assistant tool_use and its tool_result, orphaning the
-  // call (strict providers 400). That tail shows up after regenerating a later
-  // assistant turn or deleting the trailing user message. Append instead.
+  // Splicing before a tool_results turn (also role user) would orphan the
+  // assistant tool_use from its tool_result (strict providers 400), append after instead.
   if (lastMsg && lastMsg.role === "user" && !isToolResultMessage(lastMsg)) s.llmHistory.splice(lastIdx, 0, entry);
   else s.llmHistory.push(entry);
   s.lastContext = cur;

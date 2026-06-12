@@ -136,7 +136,14 @@ export async function discoverProviders(
         const msg = (err as Error).message;
         const parsed = parseInheritanceError(msg);
         lastDialFailure.set(dialKey(userId, entry.identifier), parsed);
-        try { spindle.log.warn(`phoneline.discover: ${entry.identifier} dialDescribe failed: ${msg}`); } catch {}
+        // A not-registered endpoint just means the extension isn't installed:
+        // benign and spammy (fires on every discover). Only a parsed
+        // permission-inheritance failure is actionable, keep that at warn.
+        if (parsed) {
+          try { spindle.log.warn(`phoneline.discover: ${entry.identifier} dialDescribe failed: ${msg}`); } catch {}
+        } else {
+          dlog(spindle, `phoneline.discover: ${entry.identifier} dialDescribe failed: ${msg}`);
+        }
         continue;
       }
       const manifest = normaliseManifest(rawManifest);

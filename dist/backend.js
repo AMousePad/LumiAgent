@@ -17671,6 +17671,13 @@ function resolveCharacterTarget(ctx, explicit) {
     return ctx.characterId;
   throw new NoTargetError("no character target. Pass `character_id` explicitly, or have the user focus a character via the picker. Use `list_characters` to enumerate ids.");
 }
+function resolveCharacterTargetOptional(ctx, explicit) {
+  if (typeof explicit === "string" && explicit.length > 0)
+    return explicit;
+  if (ctx.characterId !== null && ctx.characterId.length > 0)
+    return ctx.characterId;
+  return null;
+}
 function noTargetResult(err) {
   if (err instanceof NoTargetError)
     return { content: codedError(ErrorCode.NO_TARGET, err.message), isError: true };
@@ -18012,9 +18019,13 @@ async function discoverProviders(spindle2, userId) {
         const msg = err.message;
         const parsed = parseInheritanceError(msg);
         lastDialFailure.set(dialKey(userId, entry.identifier), parsed);
-        try {
-          spindle2.log.warn(`phoneline.discover: ${entry.identifier} dialDescribe failed: ${msg}`);
-        } catch {}
+        if (parsed) {
+          try {
+            spindle2.log.warn(`phoneline.discover: ${entry.identifier} dialDescribe failed: ${msg}`);
+          } catch {}
+        } else {
+          dlog(spindle2, `phoneline.discover: ${entry.identifier} dialDescribe failed: ${msg}`);
+        }
         continue;
       }
       const manifest = normaliseManifest(rawManifest);
@@ -32598,13 +32609,14 @@ async function buildDiagnostics(ctx, leaf) {
   }
   return diag;
 }
-async function inspectRegexContainer(ctx) {
+async function inspectRegexContainer(ctx, explicit) {
+  const scopeId = resolveCharacterTarget(ctx, explicit);
   const out = [];
   let offset = 0;
   let totalChars = 0;
   let disabled = 0;
   while (true) {
-    const r = await ctx.spindle.regex_scripts.list({ scope: "character", scopeId: resolveCharacterTarget(ctx), userId: ctx.userId, limit: 200, offset });
+    const r = await ctx.spindle.regex_scripts.list({ scope: "character", scopeId, userId: ctx.userId, limit: 200, offset });
     for (const s of r.data) {
       const findChars = s.find_regex?.length ?? 0;
       const replaceChars = s.replace_string?.length ?? 0;
@@ -32652,11 +32664,16 @@ async function inspectRegexScript(ctx, scriptId) {
     replace_peek: (r.replace_string ?? "").slice(0, PEEK_CHARS)
   };
 }
-async function inspectWorldBooksContainer(ctx) {
-  const c = await ctx.spindle.characters.get(resolveCharacterTarget(ctx), ctx.userId);
-  if (!c)
-    throw new Error("character not found");
-  const attached = new Set(c.world_book_ids ?? []);
+async function inspectWorldBooksContainer(ctx, explicit) {
+  const charId = resolveCharacterTargetOptional(ctx, explicit);
+  const attached = new Set;
+  if (charId !== null) {
+    const c = await ctx.spindle.characters.get(charId, ctx.userId);
+    if (!c)
+      throw new Error(`character ${charId} not found`);
+    for (const id of c.world_book_ids ?? [])
+      attached.add(id);
+  }
   const all = await ctx.spindle.world_books.list({ limit: 1000, userId: ctx.userId });
   const rows = await Promise.all(all.data.map(async (wb) => {
     const meta3 = await ctx.spindle.world_books.entries.list(wb.id, { limit: 1, userId: ctx.userId });
@@ -32664,11 +32681,11 @@ async function inspectWorldBooksContainer(ctx) {
       path: `wb/${wb.id}`,
       name: wb.name,
       entries: meta3.total,
-      attached: attached.has(wb.id)
+      ...charId !== null ? { attached: attached.has(wb.id) } : {}
     };
   }));
-  rows.sort((a, b) => (b.attached === a.attached ? 0 : b.attached ? 1 : -1) || b.entries - a.entries);
-  return { path: "wb", total: rows.length, attached: attached.size, books: rows };
+  rows.sort((a, b) => (b.attached ? 1 : 0) - (a.attached ? 1 : 0) || b.entries - a.entries);
+  return { path: "wb", total: rows.length, ...charId !== null ? { attached: attached.size } : {}, books: rows };
 }
 async function inspectWorldBook(ctx, bookId) {
   const wb = await ctx.spindle.world_books.get(bookId, ctx.userId);
@@ -32717,7 +32734,8 @@ var init_inspect = __esm(() => {
     "mes_example"
   ]);
   inputSchema35 = exports_external.object({
-    path: exports_external.string().min(2).describe("Path or container path. See description for forms.")
+    path: exports_external.string().min(2).describe("Path or container path. See description for forms."),
+    character_id: exports_external.string().optional().describe("For rx/wb containers: which character. Defaults to focus. 'wb' lists the whole library even with none; the id only annotates `attached`.")
   }).strict();
   inspectTool = defineTool({
     name: "inspect",
@@ -32748,7 +32766,10 @@ One tool, one path argument.`,
     inputSchema: inputSchema35,
     jsonSchema: {
       type: "object",
-      properties: { path: { type: "string", description: "Surface path. See description for leaf vs container forms." } },
+      properties: {
+        path: { type: "string", description: "Surface path. See description for leaf vs container forms." },
+        character_id: { type: "string", description: "rx/wb containers: defaults to focus. 'wb' lists the whole library even with none." }
+      },
       required: ["path"],
       additionalProperties: false
     },
@@ -32757,7 +32778,7 @@ One tool, one path argument.`,
       const path = input.path.trim();
       if (path === "rx" || path === "regex_scripts") {
         try {
-          const r = await inspectRegexContainer(ctx);
+          const r = await inspectRegexContainer(ctx, input.character_id);
           return { content: JSON.stringify(r, null, 2) };
         } catch (err) {
           const nt = noTargetResult(err);
@@ -32767,15 +32788,8 @@ One tool, one path argument.`,
         }
       }
       if (path === "wb" || path === "world_books") {
-        try {
-          const r = await inspectWorldBooksContainer(ctx);
-          return { content: JSON.stringify(r, null, 2) };
-        } catch (err) {
-          const nt = noTargetResult(err);
-          if (nt)
-            return nt;
-          throw err;
-        }
+        const r = await inspectWorldBooksContainer(ctx, input.character_id);
+        return { content: JSON.stringify(r, null, 2) };
       }
       const rxMatch = /^(?:rx|regex_script)\/([^/]+)$/.exec(path);
       if (rxMatch) {
@@ -32914,10 +32928,14 @@ async function listRegex(ctx, characterId, maxEntries) {
   return out;
 }
 async function listWorldBooks(ctx, characterId, maxEntries, includeUnattached) {
-  const c = await ctx.spindle.characters.get(characterId, ctx.userId);
-  if (!c)
-    throw new Error(`character ${characterId} not found`);
-  const attached = new Set(c.world_book_ids ?? []);
+  const attached = new Set;
+  if (characterId !== null) {
+    const c = await ctx.spindle.characters.get(characterId, ctx.userId);
+    if (!c)
+      throw new Error(`character ${characterId} not found`);
+    for (const id of c.world_book_ids ?? [])
+      attached.add(id);
+  }
   const wbIds = includeUnattached ? (await ctx.spindle.world_books.list({ limit: 1000, userId: ctx.userId })).data.map((wb) => wb.id) : [...attached];
   const out = [];
   for (const wbId of wbIds) {
@@ -32928,7 +32946,7 @@ async function listWorldBooks(ctx, characterId, maxEntries, includeUnattached) {
       continue;
     const meta3 = await ctx.spindle.world_books.entries.list(wbId, { limit: 1, userId: ctx.userId });
     const entry = { path: `wb/${wbId}`, type: "world_book", label: wb.name, entries: meta3.total };
-    if (includeUnattached)
+    if (includeUnattached && characterId !== null)
       entry.attached = attached.has(wbId);
     out.push(entry);
   }
@@ -33059,7 +33077,7 @@ var init_list = __esm(() => {
     path: exports_external.string().describe("Container path. Empty / 'char' for the character overview. 'rx' for regex scripts. 'wb' for world books. 'wb/<bookId>' for entries in a book. 'char/alternate_greetings' for all greetings. 'char/extensions[/dotted]' for an extensions subtree. 'persona' for all personas. 'preset' for all presets. 'preset/<presetId>' for a preset's blocks."),
     max_entries: exports_external.number().int().positive().max(2000).optional().describe("Max items returned. Default 200."),
     max_depth: exports_external.number().int().positive().max(10).optional().describe("Recursion depth (only used for extensions traversal). Default 4."),
-    include_unattached: exports_external.boolean().optional().describe("Only meaningful for path='wb': also list world books the user owns but hasn't attached to this character. Each row carries an `attached` flag. Use when picking a destination for a new world_book_entry."),
+    include_unattached: exports_external.boolean().optional().describe("path='wb' only: list all owned world books, not just the character's attached ones. Works with no focused character; with one, rows carry an `attached` flag."),
     character_id: exports_external.string().optional().describe("For char/rx/wb paths: which character. Defaults to the focused character.")
   }).strict();
   listTool = defineTool({
@@ -33098,7 +33116,7 @@ Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole
         max_entries: { type: "integer", minimum: 1, maximum: 2000 },
         max_depth: { type: "integer", minimum: 1, maximum: 10 },
         character_id: { type: "string", description: "For char/rx/wb paths: defaults to the focused character." },
-        include_unattached: { type: "boolean", description: "path='wb' only: also list owned-but-unattached world books, each flagged with `attached`." }
+        include_unattached: { type: "boolean", description: "path='wb' only: list all owned world books (not just attached). Works with no focused character; with one, rows carry `attached`." }
       },
       required: ["path"],
       additionalProperties: false
@@ -33111,8 +33129,9 @@ Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole
       try {
         const personaOrPreset = path === "persona" || path === "personas" || path === "preset" || path === "presets" || path.startsWith("preset/");
         const wbEntryListing = path.startsWith("wb/") || path.startsWith("world_books/");
+        const wbWholeLibrary = (path === "wb" || path === "world_books") && input.include_unattached === true;
         let target = "";
-        if (!personaOrPreset && !wbEntryListing) {
+        if (!personaOrPreset && !wbEntryListing && !wbWholeLibrary) {
           try {
             target = resolveCharacterTarget(ctx, input.character_id);
           } catch (err) {
@@ -33121,6 +33140,8 @@ Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole
               return nt;
             throw err;
           }
+        } else if (wbWholeLibrary) {
+          target = resolveCharacterTargetOptional(ctx, input.character_id) ?? "";
         }
         let entries;
         if (path === "" || path === "char" || path === "character") {
@@ -33138,7 +33159,7 @@ Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole
         } else if (path === "rx" || path === "regex_scripts") {
           entries = await listRegex(ctx, target, maxEntries);
         } else if (path === "wb" || path === "world_books") {
-          entries = await listWorldBooks(ctx, target, maxEntries, input.include_unattached === true);
+          entries = await listWorldBooks(ctx, target === "" ? null : target, maxEntries, input.include_unattached === true);
         } else if (path.startsWith("wb/") || path.startsWith("world_books/")) {
           const bookId = path.split("/")[1] ?? "";
           if (!bookId)
@@ -37458,11 +37479,14 @@ function partsOf(content) {
     return content.trim().length > 0 ? [{ type: "text", text: content }] : [];
   return content;
 }
+function hasToolResultPart(m) {
+  return typeof m.content !== "string" && m.content.some((p) => p.type === "tool_result");
+}
 function coalesceConsecutiveTurns(messages) {
   const out = [];
   for (const m of messages) {
     const prev = out[out.length - 1];
-    if (prev && prev.role === m.role && (m.role === "user" || m.role === "assistant")) {
+    if (prev && prev.role === m.role && (m.role === "user" || m.role === "assistant") && !hasToolResultPart(prev) && !hasToolResultPart(m)) {
       const parts = [...partsOf(prev.content), ...partsOf(m.content)];
       const reasoning = [prev.reasoning_content, m.reasoning_content].filter((r) => r && r.length > 0).join("") || undefined;
       out[out.length - 1] = {
@@ -38725,7 +38749,7 @@ function subscribeToMissingChanges(handler) {
 }
 // spindle.json
 var spindle_default = {
-  version: "0.5.2",
+  version: "0.5.4",
   name: "LumiAgent",
   identifier: "lumiagent",
   author: "amousepad",

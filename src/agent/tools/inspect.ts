@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { WorldBookEntryDTO } from "lumiverse-spindle-types";
 import { defineTool } from "./_framework";
-import { type ToolCtx, resolveCharacterTarget, noTargetResult } from "./_context";
+import { type ToolCtx, resolveCharacterTarget, resolveCharacterTargetOptional, noTargetResult } from "./_context";
 import { resolveRead, PathError, OutOfRangeError, ExtensionRefusedError, type ResolvedLeaf } from "./_path_v2";
 import { wbLabel } from "./_surfaces";
 
@@ -17,6 +17,7 @@ const MIRRORED_CHARACTER_FIELDS = new Set([
 
 const inputSchema = z.object({
   path: z.string().min(2).describe("Path or container path. See description for forms."),
+  character_id: z.string().optional().describe("For rx/wb containers: which character. Defaults to focus. 'wb' lists the whole library even with none; the id only annotates `attached`."),
 }).strict();
 
 function cjkCount(text: string): number {
@@ -103,13 +104,14 @@ async function buildDiagnostics(ctx: ToolCtx, leaf: ResolvedLeaf): Promise<Recor
   return diag;
 }
 
-async function inspectRegexContainer(ctx: ToolCtx): Promise<Record<string, unknown>> {
+async function inspectRegexContainer(ctx: ToolCtx, explicit?: string): Promise<Record<string, unknown>> {
+  const scopeId = resolveCharacterTarget(ctx, explicit);
   const out = [];
   let offset = 0;
   let totalChars = 0;
   let disabled = 0;
   while (true) {
-    const r = await ctx.spindle.regex_scripts.list({ scope: "character", scopeId: resolveCharacterTarget(ctx), userId: ctx.userId, limit: 200, offset });
+    const r = await ctx.spindle.regex_scripts.list({ scope: "character", scopeId, userId: ctx.userId, limit: 200, offset });
     for (const s of r.data) {
       const findChars = s.find_regex?.length ?? 0;
       const replaceChars = s.replace_string?.length ?? 0;
@@ -156,10 +158,18 @@ async function inspectRegexScript(ctx: ToolCtx, scriptId: string): Promise<Recor
   };
 }
 
-async function inspectWorldBooksContainer(ctx: ToolCtx): Promise<Record<string, unknown>> {
-  const c = await ctx.spindle.characters.get(resolveCharacterTarget(ctx), ctx.userId);
-  if (!c) throw new Error("character not found");
-  const attached = new Set(c.world_book_ids ?? []);
+async function inspectWorldBooksContainer(ctx: ToolCtx, explicit?: string): Promise<Record<string, unknown>> {
+  // Whole-library listing: the book set is character-independent. A character
+  // (focused or explicit) only annotates attachment status, so this runs with
+  // no character at all (the "are there duplicate lorebooks across my library"
+  // question doesn't need one).
+  const charId = resolveCharacterTargetOptional(ctx, explicit);
+  const attached = new Set<string>();
+  if (charId !== null) {
+    const c = await ctx.spindle.characters.get(charId, ctx.userId);
+    if (!c) throw new Error(`character ${charId} not found`);
+    for (const id of c.world_book_ids ?? []) attached.add(id);
+  }
   const all = await ctx.spindle.world_books.list({ limit: 1000, userId: ctx.userId });
   const rows = await Promise.all(all.data.map(async (wb) => {
     const meta = await ctx.spindle.world_books.entries.list(wb.id, { limit: 1, userId: ctx.userId });
@@ -167,11 +177,11 @@ async function inspectWorldBooksContainer(ctx: ToolCtx): Promise<Record<string, 
       path: `wb/${wb.id}`,
       name: wb.name,
       entries: meta.total,
-      attached: attached.has(wb.id),
+      ...(charId !== null ? { attached: attached.has(wb.id) } : {}),
     };
   }));
-  rows.sort((a, b) => (b.attached === a.attached ? 0 : b.attached ? 1 : -1) || b.entries - a.entries);
-  return { path: "wb", total: rows.length, attached: attached.size, books: rows };
+  rows.sort((a, b) => ((b.attached ? 1 : 0) - (a.attached ? 1 : 0)) || b.entries - a.entries);
+  return { path: "wb", total: rows.length, ...(charId !== null ? { attached: attached.size } : {}), books: rows };
 }
 
 async function inspectWorldBook(ctx: ToolCtx, bookId: string): Promise<Record<string, unknown> | string> {
@@ -232,7 +242,10 @@ One tool, one path argument.`,
   inputSchema,
   jsonSchema: {
     type: "object",
-    properties: { path: { type: "string", description: "Surface path. See description for leaf vs container forms." } },
+    properties: {
+      path: { type: "string", description: "Surface path. See description for leaf vs container forms." },
+      character_id: { type: "string", description: "rx/wb containers: defaults to focus. 'wb' lists the whole library even with none." },
+    },
     required: ["path"],
     additionalProperties: false,
   },
@@ -247,15 +260,15 @@ One tool, one path argument.`,
     // agent sees [NO_TARGET] guidance instead of a raw uncoded error string.
     if (path === "rx" || path === "regex_scripts") {
       try {
-        const r = await inspectRegexContainer(ctx);
+        const r = await inspectRegexContainer(ctx, input.character_id);
         return { content: JSON.stringify(r, null, 2) };
       } catch (err) { const nt = noTargetResult(err); if (nt) return nt; throw err; }
     }
     if (path === "wb" || path === "world_books") {
-      try {
-        const r = await inspectWorldBooksContainer(ctx);
-        return { content: JSON.stringify(r, null, 2) };
-      } catch (err) { const nt = noTargetResult(err); if (nt) return nt; throw err; }
+      // No-character whole-library listing is supported; attachment status is
+      // just omitted. resolveCharacterTargetOptional never throws NoTarget here.
+      const r = await inspectWorldBooksContainer(ctx, input.character_id);
+      return { content: JSON.stringify(r, null, 2) };
     }
     // rx/<id> with no field segment → script DTO.
     const rxMatch = /^(?:rx|regex_script)\/([^/]+)$/.exec(path);
