@@ -39145,6 +39145,9 @@ async function buildContextNoteForSession(s, userId) {
     extensionSystemPrompts
   });
 }
+function isToolResultMessage(m) {
+  return m.role === "user" && Array.isArray(m.content) && m.content.length > 0 && m.content.every((p) => p.type === "tool_result");
+}
 async function emitContextNoteIfChanged(s, userId) {
   const cur = { characterId: s.characterId, pinnedChatId: s.pinnedChatId ?? null };
   const last = s.lastContext ?? null;
@@ -39159,7 +39162,8 @@ async function emitContextNoteIfChanged(s, userId) {
   const note = await buildContextNoteForSession(s, userId);
   const entry = { role: "user", content: note };
   const lastIdx = s.llmHistory.length - 1;
-  if (lastIdx >= 0 && s.llmHistory[lastIdx].role === "user")
+  const lastMsg = lastIdx >= 0 ? s.llmHistory[lastIdx] : undefined;
+  if (lastMsg && lastMsg.role === "user" && !isToolResultMessage(lastMsg))
     s.llmHistory.splice(lastIdx, 0, entry);
   else
     s.llmHistory.push(entry);

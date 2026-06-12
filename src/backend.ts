@@ -418,6 +418,11 @@ async function buildContextNoteForSession(s: PersistedSession, userId: string): 
   });
 }
 
+// A tool_results turn is encoded as role "user" with only tool_result parts.
+function isToolResultMessage(m: LlmMessage): boolean {
+  return m.role === "user" && Array.isArray(m.content) && m.content.length > 0 && m.content.every((p) => p.type === "tool_result");
+}
+
 // Emit a one-shot focus/pin context note into llmHistory when the state the
 // agent was last told about differs from current. Inserts the note just before
 // the trailing user message so the agent reads it ahead of the user's words;
@@ -435,7 +440,13 @@ async function emitContextNoteIfChanged(s: PersistedSession, userId: string): Pr
   const note = await buildContextNoteForSession(s, userId);
   const entry: LlmMessage = { role: "user", content: note };
   const lastIdx = s.llmHistory.length - 1;
-  if (lastIdx >= 0 && s.llmHistory[lastIdx]!.role === "user") s.llmHistory.splice(lastIdx, 0, entry);
+  const lastMsg = lastIdx >= 0 ? s.llmHistory[lastIdx]! : undefined;
+  // Splice before a genuine trailing user turn so the note lands ahead of it.
+  // A tool_results message is ALSO role "user", so splicing before it would drop
+  // the note between an assistant tool_use and its tool_result, orphaning the
+  // call (strict providers 400). That tail shows up after regenerating a later
+  // assistant turn or deleting the trailing user message. Append instead.
+  if (lastMsg && lastMsg.role === "user" && !isToolResultMessage(lastMsg)) s.llmHistory.splice(lastIdx, 0, entry);
   else s.llmHistory.push(entry);
   s.lastContext = cur;
 }
