@@ -47,14 +47,12 @@ const inputSchema = z.object({
 
 export const readChatMessagesTool = defineTool({
   name: "read_chat_messages",
-  description: `Reads messages from a chat by id, or from the pinned chat if no id is given.
+  description: `Reads messages from a chat by id, or the pinned chat if no id is given (chat_id "pinned" is an explicit alias for it).
 
 Usage:
-- Omit \`chat_id\` (or pass \`"pinned"\`) to read the user's pinned chat. The pin is set via the chat-pin button next to the character selector.
 - Pass an explicit chat id from \`list_chats_for_character\` to read a non-pinned chat.
 - Returns messages in chronological order with role / content / send_date / swipe metadata. Active swipe is the \`content\` field; other swipes live on \`swipes[]\`.
-- Default limit 100, cap 500. Most chats fit in one call.
-- If \`chat_id\` is "pinned" but no chat is pinned, returns \`{pinned: false, note}\` and the agent should ask the user to pin one.`,
+- Default limit 100, cap 500. Most chats fit in one call.`,
   inputSchema,
   jsonSchema: {
     type: "object",

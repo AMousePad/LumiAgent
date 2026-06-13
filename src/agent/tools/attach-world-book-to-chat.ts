@@ -13,7 +13,7 @@ const inputSchema = z.object({
 
 export const attachWorldBookToChatTool = defineTool({
   name: "attach_world_book_to_chat",
-  description: `Attach or detach a world book to a chat (the "This Chat Only" binding). Writes \`chat.metadata.chat_world_book_ids\`. Defaults to the pinned chat and \`action: "attach"\`.
+  description: `Attach or detach a world book to a chat (the "This Chat Only" binding). Writes \`chat.metadata.chat_world_book_ids\`. Defaults to \`action: "attach"\`.
 
 This is a different layer than character attachment (\`char/world_book_ids\`) or persona attachment (\`persona/<id>/attached_world_book_id\`): a chat-bound book is active for this one chat regardless of character. Idempotent: re-attaching an already-bound book is a no-op. Does not create the book, pass an existing world_book_id (\`create({path:"wb"})\` first if needed).`,
   inputSchema,
@@ -22,7 +22,7 @@ This is a different layer than character attachment (\`char/world_book_ids\`) or
     properties: {
       world_book_id: { type: "string", description: "Id of an existing world book." },
       action: { type: "string", enum: ["attach", "detach"], description: "Default 'attach'." },
-      chat_id: { type: "string", description: "Chat to bind. Defaults to the pinned chat." },
+      chat_id: { type: "string", description: "Chat to bind." },
     },
     required: ["world_book_id"],
   },

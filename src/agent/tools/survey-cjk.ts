@@ -88,7 +88,7 @@ Returns:
       scopes: { type: "array", items: { type: "string", enum: ["character", "world_books", "regex_scripts", "extensions"] } },
       min_length: { type: "number", description: `default ${SURVEY_DEFAULT_MIN_LEN}` },
       top_n: { type: "number", description: `default ${SURVEY_DEFAULT_TOP_N}` },
-      character_id: { type: "string", description: "Defaults to the focused character." },
+      character_id: { type: "string" },
     },
     required: [],
   },

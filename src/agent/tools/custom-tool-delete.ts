@@ -7,7 +7,7 @@ const inputSchema = z.object({
 
 export const customToolDeleteTool = defineTool({
   name: "custom_tool_delete",
-  description: "Delete a custom tool manifest. Also remember to remove its line from workspace/custom_tools/tools.md.",
+  description: "Delete a custom tool manifest. Also remember to remove its line from custom_tools/tools.md.",
   inputSchema,
   jsonSchema: {
     type: "object",
@@ -17,6 +17,6 @@ export const customToolDeleteTool = defineTool({
   execute: async (input, ctx) => {
     const ct = await import("../../state/custom-tools");
     const ok = await ct.deleteCustomTool(ctx.spindle, ctx.userId, input.name);
-    return { content: JSON.stringify({ name: input.name, deleted: ok, hint: "Remember to remove the line from workspace/custom_tools/tools.md." }) };
+    return { content: JSON.stringify({ name: input.name, deleted: ok, hint: "Remember to remove the line from custom_tools/tools.md." }) };
   },
 });

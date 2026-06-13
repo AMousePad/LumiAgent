@@ -22,7 +22,7 @@ Returns:
     type: "object",
     properties: {
       surface_id: { type: "string" },
-      character_id: { type: "string", description: "For per-character surfaces, which character to filter to. Defaults to the focused character." },
+      character_id: { type: "string", description: "For per-character surfaces, which character to filter to." },
     },
     required: ["surface_id"],
   },

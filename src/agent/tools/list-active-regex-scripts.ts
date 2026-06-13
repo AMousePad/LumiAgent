@@ -24,8 +24,8 @@ Usage:
     type: "object",
     properties: {
       target: { type: "string", enum: [...TARGETS], description: "Which surface the scripts target." },
-      chat_id: { type: "string", description: "Chat scope. Defaults to pinned chat." },
-      character_id: { type: "string", description: "Bind to this character. Defaults to the focused character." },
+      chat_id: { type: "string", description: "Chat scope." },
+      character_id: { type: "string", description: "Bind to this character." },
       use_active_character: { type: "boolean", description: "Bind to the active character. Defaults to true." },
     },
     required: ["target"],

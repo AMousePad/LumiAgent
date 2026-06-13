@@ -26,7 +26,7 @@ Usage:
     properties: {
       surface_id: { type: "string" },
       pattern: { type: "string", description: "JavaScript regex source. No flags, use `ignore_case` for /i." },
-      character_id: { type: "string", description: "For per-character surfaces, which character to filter to. Defaults to the focused character." },
+      character_id: { type: "string", description: "For per-character surfaces, which character to filter to." },
       ignore_case: { type: "boolean" },
       field_prefix: { type: "string", description: "Optional path-prefix filter, e.g. 'module.regex'." },
       head: { type: "integer", minimum: 1, maximum: 2000, description: "Max hits to return. Default 200." },

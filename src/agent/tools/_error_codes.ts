@@ -1,7 +1,7 @@
-// Numeric error codes for tool failures. The model pattern-matches on the
-// bracketed code at the start of an error string to pick a recovery action
-// (re-read, switch tool, ask the user, etc.). Add a new code by listing it
-// here AND describing it in tasks/general.ts so the agent knows what to do.
+// Error codes for tool failures. The model pattern-matches on the bracketed
+// code at the start of an error string to pick a recovery action. Recovery
+// guidance lives in the emitted message (paid only on failure), not the system
+// prompt, so a new code's message must state how to fix it.
 export const ErrorCode = {
   NOT_READ_RECENTLY: "NOT_READ_RECENTLY",
   STALE_READ: "STALE_READ",

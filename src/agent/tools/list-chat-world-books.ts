@@ -20,14 +20,14 @@ interface BookRow {
 
 export const listChatWorldBooksTool = defineTool({
   name: "list_chat_world_books",
-  description: `List every world book bound to a chat, grouped by binding scope: character (\`char/world_book_ids\`), persona (active persona's attached book), and chat ("This Chat Only", \`chat.metadata.chat_world_book_ids\`). Defaults to the pinned chat.
+  description: `List every world book bound to a chat, grouped by binding scope: character (\`char/world_book_ids\`), persona (active persona's attached book), and chat ("This Chat Only", \`chat.metadata.chat_world_book_ids\`).
 
 Use this, not \`list({path:"wb"})\`, to answer "what lorebooks are active for this chat" — plain \`list\` only sees character-attached books and reports the others as unattached. Global "Always Active" books are a fourth layer the host doesn't expose to extensions, so they're reported under \`global_unavailable\`.`,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      chat_id: { type: "string", description: "Chat to inspect. Defaults to the pinned chat." },
+      chat_id: { type: "string", description: "Chat to inspect." },
     },
     required: [],
   },

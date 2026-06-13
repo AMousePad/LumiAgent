@@ -19,7 +19,7 @@ export const fsWriteTool = defineTool({
     properties: {
       path: { type: "string" },
       content: { type: "string" },
-      content_handle: { type: "string", description: "Handle of a previously-stashed draft. Use instead of content to avoid re-emitting." },
+      content_handle: { type: "string", description: "Handle of a previously-stashed draft." },
     },
     required: ["path"],
   },

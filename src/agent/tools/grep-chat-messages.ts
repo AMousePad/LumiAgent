@@ -25,12 +25,12 @@ function resolveChatId(input: { chat_id?: string | undefined }, ctx: ToolCtx): s
 
 export const grepChatMessagesTool = defineTool({
   name: "grep_chat_messages",
-  description: "Regex search across message contents. Returns hits with idx, id, role, line, match, preview. Use this for any 'where did we say X' question on a big chat, before falling back to read_chat_messages. Omit chat_id to use the pinned chat.",
+  description: "Regex search across message contents. Returns hits with idx, id, role, line, match, preview. Use this for any 'where did we say X' question on a big chat, before falling back to read_chat_messages.",
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      chat_id: { type: "string", description: "Optional. Omit to use the pinned chat." },
+      chat_id: { type: "string" },
       pattern: { type: "string" },
       flags: { type: "string", description: "Extra regex flags. g is implied." },
       case_insensitive: { type: "boolean" },

@@ -16,11 +16,11 @@ function resolveChatId(input: { chat_id?: string | undefined }, ctx: ToolCtx): s
 
 export const chatStatsTool = defineTool({
   name: "chat_stats",
-  description: "Call this first when the user references a chat. Cheap orientation: returns total_messages, total_chars, longest_message_chars, by_role counts, first_ts, last_ts. Use the result to choose between read_chat_messages (small), list_chat_messages (skim), or grep_chat_messages (search). Omit chat_id to use the pinned chat.",
+  description: "Call this first when the user references a chat. Cheap orientation: returns total_messages, total_chars, longest_message_chars, by_role counts, first_ts, last_ts. Use the result to choose between read_chat_messages (small), list_chat_messages (skim), or grep_chat_messages (search).",
   inputSchema,
   jsonSchema: {
     type: "object",
-    properties: { chat_id: { type: "string", description: "Optional. Omit to use the pinned chat." } },
+    properties: { chat_id: { type: "string" } },
     required: [],
   },
   // Chat-scoped; available in no-character sessions (matches read/list_chat_messages).

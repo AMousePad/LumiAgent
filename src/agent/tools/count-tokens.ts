@@ -11,13 +11,13 @@ const inputSchema = z.object({
 
 export const countTokensTool = defineTool({
   name: "count_tokens",
-  description: "Server-side token count using the active model's real tokenizer. Pass `text` for an arbitrary string or `chat_id` for a stored chat (omit chat_id to use the pinned chat). Optional `model` overrides the tokenizer. Returns { total_tokens, model, tokenizer_name, approximate }.",
+  description: "Server-side token count using the active model's real tokenizer. Pass `text` for an arbitrary string or `chat_id` for a stored chat. Optional `model` overrides the tokenizer. Returns { total_tokens, model, tokenizer_name, approximate }.",
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
       text: { type: "string", description: "Arbitrary text to tokenize." },
-      chat_id: { type: "string", description: "Chat to count. Defaults to pinned chat when neither text nor chat_id is given." },
+      chat_id: { type: "string", description: "Chat to count." },
       model: { type: "string", description: "Override the tokenizer with a specific model id." },
     },
     required: [],

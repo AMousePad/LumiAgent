@@ -12,13 +12,12 @@ export const listActivatedWorldInfoTool = defineTool({
 
 Usage:
 - Returns { id, comment, keys, source: 'keyword'|'vector', score? } per entry.
-- Use to debug "is this lorebook entry actually firing?" before reading the entry's content.
-- Defaults to pinned chat.`,
+- Use to debug "is this lorebook entry actually firing?" before reading the entry's content.`,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      chat_id: { type: "string", description: "Chat to evaluate. Defaults to pinned chat." },
+      chat_id: { type: "string", description: "Chat to evaluate." },
     },
     required: [],
   },

@@ -11,14 +11,14 @@ const inputSchema = z.object({
 
 export const resolveMacrosTool = defineTool({
   name: "resolve_macros",
-  description: "Resolve `{{macro}}` placeholders in arbitrary text using Lumiverse's macro engine. Always runs in non-committing dry mode (`commit: false`) so extension macro handlers don't side-effect. Pass chat_id (defaults to pinned) for chat-scoped macros (variables, history, etc.) and use_active_character to bind {{char}} / character fields to the currently active card. Returns { text, diagnostics }.",
+  description: "Resolve `{{macro}}` placeholders in arbitrary text using Lumiverse's macro engine. Always runs in non-committing dry mode (`commit: false`) so extension macro handlers don't side-effect. Pass chat_id for chat-scoped macros (variables, history, etc.) and use_active_character to bind {{char}} / character fields to the currently active card. Returns { text, diagnostics }.",
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
       template: { type: "string", description: "Template text containing {{macros}} to resolve." },
-      chat_id: { type: "string", description: "Chat scope for variables and history. Defaults to pinned chat." },
-      character_id: { type: "string", description: "Bind {{char}} and character fields to this character. Defaults to the focused character." },
+      chat_id: { type: "string", description: "Chat scope for variables and history." },
+      character_id: { type: "string", description: "Bind {{char}} and character fields to this character." },
       use_active_character: { type: "boolean", description: "Bind {{char}} and character fields to the active character. Defaults to true." },
     },
     required: ["template"],

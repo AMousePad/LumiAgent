@@ -7,7 +7,7 @@ const inputSchema = z.object({
 
 export const customToolSaveTool = defineTool({
   name: "custom_tool_save",
-  description: "Save (or overwrite) a custom tool manifest. The manifest must declare a name (a-z, 0-9, _), a description, a params object, and an ordered steps array. Each step calls a built-in tool with args that can reference `{{param_name}}` (from inputs) or `{{$var_name}}` (from earlier `save_as` bindings). After saving, update workspace/custom_tools/tools.md to keep the index in sync.",
+  description: "Save (or overwrite) a custom tool manifest. The manifest must declare a name (a-z, 0-9, _), a description, a params object, and an ordered steps array. Each step calls a built-in tool with args that can reference `{{param_name}}` (from inputs) or `{{$var_name}}` (from earlier `save_as` bindings). After saving, update custom_tools/tools.md to keep the index in sync.",
   inputSchema,
   jsonSchema: {
     type: "object",
@@ -28,6 +28,6 @@ export const customToolSaveTool = defineTool({
       return { content: `Error: '${manifest.name}' collides with a built-in tool name. Use a different name.`, isError: true };
     }
     await ct.saveCustomTool(ctx.spindle, ctx.userId, manifest);
-    return { content: JSON.stringify({ name: manifest.name, saved: true, hint: "Remember to update workspace/custom_tools/tools.md to match." }) };
+    return { content: JSON.stringify({ name: manifest.name, saved: true, hint: "Remember to update custom_tools/tools.md to match." }) };
   },
 });

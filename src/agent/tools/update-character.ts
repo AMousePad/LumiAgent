@@ -22,7 +22,7 @@ Usage:
     type: "object",
     properties: {
       patch: { type: "object", additionalProperties: true },
-      character_id: { type: "string", description: "Defaults to the focused character." },
+      character_id: { type: "string" },
     },
     required: ["patch"],
   },

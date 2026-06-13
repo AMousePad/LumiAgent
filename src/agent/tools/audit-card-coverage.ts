@@ -25,7 +25,7 @@ const inputSchema = z.object({
   include_paths: z.array(z.string()).optional().describe("Restrict to leaves whose path starts with one of these prefixes."),
   exclude_paths: z.array(z.string()).optional().describe("Skip leaves whose path starts with any of these prefixes."),
   show_samples: z.boolean().optional().describe("Include up to 5 sample matched runs per leaf, stratified across the leaf. Default true."),
-  character_id: z.string().optional().describe("Character to audit. Defaults to the focused character."),
+  character_id: z.string().optional().describe("Character to audit."),
 }).strict();
 
 interface MatchSample {
@@ -236,7 +236,7 @@ Per matched leaf: \`match_chars/match_runs/match_ratio\` totals; \`density_by_qu
       include_paths: { type: "array", items: { type: "string" } },
       exclude_paths: { type: "array", items: { type: "string" } },
       show_samples: { type: "boolean" },
-      character_id: { type: "string", description: "Defaults to the focused character." },
+      character_id: { type: "string" },
     },
     additionalProperties: false,
   },

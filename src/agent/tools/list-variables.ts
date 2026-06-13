@@ -9,13 +9,13 @@ const inputSchema = z.object({
 
 export const listVariablesTool = defineTool({
   name: "list_variables",
-  description: "List all variables in a given scope. Scopes: `chat` (chat.metadata.chat_variables, persisted across generations, what Risu/LumiRealm Lua and triggers write via setvar / setChatVar), `macro` (chat.metadata.macro_variables, LumiRealm's macro-state store, separate path from chat_variables), `local` (chat-bound ephemeral runtime variables), `global` (user-level). Pass chat_id for chat/local/macro scopes (defaults to pinned chat).",
+  description: "List all variables in a given scope. Scopes: `chat` (chat.metadata.chat_variables, persisted across generations, what Risu/LumiRealm Lua and triggers write via setvar / setChatVar), `macro` (chat.metadata.macro_variables, LumiRealm's macro-state store, separate path from chat_variables), `local` (chat-bound ephemeral runtime variables), `global` (user-level). chat/local/macro need a chat_id.",
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
       scope: { type: "string", enum: ["chat", "local", "global", "macro"], description: "Variable scope to list." },
-      chat_id: { type: "string", description: "Required for chat/local/macro scopes. Defaults to pinned chat." },
+      chat_id: { type: "string", description: "Required for chat/local/macro scopes." },
     },
     required: ["scope"],
   },

@@ -12,12 +12,12 @@ const inputSchema = z.object({
 
 export const listChatMessagesTool = defineTool({
   name: "list_chat_messages",
-  description: "Skim a chat's messages as metadata only: idx, id, role, char count, and an 80-char snippet per message. Cheap on tokens. Use for picking which specific messages to read in full afterwards. Omit chat_id to use the pinned chat.",
+  description: "Skim a chat's messages as metadata only: idx, id, role, char count, and an 80-char snippet per message. Cheap on tokens. Use for picking which specific messages to read in full afterwards.",
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      chat_id: { type: "string", description: "Optional. Omit to use the pinned chat." },
+      chat_id: { type: "string" },
       offset: { type: "number", description: "0-indexed start, default 0" },
       limit: { type: "number", description: "Default 200, cap 2000" },
     },

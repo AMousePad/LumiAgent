@@ -847,20 +847,20 @@ function shouldAutoCompact(s: PersistedSession, samplers: Readonly<Record<string
 function buildCompactionInstruction(maxHandoffChars: number): string {
   return `[SYSTEM COMPACTION REQUEST]
 
-The conversation is approaching its context limit. Your one and only job this turn is to write or update workspace/${HANDOFF_PATH} so that a fresh copy of you can pick up exactly where you left off.
+The conversation is approaching its context limit. Your job this turn is to write or update ${HANDOFF_PATH} so that a fresh copy of you can pick up exactly where you left off.
 
 Rules:
-- Read the current workspace/${HANDOFF_PATH} first (fs_read). If it exists and is still relevant, edit it. Otherwise overwrite it.
-- The file MUST be under ${maxHandoffChars} chars. Aim much lower (under half this).
-- Information-dense prose only. No preamble, no conclusion, no apologies, no AI-fingerprint phrasing.
-- Cover, in order:
+- Read the ${HANDOFF_PATH} first. If it exists and is still relevant, edit it. Otherwise overwrite it.
+- The file MUST be under ${maxHandoffChars} chars.
+- Information-dense prose only.
+- Cover:
   1. The user's original request (one sentence).
   2. Everything you've done so far that matters (concrete: characters touched, fields edited, regex scripts renamed, lorebook entries added, tools called repeatedly).
   3. What's currently in progress (the specific next step you were about to take).
   4. What to do next, ordered.
-  5. Hard facts to remember: character ids, exact regex patterns, file paths, naming conventions, the user's stated preferences, anything that would be expensive to rediscover.
+  5. Facts to remember: character ids, exact regex patterns, file paths, naming conventions, the user's stated preferences, anything that would be expensive to rediscover.
 - DO NOT respond to the user in chat this turn.
-- After writing the file, stop. The next thing you say should be "Handoff saved." and nothing else.`;
+- After writing the file, stop. The next thing you say should exactly be "Handoff saved."`;
 }
 
 async function compactSession(sessionId: string, userId: string, trigger: "auto" | "manual"): Promise<void> {
@@ -997,7 +997,7 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
     // Replace the model-facing history with a short primer so the next turn
     // starts fresh. The user's UI thread keeps the full history for their own
     // record; this only affects what the model sees next.
-    const primerContent = `[The previous agent compacted this conversation. Detailed handoff notes are saved at workspace/${HANDOFF_PATH}. If you need any context from before this point, read that file first with fs_read("${HANDOFF_PATH}"). Then respond to whatever the user says next.]`;
+    const primerContent = `[The previous agent compacted the conversation. Detailed handoff notes are saved at ${HANDOFF_PATH}. If you need any context from before, read that file with fs_read("${HANDOFF_PATH}"). Then respond to the user.]`;
     s.llmHistory = [{ role: "user", content: primerContent }];
     // Persist the primer so the rebuild paths re-prepend it and rebuild only the
     // post-compaction messages instead of re-expanding the full thread.
@@ -1981,7 +1981,7 @@ function buildRevertNote(entry: EditLogEntry): string {
   } else if (r.op === "delete") {
     detail = `You had deleted this item. It has now been re-created.`;
   }
-  return `[Note from the system: the user reverted the edit you made in turn ${entry.turn} via tool \`${entry.toolName}\` on ${r.surface} "${surfaceLabel}". ${detail} The user did not explain why — they may have disliked the wording, hit revert by accident, or be re-planning. Do not bring it up unless they ask; if they re-request something similar, treat it as a fresh request and read the current state first.]`;
+  return `[Note from the system: the user reverted the edit you made in turn ${entry.turn} via tool \`${entry.toolName}\` on ${r.surface} "${surfaceLabel}". ${detail}]`;
 }
 
 async function handleRevertSession(sessionId: string, userId: string): Promise<void> {

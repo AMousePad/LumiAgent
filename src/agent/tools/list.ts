@@ -277,7 +277,7 @@ Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole
       path: { type: "string", description: "Container path. See description for forms." },
       max_entries: { type: "integer", minimum: 1, maximum: 2000 },
       max_depth: { type: "integer", minimum: 1, maximum: 10 },
-      character_id: { type: "string", description: "For char/rx/wb paths: defaults to the focused character." },
+      character_id: { type: "string", description: "For char/rx/wb paths." },
       include_unattached: { type: "boolean", description: "path='wb' only: list all owned world books (not just attached). Works with no focused character; with one, rows carry `attached`." },
     },
     required: ["path"],

@@ -18187,7 +18187,7 @@ Returns \`{dry_run, entries_in_glossary, total_replacements, surfaces_affected, 
         scopes: { type: "array", items: { type: "string", enum: ["character", "world_books", "regex_scripts", "extensions"] } },
         dry_run: { type: "boolean", description: "if true, count hits per entry without writing" },
         allow_short_cjk: { type: "boolean", description: "permit 1-character CJK source keys. Default false." },
-        character_id: { type: "string", description: "Defaults to the focused character." }
+        character_id: { type: "string" }
       },
       required: ["entries"]
     },
@@ -18497,7 +18497,7 @@ var init_attach_world_book_to_chat = __esm(() => {
   }).strict();
   attachWorldBookToChatTool = defineTool({
     name: "attach_world_book_to_chat",
-    description: `Attach or detach a world book to a chat (the "This Chat Only" binding). Writes \`chat.metadata.chat_world_book_ids\`. Defaults to the pinned chat and \`action: "attach"\`.
+    description: `Attach or detach a world book to a chat (the "This Chat Only" binding). Writes \`chat.metadata.chat_world_book_ids\`. Defaults to \`action: "attach"\`.
 
 This is a different layer than character attachment (\`char/world_book_ids\`) or persona attachment (\`persona/<id>/attached_world_book_id\`): a chat-bound book is active for this one chat regardless of character. Idempotent: re-attaching an already-bound book is a no-op. Does not create the book, pass an existing world_book_id (\`create({path:"wb"})\` first if needed).`,
     inputSchema: inputSchema3,
@@ -18506,7 +18506,7 @@ This is a different layer than character attachment (\`char/world_book_ids\`) or
       properties: {
         world_book_id: { type: "string", description: "Id of an existing world book." },
         action: { type: "string", enum: ["attach", "detach"], description: "Default 'attach'." },
-        chat_id: { type: "string", description: "Chat to bind. Defaults to the pinned chat." }
+        chat_id: { type: "string", description: "Chat to bind." }
       },
       required: ["world_book_id"]
     },
@@ -18559,14 +18559,14 @@ var init_list_chat_world_books = __esm(() => {
   }).strict();
   listChatWorldBooksTool = defineTool({
     name: "list_chat_world_books",
-    description: `List every world book bound to a chat, grouped by binding scope: character (\`char/world_book_ids\`), persona (active persona's attached book), and chat ("This Chat Only", \`chat.metadata.chat_world_book_ids\`). Defaults to the pinned chat.
+    description: `List every world book bound to a chat, grouped by binding scope: character (\`char/world_book_ids\`), persona (active persona's attached book), and chat ("This Chat Only", \`chat.metadata.chat_world_book_ids\`).
 
 Use this, not \`list({path:"wb"})\`, to answer "what lorebooks are active for this chat" \u2014 plain \`list\` only sees character-attached books and reports the others as unattached. Global "Always Active" books are a fourth layer the host doesn't expose to extensions, so they're reported under \`global_unavailable\`.`,
     inputSchema: inputSchema4,
     jsonSchema: {
       type: "object",
       properties: {
-        chat_id: { type: "string", description: "Chat to inspect. Defaults to the pinned chat." }
+        chat_id: { type: "string", description: "Chat to inspect." }
       },
       required: []
     },
@@ -19611,7 +19611,7 @@ var init_audit_card_coverage = __esm(() => {
     include_paths: exports_external.array(exports_external.string()).optional().describe("Restrict to leaves whose path starts with one of these prefixes."),
     exclude_paths: exports_external.array(exports_external.string()).optional().describe("Skip leaves whose path starts with any of these prefixes."),
     show_samples: exports_external.boolean().optional().describe("Include up to 5 sample matched runs per leaf, stratified across the leaf. Default true."),
-    character_id: exports_external.string().optional().describe("Character to audit. Defaults to the focused character.")
+    character_id: exports_external.string().optional().describe("Character to audit.")
   }).strict();
   auditCardCoverageTool = defineTool({
     name: "audit_card_coverage",
@@ -19627,7 +19627,7 @@ Per matched leaf: \`match_chars/match_runs/match_ratio\` totals; \`density_by_qu
         include_paths: { type: "array", items: { type: "string" } },
         exclude_paths: { type: "array", items: { type: "string" } },
         show_samples: { type: "boolean" },
-        character_id: { type: "string", description: "Defaults to the focused character." }
+        character_id: { type: "string" }
       },
       additionalProperties: false
     },
@@ -19739,11 +19739,11 @@ var init_chat_stats = __esm(() => {
   });
   chatStatsTool = defineTool({
     name: "chat_stats",
-    description: "Call this first when the user references a chat. Cheap orientation: returns total_messages, total_chars, longest_message_chars, by_role counts, first_ts, last_ts. Use the result to choose between read_chat_messages (small), list_chat_messages (skim), or grep_chat_messages (search). Omit chat_id to use the pinned chat.",
+    description: "Call this first when the user references a chat. Cheap orientation: returns total_messages, total_chars, longest_message_chars, by_role counts, first_ts, last_ts. Use the result to choose between read_chat_messages (small), list_chat_messages (skim), or grep_chat_messages (search).",
     inputSchema: inputSchema8,
     jsonSchema: {
       type: "object",
-      properties: { chat_id: { type: "string", description: "Optional. Omit to use the pinned chat." } },
+      properties: { chat_id: { type: "string" } },
       required: []
     },
     requiresCharacter: false,
@@ -20635,7 +20635,7 @@ var init_custom_tool_delete = __esm(() => {
   });
   customToolDeleteTool = defineTool({
     name: "custom_tool_delete",
-    description: "Delete a custom tool manifest. Also remember to remove its line from workspace/custom_tools/tools.md.",
+    description: "Delete a custom tool manifest. Also remember to remove its line from custom_tools/tools.md.",
     inputSchema: inputSchema12,
     jsonSchema: {
       type: "object",
@@ -20645,7 +20645,7 @@ var init_custom_tool_delete = __esm(() => {
     execute: async (input, ctx) => {
       const ct = await Promise.resolve().then(() => (init_custom_tools(), exports_custom_tools));
       const ok = await ct.deleteCustomTool(ctx.spindle, ctx.userId, input.name);
-      return { content: JSON.stringify({ name: input.name, deleted: ok, hint: "Remember to remove the line from workspace/custom_tools/tools.md." }) };
+      return { content: JSON.stringify({ name: input.name, deleted: ok, hint: "Remember to remove the line from custom_tools/tools.md." }) };
     }
   });
 });
@@ -20779,7 +20779,7 @@ var init_custom_tool_save = __esm(() => {
   });
   customToolSaveTool = defineTool({
     name: "custom_tool_save",
-    description: "Save (or overwrite) a custom tool manifest. The manifest must declare a name (a-z, 0-9, _), a description, a params object, and an ordered steps array. Each step calls a built-in tool with args that can reference `{{param_name}}` (from inputs) or `{{$var_name}}` (from earlier `save_as` bindings). After saving, update workspace/custom_tools/tools.md to keep the index in sync.",
+    description: "Save (or overwrite) a custom tool manifest. The manifest must declare a name (a-z, 0-9, _), a description, a params object, and an ordered steps array. Each step calls a built-in tool with args that can reference `{{param_name}}` (from inputs) or `{{$var_name}}` (from earlier `save_as` bindings). After saving, update custom_tools/tools.md to keep the index in sync.",
     inputSchema: inputSchema15,
     jsonSchema: {
       type: "object",
@@ -20801,7 +20801,7 @@ var init_custom_tool_save = __esm(() => {
         return { content: `Error: '${manifest.name}' collides with a built-in tool name. Use a different name.`, isError: true };
       }
       await ct.saveCustomTool(ctx.spindle, ctx.userId, manifest);
-      return { content: JSON.stringify({ name: manifest.name, saved: true, hint: "Remember to update workspace/custom_tools/tools.md to match." }) };
+      return { content: JSON.stringify({ name: manifest.name, saved: true, hint: "Remember to update custom_tools/tools.md to match." }) };
     }
   });
 });
@@ -21074,7 +21074,7 @@ Usage:
         field: { type: "string" },
         find: { type: "string" },
         replace: { type: "string" },
-        replace_handle: { type: "string", description: "Handle of a previously-stashed draft. Use instead of replace to avoid re-emitting." },
+        replace_handle: { type: "string", description: "Handle of a previously-stashed draft." },
         replace_all: { type: "boolean" }
       },
       required: ["surface_id", "item_id", "field", "find"]
@@ -31395,7 +31395,7 @@ var init_fs_edit = __esm(() => {
         path: { type: "string" },
         find: { type: "string" },
         replace: { type: "string" },
-        replace_handle: { type: "string", description: "Handle of a previously-stashed draft. Use instead of replace to avoid re-emitting." },
+        replace_handle: { type: "string", description: "Handle of a previously-stashed draft." },
         replace_all: { type: "boolean" }
       },
       required: ["path", "find"]
@@ -31460,7 +31460,7 @@ var init_fs_list = __esm(() => {
   });
   fsListTool = defineTool({
     name: "fs_list",
-    description: "List entries in the agent's workspace at a given directory. Pass an empty path for the root. Returns [{name, path, isDirectory, sizeBytes, modifiedAt}]. The workspace persists across sessions and is shared with the user via the Files tab in the Workshop.",
+    description: "List entries in the workspace at a given directory. Pass an empty path for the root. Returns [{name, path, isDirectory, sizeBytes, modifiedAt}].",
     inputSchema: inputSchema21,
     jsonSchema: {
       type: "object",
@@ -31472,8 +31472,18 @@ var init_fs_list = __esm(() => {
     execute: async (input, ctx) => {
       const ws = await Promise.resolve().then(() => (init_workspace(), exports_workspace));
       const path = input.path ?? "";
+      const norm = ws.normaliseRelPath(path);
       const entries = await ws.listDir(ctx.spindle, ctx.userId, path);
-      const payload = JSON.stringify({ path: ws.normaliseRelPath(path), count: entries.length, entries }, null, 2);
+      if (entries.length === 0 && norm !== "") {
+        const node = await ws.stat(ctx.spindle, ctx.userId, path);
+        if (node === null) {
+          const hint = norm.startsWith("workspace/") ? " Paths are relative to the workspace root, drop the 'workspace/' prefix." : "";
+          return { content: `[PATH_NOT_FOUND] No directory '${norm}'.${hint}`, isError: true };
+        }
+        if (!node.isDirectory)
+          return { content: `[PATH_NOT_FOUND] '${norm}' is a file, use fs_read.`, isError: true };
+      }
+      const payload = JSON.stringify({ path: norm, count: entries.length, entries }, null, 2);
       const out = await spillOrReturn(ctx, payload, `fs_list:${path || "/"}`);
       return { content: out };
     }
@@ -31856,7 +31866,7 @@ var init_fs_write = __esm(() => {
       properties: {
         path: { type: "string" },
         content: { type: "string" },
-        content_handle: { type: "string", description: "Handle of a previously-stashed draft. Use instead of content to avoid re-emitting." }
+        content_handle: { type: "string", description: "Handle of a previously-stashed draft." }
       },
       required: ["path"]
     },
@@ -32278,7 +32288,7 @@ Returns \`hits[]\` of \`{path, surface, surface_label, line, match, preview}\` \
         exclude_paths: { type: "array", items: { type: "string" } },
         max_matches: { type: "integer", minimum: 1, maximum: GREP_MAX_CAP, description: `default ${GREP_DEFAULT_MAX}` },
         max_hits_per_line: { type: "integer", minimum: 1, maximum: 50, description: `default ${GREP_DEFAULT_HITS_PER_LINE}` },
-        character_id: { type: "string", description: "Defaults to the focused character." },
+        character_id: { type: "string" },
         world_scope: { type: "string", enum: ["attached", "all"], description: "'all' also searches the user's unattached global lorebooks (entries labeled [global]). Default 'attached'." }
       },
       required: ["pattern"],
@@ -32397,12 +32407,12 @@ var init_grep_chat_messages = __esm(() => {
   });
   grepChatMessagesTool = defineTool({
     name: "grep_chat_messages",
-    description: "Regex search across message contents. Returns hits with idx, id, role, line, match, preview. Use this for any 'where did we say X' question on a big chat, before falling back to read_chat_messages. Omit chat_id to use the pinned chat.",
+    description: "Regex search across message contents. Returns hits with idx, id, role, line, match, preview. Use this for any 'where did we say X' question on a big chat, before falling back to read_chat_messages.",
     inputSchema: inputSchema33,
     jsonSchema: {
       type: "object",
       properties: {
-        chat_id: { type: "string", description: "Optional. Omit to use the pinned chat." },
+        chat_id: { type: "string" },
         pattern: { type: "string" },
         flags: { type: "string", description: "Extra regex flags. g is implied." },
         case_insensitive: { type: "boolean" },
@@ -32504,7 +32514,7 @@ Usage:
       properties: {
         surface_id: { type: "string" },
         pattern: { type: "string", description: "JavaScript regex source. No flags, use `ignore_case` for /i." },
-        character_id: { type: "string", description: "For per-character surfaces, which character to filter to. Defaults to the focused character." },
+        character_id: { type: "string", description: "For per-character surfaces, which character to filter to." },
         ignore_case: { type: "boolean" },
         field_prefix: { type: "string", description: "Optional path-prefix filter, e.g. 'module.regex'." },
         head: { type: "integer", minimum: 1, maximum: 2000, description: "Max hits to return. Default 200." }
@@ -33115,7 +33125,7 @@ Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole
         path: { type: "string", description: "Container path. See description for forms." },
         max_entries: { type: "integer", minimum: 1, maximum: 2000 },
         max_depth: { type: "integer", minimum: 1, maximum: 10 },
-        character_id: { type: "string", description: "For char/rx/wb paths: defaults to the focused character." },
+        character_id: { type: "string", description: "For char/rx/wb paths." },
         include_unattached: { type: "boolean", description: "path='wb' only: list all owned world books (not just attached). Works with no focused character; with one, rows carry `attached`." }
       },
       required: ["path"],
@@ -33852,12 +33862,12 @@ var init_list_chat_messages = __esm(() => {
   });
   listChatMessagesTool = defineTool({
     name: "list_chat_messages",
-    description: "Skim a chat's messages as metadata only: idx, id, role, char count, and an 80-char snippet per message. Cheap on tokens. Use for picking which specific messages to read in full afterwards. Omit chat_id to use the pinned chat.",
+    description: "Skim a chat's messages as metadata only: idx, id, role, char count, and an 80-char snippet per message. Cheap on tokens. Use for picking which specific messages to read in full afterwards.",
     inputSchema: inputSchema43,
     jsonSchema: {
       type: "object",
       properties: {
-        chat_id: { type: "string", description: "Optional. Omit to use the pinned chat." },
+        chat_id: { type: "string" },
         offset: { type: "number", description: "0-indexed start, default 0" },
         limit: { type: "number", description: "Default 200, cap 2000" }
       },
@@ -33906,13 +33916,13 @@ var init_list_chats_for_character = __esm(() => {
   init__framework();
   init__context();
   inputSchema44 = exports_external.object({
-    character_id: exports_external.string().optional().describe("Character whose chats to list. Defaults to the focused character.")
+    character_id: exports_external.string().optional().describe("Character whose chats to list.")
   }).strict();
   listChatsForCharacterTool = defineTool({
     name: "list_chats_for_character",
-    description: "List all of a character's chat sessions. Returns id, name, updated_at, message_count, is_active (whether the host is currently showing this chat). Defaults to the focused character; pass character_id to list another character's chats. Use this to discover what chats exist before reading messages, or to suggest one for the user to pin.",
+    description: "List all of a character's chat sessions. Returns id, name, updated_at, message_count, is_active (whether the host is currently showing this chat). Use this to discover what chats exist before reading messages, or to suggest one for the user to pin.",
     inputSchema: inputSchema44,
-    jsonSchema: { type: "object", properties: { character_id: { type: "string", description: "Defaults to the focused character." } }, required: [] },
+    jsonSchema: { type: "object", properties: { character_id: { type: "string" } }, required: [] },
     requiresCharacter: false,
     execute: async (input, ctx) => {
       let target;
@@ -33968,7 +33978,7 @@ Returns:
       type: "object",
       properties: {
         surface_id: { type: "string" },
-        character_id: { type: "string", description: "For per-character surfaces, which character to filter to. Defaults to the focused character." }
+        character_id: { type: "string", description: "For per-character surfaces, which character to filter to." }
       },
       required: ["surface_id"]
     },
@@ -34357,14 +34367,12 @@ var init_read_chat_messages = __esm(() => {
   });
   readChatMessagesTool = defineTool({
     name: "read_chat_messages",
-    description: `Reads messages from a chat by id, or from the pinned chat if no id is given.
+    description: `Reads messages from a chat by id, or the pinned chat if no id is given (chat_id "pinned" is an explicit alias for it).
 
 Usage:
-- Omit \`chat_id\` (or pass \`"pinned"\`) to read the user's pinned chat. The pin is set via the chat-pin button next to the character selector.
 - Pass an explicit chat id from \`list_chats_for_character\` to read a non-pinned chat.
 - Returns messages in chronological order with role / content / send_date / swipe metadata. Active swipe is the \`content\` field; other swipes live on \`swipes[]\`.
-- Default limit 100, cap 500. Most chats fit in one call.
-- If \`chat_id\` is "pinned" but no chat is pinned, returns \`{pinned: false, note}\` and the agent should ask the user to pin one.`,
+- Default limit 100, cap 500. Most chats fit in one call.`,
     inputSchema: inputSchema51,
     jsonSchema: {
       type: "object",
@@ -34932,7 +34940,7 @@ Returns:
         scopes: { type: "array", items: { type: "string", enum: ["character", "world_books", "regex_scripts", "extensions"] } },
         min_length: { type: "number", description: `default ${SURVEY_DEFAULT_MIN_LEN}` },
         top_n: { type: "number", description: `default ${SURVEY_DEFAULT_TOP_N}` },
-        character_id: { type: "string", description: "Defaults to the focused character." }
+        character_id: { type: "string" }
       },
       required: []
     },
@@ -35710,7 +35718,7 @@ Usage:
       type: "object",
       properties: {
         patch: { type: "object", additionalProperties: true },
-        character_id: { type: "string", description: "Defaults to the focused character." }
+        character_id: { type: "string" }
       },
       required: ["patch"]
     },
@@ -35948,13 +35956,13 @@ var init_count_tokens = __esm(() => {
   });
   countTokensTool = defineTool({
     name: "count_tokens",
-    description: "Server-side token count using the active model's real tokenizer. Pass `text` for an arbitrary string or `chat_id` for a stored chat (omit chat_id to use the pinned chat). Optional `model` overrides the tokenizer. Returns { total_tokens, model, tokenizer_name, approximate }.",
+    description: "Server-side token count using the active model's real tokenizer. Pass `text` for an arbitrary string or `chat_id` for a stored chat. Optional `model` overrides the tokenizer. Returns { total_tokens, model, tokenizer_name, approximate }.",
     inputSchema: inputSchema67,
     jsonSchema: {
       type: "object",
       properties: {
         text: { type: "string", description: "Arbitrary text to tokenize." },
-        chat_id: { type: "string", description: "Chat to count. Defaults to pinned chat when neither text nor chat_id is given." },
+        chat_id: { type: "string", description: "Chat to count." },
         model: { type: "string", description: "Override the tokenizer with a specific model id." }
       },
       required: []
@@ -35994,12 +36002,12 @@ var init_dry_run_prompt = __esm(() => {
   }).strict();
   dryRunPromptTool = defineTool({
     name: "dry_run_prompt",
-    description: "Run Lumiverse's prompt-assembly pipeline without calling the LLM. Returns the exact messages that would be sent, plus a per-block breakdown (system / persona / world info entries / character fields / chat memory / chat history / etc.), token count, model, provider, world-info activation stats, and memory stats. The definitive way to answer 'why is the AI saying X' or 'what's actually in the prompt'. Defaults to the pinned chat. The full messages array often spills to a tmp handle.",
+    description: "Run Lumiverse's prompt-assembly pipeline without calling the LLM. Returns the exact messages that would be sent, plus a per-block breakdown (system / persona / world info entries / character fields / chat memory / chat history / etc.), token count, model, provider, world-info activation stats, and memory stats. The definitive way to answer 'why is the AI saying X' or 'what's actually in the prompt'. The full messages array often spills to a tmp handle.",
     inputSchema: inputSchema68,
     jsonSchema: {
       type: "object",
       properties: {
-        chat_id: { type: "string", description: "Chat to assemble for. Defaults to the pinned chat." },
+        chat_id: { type: "string", description: "Chat to assemble for." },
         connection_id: { type: "string", description: "Override the connection used (defaults to the chat's active connection)." },
         persona_id: { type: "string", description: "Override the persona." },
         preset_id: { type: "string", description: "Override the preset." }
@@ -36093,8 +36101,8 @@ Usage:
       type: "object",
       properties: {
         target: { type: "string", enum: [...TARGETS], description: "Which surface the scripts target." },
-        chat_id: { type: "string", description: "Chat scope. Defaults to pinned chat." },
-        character_id: { type: "string", description: "Bind to this character. Defaults to the focused character." },
+        chat_id: { type: "string", description: "Chat scope." },
+        character_id: { type: "string", description: "Bind to this character." },
         use_active_character: { type: "boolean", description: "Bind to the active character. Defaults to true." }
       },
       required: ["target"]
@@ -36147,13 +36155,12 @@ var init_list_activated_world_info = __esm(() => {
 
 Usage:
 - Returns { id, comment, keys, source: 'keyword'|'vector', score? } per entry.
-- Use to debug "is this lorebook entry actually firing?" before reading the entry's content.
-- Defaults to pinned chat.`,
+- Use to debug "is this lorebook entry actually firing?" before reading the entry's content.`,
     inputSchema: inputSchema71,
     jsonSchema: {
       type: "object",
       properties: {
-        chat_id: { type: "string", description: "Chat to evaluate. Defaults to pinned chat." }
+        chat_id: { type: "string", description: "Chat to evaluate." }
       },
       required: []
     },
@@ -36189,13 +36196,12 @@ var init_list_chat_memories = __esm(() => {
 Usage:
 - Returns the same chunks Lumiverse would inject into the prompt under chat memory.
 - Response includes { chunks, formatted, count, enabled, settingsSource }.
-- Defaults to pinned chat.
 - Use to understand what historical context is being surfaced into the current generation.`,
     inputSchema: inputSchema72,
     jsonSchema: {
       type: "object",
       properties: {
-        chat_id: { type: "string", description: "Defaults to pinned chat." },
+        chat_id: { type: "string" },
         top_k: { type: "number", description: "How many chunks to retrieve. Default depends on Lumiverse settings." }
       },
       required: []
@@ -36369,7 +36375,7 @@ var init_list_databanks = __esm(() => {
       type: "object",
       properties: {
         scope: { type: "string", enum: ["global", "character", "chat"], description: "Filter by scope." },
-        scope_id: { type: ["string", "null"], description: "For character/chat scopes, the specific id. Defaults to active character / pinned chat." },
+        scope_id: { type: ["string", "null"], description: "For character/chat scopes, the specific id." },
         limit: { type: "number", description: "Max results, default 200." },
         offset: { type: "number", description: "Pagination offset." }
       },
@@ -36464,13 +36470,13 @@ var init_list_variables = __esm(() => {
   }).strict();
   listVariablesTool = defineTool({
     name: "list_variables",
-    description: "List all variables in a given scope. Scopes: `chat` (chat.metadata.chat_variables, persisted across generations, what Risu/LumiRealm Lua and triggers write via setvar / setChatVar), `macro` (chat.metadata.macro_variables, LumiRealm's macro-state store, separate path from chat_variables), `local` (chat-bound ephemeral runtime variables), `global` (user-level). Pass chat_id for chat/local/macro scopes (defaults to pinned chat).",
+    description: "List all variables in a given scope. Scopes: `chat` (chat.metadata.chat_variables, persisted across generations, what Risu/LumiRealm Lua and triggers write via setvar / setChatVar), `macro` (chat.metadata.macro_variables, LumiRealm's macro-state store, separate path from chat_variables), `local` (chat-bound ephemeral runtime variables), `global` (user-level). chat/local/macro need a chat_id.",
     inputSchema: inputSchema79,
     jsonSchema: {
       type: "object",
       properties: {
         scope: { type: "string", enum: ["chat", "local", "global", "macro"], description: "Variable scope to list." },
-        chat_id: { type: "string", description: "Required for chat/local/macro scopes. Defaults to pinned chat." }
+        chat_id: { type: "string", description: "Required for chat/local/macro scopes." }
       },
       required: ["scope"]
     },
@@ -36521,7 +36527,7 @@ var init_read_connection = __esm(() => {
   }).strict();
   readConnectionTool = defineTool({
     name: "read_connection",
-    description: "Read a single LLM connection profile by id. Returns full metadata including custom fields. API keys are never exposed (only `has_api_key` boolean).",
+    description: "Read a single LLM connection profile by id. Returns full metadata including custom fields (no API key, only `has_api_key`).",
     inputSchema: inputSchema80,
     jsonSchema: {
       type: "object",
@@ -36714,14 +36720,14 @@ var init_read_variable = __esm(() => {
   }).strict();
   readVariableTool = defineTool({
     name: "read_variable",
-    description: "Read a single variable by name from a given scope (chat / local / global / macro). `chat` is chat.metadata.chat_variables (Risu/LumiRealm setvar target). `macro` is chat.metadata.macro_variables (LumiRealm macro-state, separate path). Returns { exists, value }. For chat/local/macro scopes, chat_id defaults to the pinned chat.",
+    description: "Read a single variable by name from a scope (chat / local / global / macro; see list_variables for what each scope is). Returns { exists, value }.",
     inputSchema: inputSchema85,
     jsonSchema: {
       type: "object",
       properties: {
         scope: { type: "string", enum: ["chat", "local", "global", "macro"], description: "Variable scope." },
         key: { type: "string", description: "Variable name." },
-        chat_id: { type: "string", description: "Required for chat/local/macro scopes. Defaults to pinned chat." }
+        chat_id: { type: "string", description: "Required for chat/local/macro scopes." }
       },
       required: ["scope", "key"]
     },
@@ -36793,14 +36799,14 @@ var init_resolve_macros = __esm(() => {
   }).strict();
   resolveMacrosTool = defineTool({
     name: "resolve_macros",
-    description: "Resolve `{{macro}}` placeholders in arbitrary text using Lumiverse's macro engine. Always runs in non-committing dry mode (`commit: false`) so extension macro handlers don't side-effect. Pass chat_id (defaults to pinned) for chat-scoped macros (variables, history, etc.) and use_active_character to bind {{char}} / character fields to the currently active card. Returns { text, diagnostics }.",
+    description: "Resolve `{{macro}}` placeholders in arbitrary text using Lumiverse's macro engine. Always runs in non-committing dry mode (`commit: false`) so extension macro handlers don't side-effect. Pass chat_id for chat-scoped macros (variables, history, etc.) and use_active_character to bind {{char}} / character fields to the currently active card. Returns { text, diagnostics }.",
     inputSchema: inputSchema86,
     jsonSchema: {
       type: "object",
       properties: {
         template: { type: "string", description: "Template text containing {{macros}} to resolve." },
-        chat_id: { type: "string", description: "Chat scope for variables and history. Defaults to pinned chat." },
-        character_id: { type: "string", description: "Bind {{char}} and character fields to this character. Defaults to the focused character." },
+        chat_id: { type: "string", description: "Chat scope for variables and history." },
+        character_id: { type: "string", description: "Bind {{char}} and character fields to this character." },
         use_active_character: { type: "boolean", description: "Bind {{char}} and character fields to the active character. Defaults to true." }
       },
       required: ["template"]
@@ -38442,10 +38448,10 @@ function buildGeneralSystemPrompt(params) {
 
 # Pinned chat
 
-Call \`read_chat_messages\` with no \`chat_id\` whenever the user references "this chat", "the conversation", "what just happened", or asks you to read message history. The tool returns the pinned chat's messages, or \`{pinned: false}\` if nothing is pinned \u2014 in which case tell the user to click the chat-pin button next to the character selector.`;
+Every tool with a \`chat_id\` arg defaults to the pinned chat when it's omitted, and errors (or returns \`{pinned: false}\`) if nothing is pinned. Call \`read_chat_messages\` with no \`chat_id\` whenever the user references "this chat", "the conversation", "what just happened", or asks you to read message history. If nothing is pinned, tell the user to click the chat-pin button next to the character selector.`;
   const agentNotesSection = params.agentNotes && params.agentNotes.trim().length > 0 ? `
 
-# Agent notes (workspace/agent/agent.md, snapshot)
+# Agent notes (agent/agent.md, snapshot)
 
 The user maintains a long-term notes file for you.
 
@@ -38454,7 +38460,7 @@ ${params.agentNotes.trim()}` : "";
 
 # Deferred tools (fetch via tool_search)
 
-The schemas for the tools listed below are NOT loaded. Calling them directly fails because the provider does not know their parameter shape. To use one, first call \`tool_search({ query: "select:<name>[,<name>...]" })\`. Its result is a \`<functions>\` block that registers the schemas; the tool then becomes callable on the next turn. Keyword search (\`tool_search({ query: "regex" })\`) works too.
+The schemas for the tools listed below are not loaded. Calling them directly fails. To use one, first call \`tool_search({ query: "select:<name>[,<name>...]" })\`. Its result is a \`<functions>\` block that registers the schemas; the tool then becomes callable on the next turn. Keyword search (\`tool_search({ query: "regex" })\`) works too.
 
 Deferred tools available:
 ${params.deferredToolNames.map((n) => `- ${n}`).join(`
@@ -38464,7 +38470,7 @@ ${params.deferredToolNames.map((n) => `- ${n}`).join(`
 ---
 
 ` : "";
-  const addressingSection = '\n\n# Addressing characters\n\nYour current focus, and any pinned chat, is stated in the latest "[Context update ...]" note in the conversation. Unqualified `char/<field>` paths and the default of whole-card tools (grep / audit_card_coverage / survey_cjk / list / inspect / update_character / apply_glossary) target the focused character. Address any OTHER character by id: `char/<id>/<field>` for read / edit / rewrite / set, or pass `character_id` to a whole-card tool. With no focus, unqualified `char/<field>` fails with [NO_TARGET]; call `list_characters` to find ids.';
+  const addressingSection = '\n\n# Addressing characters\n\nYour current focus, and any pinned chat, is stated in the latest "[Context update ...]" note in the conversation. Unqualified `char/<field>` paths, and any tool with an optional `character_id` left unset, target the focused character. Address any OTHER character by id: `char/<id>/<field>` for read / edit / rewrite / set, or pass `character_id`. With no focus, unqualified `char/<field>` fails with [NO_TARGET]; call `list_characters` to find ids.';
   const body = params.systemPromptOverride !== null && params.systemPromptOverride.trim().length > 0 ? params.systemPromptOverride : BUILTIN_PROMPT_BODY;
   return `${personaBlock}${body}${chatSection}${addressingSection}${agentNotesSection}${deferredToolsSection}
 
@@ -38509,12 +38515,12 @@ Path grammar (forward slashes; first segment names the surface):
 
 # Verify before claiming
 
-You see a fraction of any surface at once; a field that looks bilingual up top can be Korean-only further down. Check mechanically, not visually.
+You see a fraction of any surface at once; a field that looks bilingual up top can be Korean-only further down. Check mechanically.
 
 - Before declaring a translation done, run \`audit_card_coverage({source_lang})\`. Any non-zero leaf you didn't put on \`exclude_paths\` means NOT done.
 - Before asserting a structural fact you can't see ("bilingual via lang::N", "this value flows through getText()", "line 52 is a comment"), \`grep\` for the identifier in that leaf first. Common trap: a lookup table exists but is never called, and you infer a call site from its name. Confirm the call site.
 - Code leaves (path ends \`.code\`, or \`must_read_in_full\` in the audit): \`read\` end-to-end (with \`tmp_read\` over the spill) in the same audit-classify phase before judging. Earlier-turn reads don't count. Sampling misses table keys, equality branches, and raw render paths that bypass getText().
-- Trace a value to BOTH where it's stored and where it's rendered. After routing a render path through a lookup, enumerate every literal that can reach it and confirm each has an entry: a half-filled lookup is a regression, not a fix.
+- Trace a value to BOTH where it's stored and where it's rendered. After routing a render path through a lookup, enumerate every literal that can reach it and confirm each has an entry.
 
 # Edits must land in the file
 
@@ -38535,13 +38541,13 @@ The user does not read code. Plain language only.
 
 - No tool / field / file names. Say "the greeting", not "alternate_greetings[2]". No JSON, regex, code fences, or function calls in chat; quote user-visible card text if you must, never machinery.
 - Two or three sentences. No preamble or postamble. Plain words (skip leverage / comprehensive / robust / ensure / utilize).
-- The user sees only your reply and the diff cards, not your reasoning or tool args. Don't restate your thinking.
+- The user sees only your reply and the diff cards. Don't restate your thinking.
 - If asked to write code, zero comments.
 - For an open-ended ask, state the plan in plain English, then execute. Don't ask permission for small obvious moves.
 
 # Tool-call channel
 
-Use the native structured tool_use channel. Text-encoded calls (\`<invoke>\`, JSON in code fences) read as prose and do nothing. Past \`<tool_use>\` turns shown to you are the host displaying your prior structured calls, not how to make new ones.
+Use the native structured tool_use channel. Text-encoded calls (\`<invoke>\`, JSON in code fences) read as prose and do nothing.
 
 # Finding where content comes from
 
@@ -38564,7 +38570,7 @@ dry_run_prompt (assembled prompt + token count + fired world info), resolve_macr
 
 # Workspace files
 
-Per-user filesystem under \`workspace/\`, shared with the user via the Files tab (treat it as shared scratch). Tools: fs_list, fs_stat, fs_read (line-numbered, paginated, spills), fs_write (auto-mkdir), fs_edit, fs_delete, fs_move, fs_mkdir, fs_zip, fs_unzip. Host docs are seeded at \`workspace/docs/lumiverse/\` by topic; for "how do I do X in Lumiverse", \`fs_list docs/lumiverse\` then \`fs_read\` the relevant file.
+Per-user filesystem shared with the user via the Files tab (treat it as shared scratch). fs_ paths are workspace-relative (no \`workspace/\` prefix). Tools: fs_list, fs_stat, fs_read (line-numbered, paginated, spills), fs_write (auto-mkdir), fs_edit, fs_delete, fs_move, fs_mkdir, fs_zip, fs_unzip. Host docs are seeded at \`docs/lumiverse/\` by topic; for "how do I do X in Lumiverse", \`fs_list docs/lumiverse\` then \`fs_read\` the relevant file.
 
 # Piping (custom_tool_run)
 
@@ -38572,33 +38578,15 @@ Run several tool calls in one turn instead of round-tripping each result through
 
 # Compaction
 
-Near the context limit the runtime asks you to write \`workspace/HANDOFF.md\`, then collapses history to a primer. If a conversation opens with "[The previous agent compacted ...]", \`fs_read workspace/HANDOFF.md\` first. When writing it: goal in one sentence, concrete progress, the exact next step, hard facts (ids, regexes, paths). Dense, no preamble.
+Near the context limit the runtime asks you to write \`HANDOFF.md\`, then collapses history to a primer. If a conversation opens with "[The previous agent compacted ...]", \`fs_read HANDOFF.md\` first. When writing it: goal in one sentence, concrete progress, the exact next step, hard facts (ids, regexes, paths). Dense, no preamble.
 
 # Size before reading big
 
 \`inspect({path})\` any leaf you don't already know is small (counts + encoding, no body load). \`list({path})\` enumerates a container's children with sizes. For chats, \`chat_stats\` before \`read_chat_messages\`. Then: tiny \u2192 read; medium \u2192 read({offset,limit}); big with a target \u2192 grep / tmp_grep; too big and no target \u2192 ask. Spilled output \u2192 tmp_grep / tmp_read the handle. JSON spills are structured (mostly braces and keys), so tmp_grep for the id you want rather than tmp_read 1000 lines to find 5 ids.
 
-# Error codes
-
-Pattern-match the bracketed code, not the prose:
-- [NOT_READ_RECENTLY] \u2014 edit/rewrite without a recent read. Read the path, retry.
-- [STALE_READ] \u2014 the value changed since your read. Re-read, build from fresh bytes.
-- [FIND_NOT_FOUND] \u2014 find didn't match. Re-read and copy bytes verbatim, or inspect for encoding drift.
-- [FIND_NOT_UNIQUE] \u2014 find matched many. Expand it, or replace_all:true.
-- [PATH_NOT_FOUND] \u2014 bad path. Check the grammar, or inspect the parent.
-- [INVALID_VALUE_TYPE] \u2014 set got the wrong type. Cast or restructure.
-- [OUT_OF_RANGE] \u2014 array index off the end. list/inspect first.
-- [DRAFT_HANDLE_EXPIRED] \u2014 handle evicted. Re-send the literal payload.
-- [REFUSED_BY_EXTENSION] \u2014 a phone-line extension owns this surface; follow the redirect in the error, don't retry the same path.
-- [SPINDLE_ERROR] \u2014 host failure. Retry once, else tell the user.
-- [INVALID_INPUT] \u2014 schema rejected your args. Fix the shape.
-- [NO_TARGET] \u2014 whole-card or chat tool with no focus and no explicit id. Pass character_id / chat_id, or a \`char/<id>/<field>\` path.
-
-Don't re-issue a call that just failed with the same args, and don't re-read something you already have.
-
 # Multi-step tasks
 
-For tasks that are 3+ steps, call \`todo_write\` once up front, then mark one item in_progress before starting it and completed when done. At most one in_progress. Skip it for single-step or conversational asks.
+For tasks that are 3+ steps, call \`todo_write\` once up front, then mark one item in_progress before starting it and completed when done. At most one in_progress.
 
 # Randomness
 
@@ -38606,13 +38594,12 @@ LLMs repeat favourites. Use \`random_pick\` (pass the full candidate set, pre-fi
 
 # Editing discipline
 
-- IDs come from tool results, not memory. Every id / path / arg must trace to output you've seen this turn; if you can't point at the call that produced it, list / inspect / grep first.
-- Read before edit; re-read between chained edits (the field shifts after each). CJK find strings come from reads, never retyped (NFC/NFD, quotes, ZWSP differ); the edit error names which normalization matched.
+- IDs come from tool results, not memory. Every id / path / arg must trace to output you've seen, list / inspect / grep first.
+- Read before edit. CJK find strings come from reads, never retyped (NFC/NFD, quotes, ZWSP differ); the edit error names which normalization matched.
 - Unique find, or replace_all. Glossary: dry_run, then apply_glossary once; never 1-char CJK keys (substring collisions). survey_cjk first for translation work.
 - Don't re-translate already-English segments, or ones beside a usable English form (a parenthetical, a label/value pair where one side is English).
 - Regex translation: edit ONLY \`replace_string\`, only its user-visible text; never \`find_regex\`, capture refs ($1, $&), attributes, classes, or JSON keys. test_regex after each change.
 - A greeting / first_mes rewrite can break that character's regexes: scan their find patterns (asterisks, brackets, quoted speech), test_regex against the new text, fix in lock-step.
-- Many small edits (>5): say what you're about to do in chat, then execute.
 
 # Greeting numbering
 
@@ -38749,7 +38736,7 @@ function subscribeToMissingChanges(handler) {
 }
 // spindle.json
 var spindle_default = {
-  version: "0.5.4",
+  version: "0.5.5",
   name: "LumiAgent",
   identifier: "lumiagent",
   author: "amousepad",
@@ -39539,20 +39526,20 @@ function shouldAutoCompact(s, samplers) {
 function buildCompactionInstruction(maxHandoffChars) {
   return `[SYSTEM COMPACTION REQUEST]
 
-The conversation is approaching its context limit. Your one and only job this turn is to write or update workspace/${HANDOFF_PATH} so that a fresh copy of you can pick up exactly where you left off.
+The conversation is approaching its context limit. Your job this turn is to write or update ${HANDOFF_PATH} so that a fresh copy of you can pick up exactly where you left off.
 
 Rules:
-- Read the current workspace/${HANDOFF_PATH} first (fs_read). If it exists and is still relevant, edit it. Otherwise overwrite it.
-- The file MUST be under ${maxHandoffChars} chars. Aim much lower (under half this).
-- Information-dense prose only. No preamble, no conclusion, no apologies, no AI-fingerprint phrasing.
-- Cover, in order:
+- Read the ${HANDOFF_PATH} first. If it exists and is still relevant, edit it. Otherwise overwrite it.
+- The file MUST be under ${maxHandoffChars} chars.
+- Information-dense prose only.
+- Cover:
   1. The user's original request (one sentence).
   2. Everything you've done so far that matters (concrete: characters touched, fields edited, regex scripts renamed, lorebook entries added, tools called repeatedly).
   3. What's currently in progress (the specific next step you were about to take).
   4. What to do next, ordered.
-  5. Hard facts to remember: character ids, exact regex patterns, file paths, naming conventions, the user's stated preferences, anything that would be expensive to rediscover.
+  5. Facts to remember: character ids, exact regex patterns, file paths, naming conventions, the user's stated preferences, anything that would be expensive to rediscover.
 - DO NOT respond to the user in chat this turn.
-- After writing the file, stop. The next thing you say should be "Handoff saved." and nothing else.`;
+- After writing the file, stop. The next thing you say should exactly be "Handoff saved."`;
 }
 async function compactSession(sessionId, userId, trigger) {
   log("info", `compact_session sessionId=${sessionId} trigger=${trigger}`);
@@ -39694,7 +39681,7 @@ async function compactSession(sessionId, userId, trigger) {
       emitContextUsage(s, contextTokens, userId);
       return;
     }
-    const primerContent = `[The previous agent compacted this conversation. Detailed handoff notes are saved at workspace/${HANDOFF_PATH}. If you need any context from before this point, read that file first with fs_read("${HANDOFF_PATH}"). Then respond to whatever the user says next.]`;
+    const primerContent = `[The previous agent compacted the conversation. Detailed handoff notes are saved at ${HANDOFF_PATH}. If you need any context from before, read that file with fs_read("${HANDOFF_PATH}"). Then respond to the user.]`;
     s.llmHistory = [{ role: "user", content: primerContent }];
     s.compactionPrimer = primerContent;
     s.compactedAt = Date.now();
@@ -40595,7 +40582,7 @@ function buildRevertNote(entry) {
   } else if (r.op === "delete") {
     detail = `You had deleted this item. It has now been re-created.`;
   }
-  return `[Note from the system: the user reverted the edit you made in turn ${entry.turn} via tool \`${entry.toolName}\` on ${r.surface} "${surfaceLabel}". ${detail} The user did not explain why \u2014 they may have disliked the wording, hit revert by accident, or be re-planning. Do not bring it up unless they ask; if they re-request something similar, treat it as a fresh request and read the current state first.]`;
+  return `[Note from the system: the user reverted the edit you made in turn ${entry.turn} via tool \`${entry.toolName}\` on ${r.surface} "${surfaceLabel}". ${detail}]`;
 }
 async function handleRevertSession(sessionId, userId) {
   let s = await loadSession(spindle, sessionId, userId);

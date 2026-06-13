@@ -104,7 +104,7 @@ Returns \`hits[]\` of \`{path, surface, surface_label, line, match, preview}\` â
       exclude_paths: { type: "array", items: { type: "string" } },
       max_matches: { type: "integer", minimum: 1, maximum: GREP_MAX_CAP, description: `default ${GREP_DEFAULT_MAX}` },
       max_hits_per_line: { type: "integer", minimum: 1, maximum: 50, description: `default ${GREP_DEFAULT_HITS_PER_LINE}` },
-      character_id: { type: "string", description: "Defaults to the focused character." },
+      character_id: { type: "string" },
       world_scope: { type: "string", enum: ["attached", "all"], description: "'all' also searches the user's unattached global lorebooks (entries labeled [global]). Default 'attached'." },
     },
     required: ["pattern"],

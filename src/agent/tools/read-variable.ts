@@ -9,14 +9,14 @@ const inputSchema = z.object({
 
 export const readVariableTool = defineTool({
   name: "read_variable",
-  description: "Read a single variable by name from a given scope (chat / local / global / macro). `chat` is chat.metadata.chat_variables (Risu/LumiRealm setvar target). `macro` is chat.metadata.macro_variables (LumiRealm macro-state, separate path). Returns { exists, value }. For chat/local/macro scopes, chat_id defaults to the pinned chat.",
+  description: "Read a single variable by name from a scope (chat / local / global / macro; see list_variables for what each scope is). Returns { exists, value }.",
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
       scope: { type: "string", enum: ["chat", "local", "global", "macro"], description: "Variable scope." },
       key: { type: "string", description: "Variable name." },
-      chat_id: { type: "string", description: "Required for chat/local/macro scopes. Defaults to pinned chat." },
+      chat_id: { type: "string", description: "Required for chat/local/macro scopes." },
     },
     required: ["scope", "key"],
   },

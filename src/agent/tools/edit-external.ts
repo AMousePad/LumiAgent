@@ -45,7 +45,7 @@ Usage:
       field: { type: "string" },
       find: { type: "string" },
       replace: { type: "string" },
-      replace_handle: { type: "string", description: "Handle of a previously-stashed draft. Use instead of replace to avoid re-emitting." },
+      replace_handle: { type: "string", description: "Handle of a previously-stashed draft." },
       replace_all: { type: "boolean" },
     },
     required: ["surface_id", "item_id", "field", "find"],

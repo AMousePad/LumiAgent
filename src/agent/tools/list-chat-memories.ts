@@ -14,13 +14,12 @@ export const listChatMemoriesTool = defineTool({
 Usage:
 - Returns the same chunks Lumiverse would inject into the prompt under chat memory.
 - Response includes { chunks, formatted, count, enabled, settingsSource }.
-- Defaults to pinned chat.
 - Use to understand what historical context is being surfaced into the current generation.`,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      chat_id: { type: "string", description: "Defaults to pinned chat." },
+      chat_id: { type: "string" },
       top_k: { type: "number", description: "How many chunks to retrieve. Default depends on Lumiverse settings." },
     },
     required: [],

@@ -3,14 +3,14 @@ import { defineTool } from "./_framework";
 import { resolveCharacterTarget, noTargetResult } from "./_context";
 
 const inputSchema = z.object({
-  character_id: z.string().optional().describe("Character whose chats to list. Defaults to the focused character."),
+  character_id: z.string().optional().describe("Character whose chats to list."),
 }).strict();
 
 export const listChatsForCharacterTool = defineTool({
   name: "list_chats_for_character",
-  description: "List all of a character's chat sessions. Returns id, name, updated_at, message_count, is_active (whether the host is currently showing this chat). Defaults to the focused character; pass character_id to list another character's chats. Use this to discover what chats exist before reading messages, or to suggest one for the user to pin.",
+  description: "List all of a character's chat sessions. Returns id, name, updated_at, message_count, is_active (whether the host is currently showing this chat). Use this to discover what chats exist before reading messages, or to suggest one for the user to pin.",
   inputSchema,
-  jsonSchema: { type: "object", properties: { character_id: { type: "string", description: "Defaults to the focused character." } }, required: [] },
+  jsonSchema: { type: "object", properties: { character_id: { type: "string" } }, required: [] },
   requiresCharacter: false,
   execute: async (input, ctx) => {
     let target: string;

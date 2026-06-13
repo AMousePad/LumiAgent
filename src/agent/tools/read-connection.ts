@@ -7,7 +7,7 @@ const inputSchema = z.object({
 
 export const readConnectionTool = defineTool({
   name: "read_connection",
-  description: "Read a single LLM connection profile by id. Returns full metadata including custom fields. API keys are never exposed (only `has_api_key` boolean).",
+  description: "Read a single LLM connection profile by id. Returns full metadata including custom fields (no API key, only `has_api_key`).",
   inputSchema,
   jsonSchema: {
     type: "object",

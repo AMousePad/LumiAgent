@@ -16,7 +16,7 @@ export const listDatabanksTool = defineTool({
     type: "object",
     properties: {
       scope: { type: "string", enum: ["global", "character", "chat"], description: "Filter by scope." },
-      scope_id: { type: ["string", "null"], description: "For character/chat scopes, the specific id. Defaults to active character / pinned chat." },
+      scope_id: { type: ["string", "null"], description: "For character/chat scopes, the specific id." },
       limit: { type: "number", description: "Max results, default 200." },
       offset: { type: "number", description: "Pagination offset." },
     },
