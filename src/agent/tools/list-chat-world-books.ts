@@ -4,9 +4,7 @@ import { defineTool } from "./_framework";
 // The books feeding a chat are a union of four binding layers (mirrors the
 // host's prompt-assembly). Default list/grep only ever expose the character
 // layer, so this surfaces the full picture per scope. Global ("Always Active")
-// books live in the user setting `globalWorldBooks`, which the spindle API
-// exposes no reader for, so that layer is reported as unavailable rather than
-// silently omitted (which would read as "no global books").
+// books come from spindle.world_books.getGlobal (the `globalWorldBooks` setting).
 const inputSchema = z.object({
   chat_id: z.string().optional(),
 }).strict();
@@ -15,14 +13,14 @@ interface BookRow {
   world_book_id: string;
   label: string;
   entries: number;
-  scope: "character" | "persona" | "chat";
+  scope: "character" | "persona" | "chat" | "global";
 }
 
 export const listChatWorldBooksTool = defineTool({
   name: "list_chat_world_books",
   description: `List every world book bound to a chat, grouped by binding scope: character (\`char/world_book_ids\`), persona (active persona's attached book), and chat ("This Chat Only", \`chat.metadata.chat_world_book_ids\`).
 
-Use this, not \`list({path:"wb"})\`, to answer "what lorebooks are active for this chat" — plain \`list\` only sees character-attached books and reports the others as unattached. Global "Always Active" books are a fourth layer the host doesn't expose to extensions, so they're reported under \`global_unavailable\`.`,
+Use this, not \`list({path:"wb"})\`, to answer "what lorebooks are active for this chat" — plain \`list\` only sees character-attached books and reports the others as unattached. The fourth layer, global "Always Active" books, is included here under scope \`global\`. A book bound at multiple scopes is reported once, under the narrowest (character > persona > chat > global).`,
   inputSchema,
   jsonSchema: {
     type: "object",
@@ -60,11 +58,15 @@ Use this, not \`list({path:"wb"})\`, to answer "what lorebooks are active for th
       const chatIds = Array.isArray(rawChatIds) ? rawChatIds.filter((v): v is string => typeof v === "string") : [];
       for (const id of chatIds) await addBook(id, "chat");
 
+      // Global ("Always Active") books apply to every chat. Added last so the
+      // dedup keeps the narrower scope label when a book is bound twice.
+      const globalIds = await ctx.spindle.world_books.getGlobal(ctx.userId).catch(() => [] as string[]);
+      for (const id of globalIds) await addBook(id, "global");
+
       return { content: JSON.stringify({
         chat_id: chatId,
         count: rows.length,
         books: rows,
-        global_unavailable: "Always-Active (global) books live in the user setting `globalWorldBooks`, which the host does not expose to this agent. They are not listed here.",
       }, null, 2) };
     } catch (err) {
       return { content: `Error: ${(err as Error).message}`, isError: true };

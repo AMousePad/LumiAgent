@@ -17,7 +17,7 @@ const inputSchema = z.object({
   max_matches: z.number().int().positive().max(GREP_MAX_CAP).optional().describe(`Cap on total returned hits across all leaves. Default ${GREP_DEFAULT_MAX}, max ${GREP_MAX_CAP}.`),
   max_hits_per_line: z.number().int().positive().max(50).optional().describe(`Cap on hits returned per line. Default ${GREP_DEFAULT_HITS_PER_LINE}. Keep at 1 when the pattern matches dense single characters (e.g. CJK glyphs) so a single line full of matches doesn't burn the entire max_matches budget.`),
   character_id: z.string().optional().describe("Character to search. Defaults to the focused character."),
-  world_scope: z.enum(["attached", "all"]).optional().describe("World books to search. 'attached' (default) only this character's books; 'all' also includes the user's unattached global lorebooks (their entries are labeled [global])."),
+  world_scope: z.enum(["attached", "all"]).optional().describe("World books to search. 'attached' (default) only this character's books; 'all' also searches every other owned book, labeling entries [global] (in the Always-Active set) or [unattached]."),
 }).strict();
 
 interface GrepHit {
@@ -105,7 +105,7 @@ Returns \`hits[]\` of \`{path, surface, surface_label, line, match, preview}\` â
       max_matches: { type: "integer", minimum: 1, maximum: GREP_MAX_CAP, description: `default ${GREP_DEFAULT_MAX}` },
       max_hits_per_line: { type: "integer", minimum: 1, maximum: 50, description: `default ${GREP_DEFAULT_HITS_PER_LINE}` },
       character_id: { type: "string" },
-      world_scope: { type: "string", enum: ["attached", "all"], description: "'all' also searches the user's unattached global lorebooks (entries labeled [global]). Default 'attached'." },
+      world_scope: { type: "string", enum: ["attached", "all"], description: "'all' also searches every other owned book; entries labeled [global] (Always-Active) or [unattached]. Default 'attached'." },
     },
     required: ["pattern"],
     additionalProperties: false,

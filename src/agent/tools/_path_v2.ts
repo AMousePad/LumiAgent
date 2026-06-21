@@ -643,11 +643,14 @@ export async function* iterateAllLeaves(ctx: ToolCtx, characterId: string, opts?
     if (r.data.length === 0 || rOff + r.data.length >= r.total) break;
     rOff += r.data.length;
   }
-  // World book entries. Attached books always. wbScope "all" also walks the
-  // user's unattached (global) books, which default discovery never reaches.
+  // World book entries. Attached books always. wbScope "all" also walks every
+  // other owned book (which default discovery never reaches), labeling the ones
+  // actually in the global "Always Active" set distinctly from merely-unattached.
   const attachedSet = new Set(c.world_book_ids ?? []);
   const wbIds: string[] = [...attachedSet];
+  let globalSet = new Set<string>();
   if (opts?.wbScope === "all") {
+    globalSet = new Set(await ctx.spindle.world_books.getGlobal(ctx.userId).catch(() => [] as string[]));
     const owned = await ctx.spindle.world_books.list({ limit: 1000, userId: ctx.userId });
     for (const wb of owned.data) if (!attachedSet.has(wb.id)) wbIds.push(wb.id);
   }
@@ -656,7 +659,7 @@ export async function* iterateAllLeaves(ctx: ToolCtx, characterId: string, opts?
     // Unattached books aren't this character's; file edits under the book's own
     // ledger, not the focused character. Tag the label so the model sees scope.
     const wbScope: ScopeRef = attached ? charScope : { kind: "world_book", id: wbId };
-    const tag = attached ? "" : " [global]";
+    const tag = attached ? "" : globalSet.has(wbId) ? " [global]" : " [unattached]";
     let wOff = 0;
     while (true) {
       const r = await ctx.spindle.world_books.entries.list(wbId, { limit: 500, userId: ctx.userId, offset: wOff });
