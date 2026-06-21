@@ -13,7 +13,7 @@ import type {
 import { defineTool } from "./_framework";
 import type { ToolCtx } from "./_context";
 import type { EditRecord, ScopeRef } from "../../types";
-import { wbLabel } from "./_surfaces";
+import { wbLabel, coerceKeyList } from "./_surfaces";
 import { ALTERNATE_FIELD_NAMES, isAlternateFieldName, readAltFieldArray, writeAltFieldArray, type AltFieldVariant } from "./_path_v2";
 
 const inputSchema = z.object({
@@ -79,8 +79,11 @@ Returns the new id (and book/preset id for nested creates).`,
       const content = typeof v.content === "string" ? v.content : undefined;
       if (content === undefined) return { content: "Error: [INVALID_INPUT] entry requires value.content", isError: true };
       const create: WorldBookEntryCreateDTO = { content };
-      if (Array.isArray(v.key)) create.key = v.key.map(String);
-      if (Array.isArray(v.keysecondary)) create.keysecondary = v.keysecondary.map(String);
+      // Accept a model passing keys as a comma string or JSON-array string, not
+      // only a real array. A non-array reaches the host as a stringified scalar
+      // and the entry's key column becomes unparseable.
+      if (v.key !== undefined) create.key = coerceKeyList(v.key);
+      if (v.keysecondary !== undefined) create.keysecondary = coerceKeyList(v.keysecondary);
       if (typeof v.comment === "string") create.comment = v.comment;
       if (typeof v.constant === "boolean") create.constant = v.constant;
       if (typeof v.disabled === "boolean") create.disabled = v.disabled;

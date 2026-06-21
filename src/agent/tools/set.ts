@@ -4,7 +4,7 @@ import { defineTool } from "./_framework";
 import { type ToolCtx, resolveCharacterTarget, noTargetResult } from "./_context";
 import type { EditRecord, ScopeRef } from "../../types";
 import { characterScope } from "../../types";
-import { isCharacterStringField, wbLabel } from "./_surfaces";
+import { isCharacterStringField, wbLabel, coerceKeyList, WB_ENTRY_KEY_FIELDS } from "./_surfaces";
 import { parseExtensionPath, setAtPath } from "./_paths";
 import { ExtensionRefusedError, assertExtensionWriteAllowed, scopeForLeafKey, isCharSubtreeToken, isAlternateFieldName, readAltFieldArray, writeAltFieldArray, ALTERNATE_FIELD_NAMES } from "./_path_v2";
 import { encodeScalar } from "../../state/edit-log";
@@ -137,6 +137,9 @@ async function setWorldBookField(ctx: ToolCtx, id: string, field: string, value:
   }
   const e = await ctx.spindle.world_books.entries.get(id, ctx.userId);
   if (!e) return `no world book or entry with id ${id}`;
+  // key/keysecondary are JSON string arrays. A scalar value would be stringified
+  // by the host into an unparseable key column that the entry editor can't open.
+  if (WB_ENTRY_KEY_FIELDS.has(field)) value = coerceKeyList(value);
   const before = (e as unknown as Record<string, unknown>)[field];
   await ctx.spindle.world_books.entries.update(id, { [field]: value } as WorldBookEntryUpdateDTO, ctx.userId);
   const isStr = typeof value === "string";

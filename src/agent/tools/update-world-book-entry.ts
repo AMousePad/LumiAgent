@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
-import { wbLabel } from "./_surfaces";
+import { wbLabel, coerceKeyList, WB_ENTRY_KEY_FIELDS } from "./_surfaces";
 import { characterScope, type ScopeRef } from "../../types";
 import type { WorldBookEntryUpdateDTO } from "lumiverse-spindle-types";
 
@@ -32,7 +32,14 @@ Usage:
   requiresCharacter: false,
   execute: async (input, ctx) => {
     const id = input.entry_id;
-    const patch = input.patch as WorldBookEntryUpdateDTO;
+    // Force key/keysecondary to string[]. The host stringifies whatever it gets,
+    // so a model passing "a, b" or '["a","b"]' would corrupt the entry's key
+    // column (unparseable, entry can no longer open in the editor).
+    const rawPatch = input.patch as Record<string, unknown>;
+    const patch: WorldBookEntryUpdateDTO = { ...rawPatch } as WorldBookEntryUpdateDTO;
+    for (const f of WB_ENTRY_KEY_FIELDS) {
+      if (rawPatch[f] !== undefined) (patch as Record<string, unknown>)[f] = coerceKeyList(rawPatch[f]);
+    }
     const before = await ctx.spindle.world_books.entries.get(id, ctx.userId);
     if (!before) return { content: `Error: world book entry ${id} not found`, isError: true };
     const updated = await ctx.spindle.world_books.entries.update(id, patch, ctx.userId);

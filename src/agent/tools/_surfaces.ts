@@ -26,5 +26,33 @@ export function isRegexScriptBigField(s: string): s is RegexScriptBigField {
 }
 
 export function wbLabel(e: WorldBookEntryDTO): string {
-  return e.comment || (e.key.length > 0 ? e.key.join("|") : `entry ${e.id}`);
+  const keys = Array.isArray(e.key) ? e.key : [];
+  return e.comment || (keys.length > 0 ? keys.join("|") : `entry ${e.id}`);
 }
+
+// `key` / `keysecondary` are stored as JSON string arrays. The host stringifies
+// whatever it receives, so a non-array (a model passing "a, b" or '["a","b"]')
+// round-trips to a string that the entry editor cannot open and that the
+// activated-list/DTO path silently coerces to []. Force a string[] at every
+// write site.
+export function coerceKeyList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((v) => String(v).trim()).filter((v) => v.length > 0);
+  }
+  if (typeof value === "string") {
+    const s = value.trim();
+    if (!s) return [];
+    if (s.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(s);
+        if (Array.isArray(parsed)) return parsed.map((v) => String(v).trim()).filter((v) => v.length > 0);
+      } catch {
+        // not JSON, fall through to comma split
+      }
+    }
+    return s.split(",").map((v) => v.trim()).filter((v) => v.length > 0);
+  }
+  return [];
+}
+
+export const WB_ENTRY_KEY_FIELDS = new Set(["key", "keysecondary"]);
