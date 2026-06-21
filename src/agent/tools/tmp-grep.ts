@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import { spillOrReturn } from "./_io";
+import { fillPrompt } from "../prompts/_fill";
+import description from "../prompts/claude/tools/tmp-grep/description.txt";
+import argMaxMatches from "../prompts/claude/tools/tmp-grep/arg_max_matches.txt";
 
 const TMP_GREP_DEFAULT_MAX = 100;
 const TMP_GREP_MAX_CAP = 1000;
@@ -44,12 +47,7 @@ function grepText(text: string, re: RegExp, maxRemaining: number): Array<{ line:
 
 export const tmpGrepTool = defineTool({
   name: "tmp_grep",
-  description: `Regex search inside a tmp handle. Use for finding the specific lines you need after a spill, without reading the whole file.
-
-Returns:
-- \`handle\`, \`pattern\`, \`flags\` — request echoes.
-- \`match_count\`, \`truncated\` — total hits returned, and whether the cap fired.
-- \`hits\` — array of \`{line, match, preview}\`. \`line\` is 1-indexed against the tmp file, \`preview\` is the line trimmed to ~150 chars.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
@@ -58,7 +56,7 @@ Returns:
       pattern: { type: "string" },
       flags: { type: "string" },
       case_insensitive: { type: "boolean" },
-      max_matches: { type: "number", description: `Default ${TMP_GREP_DEFAULT_MAX}, cap ${TMP_GREP_MAX_CAP}` },
+      max_matches: { type: "number", description: fillPrompt(argMaxMatches, { TMP_GREP_DEFAULT_MAX, TMP_GREP_MAX_CAP }) },
     },
     required: ["handle", "pattern"],
   },

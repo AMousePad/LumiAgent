@@ -1,0 +1,5 @@
+Enumerate the user's characters so you can address one by id. Returns id, name, and attached world-book count per character.
+
+Use this to find the id of the character the user is talking about, then address it with `char/<id>/<field>` paths or the `character_id` argument on whole-card tools (grep / audit / survey / list / inspect / update_character / apply_glossary).
+
+When a character is focused you rarely need this. `query` filters by name substring.

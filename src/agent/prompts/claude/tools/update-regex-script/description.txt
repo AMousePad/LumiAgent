@@ -1,0 +1,6 @@
+Updates metadata fields of a regex script atomically.
+
+Usage:
+- Path-based `edit` / `rewrite` only address `rx/<id>/find_regex` and `rx/<id>/replace_string`. Metadata goes through here: `name`, `flags`, `disabled`, `placement`, `target`, `sort_order`, `description`, `folder`.
+- Pass only the fields to change in `patch`.
+- Works in a no-character session (operates by `script_id`), like `edit` / `rewrite` / `set` on `rx/`.

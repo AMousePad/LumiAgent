@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import description from "../prompts/claude/tools/custom-tool-delete/description.txt";
 
 const inputSchema = z.object({
   name: z.string().min(1),
@@ -7,7 +8,7 @@ const inputSchema = z.object({
 
 export const customToolDeleteTool = defineTool({
   name: "custom_tool_delete",
-  description: "Delete a custom tool manifest. Also remember to remove its line from custom_tools/tools.md.",
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",

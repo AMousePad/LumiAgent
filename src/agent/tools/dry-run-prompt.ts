@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import { spillOrReturn } from "./_io";
+import description from "../prompts/claude/tools/dry-run-prompt/description.txt";
+import argChatId from "../prompts/claude/tools/dry-run-prompt/arg_chat_id.txt";
+import argConnectionId from "../prompts/claude/tools/dry-run-prompt/arg_connection_id.txt";
+import argPersonaId from "../prompts/claude/tools/dry-run-prompt/arg_persona_id.txt";
+import argPresetId from "../prompts/claude/tools/dry-run-prompt/arg_preset_id.txt";
 
 const inputSchema = z.object({
   chat_id: z.string().optional(),
@@ -11,15 +16,15 @@ const inputSchema = z.object({
 
 export const dryRunPromptTool = defineTool({
   name: "dry_run_prompt",
-  description: "Run Lumiverse's prompt-assembly pipeline without calling the LLM. Returns the exact messages that would be sent, plus a per-block breakdown (system / persona / world info entries / character fields / chat memory / chat history / etc.), token count, model, provider, world-info activation stats, and memory stats. The definitive way to answer 'why is the AI saying X' or 'what's actually in the prompt'. The full messages array often spills to a tmp handle.",
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      chat_id: { type: "string", description: "Chat to assemble for." },
-      connection_id: { type: "string", description: "Override the connection used (defaults to the chat's active connection)." },
-      persona_id: { type: "string", description: "Override the persona." },
-      preset_id: { type: "string", description: "Override the preset." },
+      chat_id: { type: "string", description: argChatId },
+      connection_id: { type: "string", description: argConnectionId },
+      persona_id: { type: "string", description: argPersonaId },
+      preset_id: { type: "string", description: argPresetId },
     },
     required: [],
   },

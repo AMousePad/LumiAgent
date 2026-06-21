@@ -2,8 +2,11 @@ import { z } from "zod";
 import type { WorldBookEntryDTO } from "lumiverse-spindle-types";
 import { defineTool } from "./_framework";
 import { type ToolCtx, resolveCharacterTarget, resolveCharacterTargetOptional, noTargetResult } from "./_context";
-import { resolveRead, PathError, OutOfRangeError, ExtensionRefusedError, type ResolvedLeaf } from "./_path_v2";
+import { resolveRead, PathError, OutOfRangeError, ExtensionRefusedError, listAllWorldBooks, type ResolvedLeaf } from "./_path_v2";
 import { wbLabel } from "./_surfaces";
+import description from "../prompts/claude/tools/inspect/description.txt";
+import argPath from "../prompts/claude/tools/inspect/arg_path.txt";
+import argCharacterId from "../prompts/claude/tools/inspect/arg_character_id.txt";
 
 const PEEK_CHARS = 200;
 const TOP_N = 10;
@@ -170,14 +173,17 @@ async function inspectWorldBooksContainer(ctx: ToolCtx, explicit?: string): Prom
     if (!c) throw new Error(`character ${charId} not found`);
     for (const id of c.world_book_ids ?? []) attached.add(id);
   }
-  const all = await ctx.spindle.world_books.list({ limit: 1000, userId: ctx.userId });
-  const rows = await Promise.all(all.data.map(async (wb) => {
+  const all = await listAllWorldBooks(ctx);
+  const globalSet = new Set(await ctx.spindle.world_books.getGlobal(ctx.userId).catch(() => [] as string[]));
+  const rows = await Promise.all(all.map(async (wb) => {
     const meta = await ctx.spindle.world_books.entries.list(wb.id, { limit: 1, userId: ctx.userId });
     return {
       path: `wb/${wb.id}`,
       name: wb.name,
       entries: meta.total,
       ...(charId !== null ? { attached: attached.has(wb.id) } : {}),
+      // Global books are active in every chat even though attached is false.
+      ...(globalSet.has(wb.id) ? { global: true } : {}),
     };
   }));
   rows.sort((a, b) => ((b.attached ? 1 : 0) - (a.attached ? 1 : 0)) || b.entries - a.entries);
@@ -215,36 +221,13 @@ async function inspectWorldBook(ctx: ToolCtx, bookId: string): Promise<Record<st
 
 export const inspectTool = defineTool({
   name: "inspect",
-  description: `Cheap orientation for any path. Dispatches by the path shape:
-
-Leaf (string-valued) paths return char/line/CJK/peek plus a \`diagnostics\` block:
-  char/<field>, char/alternate_greetings/<idx>, char/alternate_fields/<field>/<variantId>/<content|label>, char/extensions/<dotted>,
-  rx/<id>/find_regex, rx/<id>/replace_string, wb/<id>/content, wb/<id>/comment,
-  persona/<id>/<name|title|description>, persona/<id>/wb/<entryId>/<content|comment>,
-  chat/<chatId>/msg/<msgId>/content, preset/<presetId>/block/<blockId>/<content|name>
-
-  diagnostics covers the encoding state that causes silent find/replace failures:
-    hangul: { nfc_runs, nfd_runs }            NFD Hangul (jamo) doesn't match NFC find strings byte-exact
-    invisibles: { bom, zwj, zwnj, zw_space, nbsp }   common look-alike chars that break byte-match
-    line_endings: { lf, crlf, cr }             CRLF sources from Windows charx exports
-    smart_quotes: { single_curly, double_curly, cjk_corner_brackets }   triggers edit's typography-preserving recovery
-    dual_store (character canonical fields only): { mirror_path, drift, note }   warns if LumiRealm payload mirror diverges
-
-  \`inspect\` a leaf before editing if you don't know its provenance. The diagnostics tell you whether to copy bytes verbatim or expect typography drift.
-
-Container paths return aggregate / metadata:
-  rx                    overview of every character-scoped regex script (names, sizes, disabled, target)
-  rx/<id>               full regex script metadata (name, target, placement, flags, disabled, …) + field sizes + CJK counts + peeks
-  wb                    all world books (attached and unattached) with entry counts
-  wb/<id>               book aggregate (entries, disabled, constant, total chars, top-10 by size)
-
-One tool, one path argument.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      path: { type: "string", description: "Surface path. See description for leaf vs container forms." },
-      character_id: { type: "string", description: "rx/wb containers: defaults to focus. 'wb' lists the whole library even with none." },
+      path: { type: "string", description: argPath },
+      character_id: { type: "string", description: argCharacterId },
     },
     required: ["path"],
     additionalProperties: false,

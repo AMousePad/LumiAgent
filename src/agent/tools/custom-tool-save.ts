@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import description from "../prompts/claude/tools/custom-tool-save/description.txt";
+import argManifest from "../prompts/claude/tools/custom-tool-save/arg_manifest.txt";
 
 const inputSchema = z.object({
   manifest: z.record(z.string(), z.unknown()),
@@ -7,12 +9,12 @@ const inputSchema = z.object({
 
 export const customToolSaveTool = defineTool({
   name: "custom_tool_save",
-  description: "Save (or overwrite) a custom tool manifest. The manifest must declare a name (a-z, 0-9, _), a description, a params object, and an ordered steps array. Each step calls a built-in tool with args that can reference `{{param_name}}` (from inputs) or `{{$var_name}}` (from earlier `save_as` bindings). After saving, update custom_tools/tools.md to keep the index in sync.",
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      manifest: { type: "object", description: "Full manifest object. See system prompt for the schema." },
+      manifest: { type: "object", description: argManifest },
     },
     required: ["manifest"],
   },

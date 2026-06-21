@@ -4,10 +4,13 @@ import { defineTool } from "./_framework";
 import { type ToolCtx, resolveCharacterTarget, noTargetResult } from "./_context";
 import type { EditRecord, ScopeRef } from "../../types";
 import { characterScope } from "../../types";
-import { isCharacterStringField, wbLabel, coerceKeyList, WB_ENTRY_KEY_FIELDS } from "./_surfaces";
+import { isCharacterStringField, wbLabel, coerceKeyList, WB_ENTRY_KEY_FIELDS, WB_ENTRY_WRITABLE_FIELDS } from "./_surfaces";
 import { parseExtensionPath, setAtPath } from "./_paths";
 import { ExtensionRefusedError, assertExtensionWriteAllowed, scopeForLeafKey, isCharSubtreeToken, isAlternateFieldName, readAltFieldArray, writeAltFieldArray, ALTERNATE_FIELD_NAMES } from "./_path_v2";
 import { encodeScalar } from "../../state/edit-log";
+import description from "../prompts/claude/tools/set/description.txt";
+import argPath from "../prompts/claude/tools/set/arg_path.txt";
+import argValue from "../prompts/claude/tools/set/arg_value.txt";
 
 const inputSchema = z.object({
   path: z.string().min(3).describe("Slash-separated path. Same grammar as `read` / `edit`."),
@@ -126,17 +129,20 @@ async function setWorldBookField(ctx: ToolCtx, id: string, field: string, value:
   if (book) {
     const before = (book as unknown as Record<string, unknown>)[field];
     await ctx.spindle.world_books.update(id, { [field]: value } as WorldBookUpdateDTO, ctx.userId);
-    // Book-level edit files under the book scope when there's no character;
-    // scopeForLeafKey can't infer it because the key segment is the book id
-    // either way, but the entry-vs-book branch matters for the entry case
-    // below.
+    // Always file book-level edits under the book's own scope, matching book
+    // create/delete. A book is a standalone entity, not character-owned; without
+    // this, with a character focused, a rename would land in the character ledger
+    // while the create/delete sit in the world_book ledger (split history).
     return {
       before: stringify(before), after: stringify(value), label: book.name, surface: "world_book", surfaceId: id, field,
-      ...(ctx.characterId ? {} : { scopeOverride: { kind: "world_book" as const, id } }),
+      scopeOverride: { kind: "world_book" as const, id },
     };
   }
   const e = await ctx.spindle.world_books.entries.get(id, ctx.userId);
   if (!e) return `no world book or entry with id ${id}`;
+  // Reject fields the host won't write (it would no-op and we'd report a phantom
+  // success with a dead ledger entry).
+  if (!WB_ENTRY_WRITABLE_FIELDS.has(field)) return `[PATH_NOT_FOUND] world book entry has no writable field '${field}'. Valid: ${[...WB_ENTRY_WRITABLE_FIELDS].join(", ")}`;
   // key/keysecondary are JSON string arrays. A scalar value would be stringified
   // by the host into an unparseable key column that the entry editor can't open.
   if (WB_ENTRY_KEY_FIELDS.has(field)) value = coerceKeyList(value);
@@ -196,30 +202,13 @@ async function setPersonaAttachedWorldBook(ctx: ToolCtx, personaId: string, fiel
 
 export const setTool = defineTool({
   name: "set",
-  description: `Wholesale write of any JSON value at a path. Use for structural changes the read/edit/rewrite trio can't make:
-
-- Toggling a boolean (regex.disabled, world_book_entry.constant)
-- Changing a number (priority, position, sort_order, depth)
-- Replacing an array / object value (e.g. extensions.lumirealm.payload.scriptstate_defaults)
-- Setting a typed value at an extension path that isn't a string
-- Attaching / changing a persona's world book: \`set({path:"persona/<personaId>/attached_world_book_id", value:"<worldBookId>"})\`; \`value:null\` detaches
-
-Path grammar matches \`read\` / \`edit\` / \`rewrite\`. The value field accepts any JSON-encodable type. For string-leaf paths, set is a wholesale alternative to \`rewrite\` (no read-gate, so use only when you don't need to anchor against current content).
-
-Records before/after in the ledger like every other edit — fully revertable.
-
-For multi-field atomic character updates use \`update_character({patch})\`.
-
-Returns:
-- \`path\` — path written.
-- \`before_chars\`, \`after_chars\` — string length before vs after (non-string values are JSON-stringified for measurement).
-- \`before_peek\`, \`after_peek\` — first 120 chars of each side, for verification.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      path: { type: "string", description: "Surface path. See description for grammar." },
-      value: { description: "Any JSON-encodable value." },
+      path: { type: "string", description: argPath },
+      value: { description: argValue },
     },
     required: ["path", "value"],
     additionalProperties: false,

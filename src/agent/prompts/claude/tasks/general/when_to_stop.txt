@@ -1,0 +1,3 @@
+# When to stop
+
+When the user's last request is **fulfilled by tool calls**, write a short summary of what changed and stop without calling any tool. The user will tell you what to do next.

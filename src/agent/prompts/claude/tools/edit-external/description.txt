@@ -1,0 +1,7 @@
+Performs exact string replacement inside one field of an external provider's item.
+
+Usage:
+- You must call `read_external` with the same surface/item/field first. This tool will error if you have not.
+- The edit will fail if `find` is not unique in the field. Either provide more surrounding context to make it unique or set `replace_all: true`.
+- For non-string values or wholesale replacement, use `update_external`.
+- If a prior call returned a draft handle, pass `replace_handle` instead of re-emitting the literal replacement.

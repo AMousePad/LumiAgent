@@ -3,6 +3,8 @@ import { defineTool } from "./_framework";
 import { spillOrReturn } from "./_io";
 import type { ToolCtx } from "./_context";
 import type { ToolResult } from "./_framework";
+import description from "../prompts/claude/tools/read-chat-messages/description.txt";
+import argChatId from "../prompts/claude/tools/read-chat-messages/arg_chat_id.txt";
 
 const CHAT_MESSAGES_DEFAULT_LIMIT = 100;
 const CHAT_MESSAGES_MAX_LIMIT = 500;
@@ -47,17 +49,12 @@ const inputSchema = z.object({
 
 export const readChatMessagesTool = defineTool({
   name: "read_chat_messages",
-  description: `Reads messages from a chat by id, or the pinned chat if no id is given (chat_id "pinned" is an explicit alias for it).
-
-Usage:
-- Pass an explicit chat id from \`list_chats_for_character\` to read a non-pinned chat.
-- Returns messages in chronological order with role / content / send_date / swipe metadata. Active swipe is the \`content\` field; other swipes live on \`swipes[]\`.
-- Default limit 100, cap 500. Most chats fit in one call.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      chat_id: { type: "string", description: "Chat id, or 'pinned' / omitted for the pinned chat" },
+      chat_id: { type: "string", description: argChatId },
       offset: { type: "number" },
       limit: { type: "number" },
     },

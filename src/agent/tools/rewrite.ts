@@ -4,6 +4,8 @@ import { buildEditPatch } from "./_patch";
 import { ensureFreshRead, ensureRecentRead, refreshReadHash } from "./_gates";
 import { stashDraft, loadDraft, draftReuseNote } from "./_drafts";
 import { resolveRead, resolveWrite, PathError, OutOfRangeError, ExtensionRefusedError } from "./_path_v2";
+import description from "../prompts/claude/tools/rewrite/description.txt";
+import argPath from "../prompts/claude/tools/rewrite/arg_path.txt";
 
 const inputSchema = z.object({
   path: z.string().min(3).describe("Slash-separated path. Same grammar as `read` / `edit`."),
@@ -20,22 +22,12 @@ const gate: ReadGate = {
 
 export const rewriteTool = defineTool({
   name: "rewrite",
-  description: `Wholesale-overwrite any string-valued surface by path. Use instead of \`edit\` when:
-- The whole field changes (full translation, tone refactor, schema migration).
-- Find/replace keeps failing on stylized text (zalgo, hand-tuned diacritics, NFC drift).
-- The replacement is structurally different enough that finding a stable anchor is futile.
-
-Requires a recent \`read\` on the same path. Pass \`new_content\` for a literal payload, or \`new_content_handle\` to reuse a draft a prior failed call stashed for you.
-
-Returns:
-- \`path\`         — canonical leaf path that was written.
-- \`before_chars\`, \`after_chars\` — body size before vs after.
-- \`patch\`        — \`{additions, deletions, hunks}\` jsdiff-structured for the UI.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      path: { type: "string", description: "Surface path. See `read` tool for grammar." },
+      path: { type: "string", description: argPath },
       new_content: { type: "string" },
       new_content_handle: { type: "string" },
     },

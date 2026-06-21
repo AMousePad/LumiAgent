@@ -3,7 +3,11 @@ import { defineTool } from "./_framework";
 import { type ToolCtx, resolveCharacterTarget, resolveCharacterTargetOptional, noTargetResult } from "./_context";
 import { parseExtensionPath, getAtPath } from "./_paths";
 import { wbLabel } from "./_surfaces";
-import { ExtensionRefusedError, ALTERNATE_FIELD_NAMES, readAltFieldArray, isAlternateFieldName, type AlternateFieldName } from "./_path_v2";
+import { ExtensionRefusedError, ALTERNATE_FIELD_NAMES, readAltFieldArray, isAlternateFieldName, listAllWorldBooks, type AlternateFieldName } from "./_path_v2";
+import description from "../prompts/claude/tools/list/description.txt";
+import argPath from "../prompts/claude/tools/list/arg_path.txt";
+import argCharacterId from "../prompts/claude/tools/list/arg_character_id.txt";
+import argIncludeUnattached from "../prompts/claude/tools/list/arg_include_unattached.txt";
 
 const inputSchema = z.object({
   path: z.string().describe("Container path. Empty / 'char' for the character overview. 'rx' for regex scripts. 'wb' for world books. 'wb/<bookId>' for entries in a book. 'char/alternate_greetings' for all greetings. 'char/extensions[/dotted]' for an extensions subtree. 'persona' for all personas. 'preset' for all presets. 'preset/<presetId>' for a preset's blocks."),
@@ -115,8 +119,13 @@ async function listWorldBooks(ctx: ToolCtx, characterId: string | null, maxEntri
     if (!c) throw new Error(`character ${characterId} not found`);
     for (const id of c.world_book_ids ?? []) attached.add(id);
   }
+  // Global ("Always Active") books are active in every chat despite showing
+  // attached:false, so flag them to stop "unattached" reading as "inactive".
+  const globalSet = includeUnattached
+    ? new Set(await ctx.spindle.world_books.getGlobal(ctx.userId).catch(() => [] as string[]))
+    : new Set<string>();
   const wbIds = includeUnattached
-    ? (await ctx.spindle.world_books.list({ limit: 1000, userId: ctx.userId })).data.map((wb) => wb.id)
+    ? (await listAllWorldBooks(ctx)).map((wb) => wb.id)
     : [...attached];
   const out: ListEntry[] = [];
   for (const wbId of wbIds) {
@@ -126,6 +135,7 @@ async function listWorldBooks(ctx: ToolCtx, characterId: string | null, maxEntri
     const meta = await ctx.spindle.world_books.entries.list(wbId, { limit: 1, userId: ctx.userId });
     const entry: ListEntry = { path: `wb/${wbId}`, type: "world_book", label: wb.name, entries: meta.total };
     if (includeUnattached && characterId !== null) (entry as ListEntry & { attached: boolean }).attached = attached.has(wbId);
+    if (globalSet.has(wbId)) (entry as ListEntry & { global: boolean }).global = true;
     out.push(entry);
   }
   return out;
@@ -244,41 +254,16 @@ async function listPresetBlocks(ctx: ToolCtx, presetId: string, maxEntries: numb
 
 export const listTool = defineTool({
   name: "list",
-  description: `Directory-style listing for any structural path.
-
-Path forms:
-- (empty) or 'char'                  the character's top-level shape
-- 'char/alternate_greetings'         all greetings
-- 'char/alternate_fields'            description / personality / scenario variant counts
-- 'char/alternate_fields/<field>'    variants for one of description / personality / scenario
-- 'char/extensions'                  top-level keys of extensions
-- 'char/extensions/<dotted>'         keys/indices under that subtree (recurses up to max_depth)
-- 'rx'                               all character-scoped regex scripts
-- 'wb'                               all attached world books
-- 'wb/<bookId>'                      all entries in a world book
-- 'persona'                          all of the user's personas (works without an active character)
-- 'preset'                           all prompt presets (works without an active character)
-- 'preset/<presetId>'                all prompt blocks in a preset
-
-\`char/\`, \`rx\`, \`wb\` need an active character; \`persona\` / \`preset\` do not.
-
-Each returned row carries:
-- \`path\`     — pass straight to \`read\` / \`inspect\` / \`edit\`.
-- \`type\`     — one of: \`string\`, \`array\`, \`object\`, \`regex_script\`, \`world_book\`, \`wb_entry\`, etc.
-- \`label\`    — human name when there is one (regex script name, world book name, entry comment).
-- \`size\`     — for string leaves: character count. For arrays/objects: child count. For \`wb_entry\`: content character count.
-- \`entries\`  — only on \`world_book\` rows: total entry count in the book. Read this, not \`size\`, to gauge book volume.
-
-Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole via \`inspect\`; to \`read\` / \`edit\` a string leaf, append the field name (\`rx/<scriptId>/find_regex\` or \`/replace_string\`; \`wb/<entryId>/content\` or \`/comment\`). Leaf paths (\`char/<field>\`, \`char/alternate_greetings/<idx>\`, \`char/extensions/<dotted>\`) are directly read/editable.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      path: { type: "string", description: "Container path. See description for forms." },
+      path: { type: "string", description: argPath },
       max_entries: { type: "integer", minimum: 1, maximum: 2000 },
       max_depth: { type: "integer", minimum: 1, maximum: 10 },
-      character_id: { type: "string", description: "For char/rx/wb paths." },
-      include_unattached: { type: "boolean", description: "path='wb' only: list all owned world books (not just attached). Works with no focused character; with one, rows carry `attached`." },
+      character_id: { type: "string", description: argCharacterId },
+      include_unattached: { type: "boolean", description: argIncludeUnattached },
     },
     required: ["path"],
     additionalProperties: false,

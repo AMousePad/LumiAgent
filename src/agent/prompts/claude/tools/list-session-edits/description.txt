@@ -1,0 +1,7 @@
+Lists agent-authored edits.
+
+Usage:
+- Default scope is the current response. Widen with `current_session` or `all_sessions`.
+- Returns one row per patch: edit_id, surface, surface_id, surface_label, field, ts, reverted, session_id.
+- Pass returned ids to `revert_session_edits` or `squash_session_edits`.
+- Cross-session revert requires `allow_cross_session: true` on `revert_session_edits`.

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { defineTool } from "./_framework";
 import { scopeForLeafKey } from "./_path_v2";
 import type { RegexScriptUpdateDTO } from "lumiverse-spindle-types";
+import description from "../prompts/claude/tools/update-regex-script/description.txt";
 
 const inputSchema = z.object({
   script_id: z.string().min(1),
@@ -10,12 +11,7 @@ const inputSchema = z.object({
 
 export const updateRegexScriptTool = defineTool({
   name: "update_regex_script",
-  description: `Updates metadata fields of a regex script atomically.
-
-Usage:
-- Path-based \`edit\` / \`rewrite\` only address \`rx/<id>/find_regex\` and \`rx/<id>/replace_string\`. Metadata goes through here: \`name\`, \`flags\`, \`disabled\`, \`placement\`, \`target\`, \`sort_order\`, \`description\`, \`folder\`.
-- Pass only the fields to change in \`patch\`.
-- Works in a no-character session (operates by \`script_id\`), like \`edit\` / \`rewrite\` / \`set\` on \`rx/\`.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",

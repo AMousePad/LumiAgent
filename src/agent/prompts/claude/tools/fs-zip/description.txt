@@ -1,0 +1,1 @@
+Bundle one or more workspace paths into a .zip file (STORE method, no compression). Folders are walked recursively. Use this to package generated assets for the user to download, or to consolidate scratch output before deleting the originals.

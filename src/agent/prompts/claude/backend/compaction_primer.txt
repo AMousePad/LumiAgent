@@ -1,0 +1,1 @@
+[The previous agent compacted the conversation. Detailed handoff notes are saved at {{HANDOFF_PATH}}. If you need any context from before, read that file with fs_read("{{HANDOFF_PATH}}"). Then respond to the user.]

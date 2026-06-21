@@ -2,6 +2,14 @@ import { z } from "zod";
 import { defineTool } from "./_framework";
 import type { ToolCtx } from "./_context";
 import type { CustomToolManifest } from "../../state/custom-tools";
+import description from "../prompts/claude/tools/custom-tool-run/description.txt";
+import argName from "../prompts/claude/tools/custom-tool-run/arg_name.txt";
+import argSteps from "../prompts/claude/tools/custom-tool-run/arg_steps.txt";
+import argStepsCall from "../prompts/claude/tools/custom-tool-run/arg_steps__call.txt";
+import argStepsArgs from "../prompts/claude/tools/custom-tool-run/arg_steps__args.txt";
+import argStepsSaveAs from "../prompts/claude/tools/custom-tool-run/arg_steps__save_as.txt";
+import argReturn from "../prompts/claude/tools/custom-tool-run/arg_return.txt";
+import argArgs from "../prompts/claude/tools/custom-tool-run/arg_args.txt";
 
 // Two modes:
 // - Named: `name` references a saved recipe under workspace/custom_tools/.
@@ -39,34 +47,27 @@ type CtxWithDispatch = ToolCtx & {
 
 export const customToolRunTool = defineTool({
   name: "custom_tool_run",
-  description: `Run multiple built-in tool calls in one turn (worked examples in the system prompt's "Piping tool calls" section).
-- Chain: step N saves with \`save_as\`, step N+1 references via \`{{$var}}\`.
-- Fan-out: each step \`save_as\`s; the runtime returns all bindings as one object.
-Use whenever you'd call tool A then feed its value into tool B, or call several tools whose results you all want — the intermediates stay in the interpreter, never round-trip through your tool_result stream.
-
-Ref syntax in step args / optional \`return\`: \`{{$body}}\` (raw value), \`prefix {{$body}} end\` (coerced string), \`{{$pick.picks[0].id}}\` (dotted path + index).
-Returns: explicit \`return\` → that; else any \`save_as\` → object of all bindings; else the final step's result.
-Budget: 400 steps / depth 4 / 60s. The \`name\` form runs a saved recipe; default to inline \`steps\`.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      name: { type: "string", description: "Saved recipe name (named mode)." },
+      name: { type: "string", description: argName },
       steps: {
         type: "array",
-        description: "Inline pipe (inline mode). Each step calls one built-in tool; `save_as` binds the parsed result to a name later steps can reference via {{$name}}.",
+        description: argSteps,
         items: {
           type: "object",
           properties: {
-            call: { type: "string", description: "Built-in tool name to invoke." },
-            args: { type: "object", description: "Args for that tool; values may contain {{$var}} refs." },
-            save_as: { type: "string", description: "Variable name for downstream steps." },
+            call: { type: "string", description: argStepsCall },
+            args: { type: "object", description: argStepsArgs },
+            save_as: { type: "string", description: argStepsSaveAs },
           },
           required: ["call"],
         },
       },
-      return: { description: "Optional return template. Same {{$var}} syntax. Omit to return the last step's result." },
-      args: { type: "object", description: "Named-mode only: args matching the saved recipe's `params` schema." },
+      return: { description: argReturn },
+      args: { type: "object", description: argArgs },
     },
   },
   execute: async (input, ctx) => {

@@ -1,5 +1,9 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import description from "../prompts/claude/tools/read-variable/description.txt";
+import argScope from "../prompts/claude/tools/read-variable/arg_scope.txt";
+import argKey from "../prompts/claude/tools/read-variable/arg_key.txt";
+import argChatId from "../prompts/claude/tools/read-variable/arg_chat_id.txt";
 
 const inputSchema = z.object({
   scope: z.enum(["chat", "local", "global", "macro"]),
@@ -9,14 +13,14 @@ const inputSchema = z.object({
 
 export const readVariableTool = defineTool({
   name: "read_variable",
-  description: "Read a single variable by name from a scope (chat / local / global / macro; see list_variables for what each scope is). Returns { exists, value }.",
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      scope: { type: "string", enum: ["chat", "local", "global", "macro"], description: "Variable scope." },
-      key: { type: "string", description: "Variable name." },
-      chat_id: { type: "string", description: "Required for chat/local/macro scopes." },
+      scope: { type: "string", enum: ["chat", "local", "global", "macro"], description: argScope },
+      key: { type: "string", description: argKey },
+      chat_id: { type: "string", description: argChatId },
     },
     required: ["scope", "key"],
   },

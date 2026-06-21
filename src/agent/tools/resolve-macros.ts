@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import { spillOrReturn } from "./_io";
+import description from "../prompts/claude/tools/resolve-macros/description.txt";
+import argTemplate from "../prompts/claude/tools/resolve-macros/arg_template.txt";
+import argChatId from "../prompts/claude/tools/resolve-macros/arg_chat_id.txt";
+import argCharacterId from "../prompts/claude/tools/resolve-macros/arg_character_id.txt";
+import argUseActiveCharacter from "../prompts/claude/tools/resolve-macros/arg_use_active_character.txt";
 
 const inputSchema = z.object({
   template: z.string().min(1),
@@ -11,15 +16,15 @@ const inputSchema = z.object({
 
 export const resolveMacrosTool = defineTool({
   name: "resolve_macros",
-  description: "Resolve `{{macro}}` placeholders in arbitrary text using Lumiverse's macro engine. Always runs in non-committing dry mode (`commit: false`) so extension macro handlers don't side-effect. Pass chat_id for chat-scoped macros (variables, history, etc.) and use_active_character to bind {{char}} / character fields to the currently active card. Returns { text, diagnostics }.",
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      template: { type: "string", description: "Template text containing {{macros}} to resolve." },
-      chat_id: { type: "string", description: "Chat scope for variables and history." },
-      character_id: { type: "string", description: "Bind {{char}} and character fields to this character." },
-      use_active_character: { type: "boolean", description: "Bind {{char}} and character fields to the active character. Defaults to true." },
+      template: { type: "string", description: argTemplate },
+      chat_id: { type: "string", description: argChatId },
+      character_id: { type: "string", description: argCharacterId },
+      use_active_character: { type: "boolean", description: argUseActiveCharacter },
     },
     required: ["template"],
   },

@@ -1,11 +1,12 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import description from "../prompts/claude/tools/list-connections/description.txt";
 
 const inputSchema = z.object({}).strict();
 
 export const listConnectionsTool = defineTool({
   name: "list_connections",
-  description: "List the user's configured LLM connection profiles. Returns id, name, provider, api_url, model, is_default, has_api_key (boolean — never the actual key). Use to see what providers/models are available, or to figure out which connection a chat is using.",
+  description,
   inputSchema,
   jsonSchema: { type: "object", properties: {}, required: [] },
   execute: async (_input, ctx) => {

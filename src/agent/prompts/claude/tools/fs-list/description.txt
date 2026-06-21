@@ -1,0 +1,1 @@
+List entries in the workspace at a given directory. Pass an empty path for the root. Returns [{name, path, isDirectory, sizeBytes, modifiedAt}].

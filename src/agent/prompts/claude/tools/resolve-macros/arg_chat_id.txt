@@ -1,0 +1,1 @@
+Chat scope for variables and history.

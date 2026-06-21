@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import type { ToolCtx } from "./_context";
+import description from "../prompts/claude/tools/asset-delete/description.txt";
 
 const inputSchema = z.object({
   source: z.union([
@@ -18,9 +19,7 @@ async function findLumirealm(ctx: ToolCtx) {
 
 export const assetDeleteTool = defineTool({
   name: "asset_delete",
-  description: `Delete a LumiRealm asset (character or module). Removes it from the asset_index. References to the asset name in regex replace_string / bg-html / macros will resolve to nothing after deletion, so grep for the name and clean those up.
-
-Wraps the \`delete_asset\` WS op so the LumiRealm runtime refresh hooks fire.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",

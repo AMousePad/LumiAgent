@@ -1,0 +1,1 @@
+Create or overwrite a text file in the workspace. Use fs_edit for find/replace on existing files. Pass `content` for a literal payload or `content_handle` to reuse a stashed draft. Subject to per-file size cap and per-user storage cap.

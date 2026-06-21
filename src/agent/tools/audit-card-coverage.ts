@@ -3,6 +3,8 @@ import { defineTool } from "./_framework";
 import { iterateAllLeaves } from "./_path_v2";
 import { resolveCharacterTarget, noTargetResult } from "./_context";
 import { spillOrReturn } from "./_io";
+import description from "../prompts/claude/tools/audit-card-coverage/description.txt";
+import argSourceLang from "../prompts/claude/tools/audit-card-coverage/arg_source_lang.txt";
 
 // Unicode ranges for the languages users actually translate FROM. Each entry
 // is a regex character class. Keep this list short. Adding ranges grows the
@@ -224,14 +226,12 @@ function buildCoverageWarning(matchRuns: number, samplesShown: number, densities
 
 export const auditCardCoverageTool = defineTool({
   name: "audit_card_coverage",
-  description: `Audit every editable string leaf on the character (fields, alternate_greetings, regex find/replace, world_book content/comment, every extension string leaf) for remaining content in a target script. THE completion gate: call before claiming a translation task done — any leaf with match_chars > 0 (beyond ones you intentionally left) means NOT done.
-
-Per matched leaf: \`match_chars/match_runs/match_ratio\` totals; \`density_by_quartile\` (a non-zero quartile no sample touches is content you haven't seen); \`samples\` stratified across the leaf with each match's enclosing line for syntactic context (literal/comment/gated branch). When \`coverage_warning\` fires, samples cover only a fraction — read the full leaf or grep the uncovered quartiles before classifying. Sorted worst-first.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      source_lang: { type: "string", enum: ["ko", "ja", "zh", "cjk", "arabic", "cyrillic"], description: "Script to look for. Default 'cjk'." },
+      source_lang: { type: "string", enum: ["ko", "ja", "zh", "cjk", "arabic", "cyrillic"], description: argSourceLang },
       min_chars: { type: "integer", minimum: 0, maximum: 10000 },
       include_paths: { type: "array", items: { type: "string" } },
       exclude_paths: { type: "array", items: { type: "string" } },

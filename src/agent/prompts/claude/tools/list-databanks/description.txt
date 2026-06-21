@@ -1,0 +1,1 @@
+List the user's databanks (RAG document collections). Optional scope filter: global / character / chat. Pass scope_id to scope to a specific character or chat (omit for the active character / pinned chat as the natural default). Returns metadata only — id, name, scope, document_count, enabled.

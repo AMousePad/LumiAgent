@@ -2,6 +2,7 @@ import { z } from "zod";
 import { defineTool } from "./_framework";
 import { formatLineSlice, spillOrReturn } from "./_io";
 import { markRead } from "./_gates";
+import description from "../prompts/claude/tools/fs-read/description.txt";
 
 const inputSchema = z.object({
   path: z.string().min(1),
@@ -11,7 +12,7 @@ const inputSchema = z.object({
 
 export const fsReadTool = defineTool({
   name: "fs_read",
-  description: "Read a workspace text file with line numbers and pagination.",
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",

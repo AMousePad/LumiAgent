@@ -1,0 +1,1 @@
+Workspace-relative paths. Files included as-is, directories walked recursively.

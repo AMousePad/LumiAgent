@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import description from "../prompts/claude/tools/todo-write/description.txt";
 
 const todoSchema = z.object({
   content: z.string().min(1).describe("Imperative form of the task ('Run tests', 'Fix the bug')."),
@@ -17,24 +18,7 @@ type Input = z.infer<typeof inputSchema>;
 
 export const todoWriteTool = defineTool<Input>({
   name: "todo_write",
-  description: `Create or update the structured task list for the current session.
-
-Use this proactively when:
-- The user's request requires 3+ distinct steps.
-- The user provides a numbered or comma-separated task list.
-- Complex multi-step work where you want to externalize the plan so the user can see progress.
-
-Do NOT use this for:
-- Single trivial tasks.
-- Conversational or purely informational requests.
-- Tasks that take fewer than 3 meaningful steps.
-
-Rules:
-- Each item carries 'content' (imperative: "Fix bug"), 'activeForm' (present continuous: "Fixing bug"), and 'status' (pending | in_progress | completed).
-- Replaces the whole list on each call. Send the full state, not a delta.
-- At most ONE item should be 'in_progress' at a time.
-- Mark items 'completed' as soon as they're done. Don't batch completions.
-- Drop items that are no longer relevant by omitting them from the new list.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",

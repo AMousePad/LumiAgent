@@ -3,6 +3,7 @@ import { defineTool } from "./_framework";
 import { resolveCharacterTarget, noTargetResult } from "./_context";
 import { characterScope } from "../../types";
 import type { CharacterUpdateDTO } from "lumiverse-spindle-types";
+import description from "../prompts/claude/tools/update-character/description.txt";
 
 const inputSchema = z.object({
   patch: z.record(z.string(), z.unknown()),
@@ -11,12 +12,7 @@ const inputSchema = z.object({
 
 export const updateCharacterTool = defineTool({
   name: "update_character",
-  description: `Replaces one or more top-level character fields atomically.
-
-Usage:
-- Pass only the fields to change in \`patch\`.
-- For a single field's find/replace use \`edit({path: "char/<field>", ...})\`.
-- For wholesale overwrite of a single field use \`rewrite\` or \`set\`.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",

@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import { spillOrReturn } from "./_io";
+import description from "../prompts/claude/tools/list-chat-messages/description.txt";
+import argOffset from "../prompts/claude/tools/list-chat-messages/arg_offset.txt";
+import argLimit from "../prompts/claude/tools/list-chat-messages/arg_limit.txt";
 
 const CHAT_LIST_SNIPPET_CHARS = 80;
 
@@ -12,14 +15,14 @@ const inputSchema = z.object({
 
 export const listChatMessagesTool = defineTool({
   name: "list_chat_messages",
-  description: "Skim a chat's messages as metadata only: idx, id, role, char count, and an 80-char snippet per message. Cheap on tokens. Use for picking which specific messages to read in full afterwards.",
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
       chat_id: { type: "string" },
-      offset: { type: "number", description: "0-indexed start, default 0" },
-      limit: { type: "number", description: "Default 200, cap 2000" },
+      offset: { type: "number", description: argOffset },
+      limit: { type: "number", description: argLimit },
     },
     required: [],
   },

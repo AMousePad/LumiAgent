@@ -1,0 +1,1 @@
+[Context update from the system: you are now {{FOCUS}}. {{PIN}} Re-read any character or chat details you cached before this.]

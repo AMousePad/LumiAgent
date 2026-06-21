@@ -1,5 +1,8 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import description from "../prompts/claude/tools/fs-unzip/description.txt";
+import argZipPath from "../prompts/claude/tools/fs-unzip/arg_zip_path.txt";
+import argDestDir from "../prompts/claude/tools/fs-unzip/arg_dest_dir.txt";
 
 const inputSchema = z.object({
   zip_path: z.string().min(1),
@@ -8,13 +11,13 @@ const inputSchema = z.object({
 
 export const fsUnzipTool = defineTool({
   name: "fs_unzip",
-  description: "Extract a workspace .zip into a destination directory. STORE and DEFLATE are supported. Rejects entries with path traversal ('..') or absolute paths. Subject to the same per-file and total workspace caps as fs_write.",
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      zip_path: { type: "string", description: "Workspace-relative path to the zip." },
-      dest_dir: { type: "string", description: "Workspace-relative target directory. Created if it doesn't exist." },
+      zip_path: { type: "string", description: argZipPath },
+      dest_dir: { type: "string", description: argDestDir },
     },
     required: ["zip_path", "dest_dir"],
   },

@@ -1,0 +1,1 @@
+Get metadata for a single workspace path. Returns isDirectory, sizeBytes, modifiedAt. Returns null when the path doesn't exist.

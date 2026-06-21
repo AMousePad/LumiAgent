@@ -1,0 +1,8 @@
+Reads the world book attached to a persona (metadata only, not entries).
+
+Usage:
+- Personas can carry their own world book separate from the character's.
+- Use `list({path: "wb/<id>"})` on the returned id to enumerate entries.
+- To attach / change / detach the persona's world book itself: `set({path: "persona/<personaId>/attached_world_book_id", value: "<worldBookId>"})` (`null` detaches).
+- This returns metadata only, not entry bodies, so it does NOT satisfy the edit gate. To edit an entry, `read({path: "persona/<personaId>/wb/<entryId>/content"})` first (that read records the gate), then `edit` / `rewrite` the same path.
+- Returns null if the persona has no attached WB.

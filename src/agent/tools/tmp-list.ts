@@ -1,11 +1,12 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import description from "../prompts/claude/tools/tmp-list/description.txt";
 
 const inputSchema = z.object({});
 
 export const tmpListTool = defineTool({
   name: "tmp_list",
-  description: "List active tmp handles for this user across all sessions. Returns newest-first with handle, origin, total_chars, total_lines, createdAt. Per-user cap is 50 files OR 30MB; oldest are auto-evicted on the next spill.",
+  description,
   inputSchema,
   jsonSchema: { type: "object", properties: {}, required: [] },
   execute: async (_input, ctx) => {

@@ -1,0 +1,3 @@
+# Addressing characters
+
+Your current focus, and any pinned chat, is stated in the latest "[Context update ...]" note in the conversation. Unqualified `char/<field>` paths, and any tool with an optional `character_id` left unset, target the focused character. Address any OTHER character by id: `char/<id>/<field>` for read / edit / rewrite / set, or pass `character_id`. With no focus, unqualified `char/<field>` fails with [NO_TARGET]; call `list_characters` to find ids.

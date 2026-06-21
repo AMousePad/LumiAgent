@@ -1,0 +1,1 @@
+Fetch top pages' text (default true). Set false for titles/URLs/snippets only.

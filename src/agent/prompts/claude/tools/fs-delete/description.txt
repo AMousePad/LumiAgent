@@ -1,0 +1,1 @@
+Delete a workspace file or directory. Directories must be empty unless recursive=true.

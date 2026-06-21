@@ -1,5 +1,9 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import description from "../prompts/claude/tools/random-pick/description.txt";
+import argItems from "../prompts/claude/tools/random-pick/arg_items.txt";
+import argCount from "../prompts/claude/tools/random-pick/arg_count.txt";
+import argReplacement from "../prompts/claude/tools/random-pick/arg_replacement.txt";
 
 const inputSchema = z.object({
   items: z.array(z.unknown()),
@@ -9,21 +13,14 @@ const inputSchema = z.object({
 
 export const randomPickTool = defineTool({
   name: "random_pick",
-  description: `Pick one or more items from a list at random. Use this whenever the user asks you to choose, pick, or randomize, models are bad at random selection on their own.
-
-The items you pass must come from a real tool result (\`list\`, \`grep\`, \`inspect\`, \`tmp_grep\`). Don't synthesize ids or paths from memory and feed them in, you'll pick from things that don't exist. If you don't have the candidate set yet, call \`list\` first.
-
-Returns:
-- \`count\`       — how many were picked.
-- \`replacement\` — whether duplicates were allowed.
-- \`picks\`       — array of the chosen items, same element type you passed in. If \`items\` was \`[{path, label}, ...]\` then \`picks[0].path\` is the pick's path.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      items: { type: "array", items: {}, description: "The list to pick from. Items can be any JSON value (strings, objects, etc.); picks come back as the same element type." },
-      count: { type: "number", description: "How many to pick. Default 1." },
-      replacement: { type: "boolean", description: "If true, the same item can be picked more than once. Default false." },
+      items: { type: "array", items: {}, description: argItems },
+      count: { type: "number", description: argCount },
+      replacement: { type: "boolean", description: argReplacement },
     },
     required: ["items"],
   },

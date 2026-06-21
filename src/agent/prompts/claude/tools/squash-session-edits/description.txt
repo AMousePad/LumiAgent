@@ -1,0 +1,6 @@
+Seals every edit made so far in this response into one consolidated patch per file/field.
+
+Usage:
+- Call mid-response to commit a phase of work before starting another (translation pass → seal → tone refactor).
+- End-of-message autosquash never merges across sealed patches; phases stay revertable as discrete units.
+- If never called, all edits in this response get auto-squashed into one patch per file at the end of the message.

@@ -1,0 +1,3 @@
+Rename a LumiRealm asset (character-scoped or module-scoped). The new name is what `{{img::NAME}}` / `{{emotion::NAME}}` / `<img="NAME">` macros in regex `replace_string` and bg-html will reference. After rename, grep the card and update every reference to the old name.
+
+Wraps the `rename_asset` WS op so the LumiRealm runtime refresh hooks fire (asset map propagation, attached-character invalidation).

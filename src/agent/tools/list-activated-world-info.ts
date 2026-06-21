@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import { spillOrReturn } from "./_io";
+import description from "../prompts/claude/tools/list-activated-world-info/description.txt";
+import argChatId from "../prompts/claude/tools/list-activated-world-info/arg_chat_id.txt";
 
 const inputSchema = z.object({
   chat_id: z.string().optional(),
@@ -8,16 +10,12 @@ const inputSchema = z.object({
 
 export const listActivatedWorldInfoTool = defineTool({
   name: "list_activated_world_info",
-  description: `Lists world info entries that would activate for a chat at its current state.
-
-Usage:
-- Returns { id, comment, keys, source: 'keyword'|'vector', score?, bookId?, bookSource? } per entry. \`bookSource\` is the binding scope that contributed the entry's book: 'character'|'persona'|'chat'|'global' (narrowest wins). Also returns \`by_source\`, a count of entries per binding scope.
-- Use to debug "is this lorebook entry actually firing?" (and "from which binding layer?") before reading the entry's content.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      chat_id: { type: "string", description: "Chat to evaluate." },
+      chat_id: { type: "string", description: argChatId },
     },
     required: [],
   },

@@ -2,6 +2,9 @@ import { z } from "zod";
 import { defineTool } from "./_framework";
 import { spillOrReturn } from "./_io";
 import { markReadWithHash } from "./_gates";
+import description from "../prompts/claude/tools/read-persona/description.txt";
+import argPersonaId from "../prompts/claude/tools/read-persona/arg_persona_id.txt";
+import argWhich from "../prompts/claude/tools/read-persona/arg_which.txt";
 
 const inputSchema = z.object({
   persona_id: z.string().optional(),
@@ -12,13 +15,13 @@ const inputSchema = z.object({
 
 export const readPersonaTool = defineTool({
   name: "read_persona",
-  description: "Read a single persona's full content. Pass `persona_id` for a specific one, or `which: 'active'` for the currently-selected persona / `which: 'default'` for the user's default. Returns full description plus all metadata. The persona's description text gets injected into the prompt as {{user}} / {{persona}}. Records the persona's name / title / description as recently read so a subsequent `edit` / `rewrite` on `persona/<id>/<field>` passes the read-gate.",
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      persona_id: { type: "string", description: "Specific persona id." },
-      which: { type: "string", enum: ["active", "default"], description: "Look up by role instead of id." },
+      persona_id: { type: "string", description: argPersonaId },
+      which: { type: "string", enum: ["active", "default"], description: argWhich },
     },
     required: [],
   },

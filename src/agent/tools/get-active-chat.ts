@@ -1,11 +1,12 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import description from "../prompts/claude/tools/get-active-chat/description.txt";
 
 const inputSchema = z.object({}).strict();
 
 export const getActiveChatTool = defineTool({
   name: "get_active_chat",
-  description: "Get the user's currently active chat (whatever the frontend is showing). Different from the pinned chat — pinned is what this agent session reads from; active is what the user is looking at right now in their main chat panel. Returns null if no chat is open.",
+  description,
   inputSchema,
   jsonSchema: { type: "object", properties: {}, required: [] },
   requiresCharacter: true,

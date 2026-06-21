@@ -1,0 +1,1 @@
+Get the running Lumiverse backend and frontend semantic version strings. Useful when the user reports a bug or behaviour that depends on a specific build — surface the version before guessing.

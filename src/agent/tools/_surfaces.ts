@@ -56,3 +56,15 @@ export function coerceKeyList(value: unknown): string[] {
 }
 
 export const WB_ENTRY_KEY_FIELDS = new Set(["key", "keysecondary"]);
+
+// Fields the host's updateEntry actually writes (mirrors its column whitelist
+// plus the managed extensions/outlet_name). A write to any other field is a
+// silent host no-op, so reject it instead of reporting a phantom success.
+export const WB_ENTRY_WRITABLE_FIELDS = new Set([
+  "key", "keysecondary", "content", "comment", "role", "group_name", "automation_id",
+  "position", "depth", "order_value", "group_weight", "probability", "scan_depth",
+  "priority", "sticky", "cooldown", "delay", "selective_logic",
+  "selective", "constant", "disabled", "group_override", "case_sensitive", "match_whole_words",
+  "use_regex", "prevent_recursion", "exclude_recursion", "delay_until_recursion",
+  "use_probability", "vectorized", "extensions", "outlet_name",
+]);

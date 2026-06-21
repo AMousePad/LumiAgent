@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import description from "../prompts/claude/tools/view-image/description.txt";
+import argPath from "../prompts/claude/tools/view-image/arg_path.txt";
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp"]);
 // Fallback base64 ceiling when the browser resize RPC is unavailable. Keeps the
@@ -24,11 +26,11 @@ const inputSchema = z.object({ path: z.string().min(1) }).strict();
 
 export const viewImageTool = defineTool({
   name: "view_image",
-  description: "Load an image file from the workspace so you can actually see it (needs a vision-capable connection). Pass a workspace path like 'screenshots/rule.png'. The image becomes visible to you on the next step. Supported: png, jpg, gif, webp.",
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
-    properties: { path: { type: "string", description: "Workspace-relative image path." } },
+    properties: { path: { type: "string", description: argPath } },
     required: ["path"],
   },
   isReadOnly: () => true,

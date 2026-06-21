@@ -5,6 +5,8 @@ import type { ToolCtx } from "./_context";
 import type { EditRecord, ScopeRef } from "../../types";
 import { wbLabel } from "./_surfaces";
 import { isAlternateFieldName, readAltFieldArray, writeAltFieldArray, ALTERNATE_FIELD_NAMES } from "./_path_v2";
+import description from "../prompts/claude/tools/delete/description.txt";
+import argPath from "../prompts/claude/tools/delete/arg_path.txt";
 
 const inputSchema = z.object({
   path: z.string().min(3).describe("Entity to delete. Same path grammar as `read` / `edit`."),
@@ -24,22 +26,11 @@ async function listAllEntries(ctx: ToolCtx, bookId: string): Promise<WorldBookEn
 
 export const deleteTool = defineTool({
   name: "delete",
-  description: `Delete an entity addressed by the same path grammar as \`read\` / \`edit\`. The full prior state is snapshotted into the edit log so the delete is revertible (revert recreates it; container deletes restore their children too). Deleting a world book or preset cascades to its entries / blocks.
-
-Deletable paths:
-- \`wb/<id>\` -> a world book (id is a book) OR a single entry (id is an entry). Resolved by lookup.
-- \`rx/<scriptId>\` -> a regex script.
-- \`persona/<personaId>\` -> a user persona.
-- \`preset/<presetId>\` -> a prompt preset (and its blocks).
-- \`preset/<presetId>/block/<blockId>\` -> one prompt block.
-- \`char/alternate_greetings/<idx>\` -> a greeting by 0-based index.
-- \`char/alternate_fields/<field>/<variantId>\` -> a variant from description / personality / scenario.
-
-Caveat: a recreated book / preset / persona gets a fresh id on revert; external references to the old id (e.g. a character's world_book_ids) are not rewired.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
-    properties: { path: { type: "string", description: "Entity path. See description." } },
+    properties: { path: { type: "string", description: argPath } },
     required: ["path"],
     additionalProperties: false,
   },

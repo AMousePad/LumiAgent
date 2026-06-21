@@ -1,0 +1,1 @@
+Dice spec, e.g. '3d6+2'.

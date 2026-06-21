@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import description from "../prompts/claude/tools/finish/description.txt";
 
 const inputSchema = z.object({
   summary: z.string().min(1),
@@ -7,7 +8,7 @@ const inputSchema = z.object({
 
 export const finishTool = defineTool({
   name: "finish",
-  description: "Declare the entire task complete. Use only when the user explicitly indicates everything is done. Normally just stop without calling a tool and the conversation will pause for the user's next message.",
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",

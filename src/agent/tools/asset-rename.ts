@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import type { ToolCtx } from "./_context";
+import description from "../prompts/claude/tools/asset-rename/description.txt";
 
 const inputSchema = z.object({
   source: z.union([
@@ -19,9 +20,7 @@ async function findLumirealm(ctx: ToolCtx) {
 
 export const assetRenameTool = defineTool({
   name: "asset_rename",
-  description: `Rename a LumiRealm asset (character-scoped or module-scoped). The new name is what \`{{img::NAME}}\` / \`{{emotion::NAME}}\` / \`<img="NAME">\` macros in regex \`replace_string\` and bg-html will reference. After rename, grep the card and update every reference to the old name.
-
-Wraps the \`rename_asset\` WS op so the LumiRealm runtime refresh hooks fire (asset map propagation, attached-character invalidation).`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",

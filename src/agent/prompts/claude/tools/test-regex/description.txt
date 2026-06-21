@@ -1,0 +1,1 @@
+Compile a regex and test it against a sample. Returns whether it matches, the match, and capture groups.

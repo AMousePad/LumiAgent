@@ -1,0 +1,1 @@
+Delete a custom tool manifest. Also remember to remove its line from custom_tools/tools.md.

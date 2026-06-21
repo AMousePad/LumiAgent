@@ -1,0 +1,1 @@
+The list to pick from. Items can be any JSON value (strings, objects, etc.); picks come back as the same element type.

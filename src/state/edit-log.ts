@@ -114,10 +114,12 @@ function entryUpdateFromDTO(e: WorldBookEntryDTO): WorldBookEntryUpdateDTO {
 }
 
 function entryCreateFromDTO(e: WorldBookEntryDTO): WorldBookEntryCreateDTO {
-  // Keep the id: the host's create honors a supplied entry id (like regex
-  // script_id and prompt block id), so delete-revert restores the SAME id.
-  // Dropping it minted a fresh UUID, orphaning prior field-edit ledger patches
-  // and the read/edit gate (both keyed on the entry id).
+  // We pass the original id, but the host's createEntry mints a fresh UUID and
+  // ignores it (unlike prompt blocks, which honor a supplied id). So delete-revert
+  // restores the content under a NEW id; prior field-edit ledger patches keyed on
+  // the old entry id orphan (they self-heal as ghosts). Content is preserved via
+  // this snapshot, so no data loss, only loss of independent per-edit revert for
+  // that entry. A host change to honor input.id would make the restore id-stable.
   return { ...entryUpdateFromDTO(e), id: e.id } as WorldBookEntryCreateDTO;
 }
 

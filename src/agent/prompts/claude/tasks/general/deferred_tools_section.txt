@@ -1,0 +1,6 @@
+# Deferred tools (fetch via tool_search)
+
+The schemas for the tools listed below are not loaded. Calling them directly fails. To use one, first call `tool_search({ query: "select:<name>[,<name>...]" })`. Its result is a `<functions>` block that registers the schemas; the tool then becomes callable on the next turn. Keyword search (`tool_search({ query: "regex" })`) works too.
+
+Deferred tools available:
+{{TOOL_LIST}}

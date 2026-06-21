@@ -1,0 +1,26 @@
+Directory-style listing for any structural path.
+
+Path forms:
+- (empty) or 'char'                  the character's top-level shape
+- 'char/alternate_greetings'         all greetings
+- 'char/alternate_fields'            description / personality / scenario variant counts
+- 'char/alternate_fields/<field>'    variants for one of description / personality / scenario
+- 'char/extensions'                  top-level keys of extensions
+- 'char/extensions/<dotted>'         keys/indices under that subtree (recurses up to max_depth)
+- 'rx'                               all character-scoped regex scripts
+- 'wb'                               all attached world books
+- 'wb/<bookId>'                      all entries in a world book
+- 'persona'                          all of the user's personas (works without an active character)
+- 'preset'                           all prompt presets (works without an active character)
+- 'preset/<presetId>'                all prompt blocks in a preset
+
+`char/`, `rx`, `wb` need an active character; `persona` / `preset` do not.
+
+Each returned row carries:
+- `path`     — pass straight to `read` / `inspect` / `edit`.
+- `type`     — one of: `string`, `array`, `object`, `regex_script`, `world_book`, `wb_entry`, etc.
+- `label`    — human name when there is one (regex script name, world book name, entry comment).
+- `size`     — for string leaves: character count. For arrays/objects: child count. For `wb_entry`: content character count.
+- `entries`  — only on `world_book` rows: total entry count in the book. Read this, not `size`, to gauge book volume.
+
+Container paths (`rx/<scriptId>`, `wb/<entryId>`) are inspectable as a whole via `inspect`; to `read` / `edit` a string leaf, append the field name (`rx/<scriptId>/find_regex` or `/replace_string`; `wb/<entryId>/content` or `/comment`). Leaf paths (`char/<field>`, `char/alternate_greetings/<idx>`, `char/extensions/<dotted>`) are directly read/editable.

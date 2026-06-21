@@ -1,5 +1,8 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import description from "../prompts/claude/tools/list-personas/description.txt";
+import argLimit from "../prompts/claude/tools/list-personas/arg_limit.txt";
+import argOffset from "../prompts/claude/tools/list-personas/arg_offset.txt";
 
 const inputSchema = z.object({
   limit: z.number().int().min(1).max(500).optional(),
@@ -8,13 +11,13 @@ const inputSchema = z.object({
 
 export const listPersonasTool = defineTool({
   name: "list_personas",
-  description: "List the user's personas (identity profiles used as the {{user}} side of chats). Returns metadata only — id, name, title, folder, is_default, attached_world_book_id, image_id, description char count. Use read_persona for a specific one's full description and metadata.",
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      limit: { type: "number", description: "Max results, default 200." },
-      offset: { type: "number", description: "Pagination offset." },
+      limit: { type: "number", description: argLimit },
+      offset: { type: "number", description: argOffset },
     },
     required: [],
   },

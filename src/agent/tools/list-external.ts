@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import description from "../prompts/claude/tools/list-external/description.txt";
+import argCharacterId from "../prompts/claude/tools/list-external/arg_character_id.txt";
 
 const inputSchema = z.object({
   surface_id: z.string().min(1),
@@ -8,21 +10,13 @@ const inputSchema = z.object({
 
 export const listExternalTool = defineTool({
   name: "list_external",
-  description: `Lists every item in an external provider's surface.
-
-Usage:
-- Per-character surfaces are filtered to items attached to the active character automatically.
-- Use \`read_external\` to fetch one, \`grep_external\` to regex-search across all.
-
-Returns:
-- \`total\` — total item count after attachment filter.
-- \`items\` — array of \`{id, label, brief?}\`. \`id\` is what you pass to \`read_external\` / \`edit_external\` as \`item_id\`. \`brief\` is provider-defined metadata (counts, flags, kind) varying per surface.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
       surface_id: { type: "string" },
-      character_id: { type: "string", description: "For per-character surfaces, which character to filter to." },
+      character_id: { type: "string", description: argCharacterId },
     },
     required: ["surface_id"],
   },

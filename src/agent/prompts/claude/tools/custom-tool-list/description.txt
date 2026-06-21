@@ -1,0 +1,1 @@
+List every custom tool the agent has authored in this workspace. Returns name, description, param count, step count. Cheap; call this whenever you suspect a recipe already exists for the user's request.

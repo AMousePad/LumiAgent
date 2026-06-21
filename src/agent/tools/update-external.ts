@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import description from "../prompts/claude/tools/update-external/description.txt";
+import argValue from "../prompts/claude/tools/update-external/arg_value.txt";
 
 const inputSchema = z.object({
   surface_id: z.string().min(1),
@@ -10,11 +12,7 @@ const inputSchema = z.object({
 
 export const updateExternalTool = defineTool({
   name: "update_external",
-  description: `Wholesale-replaces a value at one field on an external provider's item.
-
-Usage:
-- Use for non-string fields (arrays, objects, numbers) or when overwriting the entire field.
-- For find/replace inside a long string field, prefer \`edit_external\`.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
@@ -22,7 +20,7 @@ Usage:
       surface_id: { type: "string" },
       item_id: { type: "string" },
       field: { type: "string" },
-      value: { description: "any JSON-serializable value" },
+      value: { description: argValue },
     },
     required: ["surface_id", "item_id", "field", "value"],
   },

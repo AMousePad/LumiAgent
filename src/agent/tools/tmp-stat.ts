@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import description from "../prompts/claude/tools/tmp-stat/description.txt";
 
 const inputSchema = z.object({
   handle: z.string(),
@@ -7,13 +8,7 @@ const inputSchema = z.object({
 
 export const tmpStatTool = defineTool({
   name: "tmp_stat",
-  description: `Inspect a tmp handle produced by an earlier spill. Cheap. Run before tmp_read / tmp_grep to know what you're dealing with.
-
-Returns:
-- \`handle\`               — the input echoed back.
-- \`total_chars\`, \`total_lines\` — body size.
-- \`createdAt\`            — ms epoch.
-- \`origin\`               — short tag of the tool that produced the spill (e.g. \`read:char/first_mes\`, \`list:wb/<id>\`).`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",

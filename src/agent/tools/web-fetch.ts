@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import { spillOrReturn } from "./_io";
+import description from "../prompts/claude/tools/web-fetch/description.txt";
+import argUrl from "../prompts/claude/tools/web-fetch/arg_url.txt";
+import argSaveTo from "../prompts/claude/tools/web-fetch/arg_save_to.txt";
+import argAs from "../prompts/claude/tools/web-fetch/arg_as.txt";
 
 // Shape the host's cors_proxy returns. `body` is text, or base64 when the
 // request asked for arraybuffer (image/audio/font only, magic-byte validated).
@@ -20,14 +24,14 @@ const inputSchema = z.object({
 
 export const webFetchTool = defineTool({
   name: "web_fetch",
-  description: "Fetch a single URL through the Lumiverse CORS proxy and optionally save it to the workspace. Default `as: 'text'` returns the raw body (HTML/JSON/text) and, with `save_to`, writes it to a workspace file. Use `as: 'image'` with a required `save_to` to download an image (png/jpg/gif/webp) straight to the workspace as bytes (the image data is not dumped into the reply). Pair with web_search: search first, then web_fetch the URLs worth keeping.",
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      url: { type: "string", description: "Fully-formed http(s) URL." },
-      save_to: { type: "string", description: "Optional workspace path to save to. Required when as='image'." },
-      as: { type: "string", enum: ["text", "image"], description: "text (default) returns/saves the body; image downloads bytes to save_to." },
+      url: { type: "string", description: argUrl },
+      save_to: { type: "string", description: argSaveTo },
+      as: { type: "string", enum: ["text", "image"], description: argAs },
     },
     required: ["url"],
   },

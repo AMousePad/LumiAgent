@@ -1,0 +1,1 @@
+JavaScript regex source. No flags, use `ignore_case` for /i.

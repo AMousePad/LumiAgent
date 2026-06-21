@@ -1,0 +1,1 @@
+Optional workspace path to save to. Required when as='image'.

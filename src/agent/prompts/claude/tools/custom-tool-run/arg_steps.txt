@@ -1,0 +1,1 @@
+Inline pipe (inline mode). Each step calls one built-in tool; `save_as` binds the parsed result to a name later steps can reference via {{$name}}.

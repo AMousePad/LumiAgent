@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import type { ToolCtx } from "./_context";
+import description from "../prompts/claude/tools/set-default-variables-text/description.txt";
 
 const inputSchema = z.object({
   character_id: z.string().min(1),
@@ -15,9 +16,7 @@ async function findLumirealm(ctx: ToolCtx) {
 
 export const setDefaultVariablesTextTool = defineTool({
   name: "set_default_variables_text",
-  description: `Set or clear the per-user override of LumiRealm default variables. This is the Risu-parity master text shown in State → Variables → Default for the current user only. Pass \`null\` to revert to the card-side baseline.
-
-For changes that every user of the card should see, edit \`char/extensions/lumirealm.payload.scriptstate_defaults\` (the card-side baseline object) instead.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",

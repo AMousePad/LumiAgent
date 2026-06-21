@@ -1,0 +1,1 @@
+Server-side token count using the active model's real tokenizer. Pass `text` for an arbitrary string or `chat_id` for a stored chat. Optional `model` overrides the tokenizer. Returns { total_tokens, model, tokenizer_name, approximate }.

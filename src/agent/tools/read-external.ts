@@ -2,6 +2,8 @@ import { z } from "zod";
 import { defineTool } from "./_framework";
 import { spillOrReturn } from "./_io";
 import { markRead, markReadWithHash } from "./_gates";
+import description from "../prompts/claude/tools/read-external/description.txt";
+import argField from "../prompts/claude/tools/read-external/arg_field.txt";
 
 const inputSchema = z.object({
   surface_id: z.string().min(1),
@@ -11,21 +13,14 @@ const inputSchema = z.object({
 
 export const readExternalTool = defineTool({
   name: "read_external",
-  description: `Reads one item from an external provider's surface.
-
-Usage:
-- Pass \`field\` to read one field. Omit it for the whole item.
-- A field-scoped read records the read in the recency gate so a subsequent \`edit_external\` on the same field can pass.
-- Big results spill to a tmp handle.
-
-Returns: JSON \`{surface_id, item_id, field, value_chars, value}\`. \`value\` is the raw string when the field is a string, otherwise the JSON-stringified payload (string form, not a parsed object). Spilled responses become a tmp envelope \`{spilled: true, tmp_handle, peek, ...}\` — pass \`tmp_handle\` to \`tmp_grep\` / \`tmp_read\`.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
       surface_id: { type: "string" },
       item_id: { type: "string" },
-      field: { type: "string", description: "Optional field name within the item" },
+      field: { type: "string", description: argField },
     },
     required: ["surface_id", "item_id"],
   },

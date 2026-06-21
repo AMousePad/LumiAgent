@@ -1,5 +1,9 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import description from "../prompts/claude/tools/list-databank-documents/description.txt";
+import argDatabankId from "../prompts/claude/tools/list-databank-documents/arg_databank_id.txt";
+import argLimit from "../prompts/claude/tools/list-databank-documents/arg_limit.txt";
+import argOffset from "../prompts/claude/tools/list-databank-documents/arg_offset.txt";
 
 const inputSchema = z.object({
   databank_id: z.string().min(1),
@@ -9,14 +13,14 @@ const inputSchema = z.object({
 
 export const listDatabankDocumentsTool = defineTool({
   name: "list_databank_documents",
-  description: "List documents in a databank. Returns metadata only — id, name, mime_type, file_size, total_chunks, status. Use read_databank_document to fetch a document's full extracted text.",
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      databank_id: { type: "string", description: "Databank id." },
-      limit: { type: "number", description: "Max results, default 200." },
-      offset: { type: "number", description: "Pagination offset." },
+      databank_id: { type: "string", description: argDatabankId },
+      limit: { type: "number", description: argLimit },
+      offset: { type: "number", description: argOffset },
     },
     required: ["databank_id"],
   },

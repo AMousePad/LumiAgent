@@ -1,0 +1,18 @@
+Wholesale write of any JSON value at a path. Use for structural changes the read/edit/rewrite trio can't make:
+
+- Toggling a boolean (regex.disabled, world_book_entry.constant)
+- Changing a number (priority, position, sort_order, depth)
+- Replacing an array / object value (e.g. extensions.lumirealm.payload.scriptstate_defaults)
+- Setting a typed value at an extension path that isn't a string
+- Attaching / changing a persona's world book: `set({path:"persona/<personaId>/attached_world_book_id", value:"<worldBookId>"})`; `value:null` detaches
+
+Path grammar matches `read` / `edit` / `rewrite`. The value field accepts any JSON-encodable type. For string-leaf paths, set is a wholesale alternative to `rewrite` (no read-gate, so use only when you don't need to anchor against current content).
+
+Records before/after in the ledger like every other edit — fully revertable.
+
+For multi-field atomic character updates use `update_character({patch})`.
+
+Returns:
+- `path` — path written.
+- `before_chars`, `after_chars` — string length before vs after (non-string values are JSON-stringified for measurement).
+- `before_peek`, `after_peek` — first 120 chars of each side, for verification.

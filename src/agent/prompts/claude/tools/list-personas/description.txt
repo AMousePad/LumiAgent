@@ -1,0 +1,1 @@
+List the user's personas (identity profiles used as the {{user}} side of chats). Returns metadata only — id, name, title, folder, is_default, attached_world_book_id, image_id, description char count. Use read_persona for a specific one's full description and metadata.

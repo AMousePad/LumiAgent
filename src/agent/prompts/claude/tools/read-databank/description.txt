@@ -1,0 +1,1 @@
+Read a single databank's metadata (name, description, scope, enabled, document count). Use list_databank_documents and read_databank_document to drill into contents.

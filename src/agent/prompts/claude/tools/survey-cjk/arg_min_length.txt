@@ -1,0 +1,1 @@
+default {{SURVEY_DEFAULT_MIN_LEN}}

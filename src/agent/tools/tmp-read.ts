@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import { formatLineSlice, spillOrReturn } from "./_io";
+import { fillPrompt } from "../prompts/_fill";
+import description from "../prompts/claude/tools/tmp-read/description.txt";
+import argOffset from "../prompts/claude/tools/tmp-read/arg_offset.txt";
+import argLimit from "../prompts/claude/tools/tmp-read/arg_limit.txt";
 
 const TMP_READ_DEFAULT_LIMIT = 200;
 const TMP_READ_MAX_LIMIT = 4000;
@@ -13,20 +17,14 @@ const inputSchema = z.object({
 
 export const tmpReadTool = defineTool({
   name: "tmp_read",
-  description: `Read lines from a tmp handle by offset/limit, with line numbers.
-
-For JSON-shaped spills (\`list\`, \`inspect\`, \`grep\`, \`audit_card_coverage\`, \`dry_run_prompt\`): \`tmp_grep\` first. The body is structured: most lines are braces, commas, and field names. Grepping for the id / key / token you care about returns the few lines you need; full \`tmp_read\` of a JSON spill burns 10-50x more tokens for no extra information.
-
-For prose spills (chat logs, large string leaves), reading by offset/limit is fine. Always pair this tool with \`tmp_stat\` first to learn total_lines before deciding on a range.
-
-Returns: a string body. First line is a metadata header \`[origin=..., total_lines=N, total_chars=M]\` followed by the line-numbered slice. Not JSON, parse line-by-line.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
       handle: { type: "string" },
-      offset: { type: "number", description: "1-indexed start line, default 1" },
-      limit: { type: "number", description: `Default ${TMP_READ_DEFAULT_LIMIT}, cap ${TMP_READ_MAX_LIMIT}` },
+      offset: { type: "number", description: argOffset },
+      limit: { type: "number", description: fillPrompt(argLimit, { TMP_READ_DEFAULT_LIMIT, TMP_READ_MAX_LIMIT }) },
     },
     required: ["handle"],
   },

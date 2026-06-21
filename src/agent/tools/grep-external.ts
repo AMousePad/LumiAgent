@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import { spillOrReturn } from "./_io";
+import description from "../prompts/claude/tools/grep-external/description.txt";
+import argPattern from "../prompts/claude/tools/grep-external/arg_pattern.txt";
+import argCharacterId from "../prompts/claude/tools/grep-external/arg_character_id.txt";
+import argFieldPrefix from "../prompts/claude/tools/grep-external/arg_field_prefix.txt";
+import argHead from "../prompts/claude/tools/grep-external/arg_head.txt";
 
 const inputSchema = z.object({
   surface_id: z.string().min(1),
@@ -13,23 +18,17 @@ const inputSchema = z.object({
 
 export const grepExternalTool = defineTool({
   name: "grep_external",
-  description: `Regex-search every item in an external provider's surface.
-
-Usage:
-- Returns hits with item_id + item_label + field_path + line + match + preview.
-- \`field_prefix\` scopes the walk to a path subtree, path-segment aware. Examples: \`module.regex\` matches \`module.regex\`, \`module.regex[0]\`, \`module.regex.x\`; does NOT match \`module.regex_v2\`.
-- Per-character surfaces are filtered to items attached to the active character.
-- \`head\` caps the hit count (default 200, max 2000); response includes \`truncated\` when hit.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
       surface_id: { type: "string" },
-      pattern: { type: "string", description: "JavaScript regex source. No flags, use `ignore_case` for /i." },
-      character_id: { type: "string", description: "For per-character surfaces, which character to filter to." },
+      pattern: { type: "string", description: argPattern },
+      character_id: { type: "string", description: argCharacterId },
       ignore_case: { type: "boolean" },
-      field_prefix: { type: "string", description: "Optional path-prefix filter, e.g. 'module.regex'." },
-      head: { type: "integer", minimum: 1, maximum: 2000, description: "Max hits to return. Default 200." },
+      field_prefix: { type: "string", description: argFieldPrefix },
+      head: { type: "integer", minimum: 1, maximum: 2000, description: argHead },
     },
     required: ["surface_id", "pattern"],
   },

@@ -1,0 +1,6 @@
+Lists the top-K vector-retrieved memory chunks for a chat.
+
+Usage:
+- Returns the same chunks Lumiverse would inject into the prompt under chat memory.
+- Response includes { chunks, formatted, count, enabled, settingsSource }.
+- Use to understand what historical context is being surfaced into the current generation.

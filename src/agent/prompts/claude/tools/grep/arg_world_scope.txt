@@ -1,0 +1,1 @@
+'all' also searches every other owned book; entries labeled [global] (Always-Active) or [unattached]. Default 'attached'.

@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
-import { wbLabel, coerceKeyList, WB_ENTRY_KEY_FIELDS } from "./_surfaces";
+import { wbLabel, coerceKeyList, WB_ENTRY_KEY_FIELDS, WB_ENTRY_WRITABLE_FIELDS } from "./_surfaces";
 import { characterScope, type ScopeRef } from "../../types";
 import type { WorldBookEntryUpdateDTO } from "lumiverse-spindle-types";
+import description from "../prompts/claude/tools/update-world-book-entry/description.txt";
 
 const inputSchema = z.object({
   entry_id: z.string().min(1),
@@ -11,13 +12,7 @@ const inputSchema = z.object({
 
 export const updateWorldBookEntryTool = defineTool({
   name: "update_world_book_entry",
-  description: `Updates metadata fields of a world book entry atomically.
-
-Usage:
-- Path-based \`edit\` / \`rewrite\` only address \`wb/<id>/content\` and \`wb/<id>/comment\`. Metadata goes through here: \`key\` array, \`keysecondary\`, \`priority\`, \`disabled\`, \`constant\`, \`position\`, \`depth\`, \`role\`, \`selective\`, \`selectiveLogic\`.
-- Pass only the fields to change in \`patch\`.
-- For content edits prefer \`edit\` / \`rewrite\`.
-- Works in a no-character session (operates by \`entry_id\`), like \`edit\` / \`rewrite\` / \`set\` on \`wb/\`.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
@@ -36,6 +31,9 @@ Usage:
     // so a model passing "a, b" or '["a","b"]' would corrupt the entry's key
     // column (unparseable, entry can no longer open in the editor).
     const rawPatch = input.patch as Record<string, unknown>;
+    // Reject fields the host won't write, instead of reporting a phantom success.
+    const unknown = Object.keys(rawPatch).filter((k) => !WB_ENTRY_WRITABLE_FIELDS.has(k));
+    if (unknown.length > 0) return { content: `Error: [PATH_NOT_FOUND] world book entry has no writable field(s): ${unknown.join(", ")}. Valid: ${[...WB_ENTRY_WRITABLE_FIELDS].join(", ")}`, isError: true };
     const patch: WorldBookEntryUpdateDTO = { ...rawPatch } as WorldBookEntryUpdateDTO;
     for (const f of WB_ENTRY_KEY_FIELDS) {
       if (rawPatch[f] !== undefined) (patch as Record<string, unknown>)[f] = coerceKeyList(rawPatch[f]);

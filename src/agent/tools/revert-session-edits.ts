@@ -5,6 +5,8 @@ import { characterScope, type ScopeRef } from "../../types";
 import { revertEditWithCheck } from "../../state/edit-log";
 import { spliceRevertedFromSession } from "../../state/sessions";
 import { resolveCharacterTarget, noTargetResult } from "./_context";
+import description from "../prompts/claude/tools/revert-session-edits/description.txt";
+import argAllowCrossSession from "../prompts/claude/tools/revert-session-edits/arg_allow_cross_session.txt";
 
 const inputSchema = z.object({
   edit_ids: z.array(z.string().min(1)).min(1).max(50).describe("Edit ids from list_session_edits."),
@@ -13,19 +15,13 @@ const inputSchema = z.object({
 
 export const revertSessionEditsTool = defineTool({
   name: "revert_session_edits",
-  description: `Reverts one or more agent-authored edits by id.
-
-Usage:
-- Restricted by default to edits authored in the CURRENT session.
-- Set \`allow_cross_session: true\` to revert edits from earlier sessions on this character. Use sparingly; the user from those earlier sessions doesn't know about the change.
-- Cascade-aware: if a later edit depended on a reverted one and can no longer apply, it gets reverted too and listed under \`cascadedEditIds\`.
-- Edit ids come from \`list_session_edits\`.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
       edit_ids: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 50 },
-      allow_cross_session: { type: "boolean", description: "Default false. Set true to revert edits owned by a different session." },
+      allow_cross_session: { type: "boolean", description: argAllowCrossSession },
     },
     required: ["edit_ids"],
     additionalProperties: false,

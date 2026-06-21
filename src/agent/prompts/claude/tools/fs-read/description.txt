@@ -1,0 +1,1 @@
+Read a workspace text file with line numbers and pagination.

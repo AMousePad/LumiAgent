@@ -1,0 +1,3 @@
+Set or clear the per-user override of LumiRealm default variables. This is the Risu-parity master text shown in State → Variables → Default for the current user only. Pass `null` to revert to the card-side baseline.
+
+For changes that every user of the card should see, edit `char/extensions/lumirealm.payload.scriptstate_defaults` (the card-side baseline object) instead.

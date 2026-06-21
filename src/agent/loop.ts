@@ -19,6 +19,7 @@ import { dlog } from "../log";
 import { characterScope } from "../types";
 import { writeTmp } from "../state/tmp-store";
 import { isReadOnlyTool, maxResultSizeCharsFor, RecentReadsCache, type ToolCtx, type ToolFn, type QueuedImage } from "./tools";
+import toolCallAsText from "./prompts/claude/agent/loop/tool_call_as_text.txt";
 
 const PARALLEL_TOOL_CONCURRENCY = 5;
 const SPILL_ENVELOPE_SENTINEL = "{\n  \"spilled\": true";
@@ -571,7 +572,7 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
         conv.push({ role: "assistant", content });
         conv.push({
           role: "user",
-          content: "[SYSTEM: Your previous reply contained tool-call syntax as text (e.g. <invoke>, <tool_use>, <function_call>, <tool_call> tags). Text-encoded tool calls are NOT executed in their text form, they only run through the provider's native tool-use channel. Re-issue the same call(s) properly now.]",
+          content: toolCallAsText,
         });
         yield { type: "warning", message: "The model wrote tool syntax as text instead of calling through the native channel. Nudged once. If it happens again I'll parse and dispatch as a fallback." };
         // Carry the cleaned text so the turn-scoped block fold strips the raw

@@ -1,11 +1,12 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import description from "../prompts/claude/tools/get-lumiverse-version/description.txt";
 
 const inputSchema = z.object({}).strict();
 
 export const getLumiverseVersionTool = defineTool({
   name: "get_lumiverse_version",
-  description: "Get the running Lumiverse backend and frontend semantic version strings. Useful when the user reports a bug or behaviour that depends on a specific build — surface the version before guessing.",
+  description,
   inputSchema,
   jsonSchema: { type: "object", properties: {}, required: [] },
   execute: async (_input, ctx) => {

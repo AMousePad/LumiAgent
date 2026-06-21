@@ -1,0 +1,1 @@
+Skim a chat's messages as metadata only: idx, id, role, char count, and an 80-char snippet per message. Cheap on tokens. Use for picking which specific messages to read in full afterwards.

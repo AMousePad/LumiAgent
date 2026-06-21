@@ -1,0 +1,1 @@
+List active tmp handles for this user across all sessions. Returns newest-first with handle, origin, total_chars, total_lines, createdAt. Per-user cap is 50 files OR 30MB; oldest are auto-evicted on the next spill.

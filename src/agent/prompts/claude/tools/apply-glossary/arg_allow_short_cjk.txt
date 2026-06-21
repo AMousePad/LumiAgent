@@ -1,0 +1,1 @@
+permit 1-character CJK source keys. Default false.

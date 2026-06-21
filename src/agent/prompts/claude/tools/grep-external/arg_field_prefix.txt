@@ -1,0 +1,1 @@
+Optional path-prefix filter, e.g. 'module.regex'.

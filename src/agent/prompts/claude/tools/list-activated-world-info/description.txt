@@ -1,0 +1,5 @@
+Lists world info entries that would activate for a chat at its current state.
+
+Usage:
+- Returns { id, comment, keys, source: 'keyword'|'vector', score?, bookId?, bookSource? } per entry. `bookSource` is the binding scope that contributed the entry's book: 'character'|'persona'|'chat'|'global' (narrowest wins). Also returns `by_source`, a count of entries per binding scope.
+- Use to debug "is this lorebook entry actually firing?" (and "from which binding layer?") before reading the entry's content.

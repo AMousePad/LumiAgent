@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import { spillOrReturn } from "./_io";
+import description from "../prompts/claude/tools/list-chat-memories/description.txt";
+import argTopK from "../prompts/claude/tools/list-chat-memories/arg_top_k.txt";
 
 const inputSchema = z.object({
   chat_id: z.string().optional(),
@@ -9,18 +11,13 @@ const inputSchema = z.object({
 
 export const listChatMemoriesTool = defineTool({
   name: "list_chat_memories",
-  description: `Lists the top-K vector-retrieved memory chunks for a chat.
-
-Usage:
-- Returns the same chunks Lumiverse would inject into the prompt under chat memory.
-- Response includes { chunks, formatted, count, enabled, settingsSource }.
-- Use to understand what historical context is being surfaced into the current generation.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
       chat_id: { type: "string" },
-      top_k: { type: "number", description: "How many chunks to retrieve. Default depends on Lumiverse settings." },
+      top_k: { type: "number", description: argTopK },
     },
     required: [],
   },

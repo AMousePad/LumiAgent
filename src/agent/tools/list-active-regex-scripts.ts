@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import { spillOrReturn } from "./_io";
+import description from "../prompts/claude/tools/list-active-regex-scripts/description.txt";
+import argTarget from "../prompts/claude/tools/list-active-regex-scripts/arg_target.txt";
+import argChatId from "../prompts/claude/tools/list-active-regex-scripts/arg_chat_id.txt";
+import argCharacterId from "../prompts/claude/tools/list-active-regex-scripts/arg_character_id.txt";
+import argUseActiveCharacter from "../prompts/claude/tools/list-active-regex-scripts/arg_use_active_character.txt";
 
 const TARGETS = ["prompt", "response", "display"] as const;
 
@@ -13,20 +18,15 @@ const inputSchema = z.object({
 
 export const listActiveRegexScriptsTool = defineTool({
   name: "list_active_regex_scripts",
-  description: `Lists regex scripts that would fire for a target under the active character + chat context.
-
-Usage:
-- \`target\`: \`prompt\` runs on text sent to the model, \`response\` runs on raw model output before storage, \`display\` runs at render time on stored content.
-- Merges global + character + chat scopes and orders by scope tier then sort_order, matching Lumiverse's runtime ordering.
-- Use to figure out what's rewriting the model's output before digging into individual scripts.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      target: { type: "string", enum: [...TARGETS], description: "Which surface the scripts target." },
-      chat_id: { type: "string", description: "Chat scope." },
-      character_id: { type: "string", description: "Bind to this character." },
-      use_active_character: { type: "boolean", description: "Bind to the active character. Defaults to true." },
+      target: { type: "string", enum: [...TARGETS], description: argTarget },
+      chat_id: { type: "string", description: argChatId },
+      character_id: { type: "string", description: argCharacterId },
+      use_active_character: { type: "boolean", description: argUseActiveCharacter },
     },
     required: ["target"],
   },

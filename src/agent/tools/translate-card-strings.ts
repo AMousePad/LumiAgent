@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { CharacterUpdateDTO } from "lumiverse-spindle-types";
 import { defineTool } from "./_framework";
 import { resolveCharacterTarget, noTargetResult } from "./_context";
+import description from "../prompts/claude/tools/translate-card-strings/description.txt";
 
 type Kind = "plain" | "html" | "lua";
 
@@ -84,14 +85,7 @@ function isNonEmptyString(v: unknown): v is string {
 
 export const translateCardStringsTool = defineTool({
   name: "translate_card_strings",
-  description: `Mechanical bulk translation via Chrome's on-device Translator API. No LLM tokens.
-
-Usage:
-- Ask the user before invoking on prose surfaces (greetings, descriptions, lorebook entries). Your own translation via \`edit\` / \`rewrite\` is higher quality there.
-- \`dry_run: true\` returns the would-translate manifest without invoking Chrome or writing.
-- \`include\` defaults to mechanical surfaces (regex_scripts + lumirealm_bghtml + lumirealm_lua + lumirealm_scriptstate). Prose surfaces are opt-in.
-- Requires Chrome desktop with the Translator API for the source→target pair.
-- After application, use \`list_session_edits\` + \`read\` to proof-check each touched path.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",

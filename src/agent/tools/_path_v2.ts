@@ -17,7 +17,7 @@
 // used by the recent-read gate and the audit tool — one string, one surface,
 // across read / edit / grep / inspect.
 
-import type { CharacterUpdateDTO, RegexScriptUpdateDTO, WorldBookEntryUpdateDTO, PersonaUpdateDTO } from "lumiverse-spindle-types";
+import type { CharacterUpdateDTO, RegexScriptUpdateDTO, WorldBookEntryUpdateDTO, PersonaUpdateDTO, WorldBookDTO } from "lumiverse-spindle-types";
 import type { ToolCtx } from "./_context";
 import type { EditRecord, ScopeRef } from "../../types";
 import { characterScope } from "../../types";
@@ -94,6 +94,20 @@ export function writeAltFieldArray(
 // scope is correct even when the agent addresses a character other than the
 // session focus. wb / rx file under the focused character when present, else
 // under their own scope.
+// The host caps world_books.list at 200 rows per page (limit is min'd to 200),
+// so a single large-limit call silently drops books past 200. Loop on offset.
+export async function listAllWorldBooks(ctx: ToolCtx): Promise<WorldBookDTO[]> {
+  const out: WorldBookDTO[] = [];
+  let offset = 0;
+  while (true) {
+    const r = await ctx.spindle.world_books.list({ limit: 200, offset, userId: ctx.userId });
+    out.push(...r.data);
+    if (r.data.length === 0 || out.length >= r.total) break;
+    offset += r.data.length;
+  }
+  return out;
+}
+
 export function scopeForLeafKey(key: string, ctx: ToolCtx): ScopeRef {
   if (key.startsWith("persona/")) return { kind: "persona", id: key.split("/")[1]! };
   if (key.startsWith("chat/")) return { kind: "chat", id: key.split("/")[1]! };
@@ -372,6 +386,11 @@ export async function resolveRead(ctx: ToolCtx, path: string): Promise<ResolvedL
         surfaceLabel: `${p.name} · ${wbLabel(e)}`,
         field,
         value: wv,
+        // File under the owning BOOK, not the persona. The same entry is also
+        // reachable as wb/<entryId>/<field> (which files under world_book); without
+        // this override the two path forms would split edits across two ledgers
+        // and a revert on one would clobber the other.
+        scope: { kind: "world_book", id: e.world_book_id },
       };
     }
     if (parts.length !== 3) throw new PathError(path, `expected persona/<personaId>/<field>, got ${parts.length} segments`);
@@ -651,8 +670,8 @@ export async function* iterateAllLeaves(ctx: ToolCtx, characterId: string, opts?
   let globalSet = new Set<string>();
   if (opts?.wbScope === "all") {
     globalSet = new Set(await ctx.spindle.world_books.getGlobal(ctx.userId).catch(() => [] as string[]));
-    const owned = await ctx.spindle.world_books.list({ limit: 1000, userId: ctx.userId });
-    for (const wb of owned.data) if (!attachedSet.has(wb.id)) wbIds.push(wb.id);
+    const owned = await listAllWorldBooks(ctx);
+    for (const wb of owned) if (!attachedSet.has(wb.id)) wbIds.push(wb.id);
   }
   for (const wbId of wbIds) {
     const attached = attachedSet.has(wbId);

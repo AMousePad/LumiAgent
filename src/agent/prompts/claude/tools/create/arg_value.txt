@@ -1,0 +1,1 @@
+New entity fields (object) or a string for a greeting.

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import description from "../prompts/claude/tools/test-regex/description.txt";
 
 const inputSchema = z.object({
   pattern: z.string(),
@@ -9,7 +10,7 @@ const inputSchema = z.object({
 
 export const testRegexTool = defineTool({
   name: "test_regex",
-  description: "Compile a regex and test it against a sample. Returns whether it matches, the match, and capture groups.",
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",

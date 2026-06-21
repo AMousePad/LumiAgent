@@ -1,0 +1,1 @@
+Read a single LLM connection profile by id. Returns full metadata including custom fields (no API key, only `has_api_key`).

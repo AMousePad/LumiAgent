@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import description from "../prompts/claude/tools/fs-stat/description.txt";
 
 const inputSchema = z.object({
   path: z.string().min(1),
@@ -7,7 +8,7 @@ const inputSchema = z.object({
 
 export const fsStatTool = defineTool({
   name: "fs_stat",
-  description: "Get metadata for a single workspace path. Returns isDirectory, sizeBytes, modifiedAt. Returns null when the path doesn't exist.",
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",

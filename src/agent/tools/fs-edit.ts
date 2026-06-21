@@ -4,6 +4,8 @@ import { applyEdit } from "./_edit";
 import { buildEditPatch } from "./_patch";
 import { ensureRecentRead } from "./_gates";
 import { stashDraft, loadDraft, draftReuseNote } from "./_drafts";
+import description from "../prompts/claude/tools/fs-edit/description.txt";
+import argReplaceHandle from "../prompts/claude/tools/fs-edit/arg_replace_handle.txt";
 
 const inputSchema = z.object({
   path: z.string().min(1),
@@ -22,7 +24,7 @@ const gate = {
 
 export const fsEditTool = defineTool({
   name: "fs_edit",
-  description: "Find/replace inside a workspace text file. Requires a recent fs_read on the same path in this turn. Same unique-find discipline as the card edit tools.",
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
@@ -30,7 +32,7 @@ export const fsEditTool = defineTool({
       path: { type: "string" },
       find: { type: "string" },
       replace: { type: "string" },
-      replace_handle: { type: "string", description: "Handle of a previously-stashed draft." },
+      replace_handle: { type: "string", description: argReplaceHandle },
       replace_all: { type: "boolean" },
     },
     required: ["path", "find"],

@@ -2,6 +2,11 @@ import { z } from "zod";
 import { defineTool } from "./_framework";
 import { spillOrReturn } from "./_io";
 import type { ToolCtx } from "./_context";
+import description from "../prompts/claude/tools/web-search/description.txt";
+import argQuery from "../prompts/claude/tools/web-search/arg_query.txt";
+import argCount from "../prompts/claude/tools/web-search/arg_count.txt";
+import argScrape from "../prompts/claude/tools/web-search/arg_scrape.txt";
+import argSaveTo from "../prompts/claude/tools/web-search/arg_save_to.txt";
 
 type SearchResponse = Awaited<ReturnType<ToolCtx["spindle"]["webSearch"]["query"]>>;
 
@@ -28,15 +33,15 @@ const inputSchema = z.object({
 
 export const webSearchTool = defineTool({
   name: "web_search",
-  description: "Search the public web via the user's configured Lumiverse web search provider. Returns ranked results (title, URL, snippet); with scrape on (default) it also fetches and returns the top pages' extracted text. The `query` must be a short keyword-heavy search phrase a human would type ('latest OpenRouter pricing', 'Claude Sonnet release notes'), NOT a sentence, answer, or roleplay narration. Pass `save_to` (a workspace path like 'research/topic.md') to also write the results + page text to a file. Requires the user to have web search enabled in Lumiverse Settings.",
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      query: { type: "string", minLength: 2, description: "Keyword-heavy search phrase, not a sentence." },
-      count: { type: "integer", minimum: 1, description: "Desired result count (clamped to the user's max)." },
-      scrape: { type: "boolean", description: "Fetch top pages' text (default true). Set false for titles/URLs/snippets only." },
-      save_to: { type: "string", description: "Optional workspace path to also save the results markdown to." },
+      query: { type: "string", minLength: 2, description: argQuery },
+      count: { type: "integer", minimum: 1, description: argCount },
+      scrape: { type: "boolean", description: argScrape },
+      save_to: { type: "string", description: argSaveTo },
     },
     required: ["query"],
   },

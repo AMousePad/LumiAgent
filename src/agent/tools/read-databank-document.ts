@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import { spillOrReturn } from "./_io";
+import description from "../prompts/claude/tools/read-databank-document/description.txt";
+import argDocumentId from "../prompts/claude/tools/read-databank-document/arg_document_id.txt";
+import argMetaOnly from "../prompts/claude/tools/read-databank-document/arg_meta_only.txt";
 
 const inputSchema = z.object({
   document_id: z.string().min(1),
@@ -9,13 +12,13 @@ const inputSchema = z.object({
 
 export const readDatabankDocumentTool = defineTool({
   name: "read_databank_document",
-  description: "Read a databank document. Returns metadata always; with meta_only=false (default), also returns the full extracted text content (spills to a tmp handle if large).",
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      document_id: { type: "string", description: "Document id." },
-      meta_only: { type: "boolean", description: "If true, skip the content fetch. Default false." },
+      document_id: { type: "string", description: argDocumentId },
+      meta_only: { type: "boolean", description: argMetaOnly },
     },
     required: ["document_id"],
   },

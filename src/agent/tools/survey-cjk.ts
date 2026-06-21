@@ -4,6 +4,10 @@ import { defineTool } from "./_framework";
 import { type ToolCtx, resolveCharacterTarget, noTargetResult } from "./_context";
 import { CHARACTER_STRING_FIELDS } from "./_surfaces";
 import { walkStringLeaves } from "./_walk";
+import { fillPrompt } from "../prompts/_fill";
+import description from "../prompts/claude/tools/survey-cjk/description.txt";
+import argMinLength from "../prompts/claude/tools/survey-cjk/arg_min_length.txt";
+import argTopN from "../prompts/claude/tools/survey-cjk/arg_top_n.txt";
 
 const SURVEY_DEFAULT_MIN_LEN = 2;
 const SURVEY_DEFAULT_TOP_N = 60;
@@ -73,21 +77,14 @@ const inputSchema = z.object({
 
 export const surveyCjkTool = defineTool({
   name: "survey_cjk",
-  description: `Walk every editable surface and group all runs of CJK characters (Korean / Japanese / Chinese) by exact string. Run this first on any translation task.
-
-Returns:
-- \`scopes\`, \`min_length\` — request echoes.
-- \`distinct_strings\`   — number of unique CJK runs found.
-- \`total_runs\`         — sum of occurrences across all surfaces.
-- \`returned\`, \`truncated\` — how many made it into \`top\` and whether some were dropped.
-- \`top\` — array of \`{text, count, distinct_surfaces, sample_surfaces}\`, sorted by count descending. \`sample_surfaces\` is up to 4 surface names where the run appears.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
       scopes: { type: "array", items: { type: "string", enum: ["character", "world_books", "regex_scripts", "extensions"] } },
-      min_length: { type: "number", description: `default ${SURVEY_DEFAULT_MIN_LEN}` },
-      top_n: { type: "number", description: `default ${SURVEY_DEFAULT_TOP_N}` },
+      min_length: { type: "number", description: fillPrompt(argMinLength, { SURVEY_DEFAULT_MIN_LEN }) },
+      top_n: { type: "number", description: fillPrompt(argTopN, { SURVEY_DEFAULT_TOP_N }) },
       character_id: { type: "string" },
     },
     required: [],

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import description from "../prompts/claude/tools/fs-move/description.txt";
 
 const inputSchema = z.object({
   from: z.string().min(1),
@@ -8,7 +9,7 @@ const inputSchema = z.object({
 
 export const fsMoveTool = defineTool({
   name: "fs_move",
-  description: "Move or rename a workspace path. Works on both files and directories.",
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",

@@ -1,0 +1,1 @@
+Find/replace inside a workspace text file. Requires a recent fs_read on the same path in this turn. Same unique-find discipline as the card edit tools.

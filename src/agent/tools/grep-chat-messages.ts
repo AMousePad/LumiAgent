@@ -2,6 +2,10 @@ import { z } from "zod";
 import { defineTool } from "./_framework";
 import { spillOrReturn } from "./_io";
 import type { ToolCtx } from "./_context";
+import { fillPrompt } from "../prompts/_fill";
+import description from "../prompts/claude/tools/grep-chat-messages/description.txt";
+import argFlags from "../prompts/claude/tools/grep-chat-messages/arg_flags.txt";
+import argMaxMatches from "../prompts/claude/tools/grep-chat-messages/arg_max_matches.txt";
 
 const CHAT_GREP_DEFAULT_MAX = 50;
 const CHAT_GREP_MAX_CAP = 500;
@@ -25,16 +29,16 @@ function resolveChatId(input: { chat_id?: string | undefined }, ctx: ToolCtx): s
 
 export const grepChatMessagesTool = defineTool({
   name: "grep_chat_messages",
-  description: "Regex search across message contents. Returns hits with idx, id, role, line, match, preview. Use this for any 'where did we say X' question on a big chat, before falling back to read_chat_messages.",
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
       chat_id: { type: "string" },
       pattern: { type: "string" },
-      flags: { type: "string", description: "Extra regex flags. g is implied." },
+      flags: { type: "string", description: argFlags },
       case_insensitive: { type: "boolean" },
-      max_matches: { type: "number", description: `Default ${CHAT_GREP_DEFAULT_MAX}, cap ${CHAT_GREP_MAX_CAP}` },
+      max_matches: { type: "number", description: fillPrompt(argMaxMatches, { CHAT_GREP_DEFAULT_MAX, CHAT_GREP_MAX_CAP }) },
     },
     required: ["pattern"],
   },

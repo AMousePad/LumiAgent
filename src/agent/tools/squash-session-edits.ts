@@ -3,6 +3,7 @@ import { defineTool } from "./_framework";
 import { squashMessage } from "../../state/ledger";
 import { characterScope } from "../../types";
 import { resolveCharacterTarget, noTargetResult } from "./_context";
+import description from "../prompts/claude/tools/squash-session-edits/description.txt";
 
 const inputSchema = z.object({
   phase_label: z.string().max(120).optional().describe("Optional label for what this phase represented (e.g. 'translation pass', 'tone refactor'). Stored on the merged patch's description."),
@@ -10,12 +11,7 @@ const inputSchema = z.object({
 
 export const squashSessionEditsTool = defineTool({
   name: "squash_session_edits",
-  description: `Seals every edit made so far in this response into one consolidated patch per file/field.
-
-Usage:
-- Call mid-response to commit a phase of work before starting another (translation pass → seal → tone refactor).
-- End-of-message autosquash never merges across sealed patches; phases stay revertable as discrete units.
-- If never called, all edits in this response get auto-squashed into one patch per file at the end of the message.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",

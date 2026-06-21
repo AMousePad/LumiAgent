@@ -13,6 +13,10 @@ import { CHARACTER_STRING_FIELDS, wbLabel } from "./_surfaces";
 import { parseExtensionPath, setAtPath } from "./_paths";
 import { walkStringLeaves } from "./_walk";
 import { characterScope } from "../../types";
+import description from "../prompts/claude/tools/apply-glossary/description.txt";
+import argEntries from "../prompts/claude/tools/apply-glossary/arg_entries.txt";
+import argDryRun from "../prompts/claude/tools/apply-glossary/arg_dry_run.txt";
+import argAllowShortCjk from "../prompts/claude/tools/apply-glossary/arg_allow_short_cjk.txt";
 
 const CJK_RE = /[぀-ゟ゠-ヿㇰ-ㇿ㐀-䶿一-鿿가-힣豈-﫿]/;
 
@@ -64,19 +68,15 @@ const inputSchema = z.object({
 
 export const applyGlossaryTool = defineTool({
   name: "apply_glossary",
-  description: `Apply a phrase-to-translation map across the union of surfaces in one call, sorted longest-first to avoid shorter-key-clobbers-longer-key. Each surface's hits batch into one edit (one diff card). Scopes default to character + world_books + regex_scripts.replace_string + extensions string leaves; \`find_regex\` is never touched.
-
-Safety: refuses single-character CJK keys by default (substring collisions: '비'→'Rain' corrupts '비명'→'Rain명'); pass allow_short_cjk=true only after auditing. Run dry_run=true first to see hit counts.
-
-Returns \`{dry_run, entries_in_glossary, total_replacements, surfaces_affected, per_entry_hits, per_surface:[{surface,surfaceId,field,hits}], note}\` — check per_surface to confirm what actually changed.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      entries: { type: "object", description: "object mapping source phrase to translation. Example: {\"안녕\": \"Hello\", \"감사합니다\": \"Thank you\"}" },
+      entries: { type: "object", description: argEntries },
       scopes: { type: "array", items: { type: "string", enum: ["character", "world_books", "regex_scripts", "extensions"] } },
-      dry_run: { type: "boolean", description: "if true, count hits per entry without writing" },
-      allow_short_cjk: { type: "boolean", description: "permit 1-character CJK source keys. Default false." },
+      dry_run: { type: "boolean", description: argDryRun },
+      allow_short_cjk: { type: "boolean", description: argAllowShortCjk },
       character_id: { type: "string" },
     },
     required: ["entries"],

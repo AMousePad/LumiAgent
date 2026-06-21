@@ -1,0 +1,1 @@
+Read a single variable by name from a scope (chat / local / global / macro; see list_variables for what each scope is). Returns { exists, value }.

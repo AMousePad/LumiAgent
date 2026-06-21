@@ -5,6 +5,9 @@ import { buildEditPatch } from "./_patch";
 import { ensureFreshRead, ensureRecentRead, refreshReadHash } from "./_gates";
 import { stashDraft, loadDraft, draftReuseNote } from "./_drafts";
 import { resolveRead, resolveWrite, PathError, OutOfRangeError, ExtensionRefusedError } from "./_path_v2";
+import description from "../prompts/claude/tools/edit/description.txt";
+import argPath from "../prompts/claude/tools/edit/arg_path.txt";
+import argReplaceHandle from "../prompts/claude/tools/edit/arg_replace_handle.txt";
 
 const inputSchema = z.object({
   path: z.string().min(3).describe("Slash-separated path. Same grammar as `read`."),
@@ -28,30 +31,15 @@ const gate: ReadGate = {
 
 export const editTool = defineTool({
   name: "edit",
-  description: `Find/replace within a string-valued surface, by path.
-
-Rules:
-1. Recent-read gate: \`read\` must have run on the same path in this turn. Surface keys match byte-for-byte. If you read 'char/description' the gate fails for 'char/extensions/...'.
-2. Unique-find: \`find\` must appear exactly once, unless replace_all=true.
-3. Automatic recovery: when byte-exact match fails, ONE fallback is tried — quote-asciify (curly / corner / fullwidth quotes normalized to ASCII on both sides). Result includes \`recovered_via\` on success. NFC/NFD Hangul, NBSPs, BOMs, line endings, and whitespace drift are NOT auto-recovered: copy bytes verbatim from a recent \`read\`, or run \`inspect\` first to see the encoding diagnostics that explain why your find string didn't match.
-4. Failure stashes the replacement payload as a draft handle the next call can pass via \`replace_handle\`.
-
-Path grammar: same as \`read\`. Examples: 'char/first_mes', 'rx/<id>/replace_string', 'wb/<id>/comment', 'char/extensions/lumirealm.payload.background_html_source'.
-
-Returns:
-- \`path\`         — canonical leaf path that was written.
-- \`replacements\` — how many occurrences were replaced (1 unless replace_all).
-- \`snippet\`      — short context window around the first hit, post-replace.
-- \`patch\`        — \`{additions, deletions, hunks}\` jsdiff-structured for the UI.
-- \`recovered_via\` (only on fallback) — name of the recovery strategy that matched. Leading warning line precedes the JSON.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      path: { type: "string", description: "Surface path. See `read` tool for grammar." },
+      path: { type: "string", description: argPath },
       find: { type: "string" },
       replace: { type: "string" },
-      replace_handle: { type: "string", description: "Handle of a previously-stashed draft." },
+      replace_handle: { type: "string", description: argReplaceHandle },
       replace_all: { type: "boolean" },
     },
     required: ["path", "find"],

@@ -1,0 +1,1 @@
+path='wb' only: list all owned world books (not just attached). Works with no focused character; with one, rows carry `attached`.

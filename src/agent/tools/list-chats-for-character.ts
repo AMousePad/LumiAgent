@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import { resolveCharacterTarget, noTargetResult } from "./_context";
+import description from "../prompts/claude/tools/list-chats-for-character/description.txt";
 
 const inputSchema = z.object({
   character_id: z.string().optional().describe("Character whose chats to list."),
@@ -8,7 +9,7 @@ const inputSchema = z.object({
 
 export const listChatsForCharacterTool = defineTool({
   name: "list_chats_for_character",
-  description: "List all of a character's chat sessions. Returns id, name, updated_at, message_count, is_active (whether the host is currently showing this chat). Use this to discover what chats exist before reading messages, or to suggest one for the user to pin.",
+  description,
   inputSchema,
   jsonSchema: { type: "object", properties: { character_id: { type: "string" } }, required: [] },
   requiresCharacter: false,

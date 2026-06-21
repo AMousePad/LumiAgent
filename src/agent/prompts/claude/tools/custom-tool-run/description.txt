@@ -1,0 +1,8 @@
+Run multiple built-in tool calls in one turn (worked examples in the system prompt's "Piping tool calls" section).
+- Chain: step N saves with `save_as`, step N+1 references via `{{$var}}`.
+- Fan-out: each step `save_as`s; the runtime returns all bindings as one object.
+Use whenever you'd call tool A then feed its value into tool B, or call several tools whose results you all want — the intermediates stay in the interpreter, never round-trip through your tool_result stream.
+
+Ref syntax in step args / optional `return`: `{{$body}}` (raw value), `prefix {{$body}} end` (coerced string), `{{$pick.picks[0].id}}` (dotted path + index).
+Returns: explicit `return` → that; else any `save_as` → object of all bindings; else the final step's result.
+Budget: 400 steps / depth 4 / 60s. The `name` form runs a saved recipe; default to inline `steps`.

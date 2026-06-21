@@ -1,0 +1,3 @@
+# Pinned chat
+
+Every tool with a `chat_id` arg defaults to the pinned chat when it's omitted, and errors (or returns `{pinned: false}`) if nothing is pinned. Call `read_chat_messages` with no `chat_id` whenever the user references "this chat", "the conversation", "what just happened", or asks you to read message history. If nothing is pinned, tell the user to click the chat-pin button next to the character selector.

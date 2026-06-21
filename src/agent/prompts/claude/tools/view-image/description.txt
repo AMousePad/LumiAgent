@@ -1,0 +1,1 @@
+Load an image file from the workspace so you can actually see it (needs a vision-capable connection). Pass a workspace path like 'screenshots/rule.png'. The image becomes visible to you on the next step. Supported: png, jpg, gif, webp.

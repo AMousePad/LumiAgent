@@ -1,5 +1,9 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import description from "../prompts/claude/tools/count-tokens/description.txt";
+import argText from "../prompts/claude/tools/count-tokens/arg_text.txt";
+import argChatId from "../prompts/claude/tools/count-tokens/arg_chat_id.txt";
+import argModel from "../prompts/claude/tools/count-tokens/arg_model.txt";
 
 const inputSchema = z.object({
   text: z.string().optional(),
@@ -11,14 +15,14 @@ const inputSchema = z.object({
 
 export const countTokensTool = defineTool({
   name: "count_tokens",
-  description: "Server-side token count using the active model's real tokenizer. Pass `text` for an arbitrary string or `chat_id` for a stored chat. Optional `model` overrides the tokenizer. Returns { total_tokens, model, tokenizer_name, approximate }.",
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      text: { type: "string", description: "Arbitrary text to tokenize." },
-      chat_id: { type: "string", description: "Chat to count." },
-      model: { type: "string", description: "Override the tokenizer with a specific model id." },
+      text: { type: "string", description: argText },
+      chat_id: { type: "string", description: argChatId },
+      model: { type: "string", description: argModel },
     },
     required: [],
   },

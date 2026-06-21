@@ -1,0 +1,1 @@
+text (default) returns/saves the body; image downloads bytes to save_to.

@@ -1,0 +1,1 @@
+Required for chat/local/macro scopes.

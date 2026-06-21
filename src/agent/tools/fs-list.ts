@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import { spillOrReturn } from "./_io";
+import description from "../prompts/claude/tools/fs-list/description.txt";
+import argPath from "../prompts/claude/tools/fs-list/arg_path.txt";
 
 const inputSchema = z.object({
   path: z.string().optional(),
@@ -8,12 +10,12 @@ const inputSchema = z.object({
 
 export const fsListTool = defineTool({
   name: "fs_list",
-  description: "List entries in the workspace at a given directory. Pass an empty path for the root. Returns [{name, path, isDirectory, sizeBytes, modifiedAt}].",
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      path: { type: "string", description: "Directory path relative to workspace root. Empty/omit for root." },
+      path: { type: "string", description: argPath },
     },
     required: [],
   },

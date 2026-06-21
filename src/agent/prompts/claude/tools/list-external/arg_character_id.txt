@@ -1,0 +1,1 @@
+For per-character surfaces, which character to filter to.

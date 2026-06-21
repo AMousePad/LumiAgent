@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import { stashDraft, loadDraft, draftReuseNote } from "./_drafts";
+import description from "../prompts/claude/tools/fs-write/description.txt";
+import argContentHandle from "../prompts/claude/tools/fs-write/arg_content_handle.txt";
 
 const inputSchema = z.object({
   path: z.string().min(1),
@@ -12,14 +14,14 @@ const inputSchema = z.object({
 
 export const fsWriteTool = defineTool({
   name: "fs_write",
-  description: "Create or overwrite a text file in the workspace. Use fs_edit for find/replace on existing files. Pass `content` for a literal payload or `content_handle` to reuse a stashed draft. Subject to per-file size cap and per-user storage cap.",
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
       path: { type: "string" },
       content: { type: "string" },
-      content_handle: { type: "string", description: "Handle of a previously-stashed draft." },
+      content_handle: { type: "string", description: argContentHandle },
     },
     required: ["path"],
   },

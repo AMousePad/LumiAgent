@@ -1,0 +1,1 @@
+Override the connection used (defaults to the chat's active connection).

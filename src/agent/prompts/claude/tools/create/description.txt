@@ -1,0 +1,13 @@
+Create a new entity inside a container, addressed by the same path grammar as `read` / `edit` / `set`. The path names the PARENT container; `value` carries the new entity's fields. Structural, fully revertible (revert deletes what was created).
+
+Containers:
+- `wb` -> a world book. value: { name, description?, metadata? }
+- `wb/<bookId>/entry` -> an entry in that book. value: { content (required), key?, keysecondary?, comment?, role?, constant?, disabled?, selective?, position?, order_value?, probability?, depth?, scan_depth?, group_weight?, priority?, sticky?, cooldown?, delay?, selective_logic?, case_sensitive?, match_whole_words?, use_regex?, prevent_recursion?, exclude_recursion?, delay_until_recursion?, use_probability?, vectorized? }
+- `rx` -> a regex script scoped to the active character. value: { name, find_regex, replace_string?, flags?, placement?, target?, disabled?, description? }
+- `persona` -> a user persona. value: { name (required), title?, description?, folder?, is_default?, attached_world_book_id? }
+- `preset` -> a prompt preset. value: { name (required), provider (required), engine?, parameters?, prompts?, metadata? }
+- `preset/<presetId>/block` -> a prompt block. value: PromptBlock fields { name?, content?, role?, enabled?, position?, depth?, ... } plus optional `index` for placement.
+- `char/alternate_greetings` -> an alternate greeting. value: a string, or { content, index? }.
+- `char/alternate_fields/<field>` -> a variant for description / personality / scenario. value: { content (required), label?, index? } (or a bare string for content).
+
+Returns the new id (and book/preset id for nested creates).

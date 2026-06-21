@@ -1,0 +1,1 @@
+Character id (scope=character) or chat id (scope=chat). Ignored for global. Defaults to focused character / pinned chat.

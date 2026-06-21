@@ -1,0 +1,1 @@
+If true, the same item can be picked more than once. Default false.

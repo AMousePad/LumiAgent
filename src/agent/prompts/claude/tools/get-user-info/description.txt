@@ -1,0 +1,1 @@
+Get the user's Lumiverse role (`user` / `admin` / `operator`) and visibility (whether they have the app open in any browser session right now). Useful for tailoring suggestions or skipping toasts when the user can't see them.

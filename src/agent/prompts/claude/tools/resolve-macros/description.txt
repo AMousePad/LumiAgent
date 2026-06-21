@@ -1,0 +1,1 @@
+Resolve `{{macro}}` placeholders in arbitrary text using Lumiverse's macro engine. Always runs in non-committing dry mode (`commit: false`) so extension macro handlers don't side-effect. Pass chat_id for chat-scoped macros (variables, history, etc.) and use_active_character to bind {{char}} / character fields to the currently active card. Returns { text, diagnostics }.

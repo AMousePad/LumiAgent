@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import description from "../prompts/claude/tools/fs-mkdir/description.txt";
 
 const inputSchema = z.object({
   path: z.string().min(1),
@@ -7,7 +8,7 @@ const inputSchema = z.object({
 
 export const fsMkdirTool = defineTool({
   name: "fs_mkdir",
-  description: "Create an empty directory in the workspace. Intermediate directories are created automatically by fs_write, so use this only when you need an empty folder.",
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",

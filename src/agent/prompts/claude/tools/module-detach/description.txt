@@ -1,0 +1,3 @@
+Detach a LumiRealm module from a character. Removes its installed lorebook + regex artifacts and stops its triggers / bg-html / toggles from running for that character. The module envelope stays in the user's library (not deleted).
+
+Wraps the `detach_module` WS op so artifact uninstall + refresh hooks fire.

@@ -1,0 +1,6 @@
+Lists regex scripts that would fire for a target under the active character + chat context.
+
+Usage:
+- `target`: `prompt` runs on text sent to the model, `response` runs on raw model output before storage, `display` runs at render time on stored content.
+- Merges global + character + chat scopes and orders by scope tier then sort_order, matching Lumiverse's runtime ordering.
+- Use to figure out what's rewriting the model's output before digging into individual scripts.

@@ -1,0 +1,5 @@
+Set or clear a chat-scope local variable. Writes to `chat.metadata.macro_variables.local[key]` for the named chat. Pass `null` for value to delete.
+
+This is a per-chat runtime patch, not a card-level edit. Trigger `setvar` effects will overwrite this when they fire. For values that should survive every trigger run (the card-side baseline), edit `char/extensions/lumirealm.payload.scriptstate_defaults` instead.
+
+Lua state keys (`__name`) need a valid JSON string in `value`; the runtime won't re-encode.

@@ -1,0 +1,1 @@
+Default false. Set true to revert edits owned by a different session.

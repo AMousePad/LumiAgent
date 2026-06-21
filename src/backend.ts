@@ -25,6 +25,10 @@ import { runAgent } from "./agent/loop";
 import { listDeferredToolNames, makeDeferredToolSchemaMap, makeInitialToolSchemas, makeToolDispatch, RecentReadsCache, toolRequiresCharacter } from "./agent/tools";
 import { systemMessageWithCache } from "./agent/cache-control";
 import { buildGeneralSystemPrompt, buildContextNote } from "./tasks/general";
+import { fillPrompt } from "./agent/prompts/_fill";
+import compactionTemplate from "./agent/prompts/claude/backend/compaction.txt";
+import compactionPrimerTemplate from "./agent/prompts/claude/backend/compaction_primer.txt";
+import attachedFilesHeader from "./agent/prompts/claude/backend/attached_files_header.txt";
 import { revertEditWithCheck, revertEdit, writeFieldValue } from "./state/edit-log";
 import { appendEntries, entriesView, findEntry, loadLedger, ledgerPath, persistLedgerNow, purgeAllRevertedInMemory, squashMessage } from "./state/ledger";
 import { characterScope, scopeKeyString } from "./types";
@@ -845,22 +849,7 @@ function shouldAutoCompact(s: PersistedSession, samplers: Readonly<Record<string
 }
 
 function buildCompactionInstruction(maxHandoffChars: number): string {
-  return `[SYSTEM COMPACTION REQUEST]
-
-The conversation is approaching its context limit. Your job this turn is to write or update ${HANDOFF_PATH} so that a fresh copy of you can pick up exactly where you left off.
-
-Rules:
-- Read the ${HANDOFF_PATH} first. If it exists and is still relevant, edit it. Otherwise overwrite it.
-- The file MUST be under ${maxHandoffChars} chars.
-- Information-dense prose only.
-- Cover:
-  1. The user's original request (one sentence).
-  2. Everything you've done so far that matters (concrete: characters touched, fields edited, regex scripts renamed, lorebook entries added, tools called repeatedly).
-  3. What's currently in progress (the specific next step you were about to take).
-  4. What to do next, ordered.
-  5. Facts to remember: character ids, exact regex patterns, file paths, naming conventions, the user's stated preferences, anything that would be expensive to rediscover.
-- DO NOT respond to the user in chat this turn.
-- After writing the file, stop. The next thing you say should exactly be "Handoff saved."`;
+  return fillPrompt(compactionTemplate, { HANDOFF_PATH, MAX_HANDOFF_CHARS: maxHandoffChars });
 }
 
 async function compactSession(sessionId: string, userId: string, trigger: "auto" | "manual"): Promise<void> {
@@ -997,7 +986,7 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
     // Replace the model-facing history with a short primer so the next turn
     // starts fresh. The user's UI thread keeps the full history for their own
     // record; this only affects what the model sees next.
-    const primerContent = `[The previous agent compacted the conversation. Detailed handoff notes are saved at ${HANDOFF_PATH}. If you need any context from before, read that file with fs_read("${HANDOFF_PATH}"). Then respond to the user.]`;
+    const primerContent = fillPrompt(compactionPrimerTemplate, { HANDOFF_PATH });
     s.llmHistory = [{ role: "user", content: primerContent }];
     // Persist the primer so the rebuild paths re-prepend it and rebuild only the
     // post-compaction messages instead of re-expanding the full thread.
@@ -2038,7 +2027,7 @@ async function handleRevertSession(sessionId: string, userId: string): Promise<v
 // A text preamble describing attached files: each file's workspace path so the
 // agent can fs_read it, with small text files inlined verbatim.
 function filePreamble(files: readonly MessageFile[]): string {
-  const lines: string[] = ["[Attached files — read any of these from the workspace with fs_read]"];
+  const lines: string[] = [attachedFilesHeader];
   for (const f of files) {
     lines.push(`- ${f.path} (${f.name}, ${f.size} bytes, ${f.mime || f.kind})`);
     if (f.kind === "text" && f.inlineContent !== undefined) {

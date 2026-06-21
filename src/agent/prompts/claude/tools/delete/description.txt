@@ -1,0 +1,12 @@
+Delete an entity addressed by the same path grammar as `read` / `edit`. The full prior state is snapshotted into the edit log so the delete is revertible (revert recreates it; container deletes restore their children too). Deleting a world book or preset cascades to its entries / blocks.
+
+Deletable paths:
+- `wb/<id>` -> a world book (id is a book) OR a single entry (id is an entry). Resolved by lookup.
+- `rx/<scriptId>` -> a regex script.
+- `persona/<personaId>` -> a user persona.
+- `preset/<presetId>` -> a prompt preset (and its blocks).
+- `preset/<presetId>/block/<blockId>` -> one prompt block.
+- `char/alternate_greetings/<idx>` -> a greeting by 0-based index.
+- `char/alternate_fields/<field>/<variantId>` -> a variant from description / personality / scenario.
+
+Caveat: a recreated book / preset / persona gets a fresh id on revert; external references to the old id (e.g. a character's world_book_ids) are not rewired.

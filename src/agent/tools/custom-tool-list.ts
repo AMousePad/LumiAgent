@@ -1,11 +1,12 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import description from "../prompts/claude/tools/custom-tool-list/description.txt";
 
 const inputSchema = z.object({});
 
 export const customToolListTool = defineTool({
   name: "custom_tool_list",
-  description: "List every custom tool the agent has authored in this workspace. Returns name, description, param count, step count. Cheap; call this whenever you suspect a recipe already exists for the user's request.",
+  description,
   inputSchema,
   jsonSchema: { type: "object", properties: {}, required: [] },
   execute: async (_input, ctx) => {

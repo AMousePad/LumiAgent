@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import { resolveCharacterTarget, noTargetResult } from "./_context";
+import description from "../prompts/claude/tools/attach-world-book/description.txt";
+import argWorldBookId from "../prompts/claude/tools/attach-world-book/arg_world_book_id.txt";
+import argScope from "../prompts/claude/tools/attach-world-book/arg_scope.txt";
+import argAction from "../prompts/claude/tools/attach-world-book/arg_action.txt";
+import argTargetId from "../prompts/claude/tools/attach-world-book/arg_target_id.txt";
 
 // Three of the four binding layers are the same operation: add/remove a book id
 // from a string[]. Character lives on the card's `world_book_ids`, chat on
@@ -16,22 +21,15 @@ const inputSchema = z.object({
 
 export const attachWorldBookTool = defineTool({
   name: "attach_world_book",
-  description: `Attach or detach a world book at one binding layer. Defaults to \`action: "attach"\`.
-
-\`scope\`:
-- \`character\` -> the card's \`world_book_ids\` (active for every chat with that character). \`target_id\` is the character id, defaults to the focused character.
-- \`chat\` -> the chat's "This Chat Only" books (active for one chat regardless of character). \`target_id\` is the chat id, defaults to the pinned chat.
-- \`global\` -> the user's "Always Active" books (active in every chat). \`target_id\` is ignored.
-
-The fourth layer, persona, is a single book set via \`set({path: "persona/<id>/attached_world_book_id", value})\`. Idempotent: re-attaching an already-bound book is a no-op. Does not create the book, pass an existing world_book_id (\`create({path:"wb"})\` first if needed). Use \`list_chat_world_books\` to see what's bound where.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      world_book_id: { type: "string", description: "Id of an existing world book." },
-      scope: { type: "string", enum: ["character", "chat", "global"], description: "Binding layer to change." },
-      action: { type: "string", enum: ["attach", "detach"], description: "Default 'attach'." },
-      target_id: { type: "string", description: "Character id (scope=character) or chat id (scope=chat). Ignored for global. Defaults to focused character / pinned chat." },
+      world_book_id: { type: "string", description: argWorldBookId },
+      scope: { type: "string", enum: ["character", "chat", "global"], description: argScope },
+      action: { type: "string", enum: ["attach", "detach"], description: argAction },
+      target_id: { type: "string", description: argTargetId },
     },
     required: ["world_book_id", "scope"],
   },

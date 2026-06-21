@@ -1,0 +1,1 @@
+Default {{CHAT_GREP_DEFAULT_MAX}}, cap {{CHAT_GREP_MAX_CAP}}

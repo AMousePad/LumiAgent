@@ -1,0 +1,1 @@
+Read a databank document. Returns metadata always; with meta_only=false (default), also returns the full extracted text content (spills to a tmp handle if large).

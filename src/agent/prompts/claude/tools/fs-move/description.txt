@@ -1,0 +1,1 @@
+Move or rename a workspace path. Works on both files and directories.

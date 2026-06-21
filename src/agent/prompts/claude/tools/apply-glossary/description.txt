@@ -1,0 +1,5 @@
+Apply a phrase-to-translation map across the union of surfaces in one call, sorted longest-first to avoid shorter-key-clobbers-longer-key. Each surface's hits batch into one edit (one diff card). Scopes default to character + world_books + regex_scripts.replace_string + extensions string leaves; `find_regex` is never touched.
+
+Safety: refuses single-character CJK keys by default (substring collisions: '비'→'Rain' corrupts '비명'→'Rain명'); pass allow_short_cjk=true only after auditing. Run dry_run=true first to see hit counts.
+
+Returns `{dry_run, entries_in_glossary, total_replacements, surfaces_affected, per_entry_hits, per_surface:[{surface,surfaceId,field,hits}], note}` — check per_surface to confirm what actually changed.

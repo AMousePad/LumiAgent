@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import description from "../prompts/claude/tools/fs-delete/description.txt";
 
 const inputSchema = z.object({
   path: z.string().min(1),
@@ -8,7 +9,7 @@ const inputSchema = z.object({
 
 export const fsDeleteTool = defineTool({
   name: "fs_delete",
-  description: "Delete a workspace file or directory. Directories must be empty unless recursive=true.",
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",

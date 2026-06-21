@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import description from "../prompts/claude/tools/read-databank/description.txt";
+import argDatabankId from "../prompts/claude/tools/read-databank/arg_databank_id.txt";
 
 const inputSchema = z.object({
   databank_id: z.string().min(1),
@@ -7,12 +9,12 @@ const inputSchema = z.object({
 
 export const readDatabankTool = defineTool({
   name: "read_databank",
-  description: "Read a single databank's metadata (name, description, scope, enabled, document count). Use list_databank_documents and read_databank_document to drill into contents.",
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      databank_id: { type: "string", description: "Databank id." },
+      databank_id: { type: "string", description: argDatabankId },
     },
     required: ["databank_id"],
   },

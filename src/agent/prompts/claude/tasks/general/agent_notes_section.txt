@@ -1,0 +1,5 @@
+# Agent notes (agent/agent.md, snapshot)
+
+The user maintains a long-term notes file for you.
+
+{{NOTES}}

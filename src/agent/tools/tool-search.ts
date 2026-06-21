@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import { isDeferredTool, listDeferredToolNames, registry } from "./_registry";
+import description from "../prompts/claude/tools/tool-search/description.txt";
+import argQuery from "../prompts/claude/tools/tool-search/arg_query.txt";
 
 const inputSchema = z.object({
   query: z.string().min(1).describe(
@@ -46,21 +48,12 @@ function formatFunctions(schemas: Array<{ name: string; description: string; par
 
 export const toolSearchTool = defineTool<Input>({
   name: "tool_search",
-  description: `Fetches full schema definitions for deferred tools so they can be called.
-
-Deferred tools appear by name only in the system prompt under "Deferred tools available via tool_search". Their input schemas are not loaded, so calling them directly will fail. Use this tool with query "select:<name>[,<name>...]" to load the full schema, then invoke the tool normally on the next turn.
-
-Result format: each matched tool appears as one <function>{"description":"...","name":"...","parameters":{...}}</function> line inside a <functions> block. Once a tool's schema appears in that result, it becomes callable like any tool defined at the top of the prompt.
-
-Query forms:
-- "select:read_persona,list_personas" - fetch these exact tools by name
-- "regex" - keyword search, returns up to max_results best matches
-- "lorebook entry" - multi-word keyword search`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      query: { type: "string", description: "select:Name1,Name2 OR keyword search" },
+      query: { type: "string", description: argQuery },
       max_results: { type: "integer", minimum: 1, maximum: 20 },
     },
     required: ["query"],

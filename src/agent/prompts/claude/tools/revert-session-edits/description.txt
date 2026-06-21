@@ -1,0 +1,7 @@
+Reverts one or more agent-authored edits by id.
+
+Usage:
+- Restricted by default to edits authored in the CURRENT session.
+- Set `allow_cross_session: true` to revert edits from earlier sessions on this character. Use sparingly; the user from those earlier sessions doesn't know about the change.
+- Cascade-aware: if a later edit depended on a reverted one and can no longer apply, it gets reverted too and listed under `cascadedEditIds`.
+- Edit ids come from `list_session_edits`.

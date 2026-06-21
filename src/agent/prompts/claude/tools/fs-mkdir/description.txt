@@ -1,0 +1,1 @@
+Create an empty directory in the workspace. Intermediate directories are created automatically by fs_write, so use this only when you need an empty folder.

@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import type { ToolCtx } from "./_context";
+import description from "../prompts/claude/tools/set-toggle/description.txt";
+import argKey from "../prompts/claude/tools/set-toggle/arg_key.txt";
 
 const inputSchema = z.object({
   chat_id: z.string().min(1),
@@ -16,15 +18,13 @@ async function findLumirealm(ctx: ToolCtx) {
 
 export const setToggleTool = defineTool({
   name: "set_toggle",
-  description: `Set or clear a LumiRealm module-toggle value for the named chat. Writes to \`chat.metadata.macro_variables.global["toggle_<key>"]\`. Pass \`null\` for value to clear.
-
-Toggle definitions (what toggles exist, what type, what default) live in module envelopes at \`module.customModuleToggle\` (DSL), edit those via \`edit_external\` on the envelope. This tool changes the value in the current chat.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
       chat_id: { type: "string" },
-      key: { type: "string", description: "Toggle key as defined in the module's customModuleToggle DSL (without the 'toggle_' prefix)." },
+      key: { type: "string", description: argKey },
       value: { type: ["string", "null"] },
     },
     required: ["chat_id", "key", "value"],

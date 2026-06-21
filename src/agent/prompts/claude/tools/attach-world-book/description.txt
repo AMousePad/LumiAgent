@@ -1,0 +1,8 @@
+Attach or detach a world book at one binding layer. Defaults to `action: "attach"`.
+
+`scope`:
+- `character` -> the card's `world_book_ids` (active for every chat with that character). `target_id` is the character id, defaults to the focused character.
+- `chat` -> the chat's "This Chat Only" books (active for one chat regardless of character). `target_id` is the chat id, defaults to the pinned chat.
+- `global` -> the user's "Always Active" books (active in every chat). `target_id` is ignored.
+
+The fourth layer, persona, is a single book set via `set({path: "persona/<id>/attached_world_book_id", value})`. Idempotent: re-attaching an already-bound book is a no-op. Does not create the book, pass an existing world_book_id (`create({path:"wb"})` first if needed). Use `list_chat_world_books` to see what's bound where.

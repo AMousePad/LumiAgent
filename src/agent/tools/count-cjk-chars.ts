@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import description from "../prompts/claude/tools/count-cjk-chars/description.txt";
 
 const CJK_RANGES: Array<[number, number, string]> = [
   [0xAC00, 0xD7A3, "korean_hangul"],
@@ -23,7 +24,7 @@ const inputSchema = z.object({ text: z.string() });
 
 export const countCjkCharsTool = defineTool({
   name: "count_cjk_chars",
-  description: "Count Korean / Japanese / Chinese characters in a string, broken down by script.",
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",

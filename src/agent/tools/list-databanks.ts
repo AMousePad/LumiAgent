@@ -1,5 +1,10 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import description from "../prompts/claude/tools/list-databanks/description.txt";
+import argScope from "../prompts/claude/tools/list-databanks/arg_scope.txt";
+import argScopeId from "../prompts/claude/tools/list-databanks/arg_scope_id.txt";
+import argLimit from "../prompts/claude/tools/list-databanks/arg_limit.txt";
+import argOffset from "../prompts/claude/tools/list-databanks/arg_offset.txt";
 
 const inputSchema = z.object({
   scope: z.enum(["global", "character", "chat"]).optional(),
@@ -10,15 +15,15 @@ const inputSchema = z.object({
 
 export const listDatabanksTool = defineTool({
   name: "list_databanks",
-  description: "List the user's databanks (RAG document collections). Optional scope filter: global / character / chat. Pass scope_id to scope to a specific character or chat (omit for the active character / pinned chat as the natural default). Returns metadata only — id, name, scope, document_count, enabled.",
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      scope: { type: "string", enum: ["global", "character", "chat"], description: "Filter by scope." },
-      scope_id: { type: ["string", "null"], description: "For character/chat scopes, the specific id." },
-      limit: { type: "number", description: "Max results, default 200." },
-      offset: { type: "number", description: "Pagination offset." },
+      scope: { type: "string", enum: ["global", "character", "chat"], description: argScope },
+      scope_id: { type: ["string", "null"], description: argScopeId },
+      limit: { type: "number", description: argLimit },
+      offset: { type: "number", description: argOffset },
     },
     required: [],
   },

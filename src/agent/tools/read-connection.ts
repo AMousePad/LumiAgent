@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import description from "../prompts/claude/tools/read-connection/description.txt";
+import argConnectionId from "../prompts/claude/tools/read-connection/arg_connection_id.txt";
 
 const inputSchema = z.object({
   connection_id: z.string().min(1),
@@ -7,12 +9,12 @@ const inputSchema = z.object({
 
 export const readConnectionTool = defineTool({
   name: "read_connection",
-  description: "Read a single LLM connection profile by id. Returns full metadata including custom fields (no API key, only `has_api_key`).",
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      connection_id: { type: "string", description: "Connection profile id." },
+      connection_id: { type: "string", description: argConnectionId },
     },
     required: ["connection_id"],
   },

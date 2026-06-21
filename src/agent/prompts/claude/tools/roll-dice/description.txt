@@ -1,0 +1,1 @@
+Roll dice in standard NdM[+K] notation, e.g. '3d6', '1d20+4', '2d10-1'. Returns each roll and the total. Use this instead of guessing numbers when the user asks for a dice roll.

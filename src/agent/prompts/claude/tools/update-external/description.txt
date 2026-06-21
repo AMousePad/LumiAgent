@@ -1,0 +1,5 @@
+Wholesale-replaces a value at one field on an external provider's item.
+
+Usage:
+- Use for non-string fields (arrays, objects, numbers) or when overwriting the entire field.
+- For find/replace inside a long string field, prefer `edit_external`.

@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import type { ToolCtx } from "./_context";
+import description from "../prompts/claude/tools/set-chat-variable/description.txt";
+import argValue from "../prompts/claude/tools/set-chat-variable/arg_value.txt";
 
 const inputSchema = z.object({
   chat_id: z.string().min(1),
@@ -16,18 +18,14 @@ async function findLumirealm(ctx: ToolCtx) {
 
 export const setChatVariableTool = defineTool({
   name: "set_chat_variable",
-  description: `Set or clear a chat-scope local variable. Writes to \`chat.metadata.macro_variables.local[key]\` for the named chat. Pass \`null\` for value to delete.
-
-This is a per-chat runtime patch, not a card-level edit. Trigger \`setvar\` effects will overwrite this when they fire. For values that should survive every trigger run (the card-side baseline), edit \`char/extensions/lumirealm.payload.scriptstate_defaults\` instead.
-
-Lua state keys (\`__name\`) need a valid JSON string in \`value\`; the runtime won't re-encode.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
       chat_id: { type: "string" },
       key: { type: "string" },
-      value: { type: ["string", "null"], description: "string value to set, or null to delete the key." },
+      value: { type: ["string", "null"], description: argValue },
     },
     required: ["chat_id", "key", "value"],
   },

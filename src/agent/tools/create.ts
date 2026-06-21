@@ -15,6 +15,9 @@ import type { ToolCtx } from "./_context";
 import type { EditRecord, ScopeRef } from "../../types";
 import { wbLabel, coerceKeyList } from "./_surfaces";
 import { ALTERNATE_FIELD_NAMES, isAlternateFieldName, readAltFieldArray, writeAltFieldArray, type AltFieldVariant } from "./_path_v2";
+import description from "../prompts/claude/tools/create/description.txt";
+import argPath from "../prompts/claude/tools/create/arg_path.txt";
+import argValue from "../prompts/claude/tools/create/arg_value.txt";
 
 const inputSchema = z.object({
   path: z.string().min(2).describe("Container to create a child in. See description for the grammar."),
@@ -27,25 +30,13 @@ function asObject(v: unknown): Record<string, unknown> {
 
 export const createTool = defineTool({
   name: "create",
-  description: `Create a new entity inside a container, addressed by the same path grammar as \`read\` / \`edit\` / \`set\`. The path names the PARENT container; \`value\` carries the new entity's fields. Structural, fully revertible (revert deletes what was created).
-
-Containers:
-- \`wb\` -> a world book. value: { name, description?, metadata? }
-- \`wb/<bookId>/entry\` -> an entry in that book. value: { content (required), key?, keysecondary?, comment?, constant?, disabled?, position?, order_value?, probability? }
-- \`rx\` -> a regex script scoped to the active character. value: { name, find_regex, replace_string?, flags?, placement?, target?, disabled?, description? }
-- \`persona\` -> a user persona. value: { name (required), title?, description?, folder?, is_default?, attached_world_book_id? }
-- \`preset\` -> a prompt preset. value: { name (required), provider (required), engine?, parameters?, prompts?, metadata? }
-- \`preset/<presetId>/block\` -> a prompt block. value: PromptBlock fields { name?, content?, role?, enabled?, position?, depth?, ... } plus optional \`index\` for placement.
-- \`char/alternate_greetings\` -> an alternate greeting. value: a string, or { content, index? }.
-- \`char/alternate_fields/<field>\` -> a variant for description / personality / scenario. value: { content (required), label?, index? } (or a bare string for content).
-
-Returns the new id (and book/preset id for nested creates).`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      path: { type: "string", description: "Parent container path. See description." },
-      value: { description: "New entity fields (object) or a string for a greeting." },
+      path: { type: "string", description: argPath },
+      value: { description: argValue },
     },
     required: ["path"],
     additionalProperties: false,
@@ -85,11 +76,13 @@ Returns the new id (and book/preset id for nested creates).`,
       if (v.key !== undefined) create.key = coerceKeyList(v.key);
       if (v.keysecondary !== undefined) create.keysecondary = coerceKeyList(v.keysecondary);
       if (typeof v.comment === "string") create.comment = v.comment;
-      if (typeof v.constant === "boolean") create.constant = v.constant;
-      if (typeof v.disabled === "boolean") create.disabled = v.disabled;
-      if (typeof v.position === "number") create.position = v.position;
-      if (typeof v.order_value === "number") create.order_value = v.order_value;
-      if (typeof v.probability === "number") create.probability = v.probability;
+      if (typeof v.role === "string") create.role = v.role;
+      // Pass through the remaining settable fields so they aren't silently
+      // dropped to host defaults (the model would otherwise need a follow-up set).
+      const numFields = ["position", "order_value", "probability", "depth", "scan_depth", "group_weight", "priority", "sticky", "cooldown", "delay", "selective_logic"] as const;
+      for (const f of numFields) if (typeof v[f] === "number") (create as Record<string, unknown>)[f] = v[f];
+      const boolFields = ["constant", "disabled", "selective", "case_sensitive", "match_whole_words", "use_regex", "prevent_recursion", "exclude_recursion", "delay_until_recursion", "use_probability", "vectorized"] as const;
+      for (const f of boolFields) if (typeof v[f] === "boolean") (create as Record<string, unknown>)[f] = v[f];
       const e = await ctx.spindle.world_books.entries.create(bookId, create, ctx.userId);
       // Character-attached book: file under the session character (no scope =
       // session default). Standalone book: file under the book's own scope so

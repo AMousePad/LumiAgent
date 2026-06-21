@@ -1,0 +1,7 @@
+Updates metadata fields of a world book entry atomically.
+
+Usage:
+- Path-based `edit` / `rewrite` only address `wb/<id>/content` and `wb/<id>/comment`. Metadata goes through here: `key` array, `keysecondary`, `priority`, `disabled`, `constant`, `position`, `depth`, `role`, `selective`, `selectiveLogic`.
+- Pass only the fields to change in `patch`.
+- For content edits prefer `edit` / `rewrite`.
+- Works in a no-character session (operates by `entry_id`), like `edit` / `rewrite` / `set` on `wb/`.

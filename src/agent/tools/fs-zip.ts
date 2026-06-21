@@ -1,5 +1,8 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import description from "../prompts/claude/tools/fs-zip/description.txt";
+import argPaths from "../prompts/claude/tools/fs-zip/arg_paths.txt";
+import argOutput from "../prompts/claude/tools/fs-zip/arg_output.txt";
 
 const inputSchema = z.object({
   paths: z.array(z.string()).min(1),
@@ -8,13 +11,13 @@ const inputSchema = z.object({
 
 export const fsZipTool = defineTool({
   name: "fs_zip",
-  description: "Bundle one or more workspace paths into a .zip file (STORE method, no compression). Folders are walked recursively. Use this to package generated assets for the user to download, or to consolidate scratch output before deleting the originals.",
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      paths: { type: "array", items: { type: "string" }, description: "Workspace-relative paths. Files included as-is, directories walked recursively." },
-      output: { type: "string", description: "Workspace-relative destination, e.g. 'exports/bundle.zip'." },
+      paths: { type: "array", items: { type: "string" }, description: argPaths },
+      output: { type: "string", description: argOutput },
     },
     required: ["paths", "output"],
   },

@@ -1,11 +1,12 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import description from "../prompts/claude/tools/get-user-info/description.txt";
 
 const inputSchema = z.object({}).strict();
 
 export const getUserInfoTool = defineTool({
   name: "get_user_info",
-  description: "Get the user's Lumiverse role (`user` / `admin` / `operator`) and visibility (whether they have the app open in any browser session right now). Useful for tailoring suggestions or skipping toasts when the user can't see them.",
+  description,
   inputSchema,
   jsonSchema: { type: "object", properties: {}, required: [] },
   execute: async (_input, ctx) => {

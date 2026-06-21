@@ -1,0 +1,1 @@
+default {{GREP_DEFAULT_HITS_PER_LINE}}

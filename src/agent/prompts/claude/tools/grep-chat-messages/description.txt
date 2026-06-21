@@ -1,0 +1,1 @@
+Regex search across message contents. Returns hits with idx, id, role, line, match, preview. Use this for any 'where did we say X' question on a big chat, before falling back to read_chat_messages.

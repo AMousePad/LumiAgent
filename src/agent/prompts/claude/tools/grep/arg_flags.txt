@@ -1,0 +1,1 @@
+extra regex flags (i/m/s/u). g is implied.

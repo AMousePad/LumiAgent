@@ -1,0 +1,3 @@
+Set or clear a LumiRealm module-toggle value for the named chat. Writes to `chat.metadata.macro_variables.global["toggle_<key>"]`. Pass `null` for value to clear.
+
+Toggle definitions (what toggles exist, what type, what default) live in module envelopes at `module.customModuleToggle` (DSL), edit those via `edit_external` on the envelope. This tool changes the value in the current chat.

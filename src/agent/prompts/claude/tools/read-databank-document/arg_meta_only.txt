@@ -1,0 +1,1 @@
+If true, skip the content fetch. Default false.

@@ -3,6 +3,8 @@ import { defineTool } from "./_framework";
 import { loadLedger, listNonCharacterScopeLedgers, type ScopedLedger } from "../../state/ledger";
 import { characterScope } from "../../types";
 import { resolveCharacterTarget, noTargetResult } from "./_context";
+import description from "../prompts/claude/tools/list-session-edits/description.txt";
+import argScope from "../prompts/claude/tools/list-session-edits/arg_scope.txt";
 
 const inputSchema = z.object({
   scope: z.enum(["current_message", "current_session", "all_sessions"]).optional().describe("current_message: just this response. current_session: every edit you've made in this session. all_sessions: every agent-authored edit on this character across every session (useful when the user asks about prior conversations). Default current_message."),
@@ -12,18 +14,12 @@ const inputSchema = z.object({
 
 export const listSessionEditsTool = defineTool({
   name: "list_session_edits",
-  description: `Lists agent-authored edits.
-
-Usage:
-- Default scope is the current response. Widen with \`current_session\` or \`all_sessions\`.
-- Returns one row per patch: edit_id, surface, surface_id, surface_label, field, ts, reverted, session_id.
-- Pass returned ids to \`revert_session_edits\` or \`squash_session_edits\`.
-- Cross-session revert requires \`allow_cross_session: true\` on \`revert_session_edits\`.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      scope: { type: "string", enum: ["current_message", "current_session", "all_sessions"], description: "Default current_message." },
+      scope: { type: "string", enum: ["current_message", "current_session", "all_sessions"], description: argScope },
       include_reverted: { type: "boolean" },
       limit: { type: "integer", minimum: 1, maximum: 500 },
     },

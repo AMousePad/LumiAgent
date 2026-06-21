@@ -1,0 +1,7 @@
+Regex-search every item in an external provider's surface.
+
+Usage:
+- Returns hits with item_id + item_label + field_path + line + match + preview.
+- `field_prefix` scopes the walk to a path subtree, path-segment aware. Examples: `module.regex` matches `module.regex`, `module.regex[0]`, `module.regex.x`; does NOT match `module.regex_v2`.
+- Per-character surfaces are filtered to items attached to the active character.
+- `head` caps the hit count (default 200, max 2000); response includes `truncated` when hit.

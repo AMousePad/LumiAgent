@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import description from "../prompts/claude/tools/roll-dice/description.txt";
+import argSpec from "../prompts/claude/tools/roll-dice/arg_spec.txt";
 
 const inputSchema = z.object({
   spec: z.string().min(1),
@@ -7,11 +9,11 @@ const inputSchema = z.object({
 
 export const rollDiceTool = defineTool({
   name: "roll_dice",
-  description: "Roll dice in standard NdM[+K] notation, e.g. '3d6', '1d20+4', '2d10-1'. Returns each roll and the total. Use this instead of guessing numbers when the user asks for a dice roll.",
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
-    properties: { spec: { type: "string", description: "Dice spec, e.g. '3d6+2'." } },
+    properties: { spec: { type: "string", description: argSpec } },
     required: ["spec"],
   },
   execute: async (input) => {

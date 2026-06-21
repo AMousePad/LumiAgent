@@ -4,6 +4,8 @@ import { applyEdit } from "./_edit";
 import { buildEditPatch } from "./_patch";
 import { ensureFreshRead, ensureRecentRead, refreshReadHash } from "./_gates";
 import { stashDraft, loadDraft, draftReuseNote } from "./_drafts";
+import description from "../prompts/claude/tools/edit-external/description.txt";
+import argReplaceHandle from "../prompts/claude/tools/edit-external/arg_replace_handle.txt";
 
 const inputSchema = z.object({
   surface_id: z.string().min(1),
@@ -29,13 +31,7 @@ const gate = {
 
 export const editExternalTool = defineTool({
   name: "edit_external",
-  description: `Performs exact string replacement inside one field of an external provider's item.
-
-Usage:
-- You must call \`read_external\` with the same surface/item/field first. This tool will error if you have not.
-- The edit will fail if \`find\` is not unique in the field. Either provide more surrounding context to make it unique or set \`replace_all: true\`.
-- For non-string values or wholesale replacement, use \`update_external\`.
-- If a prior call returned a draft handle, pass \`replace_handle\` instead of re-emitting the literal replacement.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
@@ -45,7 +41,7 @@ Usage:
       field: { type: "string" },
       find: { type: "string" },
       replace: { type: "string" },
-      replace_handle: { type: "string", description: "Handle of a previously-stashed draft." },
+      replace_handle: { type: "string", description: argReplaceHandle },
       replace_all: { type: "boolean" },
     },
     required: ["surface_id", "item_id", "field", "find"],

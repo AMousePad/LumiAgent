@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import type { ToolCtx } from "./_context";
+import description from "../prompts/claude/tools/module-attach/description.txt";
 
 const inputSchema = z.object({
   character_id: z.string().min(1),
@@ -15,9 +16,7 @@ async function findLumirealm(ctx: ToolCtx) {
 
 export const moduleAttachTool = defineTool({
   name: "module_attach",
-  description: `Attach a LumiRealm module to a character. Adds the module's lorebook + regex artifacts to the character and makes its triggers, bg-html embedding, and toggle DSL active in chats for that character. Use \`list_external({surface_id:"module_envelope"})\` first to see available modules.
-
-Wraps the \`attach_module\` WS op so artifact install + refresh hooks fire.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",

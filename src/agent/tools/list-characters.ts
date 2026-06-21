@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import { spillOrReturn } from "./_io";
+import { fillPrompt } from "../prompts/_fill";
+import description from "../prompts/claude/tools/list-characters/description.txt";
+import argQuery from "../prompts/claude/tools/list-characters/arg_query.txt";
+import argLimit from "../prompts/claude/tools/list-characters/arg_limit.txt";
 
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 500;
@@ -13,18 +17,14 @@ const inputSchema = z.object({
 
 export const listCharactersTool = defineTool({
   name: "list_characters",
-  description: `Enumerate the user's characters so you can address one by id. Returns id, name, and attached world-book count per character.
-
-Use this to find the id of the character the user is talking about, then address it with \`char/<id>/<field>\` paths or the \`character_id\` argument on whole-card tools (grep / audit / survey / list / inspect / update_character / apply_glossary).
-
-When a character is focused you rarely need this. \`query\` filters by name substring.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
     properties: {
-      query: { type: "string", description: "Case-insensitive name substring filter." },
+      query: { type: "string", description: argQuery },
       offset: { type: "integer", minimum: 0 },
-      limit: { type: "integer", minimum: 1, maximum: MAX_LIMIT, description: `default ${DEFAULT_LIMIT}` },
+      limit: { type: "integer", minimum: 1, maximum: MAX_LIMIT, description: fillPrompt(argLimit, { DEFAULT_LIMIT }) },
     },
     required: [],
     additionalProperties: false,

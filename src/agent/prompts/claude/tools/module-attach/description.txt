@@ -1,0 +1,3 @@
+Attach a LumiRealm module to a character. Adds the module's lorebook + regex artifacts to the character and makes its triggers, bg-html embedding, and toggle DSL active in chats for that character. Use `list_external({surface_id:"module_envelope"})` first to see available modules.
+
+Wraps the `attach_module` WS op so artifact install + refresh hooks fire.

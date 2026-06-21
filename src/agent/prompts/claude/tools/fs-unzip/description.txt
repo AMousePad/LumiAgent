@@ -1,0 +1,1 @@
+Extract a workspace .zip into a destination directory. STORE and DEFLATE are supported. Rejects entries with path traversal ('..') or absolute paths. Subject to the same per-file and total workspace caps as fs_write.

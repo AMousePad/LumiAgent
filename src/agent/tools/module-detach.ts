@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import type { ToolCtx } from "./_context";
+import description from "../prompts/claude/tools/module-detach/description.txt";
 
 const inputSchema = z.object({
   character_id: z.string().min(1),
@@ -15,9 +16,7 @@ async function findLumirealm(ctx: ToolCtx) {
 
 export const moduleDetachTool = defineTool({
   name: "module_detach",
-  description: `Detach a LumiRealm module from a character. Removes its installed lorebook + regex artifacts and stops its triggers / bg-html / toggles from running for that character. The module envelope stays in the user's library (not deleted).
-
-Wraps the \`detach_module\` WS op so artifact uninstall + refresh hooks fire.`,
+  description,
   inputSchema,
   jsonSchema: {
     type: "object",
