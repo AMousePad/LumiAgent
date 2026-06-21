@@ -17699,9 +17699,29 @@ function isCharacterStringField(s) {
   return CHARACTER_STRING_FIELDS.includes(s);
 }
 function wbLabel(e) {
-  return e.comment || (e.key.length > 0 ? e.key.join("|") : `entry ${e.id}`);
+  const keys = Array.isArray(e.key) ? e.key : [];
+  return e.comment || (keys.length > 0 ? keys.join("|") : `entry ${e.id}`);
 }
-var CHARACTER_STRING_FIELDS;
+function coerceKeyList(value) {
+  if (Array.isArray(value)) {
+    return value.map((v) => String(v).trim()).filter((v) => v.length > 0);
+  }
+  if (typeof value === "string") {
+    const s = value.trim();
+    if (!s)
+      return [];
+    if (s.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(s);
+        if (Array.isArray(parsed))
+          return parsed.map((v) => String(v).trim()).filter((v) => v.length > 0);
+      } catch {}
+    }
+    return s.split(",").map((v) => v.trim()).filter((v) => v.length > 0);
+  }
+  return [];
+}
+var CHARACTER_STRING_FIELDS, WB_ENTRY_KEY_FIELDS;
 var init__surfaces = __esm(() => {
   CHARACTER_STRING_FIELDS = [
     "name",
@@ -17715,6 +17735,7 @@ var init__surfaces = __esm(() => {
     "post_history_instructions",
     "creator"
   ];
+  WB_ENTRY_KEY_FIELDS = new Set(["key", "keysecondary"]);
 });
 
 // src/agent/tools/_paths.ts
@@ -18485,63 +18506,106 @@ The runtime always appends an automatic "Other" option that lets the user type a
   });
 });
 
-// src/agent/tools/attach-world-book-to-chat.ts
-var inputSchema3, attachWorldBookToChatTool;
-var init_attach_world_book_to_chat = __esm(() => {
+// src/agent/tools/attach-world-book.ts
+function applyAction(current, id, action) {
+  const has = current.includes(id);
+  if (action === "attach")
+    return has ? null : [...current, id];
+  return has ? current.filter((x) => x !== id) : null;
+}
+function result(scope, targetId, wbId, action, ids, changed) {
+  return { content: JSON.stringify({ ok: true, scope, target_id: targetId, world_book_id: wbId, action, changed, world_book_ids: ids }, null, 2) };
+}
+var inputSchema3, attachWorldBookTool;
+var init_attach_world_book = __esm(() => {
   init_zod();
   init__framework();
+  init__context();
   inputSchema3 = exports_external.object({
     world_book_id: exports_external.string().min(1),
+    scope: exports_external.enum(["character", "chat", "global"]),
     action: exports_external.enum(["attach", "detach"]).optional(),
-    chat_id: exports_external.string().optional()
+    target_id: exports_external.string().optional()
   }).strict();
-  attachWorldBookToChatTool = defineTool({
-    name: "attach_world_book_to_chat",
-    description: `Attach or detach a world book to a chat (the "This Chat Only" binding). Writes \`chat.metadata.chat_world_book_ids\`. Defaults to \`action: "attach"\`.
+  attachWorldBookTool = defineTool({
+    name: "attach_world_book",
+    description: `Attach or detach a world book at one binding layer. Defaults to \`action: "attach"\`.
 
-This is a different layer than character attachment (\`char/world_book_ids\`) or persona attachment (\`persona/<id>/attached_world_book_id\`): a chat-bound book is active for this one chat regardless of character. Idempotent: re-attaching an already-bound book is a no-op. Does not create the book, pass an existing world_book_id (\`create({path:"wb"})\` first if needed).`,
+\`scope\`:
+- \`character\` -> the card's \`world_book_ids\` (active for every chat with that character). \`target_id\` is the character id, defaults to the focused character.
+- \`chat\` -> the chat's "This Chat Only" books (active for one chat regardless of character). \`target_id\` is the chat id, defaults to the pinned chat.
+- \`global\` -> the user's "Always Active" books (active in every chat). \`target_id\` is ignored.
+
+The fourth layer, persona, is a single book set via \`set({path: "persona/<id>/attached_world_book_id", value})\`. Idempotent: re-attaching an already-bound book is a no-op. Does not create the book, pass an existing world_book_id (\`create({path:"wb"})\` first if needed). Use \`list_chat_world_books\` to see what's bound where.`,
     inputSchema: inputSchema3,
     jsonSchema: {
       type: "object",
       properties: {
         world_book_id: { type: "string", description: "Id of an existing world book." },
+        scope: { type: "string", enum: ["character", "chat", "global"], description: "Binding layer to change." },
         action: { type: "string", enum: ["attach", "detach"], description: "Default 'attach'." },
-        chat_id: { type: "string", description: "Chat to bind." }
+        target_id: { type: "string", description: "Character id (scope=character) or chat id (scope=chat). Ignored for global. Defaults to focused character / pinned chat." }
       },
-      required: ["world_book_id"]
+      required: ["world_book_id", "scope"]
     },
     requiresCharacter: false,
     execute: async (input, ctx) => {
-      const chatId = input.chat_id ?? ctx.pinnedChatId;
-      if (!chatId)
-        return { content: "Error: no chat_id and no pinned chat. Pin a chat or pass chat_id.", isError: true };
+      const wbId = input.world_book_id;
       const action = input.action ?? "attach";
       try {
         if (action === "attach") {
-          const wb = await ctx.spindle.world_books.get(input.world_book_id, ctx.userId);
+          const wb = await ctx.spindle.world_books.get(wbId, ctx.userId);
           if (!wb)
-            return { content: `Error: world book '${input.world_book_id}' not found`, isError: true };
+            return { content: `Error: world book '${wbId}' not found`, isError: true };
         }
-        const chat = await ctx.spindle.chats.get(chatId, ctx.userId);
-        if (!chat)
-          return { content: `Error: chat '${chatId}' not found`, isError: true };
-        const metadata = { ...chat.metadata ?? {} };
-        const raw = metadata["chat_world_book_ids"];
-        const current = Array.isArray(raw) ? raw.filter((v) => typeof v === "string") : [];
-        const has = current.includes(input.world_book_id);
-        let next;
-        if (action === "attach") {
-          if (has)
-            return { content: JSON.stringify({ ok: true, chat_id: chatId, world_book_id: input.world_book_id, action, changed: false, chat_world_book_ids: current }) };
-          next = [...current, input.world_book_id];
-        } else {
-          if (!has)
-            return { content: JSON.stringify({ ok: true, chat_id: chatId, world_book_id: input.world_book_id, action, changed: false, chat_world_book_ids: current }) };
-          next = current.filter((id) => id !== input.world_book_id);
+        if (input.scope === "character") {
+          let target;
+          try {
+            target = resolveCharacterTarget(ctx, input.target_id);
+          } catch (err) {
+            const nt = noTargetResult(err);
+            if (nt)
+              return nt;
+            throw err;
+          }
+          const character = await ctx.spindle.characters.get(target, ctx.userId);
+          if (!character)
+            return { content: `Error: character '${target}' not found`, isError: true };
+          const current2 = (character.world_book_ids ?? []).filter((v) => typeof v === "string");
+          const next2 = applyAction(current2, wbId, action);
+          if (next2)
+            await ctx.spindle.characters.update(target, { world_book_ids: next2 }, ctx.userId);
+          return result("character", target, wbId, action, next2 ?? current2, next2 !== null);
         }
-        metadata["chat_world_book_ids"] = next;
-        await ctx.spindle.chats.update(chatId, { metadata }, ctx.userId);
-        return { content: JSON.stringify({ ok: true, chat_id: chatId, world_book_id: input.world_book_id, action, changed: true, chat_world_book_ids: next }, null, 2) };
+        if (input.scope === "chat") {
+          const chatId = input.target_id ?? ctx.pinnedChatId;
+          if (!chatId)
+            return { content: "Error: no target_id and no pinned chat. Pin a chat or pass target_id.", isError: true };
+          const chat = await ctx.spindle.chats.get(chatId, ctx.userId);
+          if (!chat)
+            return { content: `Error: chat '${chatId}' not found`, isError: true };
+          const metadata = { ...chat.metadata ?? {} };
+          const raw = metadata["chat_world_book_ids"];
+          const current2 = Array.isArray(raw) ? raw.filter((v) => typeof v === "string") : [];
+          const next2 = applyAction(current2, wbId, action);
+          if (next2) {
+            metadata["chat_world_book_ids"] = next2;
+            await ctx.spindle.chats.update(chatId, { metadata }, ctx.userId);
+          }
+          return result("chat", chatId, wbId, action, next2 ?? current2, next2 !== null);
+        }
+        const current = await ctx.spindle.world_books.getGlobal(ctx.userId);
+        const has = current.includes(wbId);
+        let next = current;
+        let changed = false;
+        if (action === "attach" && !has) {
+          next = await ctx.spindle.world_books.activateGlobal(wbId, ctx.userId);
+          changed = true;
+        } else if (action === "detach" && has) {
+          next = await ctx.spindle.world_books.deactivateGlobal(wbId, ctx.userId);
+          changed = true;
+        }
+        return result("global", null, wbId, action, next, changed);
       } catch (err) {
         return { content: `Error: ${err.message}`, isError: true };
       }
@@ -18561,7 +18625,7 @@ var init_list_chat_world_books = __esm(() => {
     name: "list_chat_world_books",
     description: `List every world book bound to a chat, grouped by binding scope: character (\`char/world_book_ids\`), persona (active persona's attached book), and chat ("This Chat Only", \`chat.metadata.chat_world_book_ids\`).
 
-Use this, not \`list({path:"wb"})\`, to answer "what lorebooks are active for this chat" \u2014 plain \`list\` only sees character-attached books and reports the others as unattached. Global "Always Active" books are a fourth layer the host doesn't expose to extensions, so they're reported under \`global_unavailable\`.`,
+Use this, not \`list({path:"wb"})\`, to answer "what lorebooks are active for this chat" \u2014 plain \`list\` only sees character-attached books and reports the others as unattached. The fourth layer, global "Always Active" books, is included here under scope \`global\`. A book bound at multiple scopes is reported once, under the narrowest (character > persona > chat > global).`,
     inputSchema: inputSchema4,
     jsonSchema: {
       type: "object",
@@ -18601,11 +18665,13 @@ Use this, not \`list({path:"wb"})\`, to answer "what lorebooks are active for th
         const chatIds = Array.isArray(rawChatIds) ? rawChatIds.filter((v) => typeof v === "string") : [];
         for (const id of chatIds)
           await addBook(id, "chat");
+        const globalIds = await ctx.spindle.world_books.getGlobal(ctx.userId).catch(() => []);
+        for (const id of globalIds)
+          await addBook(id, "global");
         return { content: JSON.stringify({
           chat_id: chatId,
           count: rows.length,
-          books: rows,
-          global_unavailable: "Always-Active (global) books live in the user setting `globalWorldBooks`, which the host does not expose to this agent. They are not listed here."
+          books: rows
         }, null, 2) };
       } catch (err) {
         return { content: `Error: ${err.message}`, isError: true };
@@ -19330,7 +19396,9 @@ async function* iterateAllLeaves(ctx, characterId, opts) {
   }
   const attachedSet = new Set(c.world_book_ids ?? []);
   const wbIds = [...attachedSet];
+  let globalSet = new Set;
   if (opts?.wbScope === "all") {
+    globalSet = new Set(await ctx.spindle.world_books.getGlobal(ctx.userId).catch(() => []));
     const owned = await ctx.spindle.world_books.list({ limit: 1000, userId: ctx.userId });
     for (const wb of owned.data)
       if (!attachedSet.has(wb.id))
@@ -19339,7 +19407,7 @@ async function* iterateAllLeaves(ctx, characterId, opts) {
   for (const wbId of wbIds) {
     const attached = attachedSet.has(wbId);
     const wbScope = attached ? charScope : { kind: "world_book", id: wbId };
-    const tag = attached ? "" : " [global]";
+    const tag = attached ? "" : globalSet.has(wbId) ? " [global]" : " [unattached]";
     let wOff = 0;
     while (true) {
       const r = await ctx.spindle.world_books.entries.list(wbId, { limit: 500, userId: ctx.userId, offset: wOff });
@@ -19910,10 +19978,10 @@ Returns the new id (and book/preset id for nested creates).`,
         if (content === undefined)
           return { content: "Error: [INVALID_INPUT] entry requires value.content", isError: true };
         const create = { content };
-        if (Array.isArray(v.key))
-          create.key = v.key.map(String);
-        if (Array.isArray(v.keysecondary))
-          create.keysecondary = v.keysecondary.map(String);
+        if (v.key !== undefined)
+          create.key = coerceKeyList(v.key);
+        if (v.keysecondary !== undefined)
+          create.keysecondary = coerceKeyList(v.keysecondary);
         if (typeof v.comment === "string")
           create.comment = v.comment;
         if (typeof v.constant === "boolean")
@@ -20755,13 +20823,13 @@ Budget: 400 steps / depth 4 / 60s. The \`name\` form runs a saved recipe; defaul
       const parentDeadline = ctx.__customToolDeadline;
       const parentBudget = ctx.__customToolStepBudget;
       try {
-        const result = await ct.runCustomTool(ctx, manifest, passed, {
+        const result2 = await ct.runCustomTool(ctx, manifest, passed, {
           dispatch,
           depth: parentDepth + 1,
           deadline: parentDeadline ?? Date.now() + ct.CUSTOM_TOOLS_TIMEOUT_MS,
           stepBudget: parentBudget ?? { remaining: ct.CUSTOM_TOOLS_MAX_STEPS }
         });
-        return { content: JSON.stringify({ mode, name: manifest.name, result }, null, 2) };
+        return { content: JSON.stringify({ mode, name: manifest.name, result: result2 }, null, 2) };
       } catch (e) {
         return { content: `Error: ${e.message}`, isError: true };
       }
@@ -20825,9 +20893,9 @@ function applyEdit(text, find, replace, replaceAll) {
   }
   const idx = text.indexOf(actual);
   const adaptedReplace = label === "byte-exact" ? replace : preserveTypography(find, actual, replace);
-  const result = replaceAll ? text.split(actual).join(adaptedReplace) : `${text.slice(0, idx)}${adaptedReplace}${text.slice(idx + actual.length)}`;
+  const result2 = replaceAll ? text.split(actual).join(adaptedReplace) : `${text.slice(0, idx)}${adaptedReplace}${text.slice(idx + actual.length)}`;
   const out = {
-    result,
+    result: result2,
     count: replaceAll ? count : 1,
     firstSnippet: editSnippetContext(text, actual, adaptedReplace, idx)
   };
@@ -21521,7 +21589,7 @@ var init_settings = __esm(() => {
 });
 
 // src/generated/lumiverse-docs.ts
-var LUMIVERSE_DOCS_VERSION = "dee71c38a8799c35", LUMIVERSE_DOCS;
+var LUMIVERSE_DOCS_VERSION = "c0b7bbd15d5854e8", LUMIVERSE_DOCS;
 var init_lumiverse_docs = __esm(() => {
   LUMIVERSE_DOCS = {
     "characters/alternate-fields.md": `# Alternate Fields & Avatars\r
@@ -23739,7 +23807,7 @@ Z.AI ships two API URLs that share the same authentication but route to differen
 \r
 On a Z.AI connection, toggle **Use Coding Plan Endpoint** to route through \`/api/coding/paas/v4\`. Leave it off for normal API keys. Lumiverse rewrites the base URL accordingly \u2014 you don't have to edit the API URL field by hand.\r
 \r
-Z.AI does not expose an OpenAI-compatible \`/models\` endpoint, so Lumiverse ships a built-in model list (\`glm-5.1\`, \`glm-5-turbo\`, \`glm-5\`, \`glm-4.7\` family, \`glm-4.6\`, \`glm-4.5\` family, \`glm-4-32b-0414-128k\`) and validates your key by sending a minimal \`chat/completions\` request rather than a model list call. This is what keeps Coding Plan keys working \u2014 they 404 the model list endpoint but accept chat requests fine.\r
+Z.AI does not expose an OpenAI-compatible \`/models\` endpoint, so Lumiverse ships a built-in model list (\`glm-5.2\`, \`glm-5.1\`, \`glm-5-turbo\`, \`glm-5\`, \`glm-4.7\` family, \`glm-4.6\`, \`glm-4.5\` family, \`glm-4-32b-0414-128k\`) and validates your key by sending a minimal \`chat/completions\` request rather than a model list call. This is what keeps Coding Plan keys working \u2014 they 404 the model list endpoint but accept chat requests fine.\r
 \r
 !!! tip "Coding Plan keys reject /models"\r
     If you see "model list failed" errors on a freshly-saved Z.AI connection, you probably forgot to enable **Use Coding Plan Endpoint** \u2014 Lumiverse's chat-completion validation already handles this, but third-party tools that hit \`/models\` directly will fail.\r
@@ -24935,7 +25003,6 @@ An archive (a \`.lvbak\` file \u2014 really a renamed ZIP) carries every piece o
 | **Memory Cortex** | Entities, relations, consolidations, font colors, vaults, interlinks |\r
 | **Databanks** | Knowledge banks, documents, chunks |\r
 | **Packs** | Lumia, Loom, and tool packs \u2014 both user-authored and downloaded |\r
-| **Dream Weaver** | Sessions, generated messages, saved prompts |\r
 | **Theme Assets** | Bundles, custom CSS, wallpapers |\r
 | **Settings** | Every preference \u2014 display, chat behavior, voice, push, extensions |\r
 | **Spindle Extensions** | User-installed extensions and their enclave-stored preferences |\r
@@ -24981,594 +25048,6 @@ The panel has two cards: **Export your data** and **Import an archive**.\r
 \r
 !!! tip "Archives are forever"\r
     Archives never expire and have no time-bound license. You can store a \`.lvbak\` for years and restore it into any compatible Lumiverse instance. The same applies to decryption tickets \u2014 they have no TTL.\r
-`,
-    "dream-weaver/index.md": `# Dream Weaver\r
-\r
-Dream Weaver turns an idea into a finished character or scenario card. You describe what you want, run a handful of tools, review the results, and accept the ones that fit. When the required fields are filled in, **Finalize** writes a real card to your library and creates its launch chat.\r
-\r
-Dream Weaver is best when you have a clear idea but writing the fields by hand would take too long, or when you want a polished first draft you can edit afterwards.\r
-\r
----\r
-\r
-## What's New: Dream Weaver 2.0\r
-\r
-The Studio is now **chat-based**. Instead of a card pane on the side, you have a chat thread where each tool you run produces an embedded **tool card** that you accept, retry, adjust, or discard inline.\r
-\r
-Key changes from earlier versions:\r
-\r
-- **Chat-style composer** with slash-command autocomplete.\r
-- **Tool cards** appear in the thread with \`Use result\` / \`Run again\` / \`Adjust\` / \`Discard\` actions.\r
-- **Adjust** opens an inline nudge box so you can retry a tool with extra guidance.\r
-- **Run Full Suite** generates name, appearance, personality, scenario, first message, and voice in one go.\r
-- **Progress badges** at the top show which fields are still missing before you can finalize.\r
-- **Editable Dream source** \u2014 open the Dream Summary card, click the pencil, and rewrite your source at any time.\r
-- **Voice Guidance editor** for structured baseline / rhythm / diction / quirks / hard nos rules.\r
-- **Visuals tab** with portrait stage, ComfyUI workflow editor, and a **Suggest Tags** helper.\r
-\r
-The slash command vocabulary is mostly unchanged \u2014 \`/dream\`, \`/name\`, \`/appearance\`, \`/personality\`, \`/scenario\`, \`/voice\`, \`/first_message\`, \`/greeting\`, \`/add_lorebook\`, \`/add_npc\`, \`/help\` \u2014 but they now produce tool cards rather than full-screen drafts.\r
-\r
----\r
-\r
-## When to Use Dream Weaver\r
-\r
-Use Dream Weaver when you want to:\r
-\r
-1. Turn an idea into a character or scenario card\r
-2. Create a card that matches a role, setup, or scenario you can't find elsewhere\r
-3. Get help writing the parts of a card that are hard to phrase manually\r
-4. Iterate on individual fields without rewriting the whole card\r
-5. Add supporting lore (NPCs, lorebook entries) after the main idea is clear\r
-\r
-Dream Weaver works best when you know what you want but need help turning it into a finished card.\r
-\r
----\r
-\r
-## When Not to Use It\r
-\r
-Use the regular **Character Browser** when you already know the exact edits you want.\r
-\r
-| Situation | Better Tool |\r
-|-----------|-------------|\r
-| You only need to fix a typo | Character editor |\r
-| You already know the exact field text | Character editor |\r
-| You want to manually tag or organize a card | Character editor |\r
-| You are importing a finished character card | Character import |\r
-| You do not want generated suggestions | Character editor |\r
-\r
-You can always edit Dream Weaver output later in the regular character editor. If you reopen the same Dream Weaver session, **Update Character** or **Update Scenario** updates the linked card instead of creating a duplicate.\r
-\r
----\r
-\r
-## Studio Layout\r
-\r
-The Studio is a centred modal with two tabs:\r
-\r
-| Tab | Purpose |\r
-|-----|---------|\r
-| **Studio** | The chat thread where you run tools, review tool cards, and edit voice guidance. Progress badges and the Suite Runner banner sit above the log. |\r
-| **Visuals** | Portrait stage and image-gen controls \u2014 generate the card's portrait once the text fields take shape. |\r
-\r
-A header strip carries the session name, a **Character / Scenario** switcher (disabled once the session is finalized), and a **Draft / Linked** status pill. The footer shows the same status with a **Close** button and a **Finalize** (or **Update**) button. If any required field is missing, the footer tells you which ones.\r
-\r
----\r
-\r
-## Chat Thread Artifacts\r
-\r
-Anything that happens in a session shows up as an entry in the chat log:\r
-\r
-| Artifact | What it is |\r
-|----------|------------|\r
-| **Dream Summary** | A summary of the active source. Shows the dream text plus optional tone and dislikes chips. Click the pencil to edit. |\r
-| **User Command Bubble** | The slash command you ran, shown as a small grey bubble. |\r
-| **Tool Card** | The result of a tool run. Includes a header (tool name, intent), execution time, token usage, output fields, and the action buttons. Expand **Run details** for the raw output. |\r
-| **System Note** | Inline note from the Studio itself \u2014 \`/help\` output, status changes, or errors. |\r
-| **Nudge Inline** | Appears when you click **Adjust** on a tool card. Lets you type what should change before retrying. |\r
-\r
----\r
-\r
-## Character vs. Scenario\r
-\r
-Dream Weaver doesn't infer the card type from your source text. Pick **Character** or **Scenario** with the switcher in the header.\r
-\r
-Use **Character** when you want one primary character.\r
-\r
-Use **Scenario** when you want a narrator, world, location, setup, or situation card.\r
-\r
-| Command | Character Mode | Scenario Mode |\r
-|---------|----------------|---------------|\r
-| \`/name\` | Character name | Scenario title |\r
-| \`/appearance\` | Physical appearance | Setting and sensory presentation |\r
-| \`/personality\` | Character behavior | Narrator, world behavior, or interaction rules |\r
-| \`/scenario\` | Starting situation around the character | Premise, tension, and current scene |\r
-| \`/voice\` | Character speech style | Narrator or world voice |\r
-| \`/first_message\` | Character opening message | Opening narration or scene prompt |\r
-\r
-The switcher controls which framing the tools write to. \`/dream\` only adds direction for Dream Weaver to use \u2014 it does not pick the card type for you.\r
-\r
----\r
-\r
-## Saved Weaves\r
-\r
-The Dream Weaver panel keeps every session in **Previous Weaves**. Filter by **All**, **Drafts**, or **Finalized**, or use search to find an older session. Finalized sessions live in the same list \u2014 they're tagged with a different status pill \u2014 and can be reopened to keep iterating on the linked card.\r
-\r
----\r
-\r
-## Quick Links\r
-\r
-| Guide | What You'll Learn |\r
-|-------|-------------------|\r
-| [Studio Workflow](studio-workflow.md) | Use the chat composer, slash commands, tool cards, Suite Runner, and the Voice Guidance editor. |\r
-| [Sources & Roadmap](sources-and-roadmap.md) | Add and edit dream source, what counts as useful source, and what import sources are planned. |\r
-| [Visuals & Finalizing](visuals-and-finalizing.md) | Generate portraits, manage ComfyUI workflows, suggest tags, finalize, and update the linked card. |\r
-`,
-    "dream-weaver/sources-and-roadmap.md": `# Sources & Roadmap\r
-\r
-Dream Weaver needs direction before it can generate useful cards. The text you give it is called **source**, and it lives on a special card in the chat log called the **Dream Summary**. Every tool reads the active source before generating, so the source is what holds your whole weave together.\r
-\r
----\r
-\r
-## Available Now\r
-\r
-Dream Weaver currently supports text source added through the panel or with \`/dream\`.\r
-\r
-| Source | How to Add It | Notes |\r
-|--------|---------------|-------|\r
-| Initial source | Fill **Source Material** in the Dream Weaver panel before opening the Studio | Inserted into the chat as a Dream Summary card when the Studio opens. |\r
-| In-Studio source | Open the Studio, then type \`/dream your source text\` | Useful when you opened the Studio empty. |\r
-| Additional source | Run \`/dream your extra material\` again | Updates the existing Dream Summary card with the new content \u2014 does not stack a second source card. |\r
-\r
-Example:\r
-\r
-\`\`\`text\r
-/dream Alice is my bully. She runs the student council and hides a soft streak she resents.\r
-\`\`\`\r
-\r
-!!! warning "Source before tools"\r
-    Every generation tool \u2014 \`/name\`, \`/appearance\`, \`/personality\`, \`/scenario\`, \`/voice\`, \`/first_message\`, \`/greeting\`, \`/add_lorebook\`, \`/add_npc\` \u2014 is blocked until a Dream Summary exists. Only \`/help\` and \`/dream\` are available beforehand.\r
-\r
----\r
-\r
-## Editing the Dream Summary Inline\r
-\r
-The Dream Summary card has a pencil icon. Click it to edit the source text directly in the card \u2014 no need to retype \`/dream\` from scratch. Editing the summary also re-runs any tone / dislikes parsing the card does so the chips at the bottom stay in sync.\r
-\r
-Editing source mid-weave does **not** retroactively change tool cards you've already accepted. Use **Run again** or **Adjust** on those tool cards if you want them to re-read the new source.\r
-\r
-The Dream Summary also surfaces a couple of optional metadata chips when present:\r
-\r
-| Chip | What it means |\r
-|------|---------------|\r
-| **Tone** | A short tone label (e.g. _melancholic_, _wry_, _menacing_) that tools fold into prompts. |\r
-| **Dislikes** | Things you specifically don't want in the result. Tools treat these as soft constraints. |\r
-\r
-Tone and dislikes are derived from your source text \u2014 there's no separate field to fill in.\r
-\r
----\r
-\r
-## What Counts as Useful Source\r
-\r
-Good source doesn't need to be polished. It just needs enough detail for Dream Weaver to understand the card you want.\r
-\r
-Useful source can include:\r
-\r
-1. Character idea or scenario premise\r
-2. Tone and emotional texture\r
-3. Relationship to \`{{user}}\`\r
-4. Setting rules or world constraints\r
-5. Character contradictions\r
-6. Things to avoid\r
-7. Existing card or world book details you want preserved\r
-\r
-Weak source is usually too broad:\r
-\r
-\`\`\`text\r
-/dream make a mysterious girl\r
-\`\`\`\r
-\r
-Stronger source gives Dream Weaver something specific to preserve:\r
-\r
-\`\`\`text\r
-/dream A transfer student who always knows the answer before the teacher asks. She is not psychic. She is reliving the same school week and is starting to resent everyone for not remembering.\r
-\`\`\`\r
-\r
-The more concrete the source, the less rerolling you'll do downstream.\r
-\r
----\r
-\r
-## Iterating on Source\r
-\r
-Source isn't carved in stone. A typical iteration pattern:\r
-\r
-1. Type a first source with \`/dream\`.\r
-2. Run \`/name\`, \`/appearance\`, \`/personality\` \u2014 read the results.\r
-3. If the results miss the mark, edit the Dream Summary to tighten the brief.\r
-4. Hit **Run again** or **Adjust** on the affected tool cards so they re-read the updated source.\r
-\r
-You can repeat this as many times as you like before finalizing. The chat log keeps every card you've generated, so you can compare a "before tightened source" card against an "after" one without losing either.\r
-\r
----\r
-\r
-## Planned Source Workflows\r
-\r
-More source types are planned but not available yet.\r
-\r
-| Future Workflow | Intended Use |\r
-|-----------------|--------------|\r
-| Import a character as source | Use an existing non-Dream Weaver character as reference material. |\r
-| Import a world book as source | Generate a character from lore, factions, locations, or NPC entries. |\r
-| Attach or import a world book into a finalized card | Add existing lore to the final card workflow. |\r
-| Generate a scenario from a world book | Turn a setting or lore collection into a narrator/scenario card. |\r
-\r
-When these import flows arrive, imported material will appear as the Dream Summary's content \u2014 and the rest of the chat-based workflow (composer, tool cards, suite, finalize) will stay exactly the same.\r
-\r
----\r
-\r
-## Tips\r
-\r
-!!! tip "Edit the summary before reaching for Run again"\r
-    Tightening source upstream often produces a better result than nudging the tool downstream. Both work \u2014 but a one-sentence edit to the Dream Summary fixes every tool you run after, not just the one card.\r
-\r
-!!! tip "List dislikes explicitly"\r
-    Saying _"avoid royal, noble, or chosen-one language"_ in the source is more effective than discovering it later via Adjust. Dream Weaver folds dislikes into prompts as soft constraints from the start.\r
-`,
-    "dream-weaver/studio-workflow.md": `# Studio Workflow\r
-\r
-The Studio is a chat thread. You type slash commands in the composer, tool cards appear in the log with their results, and you decide what to keep with a click.\r
-\r
----\r
-\r
-## Starting a Weave\r
-\r
-1. Open the **Dream Weaver** panel.\r
-2. Choose **Character** or **Scenario** with the header switcher.\r
-3. Open or create a session \u2014 the Studio opens to its empty thread.\r
-4. Type your source with \`/dream \u2026\` (or fill the panel's **Source Material** field before opening the Studio). The Dream Summary card appears in the log.\r
-5. Run tools (\`/name\`, \`/appearance\`, \u2026) or hit **Run Full Suite** to generate the core set in one go.\r
-\r
-If the log is empty, the Studio shows a short onboarding prompt: _"Describe your concept. Type /dream followed by a few sentences about your character \u2014 their personality, look, or role."_\r
-\r
-!!! warning "Tools need source first"\r
-    Every generation tool except \`/help\` and \`/dream\` is blocked until a Dream Summary exists. Add one with \`/dream \u2026\` before running anything else.\r
-\r
-!!! tip "Good source pays off"\r
-    Include the premise, mood, relationship to \`{{user}}\`, genre, constraints, and anything you don't want. Specific source = specific results. See [Sources & Roadmap](sources-and-roadmap.md).\r
-\r
----\r
-\r
-## The Composer\r
-\r
-The chat composer sits at the bottom of the Studio. Type a message and hit Enter to send (Shift+Enter for a new line). The placeholder reads _"/dream describe the setup, or run /name. Shift+Enter for a new line."_\r
-\r
-### Slash Command Autocomplete\r
-\r
-Typing \`/\` opens a popover with matching tools (up to 6 results), grouped by category (**Soul**, **World**, **Lifecycle**). Each entry shows the command, display name, and a short description. Press **Tab** to complete the highlighted command, or **Enter** to submit it directly.\r
-\r
-### Sending a Command With Direction\r
-\r
-You can append instruction text after the command. The tool uses it as guidance for that run:\r
-\r
-\`\`\`text\r
-/personality make her warmth feel practiced, not natural\r
-\`\`\`\r
-\r
-\`\`\`text\r
-/scenario keep {{user}} as a suspicious guest arriving during a storm\r
-\`\`\`\r
-\r
-Direction can also be added _after_ a tool runs by clicking **Adjust** on its tool card (see below).\r
-\r
----\r
-\r
-## Tools\r
-\r
-All tools below need source material to be present (added via \`/dream\`) except \`/help\` and \`/dream\` itself.\r
-\r
-| Command | Category | Purpose | Mode |\r
-|---------|----------|---------|------|\r
-| \`/dream\` | Lifecycle | Add or edit the dream source for the session. | Append / edit |\r
-| \`/help\` | Lifecycle | List every tool with a short description. | \u2014 |\r
-| \`/name\` | Soul | Generate the character name (or scenario title). | Overwrite |\r
-| \`/appearance\` | Soul | Generate appearance, setting, or visual presentation. | Overwrite |\r
-| \`/personality\` | Soul | Generate behavioral patterns, habits, contradictions. | Overwrite |\r
-| \`/scenario\` | Soul | Generate the current situation and relationship to \`{{user}}\`. | Overwrite |\r
-| \`/voice\` | Soul | Generate voice guidance \u2014 baseline, rhythm, diction, quirks, hard nos. | Overwrite |\r
-| \`/first_message\` | Soul | Generate the main opening message. | Overwrite |\r
-| \`/greeting\` | Soul | Generate an alternate entry-point greeting. | Overwrite |\r
-| \`/add_lorebook\` | World | Generate one lorebook entry (keys, comment, content). | Append |\r
-| \`/add_npc\` | World | Generate one supporting NPC (name, description, optional voice notes). | Append |\r
-\r
-**Overwrite** tools replace the previously accepted result for that field \u2014 accepting a new \`/name\` card swaps the name on the draft. **Append** tools add to a list \u2014 every \`/add_npc\` you accept stacks another NPC on the draft.\r
-\r
----\r
-\r
-## Tool Cards\r
-\r
-Each generation produces a **tool card** in the chat log. The card header shows the tool icon, display name, intent line (e.g. _"Setting the character's name"_), status badge, execution time, and token usage. While the tool is running, output fields show skeleton loaders.\r
-\r
-Once the card reaches **Ready to Review**, the action row appears:\r
-\r
-| Action | Result |\r
-|--------|--------|\r
-| **Use result** | Accept the output. Adds (or replaces) the matching field on the draft. |\r
-| **Run again** | Re-run the same command with the same arguments. Produces a new card that supersedes the old one. |\r
-| **Adjust** | Open the inline **nudge** box and re-run with extra guidance. The old card is marked _Replaced_. |\r
-| **Discard** | Reject the output. The card stays in the log for reference but the draft is not updated. |\r
-\r
-You can also **Cancel run** while a card is in progress, and expand **Run details** on any completed card to see the raw structured output.\r
-\r
-### Adjust / Nudge\r
-\r
-Clicking **Adjust** drops a small "What should change?" input under the card with a **Run adjusted** button. Use it to retry without retyping the original command:\r
-\r
-\`\`\`text\r
-make her warmth feel practiced, not natural \u2014 keep the height and outfit\r
-\`\`\`\r
-\r
-Run adjusted produces a new tool card linked to the previous one (with \`supersedes_id\`). The old card is greyed out and tagged **Replaced**; the new card becomes the latest in the chain.\r
-\r
----\r
-\r
-## Run Full Suite\r
-\r
-When the Studio has source material, a banner above the chat log offers **Run Full Suite**. It runs **name \u2192 appearance \u2192 personality \u2192 scenario \u2192 first message \u2192 voice** in sequence and queues all the tool cards into the log. When the run finishes, the banner shows:\r
-\r
-> _N tools ready \u2014 review results below, then accept what you like._\r
-\r
-You still have to accept each card individually \u2014 the suite generates the candidates but doesn't auto-apply them. If any step fails, the banner switches to an error state with a **Retry** button.\r
-\r
-Use Run Full Suite when you want a complete first draft to react to. Skip it when you want to iterate on a single field \u2014 running \`/name\` then \`/appearance\` manually gives you tighter control.\r
-\r
----\r
-\r
-## Progress Badges\r
-\r
-A horizontal **Character Progress** (or **Scenario Progress**) bar sits above the chat. Each tracked field appears as a chip \u2014 Name, Personality, First Message, Scenario, Appearance, Voice \u2014 with a checkmark once accepted. Required fields are visually highlighted while they're still missing. The right-hand counter shows the running total (e.g. \`4 / 6\`).\r
-\r
-The bar updates every time you accept a tool card.\r
-\r
----\r
-\r
-## Required Fields for Finalize\r
-\r
-You can't finalize until three fields are filled:\r
-\r
-| Field | Character | Scenario |\r
-|-------|-----------|----------|\r
-| **Name / Title** | Character name | Scenario title |\r
-| **Personality** | Character behavior | Narrator or world behavior |\r
-| **First Message** | Opening message | Opening narration |\r
-\r
-If any of those is missing, the Studio footer reads _"Needs \u2026 before finalizing"_ and the **Finalize** button is disabled. Appearance, scenario, voice guidance, lorebook entries, NPCs, alternate greetings, and visuals are all optional \u2014 finalize will happily ship a minimal card if that's what you want.\r
-\r
----\r
-\r
-## Voice Guidance Editor\r
-\r
-The \`/voice\` tool produces a structured voice profile, edited in the **Voice Guidance** editor (opened from the voice tool card or from the workspace panel). Each rule lives under one of five categories:\r
-\r
-| Category | Use it for |\r
-|----------|------------|\r
-| **Baseline** | Core vocal characteristics (tone, register, pacing baseline). |\r
-| **Rhythm** | Speech patterns, pacing variations, pauses. |\r
-| **Diction** | Word choice, vocabulary level, formality. |\r
-| **Quirks** | Idiosyncratic speech patterns, verbal tics, signature phrases. |\r
-| **Hard nos** | Absolute rules to avoid (forbidden words, accents you don't want, etc.). |\r
-\r
-Each category is a list of rules \u2014 add, remove, or reorder freely. A category badge shows how many rules it contains.\r
-\r
-A **Structured / Compiled** toggle at the top of the editor switches between the editable rule view and the read-only compiled string that's actually fed to the model at runtime.\r
-\r
-\`/voice\` populates both halves automatically. Hand-editing the rules afterwards is encouraged when the auto-generated wording doesn't match what you hear in your head.\r
-\r
----\r
-\r
-## Workspace Behaviour\r
-\r
-The workspace draft is rebuilt from your accepted tool cards on every change. If a tool card is later **discarded** or **superseded** by a newer accepted card, the draft updates accordingly. Nothing is "saved" \u2014 the chat log is the source of truth, and the draft is just the latest accepted projection of it.\r
-\r
-Common adjustments when something feels off:\r
-\r
-| Goal | Example nudge |\r
-|------|---------------|\r
-| More grounded | \`less dramatic, more everyday\` |\r
-| More specific | \`add concrete habits and visual details\` |\r
-| Less polished | \`make the wording rougher and more natural\` |\r
-| Stronger constraint | \`avoid royal, noble, or chosen-one language\` |\r
-| More scenario-focused | \`treat this as a place and situation, not a single person\` |\r
-\r
----\r
-\r
-## Common Workflows\r
-\r
-### Character\r
-\r
-1. \`/dream\` your concept (or fill **Source Material** before opening).\r
-2. Hit **Run Full Suite** and let it queue six cards.\r
-3. Walk down the log: **Use result** for keepers, **Adjust** on anything close-but-wrong, **Run again** if you want a different draft of the same thing.\r
-4. Add \`/add_lorebook\` / \`/add_npc\` if the card needs supporting world detail.\r
-5. Open the **Visuals** tab to generate a portrait.\r
-6. **Finalize Character** once Name, Personality, and First Message are checked off.\r
-\r
-### Scenario\r
-\r
-1. Flip the header switcher to **Scenario**.\r
-2. \`/dream\` the premise, setting, tone, and \`{{user}}\`'s role.\r
-3. \`/name\` for the scenario title, \`/appearance\` for the setting, \`/personality\` for narrator behavior, \`/scenario\` and \`/first_message\` for the opening situation.\r
-4. Use \`/voice\` to lock in narrator voice (optional but recommended).\r
-5. **Finalize Scenario**.\r
-\r
-You can mix and match \u2014 the only rule is that source must exist before generation tools run.\r
-\r
----\r
-\r
-## Tips\r
-\r
-!!! tip "Nudge before re-running"\r
-    Pick **Adjust** over **Run again** when the result is _almost_ right. A nudge that mentions what to keep is faster than rerolling from scratch.\r
-\r
-!!! tip "Use Run Full Suite for first drafts only"\r
-    The Suite is great for generating six candidates fast. For revisions, run tools individually \u2014 you'll get cards that respond to recent context instead of restarting from the source.\r
-\r
-!!! tip "Append tools stack"\r
-    \`/add_npc\` and \`/add_lorebook\` don't replace previous entries. Run them once per NPC or lore beat you want; the draft collects them all.\r
-`,
-    "dream-weaver/visuals-and-finalizing.md": `# Visuals & Finalizing\r
-\r
-The **Visuals** tab generates a portrait for the Dream Weaver session. **Finalize** turns the session into a real character or scenario card.\r
-\r
-Portraits are the only supported visual asset in the current version. Expressions and gallery images are planned for a later release.\r
-\r
----\r
-\r
-## Visuals Tab\r
-\r
-Dream Weaver shares its image-gen connections with [core image generation](../image-generation/index.md) \u2014 there is no separate setup. Whatever ComfyUI, SwarmUI, Gemini, NovelAI, NanoGPT, or Pollinations connections you've already configured will appear in the Visuals tab's connection picker.\r
-\r
-The Visuals tab has two main regions:\r
-\r
-| Region | What It Does |\r
-|--------|--------------|\r
-| **Portrait stage** | A two-pane view: **Accepted** (the current accepted portrait, or an empty state) and **New Result** (the latest candidate or generation progress). |\r
-| **Source Settings Ribbon** | Image-gen connection, prompt fields, size / aspect ratio, seed, and provider parameters. |\r
-\r
-If only one image-gen connection exists, the Visuals tab auto-selects it. Otherwise pick one from the dropdown.\r
-\r
----\r
-\r
-## Prompts & Suggest Tags\r
-\r
-The Visuals tab has its own positive and negative prompt fields \u2014 these are stored on the session's visual asset, not on the main image-gen prompt preset.\r
-\r
-**Suggest Tags** sits next to the positive prompt. Clicking it runs a quick LLM pass that converts the accepted appearance and personality cards into image-generation tags, then offers them as autocomplete suggestions you can append to the prompt. Review the suggestion before applying \u2014 you can prune anything that doesn't fit before clicking _Apply_.\r
-\r
-Tag suggestion is most useful when the accepted \`/appearance\` card is rich. If the suggested tags feel vague, run \`/appearance\` again with stronger direction first.\r
-\r
----\r
-\r
-## Provider Settings\r
-\r
-Each provider exposes the same parameters in the Visuals tab as it does in the main image-gen panel \u2014 see [Setup & Providers](../image-generation/setup.md#provider-specific-setup) for the full per-provider parameter lists. Standard controls appear in the ribbon:\r
-\r
-- **Positive Prompt** \u2014 main image prompt.\r
-- **Negative Prompt** \u2014 content to avoid.\r
-- **Width / Height** \u2014 output resolution.\r
-- **Aspect Ratio** \u2014 locked for some providers (NovelAI, Gemini) and free-form for others.\r
-- **Seed** \u2014 explicit seed or a randomize button.\r
-\r
-Provider-specific extras (steps, CFG, sampler, scheduler, etc.) are pulled from the connection's parameter schema and rendered inline. They're stored on the visual asset, so the seed you used for an accepted portrait survives a session reopen.\r
-\r
----\r
-\r
-## ComfyUI Workflows\r
-\r
-For ComfyUI connections, Dream Weaver needs an imported workflow before it can generate. The flow is the same as in core image gen:\r
-\r
-1. Select a ComfyUI image-gen connection.\r
-2. Open the **Workflow Editor** modal from the Visuals tab.\r
-3. Paste a workflow JSON (graph or API format) and let Lumiverse auto-detect injection points (positive prompt, negative prompt, seed, width, height, steps, CFG, sampler, scheduler, checkpoint).\r
-4. Adjust any field mappings that point at the wrong node.\r
-5. Save. Dream Weaver stores the workflow + mappings on the **image-gen connection's metadata**, so the same workflow is available to the core Image Generation panel too.\r
-\r
-Custom fields you've mapped on the connection (LoRA strengths, alternate samplers, etc.) appear in the Visuals tab as extra parameter controls.\r
-\r
-See [ComfyUI Workflows](../image-generation/setup.md#comfyui-workflows) for the deeper walk-through.\r
-\r
----\r
-\r
-## Generating a Portrait\r
-\r
-1. Make sure the positive prompt has at least an appearance description. Use **Suggest Tags** if you want Dream Weaver to fill it in from the accepted cards.\r
-2. Tune size, aspect, and provider parameters as needed.\r
-3. Click **Generate Portrait**. Progress streams in the **New Result** pane (with step counts and live previews on ComfyUI / SwarmUI).\r
-4. When the candidate appears, decide what to do with it:\r
-\r
-| Action | Result |\r
-|--------|--------|\r
-| **Accept Portrait** | Saves the candidate as the accepted portrait. If one is already accepted, the button reads **Replace Portrait**. |\r
-| **Regenerate** | Runs the image job again with the same settings. |\r
-| **Discard** | Removes the candidate without changing the accepted portrait. |\r
-\r
-The accepted portrait persists with the session. Reopening the session later keeps the selected portrait, and finalizing applies it to the linked card.\r
-\r
----\r
-\r
-## Asset Guidance\r
-\r
-Visual generation works best after the text fields take shape. Since portraits are the current supported asset type, the accepted \`/appearance\` card matters most.\r
-\r
-Good portrait guidance includes:\r
-\r
-1. Body type, age impression, hair, eyes, clothing, distinguishing marks.\r
-2. Style constraints \u2014 illustration, anime, cinematic, realistic.\r
-3. Composition and framing \u2014 bust portrait, full body, close-up, environmental portrait.\r
-4. Things to avoid in the negative prompt.\r
-\r
-If the portrait keeps drifting away from the card's vibe, sharpen \`/appearance\` first. The image prompt and the text card share the same source, so tightening one improves the other on the next pass.\r
-\r
----\r
-\r
-## Finalizing\r
-\r
-Click **Finalize Character** or **Finalize Scenario** in the Studio footer once the required fields are filled.\r
-\r
-Dream Weaver requires these fields before finalizing:\r
-\r
-| Required Field | Character Mode | Scenario Mode |\r
-|----------------|----------------|---------------|\r
-| Name / Title | Character name | Scenario title |\r
-| Personality | Character behavior | Narrator or world behavior |\r
-| First Message | Character opening message | Opening narration or scene prompt |\r
-\r
-If any required field is empty, the footer reads _"Needs \u2026 before finalizing"_ and the button is disabled. Everything else \u2014 appearance, scenario, voice guidance, lorebook entries, NPCs, alternate greetings, portrait \u2014 is optional. Finalize will happily ship a minimal card.\r
-\r
-### What Finalize Creates\r
-\r
-| Output | What Happens |\r
-|--------|--------------|\r
-| **Generated card** | Name/title, description, personality, scenario, first message, and Dream Weaver metadata are saved. |\r
-| **Launch chat** | Created the first time you finalize the session. |\r
-| **World books** | Accepted lorebook entries and NPCs become world book entries attached to the card. |\r
-| **Portrait** | The accepted portrait is applied as the card's avatar. |\r
-| **Voice guidance** | The compiled voice string is attached to the card. |\r
-\r
-Finalizing flips the session's status pill from **Draft** to **Linked**. The Character / Scenario switcher in the header is disabled at this point \u2014 the card type is locked in.\r
-\r
----\r
-\r
-## Updating a Finalized Session\r
-\r
-Once a session is linked, the Studio footer's button changes to **Update Character** or **Update Scenario**.\r
-\r
-Update:\r
-\r
-1. Reuses the same generated card and its character ID.\r
-2. Keeps the existing launch chat.\r
-3. Replaces world books Dream Weaver previously generated for this session, but **preserves world books you attached by hand** outside of Dream Weaver.\r
-4. Applies the current accepted portrait when one is selected.\r
-5. Re-writes name, description, personality, scenario, and first message from the accepted cards.\r
-\r
-Use this when you've accepted revised cards after testing the result, or when you generated a better portrait from the same session.\r
-\r
----\r
-\r
-## After Finalizing\r
-\r
-Open the linked card in the **Character Browser** to review the saved fields. That's the best place for small manual edits, additional tags, alternate greetings, avatar tweaks, or exporting the card.\r
-\r
-If the launch chat doesn't quite work, return to Dream Weaver, accept revised cards (or run more tools), and click **Update Character** / **Update Scenario** \u2014 the linked card refreshes in place.\r
-\r
----\r
-\r
-## Tips\r
-\r
-!!! tip "Iterate appearance before generating"\r
-    A vague \`/appearance\` card gives the image model nothing concrete to anchor on. Spend a Run again or Adjust on \`/appearance\` before clicking Generate Portrait and you'll waste fewer image credits.\r
-\r
-!!! tip "Reuse a ComfyUI workflow across both panels"\r
-    Workflows are stored on the connection, not on the Dream Weaver session. Import once and both the Dream Weaver Visuals tab and the core Image Generation panel will see it.\r
-\r
-!!! warning "Update doesn't touch manually-edited fields outside Dream Weaver"\r
-    If you edited the linked card in the Character Browser after finalizing, those edits get overwritten when you next click **Update**. Either re-do them in the Studio first or be ready to redo them in the Browser after the update.\r
 `,
     "extensions/index.md": `# Extensions\r
 \r
@@ -26453,7 +25932,7 @@ The drawer hosts every workspace panel as a tab. You can reorder them with drag-
 |-----|---------|\r
 | **OOC** | Out-of-character comment display settings |\r
 | **Branch Tree** | Visualize and navigate the chat's branch history |\r
-| **Dream Weaver** | Generate brand-new characters from prompts |\r
+| **Weaver** | Author characters and worlds from your idea through a guided interview |\r
 | **Extensions** | Install and manage [Spindle](../extensions/index.md) extensions |\r
 \r
 Spindle extensions can register additional drawer tabs that appear alongside the built-ins.\r
@@ -27047,7 +26526,7 @@ New to Lumiverse? Start here:\r
 | Guide | What You'll Learn |\r
 |-------|-------------------|\r
 | [Characters](characters/index.md) | Import, create, and customize AI characters |\r
-| [Dream Weaver](dream-weaver/index.md) | Make character and scenario cards from your ideas |\r
+| [Weaver](weaver/index.md) | Author characters and whole worlds from your idea through a guided interview |\r
 | [Chatting](chatting/index.md) | Send messages, use swipes, branch conversations |\r
 | [Personas](personas/index.md) | Create your own identity for roleplay |\r
 | [Connections](connections/index.md) | Connect to AI providers (OpenAI, Claude, etc.) |\r
@@ -28085,6 +27564,200 @@ Only the selected branch is resolved. Side-effect macros in the unselected branc
 \r
 ---\r
 \r
+## Iteration\r
+\r
+### \`{{foreach}}\`\r
+\r
+Repeat a block of content once for each item in a list \u2014 the macro equivalent of a JavaScript \`forEach\`. The list is a single string that is split on a delimiter (\`,\` by default); each item is trimmed and blank items are dropped.\r
+\r
+\`\`\`\r
+{{foreach::apple, banana, cherry}}\r
+- {{.item}}\r
+{{/foreach}}\r
+\`\`\`\r
+\r
+produces:\r
+\r
+\`\`\`\r
+- apple\r
+- banana\r
+- cherry\r
+\`\`\`\r
+\r
+**Custom loop variable** \u2014 the second argument renames the loop variable (default \`item\`):\r
+\r
+\`\`\`\r
+{{foreach::Alice,Bob::name}}{{.name}} is here. {{/foreach}}\r
+\`\`\`\r
+\r
+**Custom delimiter** \u2014 the third argument changes the split character. Pass an empty delimiter (\`::\`) to treat the whole string as a single item:\r
+\r
+\`\`\`\r
+{{foreach::a|b|c::item::|}}{{.item}} {{/foreach}}    \u2014 splits on "|"\r
+\`\`\`\r
+\r
+Inside the body, these loop variables are available (replace \`item\` with your variable name):\r
+\r
+| Variable | Value |\r
+|----------|-------|\r
+| \`{{.item}}\` | The current item |\r
+| \`{{.item_index}}\` | 0-based position (\`0\`, \`1\`, \`2\`, \u2026) |\r
+| \`{{.item_number}}\` | 1-based position (\`1\`, \`2\`, \`3\`, \u2026) |\r
+| \`{{.item_count}}\` | Total number of items |\r
+| \`{{.item_first}}\` | \`"true"\` on the first item, otherwise empty |\r
+| \`{{.item_last}}\` | \`"true"\` on the last item, otherwise empty |\r
+\r
+**Numbered list:**\r
+\r
+\`\`\`\r
+{{foreach::Sword,Shield,Potion::loot}}{{.loot_number}}. {{.loot}}{{newline}}{{/foreach}}\r
+\`\`\`\r
+\r
+**Comma-joined list** \u2014 use \`{{.x_last}}\` to skip the trailing separator:\r
+\r
+\`\`\`\r
+{{foreach::a,b,c::x}}{{.x}}{{if::!{{.x_last}}}}, {{/if}}{{/foreach}}    \u2014 "a, b, c"\r
+\`\`\`\r
+\r
+\`{{foreach}}\` pairs naturally with any macro that returns a delimited list, such as \`{{players}}\` or \`{{group}}\`:\r
+\r
+\`\`\`\r
+{{foreach::{{players}}}}- {{.item}}{{newline}}{{/foreach}}\r
+\`\`\`\r
+\r
+!!! note "Good to know"\r
+    - The loop variable is scoped to the loop: its previous value (if any) is restored when the loop ends, so it never clobbers a variable of the same name used elsewhere.\r
+    - Loops can be nested \u2014 give the inner loop a different variable name.\r
+    - Iteration is capped at 1000 items.\r
+\r
+### \`{{range}}\`\r
+\r
+Generate a numeric sequence as a comma-separated list \u2014 ideal for counted loops.\r
+\r
+\`\`\`\r
+{{range::5}}              \u2014 "1, 2, 3, 4, 5"   (1..n inclusive)\r
+{{range::3::6}}           \u2014 "3, 4, 5, 6"      (start..end inclusive)\r
+{{range::1::10::2}}       \u2014 "1, 3, 5, 7, 9"   (with a step)\r
+{{range::5::1}}           \u2014 "5, 4, 3, 2, 1"   (counts down)\r
+\`\`\`\r
+\r
+Feed it into \`{{foreach}}\` for indexed repetition:\r
+\r
+\`\`\`\r
+{{foreach::{{range::1::{{playerCount}}}}::n}}Round {{.n}}\u2026{{newline}}{{/foreach}}\r
+\`\`\`\r
+\r
+### \`{{filter}}\`\r
+\r
+Keep only the list items whose body \u2014 an \`{{if}}\`-style condition \u2014 is truthy, returning a comma-separated list. The body sees the same loop variables as \`{{foreach}}\` (\`{{.item}}\`, \`{{.item_index}}\`, \u2026).\r
+\r
+\`\`\`\r
+{{filter::1,2,3,4::n}}{{gt::{{.n}}::2}}{{/filter}}                  \u2014 "3, 4"\r
+{{filter::{{players}}::p}}{{ne::{{.p}}::{{hostName}}}}{{/filter}}    \u2014 everyone but the host\r
+\`\`\`\r
+\r
+### \`{{some}}\` / \`{{every}}\`\r
+\r
+Test whether **any** (\`{{some}}\`) or **all** (\`{{every}}\`) items satisfy a predicate. Both return \`"true"\` / \`""\`, are usable as conditions, and short-circuit. \`{{every}}\` is vacuously \`"true"\` for an empty list.\r
+\r
+\`\`\`\r
+{{if::{{some::{{players}}::p}}{{eq::{{.p}}::Bob}}{{/some}}}}Bob is here.{{/if}}\r
+{{if::{{every::{{range::1::5}}::n}}{{gt::{{.n}}::0}}{{/every}}}}all positive{{/if}}\r
+\`\`\`\r
+\r
+### \`{{foreachMessage}}\`\r
+\r
+Loop over the chat history, resolving the body once per message \u2014 for custom transcripts, pulling out a speaker's lines, or scanning recent turns.\r
+\r
+\`\`\`\r
+{{foreachMessage}}{{.msg_name}}: {{.msg}}{{newline}}{{/foreachMessage}}\r
+{{foreachMessage::5}}\u2026{{/foreachMessage}}            \u2014 only the last 5 messages\r
+{{foreachMessage::5::m}}\u2026{{.m}}\u2026{{/foreachMessage}}  \u2014 last 5, body variable "m"\r
+\`\`\`\r
+\r
+A **numeric** first argument iterates the last N messages (oldest-first); a **non-numeric** first argument is the loop variable name (default \`msg\`). Body bindings (replace \`msg\`):\r
+\r
+| Variable | Value |\r
+|----------|-------|\r
+| \`{{.msg}}\` | Message content |\r
+| \`{{.msg_name}}\` | Author name |\r
+| \`{{.msg_is_user}}\` | \`"true"\` for a user message, otherwise empty |\r
+| \`{{.msg_index}}\` / \`{{.msg_number}}\` / \`{{.msg_count}}\` | Position and total |\r
+| \`{{.msg_first}}\` / \`{{.msg_last}}\` | Edge flags (\`"true"\` / \`""\`) |\r
+\r
+\`\`\`\r
+{{foreachMessage::10::m}}{{if::{{.m_is_user}}}}> {{.m}}{{newline}}{{/if}}{{/foreachMessage}}    \u2014 the user's recent lines\r
+\`\`\`\r
+\r
+### \`{{foreachVar}}\` / \`{{foreachChatVar}}\` / \`{{foreachGlobalVar}}\`\r
+\r
+Loop over the variables in a scope whose name starts with a prefix \u2014 the way to render a **dynamic state table** when you don't know the keys ahead of time. \`{{foreachVar}}\` reads local (\`.\`) variables, \`{{foreachChatVar}}\` reads chat-persisted (\`@\`) variables, and \`{{foreachGlobalVar}}\` reads global (\`$\`) variables. Items are visited in alphabetical key order.\r
+\r
+\`\`\`\r
+{{@hp_Alice = 100}}{{@hp_Bob = 80}}\r
+{{foreachChatVar::hp_::p}}{{.p}}: {{.p_value}} HP{{newline}}{{/foreachChatVar}}\r
+\`\`\`\r
+\r
+produces:\r
+\r
+\`\`\`\r
+Alice: 100 HP\r
+Bob: 80 HP\r
+\`\`\`\r
+\r
+Body bindings (replace \`item\`): \`{{.item}}\` is the name **after** the prefix, \`{{.item_key}}\` is the full variable name, \`{{.item_value}}\` is its value, plus the usual \`{{.item_index}}\` / \`{{.item_number}}\` / \`{{.item_count}}\` / \`{{.item_first}}\` / \`{{.item_last}}\`.\r
+\r
+---\r
+\r
+## Lists\r
+\r
+Query and transform comma-separated lists. These compose with the iteration macros and with anything that returns a list (\`{{players}}\`, \`{{group}}\`, \`{{range}}\`). Input is split on commas (items trimmed, blanks dropped); list-returning macros emit a clean \`, \`-separated list, so the family round-trips.\r
+\r
+| Macro | Aliases | Returns |\r
+|-------|---------|---------|\r
+| \`{{count::list}}\` | \`{{listLength}}\` | Number of items |\r
+| \`{{includes::list::item}}\` | \`{{contains}}\`, \`{{inList}}\` | \`"true"\` / \`""\` \u2014 whole-item membership (condition-compatible) |\r
+| \`{{nth::list::i}}\` | \`{{at}}\` | Item at index \`i\` (0-based; negative counts from the end) |\r
+| \`{{first::list}}\` | \u2014 | First item |\r
+| \`{{last::list}}\` | \u2014 | Last item |\r
+| \`{{slice::list::start::end}}\` | \u2014 | Sublist (\`end\` exclusive and optional; negatives allowed). \`{{slice::list::-3}}\` \u2192 last 3 |\r
+| \`{{take::list::n}}\` | \u2014 | First \`n\` items (negative \`n\` \u2192 last \`|n|\`) |\r
+| \`{{sort::list::dir}}\` | \u2014 | Sorted; numeric when every item is a number, else alphabetical. \`dir\` = \`asc\` (default) or \`desc\` |\r
+| \`{{unique::list}}\` | \`{{dedupe}}\`, \`{{distinct}}\` | Duplicates removed (first occurrence kept) |\r
+| \`{{reverseList::list}}\` | \u2014 | Items in reverse order |\r
+| \`{{shuffle::list}}\` | \u2014 | Items in random order |\r
+\r
+**Examples:**\r
+\r
+\`\`\`\r
+{{count::{{players}}}}                        \u2014 how many players\r
+{{if::{{includes::{{group}}::Bob}}}}\u2026{{/if}}   \u2014 gate on membership\r
+{{first::{{sort::10,2,30}}}}                   \u2014 "2" (numeric sort \u2192 smallest)\r
+{{slice::{{players}}::-2}}                      \u2014 the last two players\r
+{{unique::{{sort::b,a,b,c}}}}                   \u2014 "a, b, c"\r
+\`\`\`\r
+\r
+!!! note "Delimiters"\r
+    The Lists macros operate on **comma-separated** lists \u2014 the form every list-producing macro emits. To bring in data with another delimiter, parse it through \`{{foreach}}\`'s delimiter argument or normalise it first with \`{{replace}}\`.\r
+\r
+### Numeric reductions\r
+\r
+Reduce a list of numbers to a single value (non-numeric items are ignored).\r
+\r
+| Macro | Aliases | Returns |\r
+|-------|---------|---------|\r
+| \`{{sum::list}}\` | \u2014 | Total (\`0\` for an empty list) |\r
+| \`{{avg::list}}\` | \`{{mean}}\`, \`{{average}}\` | Mean (empty when there are no numbers) |\r
+| \`{{listMax::list}}\` | \`{{list_max}}\` | Largest number |\r
+| \`{{listMin::list}}\` | \`{{list_min}}\` | Smallest number |\r
+\r
+\`\`\`\r
+{{sum::{{range::1::10}}}}                                            \u2014 "55"\r
+{{avg::{{foreachChatVar::hp_::p}}{{.p_value}},{{/foreachChatVar}}}}   \u2014 average party HP\r
+\`\`\`\r
+\r
+---\r
+\r
 ## Identity & Names\r
 \r
 Macros for character and user identity.\r
@@ -28103,6 +27776,38 @@ Macros for character and user identity.\r
 | \`{{groupMemberCount}}\` | \`{{group_member_count}}\` | Number of characters in the group |\r
 | \`{{groupLastSpeaker}}\` | \`{{group_last_speaker}}\` | Last character who spoke |\r
 | \`{{groupCardMode}}\` | \`{{group_card_mode}}\` | Card composition mode: \`"solo"\`, \`"swap"\`, \`"merge"\`, or \`"merge_ignore_muted"\` |\r
+\r
+---\r
+\r
+## Multiplayer\r
+\r
+State about the current multiplayer room. Outside a room every macro returns a safe "not multiplayer" value (\`{{isMultiplayer}}\` \u2192 \`"no"\`, counts \u2192 \`0\`, names \u2192 empty), so presets can reference them unconditionally. Names match what you see on messages: a player's persona name if they set one, otherwise their display name.\r
+\r
+| Macro | Aliases | Returns |\r
+|-------|---------|---------|\r
+| \`{{isMultiplayer}}\` | \`{{is_multiplayer}}\`, \`{{is_multiplayer_room}}\` | \`"yes"\` or \`"no"\` \u2014 usable as a condition |\r
+| \`{{playerCount}}\` | \`{{player_count}}\`, \`{{players_count}}\` | Number of active players (host + peers) |\r
+| \`{{players}}\` | \`{{player_names}}\` | Comma-separated names of all active players (host first) |\r
+| \`{{hostName}}\` | \`{{host_name}}\` | Display name of the room's host |\r
+| \`{{currentPlayer}}\` | \`{{current_player}}\`, \`{{current_turn}}\` | Name of the player whose turn it is (round-robin rooms; empty in freeform) |\r
+\r
+**Gate room-only content** so it costs nothing in solo chats:\r
+\r
+\`\`\`\r
+{{if::{{isMultiplayer}}}}\r
+This is a group session with {{playerCount}} players: {{players}}.\r
+It is currently {{currentPlayer}}'s turn.\r
+{{/if}}\r
+\`\`\`\r
+\r
+**Enumerate the roster** with \`{{foreach}}\`:\r
+\r
+\`\`\`\r
+{{if::{{isMultiplayer}}}}\r
+Players in the room:\r
+{{foreach::{{players}}::player}}{{.player_number}}. {{.player}}{{newline}}{{/foreach}}\r
+{{/if}}\r
+\`\`\`\r
 \r
 ---\r
 \r
@@ -28716,6 +28421,7 @@ These macros return \`"yes"\` / \`"no"\` or \`"true"\` / \`"false"\` and are des
 |-------|-----------|\r
 | \`{{isGroupChat}}\` | Chat has multiple characters |\r
 | \`{{isNarrator}}\` | Active persona is marked as a narrator |\r
+| \`{{isMultiplayer}}\` | Chat is a multiplayer room |\r
 | \`{{lumiaCouncilModeActive}}\` | Council mode is enabled |\r
 | \`{{lumiaCouncilToolsActive}}\` | Council tools ran this generation |\r
 | \`{{loomSovHandActive}}\` | Sovereign Hand mode is on |\r
@@ -28733,6 +28439,9 @@ These macros return \`"yes"\` / \`"no"\` or \`"true"\` / \`"false"\` and are des
 | \`{{or::a::b}}\` | Any argument is truthy |\r
 | \`{{not::value}}\` | Value is falsy |\r
 | \`{{eq::a::b}}\` / \`{{gt}}\` / \`{{lt}}\` / etc. | Comparison is true |\r
+| \`{{includes::list::item}}\` | List contains the item |\r
+| \`{{some::list::var}}\u2026{{/some}}\` | Any list item satisfies the predicate |\r
+| \`{{every::list::var}}\u2026{{/every}}\` | All list items satisfy the predicate |\r
 \r
 **Usage:**\r
 \r
@@ -28768,6 +28477,15 @@ The adventure is well underway.\r
 \r
 !!! tip "\`{{switch}}\` for multi-branch logic"\r
     Instead of nested if/else chains, use \`{{switch::{{.mood}}::happy::cheerful tone::sad::somber tone::neutral tone}}\`.\r
+\r
+!!! tip "\`{{foreach}}\` over lists"\r
+    Any macro that returns a comma-separated list \u2014 \`{{players}}\`, \`{{group}}\`, a \`{{.var}}\` you built up \u2014 can be fed straight into \`{{foreach}}\`: \`{{foreach::{{players}}::p}}{{.p_number}}. {{.p}}{{newline}}{{/foreach}}\`. Wrap multiplayer-only content in \`{{if::{{isMultiplayer}}}}\` so it stays out of solo chats.\r
+\r
+!!! tip "Shape lists before you loop"\r
+    The \`{{sort}}\`, \`{{unique}}\`, \`{{filter}}\`, \`{{slice}}\`, and \`{{take}}\` macros all return lists, so they chain: \`{{foreach::{{unique::{{sort::{{group}}}}}}::name}}\u2026{{/foreach}}\` loops a sorted, de-duplicated roster. Use \`{{count}}\` / \`{{includes}}\` / \`{{some}}\` / \`{{every}}\` to gate on a list without looping at all.\r
+\r
+!!! tip "Dynamic state tables"\r
+    Track per-entity state with prefixed chat variables \u2014 \`{{@hp_Alice = 100}}\`, \`{{@hp_Bob = 80}}\` \u2014 then render or aggregate the whole table without hard-coding names: \`{{foreachChatVar::hp_::p}}{{.p}}: {{.p_value}}{{newline}}{{/foreachChatVar}}\` to list it, or \`{{sum::{{foreachChatVar::hp_::p}}{{.p_value}},{{/foreachChatVar}}}}\` to total it. Combine with \`{{foreachMessage}}\` to drive state from the conversation.\r
 \r
 !!! tip "\`{{wrap}}\` for conditional formatting"\r
     \`{{wrap}}\` only outputs if the content is non-empty \u2014 \`{{wrap::(**::**)::{{.note}}}}\` produces nothing when the note is unset, avoiding stray delimiters.\r
@@ -30383,6 +30101,650 @@ You can use neither, either, or both.\r
 \r
 !!! tip "Loopback URLs are allowed"\r
     For Owner users, \`http://localhost\`, \`127.0.0.1\`, and private-range hosts are allowed as the Web Search API URL \u2014 Lumiverse's normal "no private IPs" guard is relaxed here so you can point at a SearXNG container running alongside it.\r
+`,
+    "weaver/imports.md": `# Imports\r
+\r
+The Import door brings existing material into the studio: a character card you downloaded, or a worldbook you've built up elsewhere. An import isn't a separate pipeline \u2014 it pre-fills the Bible from your file and then runs the **same** stages as any build, so everything in [Studio Workflow](studio-workflow.md) applies. The difference is where the material comes from: instead of a dream, the Weaver reads your file.\r
+\r
+The headline use case: **rebuild a card to studio quality.** Most downloaded cards are thin in exactly the ways the Weaver exists to fix \u2014 vague descriptions, no real tension, a voice that could belong to anyone. Importing one reverses it into a structured Bible, shows you what's actually there and what's missing, interviews you about _only the gaps_, and re-renders studio-grade fields \u2014 while the original stays untouched in your library as a fallback.\r
+\r
+---\r
+\r
+## Bringing a File In\r
+\r
+**New \u2192 Import** opens the import pane. Drop a file on the zone or **Browse files**. Supported:\r
+\r
+| File | Reads as |\r
+|------|----------|\r
+| **PNG card** | Character card (the embedded data, portrait included) |\r
+| **JSON card** | Character card (V2/V3 spec or flat V1) |\r
+| **CHARX** | Character card (card, avatar, embedded book) |\r
+| **Worldbook JSON** | Worldbook |\r
+\r
+The Weaver reads the file and shows you **what it carries** \u2014 the authored fields and their sizes, the portrait, any embedded lorebook, entry counts \u2014 so you can see at a glance how much material there is to work with.\r
+\r
+For cards, it also _reads_ the card and **suggests a treatment** with a one-line reason. A card that reads as a single person gets _Rebuild as a Character_; a card that reads as a narrator running a place \u2014 a scenario card that voices many and has no single persona \u2014 gets _Build as a World_. The suggestion is just a preselection with its reasoning shown; **you always choose**, and nothing routes silently.\r
+\r
+---\r
+\r
+## Card Treatments\r
+\r
+| Treatment | What happens |\r
+|-----------|--------------|\r
+| **Rebuild as a Character** | The card is reversed into the loom, its gaps are interviewed, and it's rewoven to studio quality. |\r
+| **Build as a World** | Its places and people become a narrator card with a lore book behind it \u2014 the [world treatment](worlds.md). |\r
+\r
+Either way, **the original card lands in your library first, untouched** \u2014 portrait intact, and if it carried an embedded lorebook, that book is stored standalone and bound to it. You can chat with the original immediately and compare it against the rebuild later.\r
+\r
+Then the import session starts, and it behaves like any build:\r
+\r
+- **Read-back** shows what the card actually establishes as committed facts \u2014 this is your "what's there / what's missing" surface. A surprising number of popular cards turn out to be mostly empty here.\r
+- **The interview asks only the gaps.** If the card pins down the premise but has no real core tension, that's what you get asked about. Material the card already carries is never re-asked.\r
+- **Render and finalize** work as usual. The rebuilt card wears the original's portrait and carries its embedded book, so it arrives ready to play.\r
+\r
+!!! tip "Compare them"\r
+    After finalizing, chat with the original and the rebuild side by side. The rebuild should be the same idea, sharper \u2014 your additions where the gaps were, a consistent voice, and fields that agree with each other. If you prefer the original in places, its text is right there to copy from; it never went anywhere.\r
+\r
+---\r
+\r
+## Worldbook Treatments\r
+\r
+A worldbook can go four ways:\r
+\r
+| Treatment | What happens | What you end up with |\r
+|-----------|--------------|---------------------|\r
+| **Enrich the entries** | Each entry is deepened in place, conditioned on the rest of the book. | The same book, richer. |\r
+| **Generate a character** | The book is mined for a person, who is built at full depth. | A character card that carries the book. |\r
+| **Build a World** | The book becomes the lore base; the interview asks only what the lore can't supply. | A narrator card with your book behind it. |\r
+| **Store as-is** | The book is imported unchanged. | A normal worldbook, ready to attach to anything. |\r
+\r
+**Build a World** is the standout for a book you've invested in: you already wrote the lore, so the world interview skips everything an entry already answers and asks only for what a narrator needs \u2014 the premise, the tension, the stance toward \`{{user}}\`, the voice. The finished world consults your imported book in play, and its own lore book still grows from the [hub](worlds.md#the-hub).\r
+\r
+### How Enrich Runs\r
+\r
+Enrich works through the book one entry at a time, with a progress row per entry:\r
+\r
+- **Enriched** \u2014 the entry came out deeper: more specific, still making the original's claims, still playable.\r
+- **Kept the original** \u2014 the rewrite didn't clear the quality bar, so the original stands untouched, with a note saying why.\r
+\r
+Every enriched entry is checked before it's written: it must stay grounded in what the original claimed (enrichment deepens, it doesn't invent contradictions), and an entry that doesn't come out _better_ is simply kept. **Stop** at any point \u2014 everything finished so far stays, the book is valid at every moment, and you can open it in the editor or re-run enrich later.\r
+\r
+---\r
+\r
+## Things Worth Knowing\r
+\r
+- **Import sessions resume like any other.** They live on the loom, autosave, and pick up where you left off.\r
+- **The original is the fallback, always.** No treatment modifies the file you imported or the original-card copy in your library.\r
+- **CHARX extras:** the fallback copy takes the card, avatar, and embedded book. Expression packs and galleries inside a CHARX are skipped here \u2014 use the library's import button when you want full-fidelity CHARX import instead of a rebuild.\r
+- **A PNG with only a lorebook in it** reads as a card, because that's what it is \u2014 export the book to worldbook JSON if you want the book treatments.\r
+`,
+    "weaver/index.md": `# Weaver\r
+\r
+The Weaver is Lumiverse's authoring studio. It turns an idea into finished, playable content \u2014 a **character** you chat with, a **world** you roleplay in, or a rebuild of something you **import** \u2014 by interviewing you about your idea, gathering everything into a single coherent source called the **Bible**, checking that source against a quality bar, and only then writing the output. Whatever you build lands in your regular library as a normal card; you author in the Weaver and play from the library.\r
+\r
+The Weaver is best when you have an idea in your head but writing every field by hand would be slow, or when one-shot "make me a character" tools keep handing you the same generic result.\r
+\r
+---\r
+\r
+## Why It Works This Way\r
+\r
+Most character generators do the same thing: you type a prompt, the model writes the whole card in one shot. The problem is that a short prompt is a near-empty space, and a model fills empty space with its **most average** guess \u2014 the same handful of names, the same tropes, the same beats, no matter how many times you reroll. Turning up the temperature or writing a cleverer prompt doesn't fix it, because the result is being pulled toward the middle of everything the model has ever seen.\r
+\r
+The Weaver is built on the opposite idea: **the hard part isn't writing \u2014 models write fluently \u2014 it's getting your specific idea out of your head and refusing to let it get averaged away.** So the Weaver spends its effort up front, eliciting the particular, original details that make the idea _yours_, locking them into one source of truth, and writing every output from that source. Generation is the easy last step.\r
+\r
+Three principles fall out of that:\r
+\r
+- **Elicit before you generate.** The interview asks plain, pointed questions about _your_ idea \u2014 not a generic questionnaire \u2014 and you answer in your own words. Your words are kept, tracked, and weighed above anything the model suggests.\r
+- **One source, then render from it.** Everything you decide is gathered into a single gated Bible. Each output field is written from that Bible, so the description, the voice, and the first message all agree with each other.\r
+- **A quality bar with teeth.** The Bible is checked for genericness, coherence, and tension _before_ any field is written, so you're not polishing output that was thin to begin with.\r
+\r
+---\r
+\r
+## The Studio Home\r
+\r
+Open the Weaver from the side drawer. The studio opens to a home with two shelves:\r
+\r
+| Shelf | What's on it |\r
+|-------|--------------|\r
+| **On the loom** | Builds in progress, by last touched. Open one to pick up exactly where you left off. |\r
+| **In the library** | Finished builds. Open one to reach its dashboard \u2014 the card, its portrait and expressions, and (for worlds) the hub. |\r
+\r
+**New** opens the type chooser:\r
+\r
+| Type | What you get |\r
+|------|--------------|\r
+| **Character** | A single person you chat with, grown from your idea. |\r
+| **World** | A place you roleplay in. It sets scenes and voices its people. |\r
+| **Import** | Bring in an existing card or worldbook and build from it. |\r
+\r
+The gear in the home header opens the [Weaver settings](settings.md) \u2014 how much the studio does in one go, and how hot the model runs.\r
+\r
+Everything autosaves as you go. Sessions are fully resumable: close the studio mid-interview and the loom holds your place.\r
+\r
+---\r
+\r
+## The Stages\r
+\r
+Every build \u2014 character, world, or import \u2014 moves through the same stages. The rail along the top shows where you are, and you can step back to an earlier stage at any time.\r
+\r
+| Stage | What happens |\r
+|-------|--------------|\r
+| **Dream** | You describe your idea in your own words. |\r
+| **Read-back** | The Weaver tells you what it understood and what it still needs, so you can correct it before it commits. |\r
+| **Interview** | Plain, pointed questions pull the specifics out of your idea. You answer in your own words. |\r
+| **Bible** | Everything is gathered into one coherent source, checked against a quality bar. |\r
+| **Render** | Each card field is written from the Bible, and you accept, edit, or re-render each one. |\r
+| **Finalize** | A real card is written to your library, with its governance and any backing books bound to it. |\r
+\r
+After finalizing, the build's **dashboard** takes over: generate a [portrait and expressions](visual-studio.md), and for worlds, grow the place from its [hub](worlds.md) \u2014 more lore, [people](people.md), and spin-off characters over time.\r
+\r
+---\r
+\r
+## How a Finished Build Ships\r
+\r
+A Weaver card is deliberately **lean**. The card carries only the load-bearing fields; everything else rides in small worldbooks bound to it:\r
+\r
+- A **rules book** \u2014 always-on entries that keep the character (or narrator) playing to spec in any chat, plus a constant "re-anchor" that keeps them on-spine in long sessions. This is why a Weaver card needs **no special preset**: its governance travels with the card itself.\r
+- For worlds, a **lore book** (deep detail that surfaces when relevant) and an **NPC book** (the people the narrator can voice). For characters, an optional **depth book** of the same kind.\r
+\r
+Everything is a normal Lumiverse card and normal worldbooks \u2014 export them, edit them in the regular editors, attach them elsewhere. Nothing is locked to the studio.\r
+\r
+---\r
+\r
+## When to Use the Weaver\r
+\r
+Use the Weaver when you want to:\r
+\r
+1. Turn an idea into a complete character card or a playable world\r
+2. Get a result that's specific and yours, not a reroll of the same tropes\r
+3. Upgrade an existing card or worldbook to studio quality\r
+4. Shape something through questions and choices instead of a blank page\r
+\r
+Use the regular **Character Browser** when you already know the exact edits you want:\r
+\r
+| Situation | Better Tool |\r
+|-----------|-------------|\r
+| You only need to fix a typo | Character editor |\r
+| You already know the exact field text | Character editor |\r
+| You're importing a finished card to use as-is | Character import |\r
+| You don't want generated suggestions | Character editor |\r
+\r
+You can always edit Weaver output later in the regular character and worldbook editors.\r
+\r
+---\r
+\r
+## Quick Links\r
+\r
+| Guide | What You'll Learn |\r
+|-------|-------------------|\r
+| [Studio Workflow](studio-workflow.md) | Every stage in order \u2014 what each step is for, what to do, and what to expect. |\r
+| [Worlds](worlds.md) | Build a narrator-run place: the world interview, the hub, lore, and world agency. |\r
+| [People](people.md) | Populate a world: extras, named NPCs, and promoting someone to their own card. |\r
+| [Imports](imports.md) | Rebuild an existing card to studio quality, or mine a worldbook for a character or world. |\r
+| [Visual Studio](visual-studio.md) | Generate a portrait and a full expression set, and what each image provider supports. |\r
+| [Settings](settings.md) | Tune how much the studio does in one go and how the model runs. |\r
+`,
+    "weaver/people.md": `# People\r
+\r
+A world is only as alive as the people in it. The **People** pane \u2014 on the rail of every finalized world's dashboard \u2014 is where the world's population lives: from names the narrator can drop in passing, up to fully voiced profiles, up to standalone character cards that carry the world with them.\r
+\r
+The pane has two sections, payoff first:\r
+\r
+| Section | What's in it |\r
+|---------|--------------|\r
+| **In universe** | People who became their own character cards, tied to this world. Each one is chattable one-on-one and carries the world's lore book, so they stay consistent with the place. |\r
+| **Roster** | The people the narrator can bring into a scene \u2014 everyone the world knows about, at whatever depth you've given them. |\r
+\r
+---\r
+\r
+## The Tier Ladder\r
+\r
+Every person in the roster sits on one of three tiers. The ladder is the whole system: each tier is one action away from the next, and each step up changes what the person can _do_ in play.\r
+\r
+| Tier | What it means | In play |\r
+|------|---------------|---------|\r
+| **Unfleshed** | Just a name and maybe a one-line hook. | The narrator knows they exist, nothing more. |\r
+| **Extra** | A couple of model-written background lines. | Local color \u2014 the narrator can use them in passing. |\r
+| **Named** | A written, voiced profile in the world's NPC book. | The narrator speaks them from their profile whenever they come up, in their own register. |\r
+\r
+Beyond Named sits **promotion**: the person becomes their own character card and moves to **In universe**.\r
+\r
+---\r
+\r
+## Filling the Roster\r
+\r
+People arrive three ways:\r
+\r
+- **From the interview.** Anyone you actually named while building the world is harvested into the roster automatically when you finalize, wearing an **Interview** chip \u2014 these are your own people, picked up from your own material. No inventions; if you named no one, the roster starts empty, which is normal.\r
+- **Propose people.** The world suggests people *from its own lore*. Every proposal is anchored to established material \u2014 a named place, faction, rule, or tension that needs a face \u2014 and names follow the world's own naming culture. For Saltmere (the example from [Worlds](worlds.md)), expect the clerk's under-listed apprentice or a tithe-boat pilot, not a random fantasy name that would fit any setting.\r
+- **Add person.** Type a name and an optional one-line hook yourself. Manual add is always available.\r
+\r
+People you haven't fleshed yet can be removed freely. Once someone is an Extra or Named, their material lives in the NPC book \u2014 manage them from there.\r
+\r
+---\r
+\r
+## Extra: a Couple of Lines\r
+\r
+**Extra** writes two or three thin background lines for a person \u2014 who they are around town, enough for the narrator to use them in passing \u2014 and files them in the world's **NPC book** under their name. No interview, one click.\r
+\r
+The first time you flesh anyone, the NPC book is created and bound to the world automatically, and the narrator's rules gain the entry that tells it to voice people from the book. You'll see the book's row appear in the pane with an **Open in editor** button \u2014 it's a normal worldbook.\r
+\r
+An Extra can be upgraded any time with **Weave named**.\r
+\r
+---\r
+\r
+## Weave: a Named NPC\r
+\r
+**Weave** is a miniature interview about one person \u2014 a few sharp, gated questions aimed at making them *voiceable*:\r
+\r
+> _"Tam pilots the tithe boat and has done it for thirty years. What does he say to a new harbormaster who asks what's in the crates \u2014 and what does his voice do when he says it?"_\r
+\r
+Answer in your own words, with **Show me directions** and **Extend my answer** on hand exactly like the main interview. After your first answer, **Weave now** is available; after a few (three by default \u2014 adjustable in [settings](settings.md)), the pane suggests you have enough for a solid profile. Your answers are woven into **one profile entry** in the NPC book, keyed by the person's name, written to be speakable: their voice, what they want, where their lines are.\r
+\r
+The profile is checked against its own quality bar \u2014 does it read voiceable, does it keep your words, is it grounded in this world \u2014 before it's saved. You can **Reweave** any time: answer more questions, rewrite the profile, same entry.\r
+\r
+In play, the difference is immediate: when Tam comes up, the narrator speaks him from his profile \u2014 his register, his wants \u2014 instead of from bloc-level prose.\r
+\r
+---\r
+\r
+## Promote: Their Own Card\r
+\r
+When someone outgrows being a side character, **Promote** builds them into a full standalone character card.\r
+\r
+Promotion opens a fresh character build in the studio, pre-seeded with everything the world knows about them \u2014 their name, their hook, their woven profile, your interview answers verbatim, and a brief of the world they belong to. From there it's a normal [character build](studio-workflow.md): the read-back shows what's already established, the interview asks only what's missing for a one-on-one character (a profile that voices someone in passing isn't yet a person you can sit across from), and finalize publishes the card.\r
+\r
+The promoted card **carries the world's lore book**, so in their own chats they know the place \u2014 its rules, its history, its tensions \u2014 and stay consistent with it. They land in the **In universe** section of the pane, first-class in your library like any other card.\r
+\r
+While a promotion is still on the loom, it shows in the pane with an **Open in studio** button so you can pick it up any time.\r
+\r
+!!! note "The narrator keeps its own copy"\r
+    Promoting someone doesn't change their NPC-book profile \u2014 the narrator keeps voicing them from it in world chats, while the card serves one-on-one play. If the card's version of them grows past the profile, **Reweave** to pull the profile forward.\r
+\r
+---\r
+\r
+## A Typical Population Pass\r
+\r
+1. Finalize the world. Anyone you named during the build is already in the roster with an **Interview** chip.\r
+2. **Propose people** \u2014 keep the ones that earn their place, remove the rest, **Add** anyone the proposal missed.\r
+3. **Extra** the background faces. The NPC book appears on the first flesh.\r
+4. **Weave** the three or four people who'll actually carry scenes. Answer in your own words; the profile is what the narrator will speak them from.\r
+5. Play. When one of them keeps stealing scenes, **Promote** them and give them their own card.\r
+`,
+    "weaver/settings.md": `# Settings\r
+\r
+The gear in the studio home's header opens the Weaver settings. Every field here **overrides an engine default** \u2014 a blank field means "use the default," and the default is always visible as the field's placeholder, so you can see exactly what you're changing. Clear a field and save to go back to stock.\r
+\r
+These are studio-wide settings: they apply to every build, not per session.\r
+\r
+---\r
+\r
+## How Much the Studio Does in One Go\r
+\r
+| Setting | What it controls |\r
+|---------|------------------|\r
+| **People per proposal** | How many people one **Propose people** pass suggests on a world's [People pane](people.md). |\r
+| **Questions before a profile is suggested** | How many [weave](people.md#weave-a-named-npc) answers the pane considers "enough for a solid profile." You can always weave earlier or keep answering past it. |\r
+| **Extra questions an interview may ask** | The cap on **deepening** questions after a build's essentials are covered. Raise it for builds where you want a thick [depth or lore book](studio-workflow.md#6-finalize) out of one session; post-finalize **Add lore** on a world is uncapped regardless. |\r
+| **Most people picked up from one build** | The ceiling on how many people the world harvests into the roster from your own interview material at finalize. |\r
+\r
+---\r
+\r
+## How the Model Runs\r
+\r
+Two temperatures, split by the kind of work. Higher is looser; lower is more deterministic.\r
+\r
+| Setting | What it covers |\r
+|---------|----------------|\r
+| **Writing temperature** | Everything the model _composes_ for you \u2014 questions, directions, the Bible, rendered fields, lore entries, profiles. |\r
+| **Judging temperature** | Everything the model _checks_ \u2014 the quality gates, the read-back, the import reading. |\r
+\r
+The split exists because the two jobs want different things: writing benefits from room to move, judging benefits from consistency. If rendered fields feel samey, nudge the writing temperature up; if gate verdicts feel erratic between re-checks, bring the judging temperature down. Blank for both is a sensible place to live.\r
+`,
+    "weaver/studio-workflow.md": `# Studio Workflow\r
+\r
+Every Weaver build walks through six stages, in order: **Dream \u2192 Read-back \u2192 Interview \u2192 Bible \u2192 Render \u2192 Finalize**. The rail at the top shows where you are; you can always step back to an earlier stage, and your work autosaves as you go.\r
+\r
+This page covers each stage in detail: what it's for, what to do, and what to expect. The examples follow a character build; a [world build](worlds.md) runs the same stages with world-shaped questions and fields, and an [import](imports.md) enters the same pipeline with the Bible pre-filled from your file.\r
+\r
+---\r
+\r
+## 1. Dream\r
+\r
+**What it's for:** this is your idea in your own words \u2014 the raw material everything else is built from. The Weaver keeps your dream text verbatim and consults it at every later stage, so nothing you write here gets lost in translation.\r
+\r
+**What to do:** write a few sentences about your idea and click **Read my dream**. You don't need to be tidy or complete; you need to be _specific_.\r
+\r
+!!! tip "Specific in, specific out"\r
+    The single biggest lever on your result is how particular your dream is. Include the premise, the mood, the character's relationship to \`{{user}}\`, the genre, any constraints, and anything you _don't_ want. A pointed detail \u2014 a contradiction, a fear, a specific habit \u2014 pulls the whole result toward something that's actually yours.\r
+\r
+    Compare:\r
+\r
+    > _"A mysterious radio host."_\r
+\r
+    > _"Marisol runs the overnight call-in show at a tiny mountain station. Some of her callers haven't been born yet, and she's stopped being surprised by it \u2014 what scares her is that lately they've started asking for her by a name she hasn't told anyone. She's warm on air and guarded off it. She thinks {{user}} is the first listener who's noticed the pattern."_\r
+\r
+    The first dream gives the Weaver nothing to hold onto. The second one gives it a premise, a tension, a voice, and a reason \`{{user}}\` matters \u2014 and every question it asks from here will be about _this_ host, not "a mysterious radio host" in general.\r
+\r
+**Generation setup:** the rail beside the dream box carries the session's **persona**, **connection**, and **model**. These persist on the session, so a build keeps using the setup you gave it even if you change your defaults later.\r
+\r
+**What to expect:** the Weaver reads your dream and moves you to Read-back.\r
+\r
+---\r
+\r
+## 2. Read-back\r
+\r
+**What it's for:** before the Weaver commits to anything, it shows you what it understood and what it still needs. This is your chance to correct a misread early, while it's cheap.\r
+\r
+**What you'll see:**\r
+\r
+- **From your dream** \u2014 the concrete facts the Weaver locked in, each one traceable to what you wrote. Click any fact to fix or sharpen it, remove ones that are wrong, or **Add another** the read-back missed.\r
+- **What I'll handle next** \u2014 everything still open, sorted into three groups: what the Weaver will **ask you** about in the interview, what's **part yours, part its** (it asks the core, writes the rest), and what it will **write itself** from everything above. Some slots only appear when your dream implies them, tagged **detected**. If you'd rather decide something it planned to write, click it to claim it for the interview.\r
+\r
+!!! note "Why it asks about some things and writes others"\r
+    The Weaver interviews you about the parts that make the result _specific_ \u2014 the core tension, what they want, how they treat \`{{user}}\`. It writes the rest \u2014 the name, physical details, the voice \u2014 itself, drawn from that core. You beat generic output by getting the core right, not by being quizzed on every field.\r
+\r
+**What to do:** correct anything wrong, then continue to the Interview. **Re-read** runs the read-back again from scratch if you've reworked the dream (this replaces your edits).\r
+\r
+---\r
+\r
+## 3. Interview\r
+\r
+**What it's for:** this is where your specific idea actually gets pulled out. The Weaver reads your dream and asks about what's still open \u2014 one question at a time, in plain words, each with a one-line note on _why_ it's asking. Questions are generated for your subject, not from a script: a question that could be asked about any character doesn't make the cut.\r
+\r
+**What to do:** answer in your own words, in the text box, then **Use my answer**. That's the whole loop. For the radio-host dream above, expect questions like:\r
+\r
+> _"Marisol's callers ask for her by a name she hasn't told anyone. Where does that name come from, and what would it cost her if someone said it to her face?"_\r
+> \u2014 Why: this pins the secret your dream circles without naming.\r
+\r
+Your answer doesn't have to fit the question's shape. Answer sideways, answer two things at once, contradict the premise of the question \u2014 the Weaver listens for everything an answer establishes, so one good answer often covers several open slots at once.\r
+\r
+**If you're stuck**, two tools sit under the answer box:\r
+\r
+| Tool | What it does |\r
+|------|--------------|\r
+| **Show me directions** | Three genuinely different directions the answer could go. Pick one and it drops into the box for you to make yours \u2014 edit it, gut it, keep a phrase. You can also **steer** the directions ("more grounded", "stranger") and ask for a new set. |\r
+| **Extend my answer** | Takes the draft you've already written and pushes it further, keeping your words. Pick an extension to replace your draft, then keep editing. |\r
+\r
+!!! note "Your words carry more weight"\r
+    The Weaver tracks whose words every fact is made of \u2014 typed by you, picked from a suggestion, or extended from your draft \u2014 and weighs verbatim-you material highest when it builds the Bible. The tools are there for when you're stuck, not as the main path: the more of the answer that's yours, the more the result is yours.\r
+\r
+**Deepening:** once the essentials are covered, the rail switches to _"Essentials covered \xB7 deepening"_ and the same loop keeps going \u2014 now into material that's worth knowing but doesn't belong on the card itself (backstory beats, relationships, specifics of the world around them). These answers are carried beyond the card: at finalize they can become a triggered **depth book** (or, for worlds, the **lore book**) that surfaces in chat when relevant instead of bloating the card. There's a cap on deepening questions, adjustable in [settings](settings.md).\r
+\r
+**What to do:** answer as long as it's earning its keep, then **Finish interview**. You never have to answer everything \u2014 finishing early just means the Weaver writes more itself, from what it has. **Re-run interview** undoes your answers and starts the questions over if a build has drifted.\r
+\r
+!!! note "Worlds: the agency question"\r
+    In a world build, once the essentials are covered the interview asks one extra question \u2014 _"Does this world push back?"_ \u2014 with **Cozy** (it hosts your scenes and follows your lead) preselected against **Agency** (it pursues an agenda and holds hard lines). Pick either; you can change it any time from the world's hub. See [Worlds](worlds.md#world-agency).\r
+\r
+---\r
+\r
+## 4. Bible\r
+\r
+**What it's for:** the Weaver gathers everything \u2014 your facts, your interview answers, and the parts it writes to fit them \u2014 into one coherent source, called the Bible. This is the single source of truth every output field is later written from, which is what makes the finished fields agree with each other.\r
+\r
+Before you go further, the Bible is checked against a quality bar that looks for the things that make results fall flat: vagueness, pieces that don't hang together, a missing core tension, the obvious version of the idea, drift away from your dream. Catching that here is the point \u2014 it's cheaper to fix the source than to polish thin output later.\r
+\r
+**What you'll see:**\r
+\r
+- A plain-language **brief** \u2014 the subject in a paragraph, the headline you react to.\r
+- The underlying entries, in plain sections (for a character: **Who they are**, **How they act**, **How they come across**), each tagged with where it came from: **Yours** (your words), **Weaver wrote** (written to fit your material), or **My guess, check it** (inferred \u2014 read these).\r
+- A **Depth** band listing your deepening answers \u2014 the material that will back the card from a triggered book rather than sit on it.\r
+- The **quality gate** result \u2014 _"All checks pass"_, or a count of checks that need work, each with a concrete note on what's thin and how to fix it.\r
+\r
+**What to do:** read the brief first. If it's not the thing you imagined, fix the entries \u2014 click any entry to edit it \u2014 then **Re-check** to score your edits, or **Rebuild** to throw the synthesis away and regenerate it from your facts (your facts and answers survive a rebuild; only the woven result is replaced).\r
+\r
+You can continue to Render even if the gate flagged something \u2014 you hold the final say \u2014 but expect more generic fields if the source was thin. The flag tells you exactly which checks failed and why.\r
+\r
+---\r
+\r
+## 5. Render\r
+\r
+**What it's for:** now the card fields get written, each one **from the frozen Bible** \u2014 never from each other. That's what keeps the description, the voice, and the first message consistent. Each field is then checked on its own: does it stay faithful to the Bible, and does it drift back toward the generic?\r
+\r
+**The fields** (for a character \u2014 a [world](worlds.md) renders narrator-shaped fields instead):\r
+\r
+| Field | What it is |\r
+|-------|------------|\r
+| **Name** | Carried straight from the Bible \u2014 not model-generated. |\r
+| **Description** | The load-bearing character sheet, in tagged sections. |\r
+| **Personality** | A voice-and-speech spec \u2014 how the character actually sounds. |\r
+| **Scenario** | The opening situation and what's at stake with \`{{user}}\`. |\r
+| **First message** | The character's opening, in their own voice. |\r
+| **Example messages** | Sample exchanges that show range. |\r
+\r
+**What you can do to any field:**\r
+\r
+| Action | Result |\r
+|--------|--------|\r
+| **Accept** | Sign the field off. Every field must be accepted before finalize. |\r
+| **Edit** | Hand-edit the text yourself; your edit is kept and tagged, and is never overwritten without your say-so. |\r
+| **Re-render** | Write the field again from the Bible. |\r
+| **Nudge** | Re-render with a short steer \u2014 _"leaner"_, _"more guarded"_, _"less lyrical"_. |\r
+\r
+A field that fails its check comes back **flagged with a reason** and a suggestion \u2014 re-render it, or strengthen the Bible entries it draws from. The Weaver surfaces problems and waits; it never silently retries behind your back.\r
+\r
+!!! note "If you change the Bible later"\r
+    Fields are written from a specific version of the Bible. If you go back and change the Bible, the affected fields are marked **stale** so you know to re-render them. Hand-edited fields always ask before being replaced.\r
+\r
+**What to do:** **Render all fields**, then walk down the list \u2014 accept the keepers, nudge the near-misses. Once every field is accepted, **Continue to finalize**.\r
+\r
+---\r
+\r
+## 6. Finalize\r
+\r
+**What it's for:** this writes a real card to your library, with everything it needs to play well bound to it.\r
+\r
+A Weaver card ships deliberately lean. The fields you accepted go on the card; everything else rides in small worldbooks bound to it:\r
+\r
+- **The rules book** \u2014 created automatically. Always-on entries that keep the character playing to spec in any chat (the craft and anti-pattern rules), plus a constant **re-anchor** that keeps them on-spine even deep into a long session. Because governance travels on the card's own bound book, **the card works under any preset** \u2014 there's nothing to install and nothing to select.\r
+- **The depth book** \u2014 optional, off by default, offered when you gave deepening answers. _"Bind a depth book to the card"_ turns your deepening answers into a triggered worldbook: composed, titled entries that surface in chat when their subject comes up, instead of sitting on the card. (World builds bind a **lore book** here instead, on by default.)\r
+\r
+**What to do:** review the summary bands, set the book toggles, and click **Finalize**. Then:\r
+\r
+- **Start chat** opens a fresh chat with the new card.\r
+- **Continue to Visual Studio** jumps to the [portrait and expressions](visual-studio.md).\r
+\r
+The card is now in your library like any other \u2014 chat with it, export it, edit it in the regular editor. The session moves to the home's **In the library** shelf, and opening it later lands on the build's dashboard.\r
+\r
+!!! note "The books are yours too"\r
+    The rules, depth, and lore books are ordinary worldbooks. You'll see them bound to the card (named after it \u2014 _"Marisol rules book"_, _"Marisol depth book"_), and you can open them in the regular worldbook editor, hand-edit entries, or detach them like any other book.\r
+\r
+---\r
+\r
+## A Typical Run\r
+\r
+1. **Dream** your concept \u2014 be specific about the premise, the tension, and what makes this idea _this_ idea.\r
+2. **Read-back:** fix anything the Weaver misread; claim anything you'd rather decide yourself.\r
+3. **Interview:** answer in your own words; reach for **Show me directions** only when stuck; keep going into deepening while it's earning its keep, then **Finish**.\r
+4. **Bible:** read the brief, tighten anything off, pass the gate.\r
+5. **Render:** render all, accept the keepers, nudge the rest.\r
+6. **Finalize** with the book toggles you want, then **Start chat**.\r
+7. Optionally, open the [Visual Studio](visual-studio.md) for a portrait and expressions \u2014 and for a world, start growing the [hub](worlds.md#the-hub).\r
+`,
+    "weaver/visual-studio.md": `# Visual Studio\r
+\r
+Once a card is finalized, its dashboard grows an image side: generate a **portrait**, then derive a full **expression set** from it. It runs through your existing **image-gen connections** \u2014 the same ones the [Image Generation](../image-generation/index.md) feature uses \u2014 so any provider you've already set up is available here, with no extra configuration.\r
+\r
+The dashboard rail holds the panes: **Card** (the finished fields), **Portrait**, **Expressions** (characters only \u2014 a world's narrator card runs a place, not a face), and for worlds the **World** hub and **People** panes. Scene and alternate-portrait panes are on the roadmap and marked as such in the rail.\r
+\r
+---\r
+\r
+## Portrait\r
+\r
+Portraits are generated at a tall 2:3 aspect ratio (832 \xD7 1216) suited to character art. You generate as many candidates as you like, then promote the one you want to the character's avatar.\r
+\r
+1. Pick an **image-gen connection** \u2014 the provider on that connection decides what controls you get.\r
+2. Write a **prompt** (and optional negative prompt), or use **Suggest tags** to draft one from the character.\r
+3. Adjust **size**, **seed**, **variations**, and any provider-specific controls under **Advanced**.\r
+4. **Generate.** Progress streams in, and finished images appear as candidates.\r
+5. Pick a candidate and **Set as avatar**.\r
+\r
+!!! tip "Suggest tags"\r
+    **Suggest tags** reads the finalized character and drafts a starting prompt from it \u2014 a fast way to get a likeness that matches the card instead of typing tags from scratch. Treat it as a first draft and edit freely.\r
+\r
+Setting the avatar takes effect immediately \u2014 no re-upload, no extra step \u2014 and you can keep generating and swap it as often as you like. The committed portrait also becomes the **source** for expressions, so commit the face you want the whole set to share before moving on.\r
+\r
+For connecting and configuring a provider in the first place, see [Image Generation \u2192 Setup & Providers](../image-generation/setup.md).\r
+\r
+---\r
+\r
+## Expressions\r
+\r
+The Expressions pane builds the character's emotion set \u2014 the images chat swaps between as the character's mood changes (see [Characters \u2192 Expressions](../characters/expressions.md) for how they display in chat).\r
+\r
+The key idea: every expression is **derived from the committed portrait**, not generated fresh from text. The portrait's pixels carry the identity and the style, and the provider changes _only the face_ \u2014 so sad, angry, and shy are recognizably the same person in the same artwork, instead of eight loose rerolls.\r
+\r
+**The grid:** one cell per expression \u2014 the eight standards (neutral, happy, sad, angry, surprised, afraid, disgust, shy) plus any labels you add (_"smug"_, _"flustered"_ \u2014 type it and **Add**; the Weaver knows how to stage a custom label). Each cell generates on its own, or **Generate missing** works through every empty cell one at a time, with **Stop** always available (finished cells stay).\r
+\r
+**Per cell:** regenerate until it reads right, then **Use this expression** to commit it. Committed cells get an _In use_ badge, and chat picks the set up automatically \u2014 committing also enables expressions for the character.\r
+\r
+!!! tip "What a good cell looks like"\r
+    The same person, pose, framing, clothing, and background as the portrait, with only the face changed. The Weaver's per-emotion staging also guards against the genre's stock extras \u2014 tears stay off "sad" and motion lines stay off "afraid" unless you ask for them.\r
+\r
+### Which connections can do this\r
+\r
+Deriving from an image requires a provider that can take an image as **input**. The pane shows how your selected connection does it, and gates plainly if it can't:\r
+\r
+| Mechanism | Providers | How it works |\r
+|-----------|-----------|--------------|\r
+| **Edit** | Google Gemini, NanoGPT | The portrait is edited directly with a facial-change instruction. No tag prompt needed \u2014 the pixels carry the character. |\r
+| **Reference** | NovelAI | Generates with the portrait as a character-and-style reference, plus expression tags. |\r
+| **img2img** | SD WebUI API, SwarmUI, ComfyUI | Runs the portrait through img2img with expression tags. The strength control is under **Advanced** \u2014 lower keeps more of the portrait. |\r
+\r
+For **ComfyUI**, the connection's imported workflow must have an \`init_image\` mapping for img2img to be possible; a plain txt2img workflow is gated with that exact reason. A connection whose provider can't take an image at all is gated too \u2014 re-rolling expressions from pure text would lose the face, so it's never offered. The connection selector stays usable so you can switch to one that qualifies.\r
+\r
+---\r
+\r
+## Providers\r
+\r
+What you can control depends on which provider the connection uses.\r
+\r
+| Provider | Runs | What you control | Expressions |\r
+|----------|------|------------------|-------------|\r
+| **ComfyUI** | Local | Prompt, negative, size, seed \u2014 plus any node fields you mapped | img2img (needs an \`init_image\` mapping) |\r
+| **SwarmUI** | Local | Prompt, negative, size, seed | img2img |\r
+| **SD WebUI API** | Local | Prompt, negative, size, seed | img2img |\r
+| **NovelAI** | Cloud | Prompt, resolution, seed | Character reference |\r
+| **NanoGPT** | Cloud | Prompt, size, seed | Edit |\r
+| **Google Gemini** | Cloud | Prompt, aspect ratio | Edit |\r
+\r
+!!! warning "Pollinations isn't available here"\r
+    Pollinations works for general [image generation](../image-generation/index.md) but is **not** supported in the Visual Studio. If your only image-gen connection is Pollinations, set up one of the providers above first.\r
+\r
+### ComfyUI\r
+\r
+ComfyUI gives you the most control, but it needs a one-time setup on the connection first: **import your workflow and map its fields** (at minimum, map a node field as the _positive prompt_). See [Image Generation \u2192 Setup & Providers](../image-generation/setup.md) for importing and mapping.\r
+\r
+Once a workflow is mapped, the Visual Studio fills your prompt, negative prompt, size, and seed into the nodes you mapped \u2014 and any **extra fields you mapped** (steps, CFG, sampler, scheduler, checkpoint, or custom node inputs) appear as controls you can tune per generation. In the Expressions pane, Advanced shows only the denoise strength \u2014 the rest of the workflow's parameters belong to the workflow's own mapped fields, configured on the connection.\r
+\r
+!!! warning "Map a workflow before generating"\r
+    Without an imported workflow that has at least a positive-prompt mapping, ComfyUI generation can't run. The studio will tell you to import one first.\r
+\r
+### SwarmUI\r
+\r
+SwarmUI works two ways:\r
+\r
+- **Plain** \u2014 pick a model on the connection and generate from a prompt with size and seed. No workflow needed.\r
+- **With a workflow** \u2014 if you've imported and mapped a ComfyUI workflow on the SwarmUI connection, it behaves like ComfyUI above, with your mapped fields as controls.\r
+\r
+### SD WebUI API, NovelAI, NanoGPT, Google Gemini\r
+\r
+These are prompt-driven: write a prompt (and negative prompt where supported), set size or aspect ratio and seed, and generate. NovelAI leans on Danbooru-style tags; Gemini takes prose and uses the portrait aspect ratio; NanoGPT routes to whichever model you selected on the connection. Each provider's tunable parameters (from your connection's defaults) are available in the controls.\r
+`,
+    "weaver/worlds.md": `# Worlds\r
+\r
+A **World** is a place you roleplay in. You chat with the world itself: a **narrator** that sets scenes, runs the place, and voices the people in it, while \`{{user}}\` plays their own part inside it. Where a character build produces one person, a world build produces a stage with a cast.\r
+\r
+Under the hood, a finished world is a small family of ordinary Lumiverse pieces, all bound together:\r
+\r
+| Piece | What it carries |\r
+|-------|-----------------|\r
+| **The narrator card** | A deliberately thin card: the premise, the rules of the place, how it treats \`{{user}}\`, and the narration voice. This is what you chat with. |\r
+| **The lore book** | The deep detail \u2014 places, history, factions, customs \u2014 as triggered entries that surface when their subject comes up, instead of crowding the card. |\r
+| **The NPC book** | The people the narrator can voice, one profile per person. Created the first time you flesh someone out (see [People](people.md)). |\r
+| **The rules book** | Always-on entries that keep the narrator narrating \u2014 consult the lore, don't invent canon, give each person their own voice \u2014 plus the constant re-anchor. Works under any preset. |\r
+\r
+The thin-card-plus-books shape is the point: the card stays lean and predictable, and the depth scales as far as you want to take it \u2014 a handful of lore entries for a small place, dozens for a sprawling one.\r
+\r
+---\r
+\r
+## Building a World\r
+\r
+**New \u2192 World** runs the same six stages as a character build ([Studio Workflow](studio-workflow.md)), with world-shaped questions and fields.\r
+\r
+**The dream.** Describe the place the way you'd pitch it. The strongest world dreams carry a charged, unresolved core \u2014 the thing that makes the place worth playing in rather than just visiting:\r
+\r
+> _"Saltmere is a fishing town that pays a yearly tithe to something under the bay. Nobody alive has seen it; the tithe is just how things are done, like the tides. This year the count came back short, and the town clerk \u2014 who keeps the ledger \u2014 has started locking her office at noon. {{user}} arrives as the new harbormaster, owed answers nobody wants to give."_\r
+\r
+**The interview** asks for the essentials a narrator can't run the place without: what this place _is_ and why it's charged, the unresolved tension at its core, the past that produced it, the physical reality of the place, and how the world reads and treats \`{{user}}\`. From there it deepens into open-ended lore \u2014 the specifics of locations, factions, customs, history \u2014 and those deepening answers become the **lore book**.\r
+\r
+**The Bible** shows the world in three plain sections \u2014 **What it is**, **How it works**, **How it plays** \u2014 with the same editing, origin tags, and quality gate as a character build. The world's gate adds world-specific checks: does \`{{user}}\` have a real place here, do the rules of the place actually bite, and (if the world has agency) is it earned by the material.\r
+\r
+**Render** writes the narrator's fields: the description (the thin world bundle), the narration voice (how it describes scenes and voices people), the scenario, the opening narration, and **one greeting per distinct way into the world** \u2014 at finalize these split into the card's alternate greetings, so a world with three hooks gives you three different front doors into play.\r
+\r
+**Finalize** publishes the narrator card with the lore book bound (on by default) and the rules book created automatically. Then the session opens into the **hub**.\r
+\r
+---\r
+\r
+## World Agency\r
+\r
+Most worlds are hosts: they set scenes and follow your lead. Some push back.\r
+\r
+Once the interview's essentials are covered, the Weaver asks once: _"Does this world push back?"_\r
+\r
+- **Cozy** (preselected) \u2014 the world hosts your scenes and follows your lead.\r
+- **Agency** \u2014 the world pursues an **agenda** of its own and holds **hard lines** that won't bend, enforced on the card.\r
+\r
+If your dream already shows a world with teeth (Saltmere's tithe qualifies), the read-back picks agency up on its own and the interview asks about the agenda and the holds like any other essential \u2014 the agenda being what the world quietly works toward regardless of the player, and the holds being the lines that never break under pressure:\r
+\r
+> **Agenda:** the tithe will be paid in full before the spring tide, one way or another.\r
+> **Holds:** no one who has read the full ledger leaves Saltmere; the thing under the bay is never described, only evidenced.\r
+\r
+This is **not a difficulty slider**. An agency world doesn't fight you for control of the story \u2014 it has its own weather. Scenes can strain a hold; they never break it.\r
+\r
+You can change the decision any time from the hub: the **World agency** band shows Off (_"This world is cozy. It follows your lead."_) with **Turn on**, or On with the agenda and holds editable in place. Changes are written into the card's rules book immediately, so they hold in any chat.\r
+\r
+---\r
+\r
+## The Hub\r
+\r
+A world isn't finished at finalize \u2014 that's when it starts. Opening a finalized world from the home's **In the library** shelf lands on its dashboard, and the **World** pane is its hub: the place you grow it over time.\r
+\r
+### Lore\r
+\r
+The lore band lists the lore book's entries with an **Open in editor** button \u2014 the lore book is a normal worldbook, so the full editor is always available for hand work.\r
+\r
+**Add lore** continues the deepening interview right here, post-finalize and uncapped: the Weaver asks pointed questions about the world (grounded in everything it already knows \u2014 your dream, the Bible, the existing lore), you answer in your own words with the same **Show me directions** / **Extend my answer** tools, and each answer is composed into one new triggered entry in the lore book. **Done** is the escape, whenever you want.\r
+\r
+> _"The ledger only records what was given, never to whom. Where do the tithe goods actually go on collection night, and who in Saltmere is allowed to watch?"_\r
+\r
+The card itself never changes during add-lore \u2014 growth is append-only, new entries land in the book, and anything you've hand-edited in the book is never touched.\r
+\r
+!!! tip "How lore reaches play"\r
+    Lore entries are triggered worldbook entries: they surface in chat when their subject comes up, by keyword and (if you have embeddings configured) by meaning. The narrator's rules book tells it to treat surfaced lore as canon and to never invent canon that contradicts it \u2014 so the deeper your lore book, the more consistently the place holds together.\r
+\r
+### People\r
+\r
+The **People** rail item opens the world's roster and its spun-off characters \u2014 covered in full in [People](people.md). The short version: the world proposes people from its own lore, anyone you named during the build is already there, and each person can grow from a name, to a couple of background lines, to a full voiced profile, to their own standalone character card that knows this world.\r
+\r
+### Agency\r
+\r
+The **World agency** band, described above \u2014 toggle it, edit the agenda and holds, see exactly what's enforced.\r
+\r
+---\r
+\r
+## Playing a World\r
+\r
+Chat with the narrator card like any character. What you should see in play:\r
+\r
+- **The narrator narrates.** It sets scenes, describes, and voices the people of the world each in their own register \u2014 it doesn't collapse into being a single character, and it doesn't puppet \`{{user}}\`.\r
+- **Lore fires on relevance.** Mention the ledger and the ledger's entry surfaces; the narrator treats it as canon.\r
+- **People sound like themselves.** Anyone with a profile in the NPC book is voiced from that profile, not from a generic blur.\r
+- **An agency world moves.** Its agenda advances quietly in the background, and its holds refuse direct pressure.\r
+\r
+Because the governance rides in the card's own bound rules book, all of this works under any preset \u2014 though a preset that actively mandates first-person single-character play is fighting the narrator's contract, and it's worth using a more neutral preset for world chats.\r
+\r
+!!! note "In-universe characters"\r
+    A person who outgrows the narrator's voicing can be **promoted** to their own card for one-on-one chats \u2014 they carry the world's lore book with them, so they stay consistent with the place. See [People \u2192 Promote](people.md#promote-their-own-card).\r
 `,
     "world-books/advanced-features.md": `# Advanced Features\r
 \r
@@ -32267,7 +32629,7 @@ var init_grep = __esm(() => {
     max_matches: exports_external.number().int().positive().max(GREP_MAX_CAP).optional().describe(`Cap on total returned hits across all leaves. Default ${GREP_DEFAULT_MAX}, max ${GREP_MAX_CAP}.`),
     max_hits_per_line: exports_external.number().int().positive().max(50).optional().describe(`Cap on hits returned per line. Default ${GREP_DEFAULT_HITS_PER_LINE}. Keep at 1 when the pattern matches dense single characters (e.g. CJK glyphs) so a single line full of matches doesn't burn the entire max_matches budget.`),
     character_id: exports_external.string().optional().describe("Character to search. Defaults to the focused character."),
-    world_scope: exports_external.enum(["attached", "all"]).optional().describe("World books to search. 'attached' (default) only this character's books; 'all' also includes the user's unattached global lorebooks (their entries are labeled [global]).")
+    world_scope: exports_external.enum(["attached", "all"]).optional().describe("World books to search. 'attached' (default) only this character's books; 'all' also searches every other owned book, labeling entries [global] (in the Always-Active set) or [unattached].")
   }).strict();
   grepTool = defineTool({
     name: "grep",
@@ -32289,7 +32651,7 @@ Returns \`hits[]\` of \`{path, surface, surface_label, line, match, preview}\` \
         max_matches: { type: "integer", minimum: 1, maximum: GREP_MAX_CAP, description: `default ${GREP_DEFAULT_MAX}` },
         max_hits_per_line: { type: "integer", minimum: 1, maximum: 50, description: `default ${GREP_DEFAULT_HITS_PER_LINE}` },
         character_id: { type: "string" },
-        world_scope: { type: "string", enum: ["attached", "all"], description: "'all' also searches the user's unattached global lorebooks (entries labeled [global]). Default 'attached'." }
+        world_scope: { type: "string", enum: ["attached", "all"], description: "'all' also searches every other owned book; entries labeled [global] (Always-Active) or [unattached]. Default 'attached'." }
       },
       required: ["pattern"],
       additionalProperties: false
@@ -33432,6 +33794,8 @@ async function setWorldBookField(ctx, id, field, value) {
   const e = await ctx.spindle.world_books.entries.get(id, ctx.userId);
   if (!e)
     return `no world book or entry with id ${id}`;
+  if (WB_ENTRY_KEY_FIELDS.has(field))
+    value = coerceKeyList(value);
   const before = e[field];
   await ctx.spindle.world_books.entries.update(id, { [field]: value }, ctx.userId);
   const isStr = typeof value === "string";
@@ -33546,13 +33910,13 @@ Returns:
           throw err;
         }
       }
-      let result;
+      let result2;
       if (path.startsWith("char/extensions/") || path.startsWith("character/extensions/")) {
         const dotted = path.replace(/^(char|character)\/extensions\//, "");
         if (dotted.length === 0)
           return { content: "Error: extensions path requires a sub-path", isError: true };
         try {
-          result = await setExtension(ctx, charId, dotted, value);
+          result2 = await setExtension(ctx, charId, dotted, value);
         } catch (err) {
           if (err instanceof ExtensionRefusedError)
             return { content: `Error: [REFUSED_BY_EXTENSION] ${err.message}`, isError: true };
@@ -33563,61 +33927,61 @@ Returns:
         const segs = rest.split("/");
         if (segs.length !== 3)
           return { content: "Error: expected char/alternate_fields/<field>/<variantId>/<content|label>", isError: true };
-        result = await setAlternateFieldLeaf(ctx, charId, segs[0], segs[1], segs[2], value);
+        result2 = await setAlternateFieldLeaf(ctx, charId, segs[0], segs[1], segs[2], value);
       } else if (path.startsWith("char/alternate_greetings/") || path.startsWith("character/alternate_greetings/")) {
         const rest = path.replace(/^(char|character)\/alternate_greetings\//, "");
         const idx = parseInt(rest, 10);
         if (!Number.isFinite(idx))
           return { content: `Error: alternate_greetings index '${rest}' is not a number`, isError: true };
-        result = await setAlternateGreeting(ctx, charId, idx, value);
+        result2 = await setAlternateGreeting(ctx, charId, idx, value);
       } else if (path.startsWith("char/") || path.startsWith("character/")) {
         const field = path.replace(/^(char|character)\//, "");
         if (field.includes("/"))
           return { content: `Error: '${path}' has unexpected segments; for extension paths use char/extensions/...`, isError: true };
-        result = await setCharacterField(ctx, charId, field, value);
+        result2 = await setCharacterField(ctx, charId, field, value);
       } else if (path.startsWith("rx/") || path.startsWith("regex_script/")) {
         const parts = path.split("/").slice(1);
         if (parts.length !== 2)
           return { content: "Error: expected rx/<scriptId>/<field>", isError: true };
-        result = await setRegexScriptField(ctx, parts[0], parts[1], value);
+        result2 = await setRegexScriptField(ctx, parts[0], parts[1], value);
       } else if (path.startsWith("wb/") || path.startsWith("world_book_entry/") || path.startsWith("world_book/")) {
         const parts = path.split("/").slice(1);
         if (parts.length !== 2)
           return { content: "Error: expected wb/<id>/<field> (id = book or entry)", isError: true };
-        result = await setWorldBookField(ctx, parts[0], parts[1], value);
+        result2 = await setWorldBookField(ctx, parts[0], parts[1], value);
       } else if (path.startsWith("preset/")) {
         const parts = path.split("/").slice(1);
         if (parts.length !== 2)
           return { content: "Error: expected preset/<presetId>/<field>. For block content/name use edit/rewrite on preset/<id>/block/<bid>/<field>.", isError: true };
-        result = await setPresetField(ctx, parts[0], parts[1], value);
+        result2 = await setPresetField(ctx, parts[0], parts[1], value);
       } else if (path.startsWith("persona/")) {
         const parts = path.split("/").slice(1);
         if (parts.length !== 2)
           return { content: "Error: expected persona/<personaId>/attached_world_book_id. Persona world-book entries and name/title/description use edit/rewrite, not set.", isError: true };
-        result = await setPersonaAttachedWorldBook(ctx, parts[0], parts[1], value);
+        result2 = await setPersonaAttachedWorldBook(ctx, parts[0], parts[1], value);
       } else {
         return { content: `Error: unknown set path '${path}'. See \`read\` tool for grammar.`, isError: true };
       }
-      if (typeof result === "string")
-        return { content: `Error: ${result}`, isError: true };
+      if (typeof result2 === "string")
+        return { content: `Error: ${result2}`, isError: true };
       ctx.pushEdit({
         op: "edit",
-        surface: result.surface,
-        surfaceId: result.surfaceId,
-        surfaceLabel: result.label,
-        field: result.field,
-        before: result.before,
-        after: result.after,
-        scope: result.scopeOverride ?? (result.surface === "character_field" || result.surface === "alternate_greeting" || result.surface === "extension" ? characterScope(result.surfaceId) : scopeForLeafKey(path, ctx)),
-        ...result.valueEncoding !== undefined ? { valueEncoding: result.valueEncoding } : {}
+        surface: result2.surface,
+        surfaceId: result2.surfaceId,
+        surfaceLabel: result2.label,
+        field: result2.field,
+        before: result2.before,
+        after: result2.after,
+        scope: result2.scopeOverride ?? (result2.surface === "character_field" || result2.surface === "alternate_greeting" || result2.surface === "extension" ? characterScope(result2.surfaceId) : scopeForLeafKey(path, ctx)),
+        ...result2.valueEncoding !== undefined ? { valueEncoding: result2.valueEncoding } : {}
       });
       return {
         content: JSON.stringify({
           path,
-          before_chars: result.before.length,
-          after_chars: result.after.length,
-          before_peek: result.before.slice(0, 120),
-          after_peek: result.after.slice(0, 120)
+          before_chars: result2.before.length,
+          after_chars: result2.after.length,
+          before_peek: result2.before.slice(0, 120),
+          after_peek: result2.after.slice(0, 120)
         }, null, 2)
       };
     }
@@ -34833,24 +35197,24 @@ Usage:
           return nt;
         throw err;
       }
-      const result = await squashMessage(ctx.spindle, characterScope(cid), ctx.assistantMessageId, ctx.userId, { sealed: true });
-      if (result.filesTouched > 0 || result.absorbedIds.length > 0) {
+      const result2 = await squashMessage(ctx.spindle, characterScope(cid), ctx.assistantMessageId, ctx.userId, { sealed: true });
+      if (result2.filesTouched > 0 || result2.absorbedIds.length > 0) {
         const remap = {};
-        for (const [k, v] of result.absorbedToMerged)
+        for (const [k, v] of result2.absorbedToMerged)
           remap[k] = v;
-        for (const id of result.absorbedIds)
+        for (const id of result2.absorbedIds)
           if (!(id in remap))
             remap[id] = "";
         ctx.pushLedgerResync(remap);
       }
       return {
         content: JSON.stringify({
-          files_touched: result.filesTouched,
-          groups_merged: result.groupsMerged,
-          absorbed_edit_ids: result.absorbedIds,
-          new_patch_ids: result.newPatchIds,
+          files_touched: result2.filesTouched,
+          groups_merged: result2.groupsMerged,
+          absorbed_edit_ids: result2.absorbedIds,
+          new_patch_ids: result2.newPatchIds,
           ...input.phase_label ? { phase_label: input.phase_label } : {},
-          note: result.groupsMerged === 0 ? "Nothing to squash (no contiguous unsealed runs in this message)." : `Sealed ${result.groupsMerged} group${result.groupsMerged === 1 ? "" : "s"} across ${result.filesTouched} file${result.filesTouched === 1 ? "" : "s"}. Subsequent edits in this response start a new phase.`
+          note: result2.groupsMerged === 0 ? "Nothing to squash (no contiguous unsealed runs in this message)." : `Sealed ${result2.groupsMerged} group${result2.groupsMerged === 1 ? "" : "s"} across ${result2.filesTouched} file${result2.filesTouched === 1 ? "" : "s"}. Subsequent edits in this response start a new phase.`
         })
       };
     }
@@ -35921,7 +36285,12 @@ Usage:
     requiresCharacter: false,
     execute: async (input, ctx) => {
       const id = input.entry_id;
-      const patch = input.patch;
+      const rawPatch = input.patch;
+      const patch = { ...rawPatch };
+      for (const f of WB_ENTRY_KEY_FIELDS) {
+        if (rawPatch[f] !== undefined)
+          patch[f] = coerceKeyList(rawPatch[f]);
+      }
       const before = await ctx.spindle.world_books.entries.get(id, ctx.userId);
       if (!before)
         return { content: `Error: world book entry ${id} not found`, isError: true };
@@ -36022,7 +36391,7 @@ var init_dry_run_prompt = __esm(() => {
       }
       try {
         const connectionId = input.connection_id ?? ctx.connectionId;
-        const result = await ctx.spindle.generate.dryRun({
+        const result2 = await ctx.spindle.generate.dryRun({
           chatId,
           ...connectionId ? { connectionId } : {},
           ...input.persona_id ? { personaId: input.persona_id } : {},
@@ -36030,16 +36399,16 @@ var init_dry_run_prompt = __esm(() => {
         }, ctx.userId);
         const summary = {
           chat_id: chatId,
-          model: result.model,
-          provider: result.provider,
-          token_count: result.tokenCount ?? null,
-          message_count: result.messages.length,
-          breakdown_entry_count: result.breakdown.length,
-          world_info_stats: result.worldInfoStats ?? null,
-          memory_stats: result.memoryStats ?? null,
-          parameters: result.parameters,
-          breakdown: result.breakdown,
-          messages: result.messages
+          model: result2.model,
+          provider: result2.provider,
+          token_count: result2.tokenCount ?? null,
+          message_count: result2.messages.length,
+          breakdown_entry_count: result2.breakdown.length,
+          world_info_stats: result2.worldInfoStats ?? null,
+          memory_stats: result2.memoryStats ?? null,
+          parameters: result2.parameters,
+          breakdown: result2.breakdown,
+          messages: result2.messages
         };
         const text = JSON.stringify(summary, null, 2);
         const out = await spillOrReturn(ctx, text, `dry_run_prompt(${chatId})`, "Use tmp_grep to find specific strings (e.g. unfamiliar tokens like '<payload>') across the assembled prompt; tmp_read to inspect specific message bodies.");
@@ -36154,8 +36523,8 @@ var init_list_activated_world_info = __esm(() => {
     description: `Lists world info entries that would activate for a chat at its current state.
 
 Usage:
-- Returns { id, comment, keys, source: 'keyword'|'vector', score? } per entry.
-- Use to debug "is this lorebook entry actually firing?" before reading the entry's content.`,
+- Returns { id, comment, keys, source: 'keyword'|'vector', score?, bookId?, bookSource? } per entry. \`bookSource\` is the binding scope that contributed the entry's book: 'character'|'persona'|'chat'|'global' (narrowest wins). Also returns \`by_source\`, a count of entries per binding scope.
+- Use to debug "is this lorebook entry actually firing?" (and "from which binding layer?") before reading the entry's content.`,
     inputSchema: inputSchema71,
     jsonSchema: {
       type: "object",
@@ -36171,7 +36540,12 @@ Usage:
         return { content: JSON.stringify({ error: "no chat_id and no pinned chat" }), isError: true };
       try {
         const entries = await ctx.spindle.world_books.getActivated(chatId, ctx.userId);
-        const out = JSON.stringify({ chat_id: chatId, count: entries.length, entries }, null, 2);
+        const bySource = {};
+        for (const e of entries) {
+          const k = e.bookSource ?? "unknown";
+          bySource[k] = (bySource[k] ?? 0) + 1;
+        }
+        const out = JSON.stringify({ chat_id: chatId, count: entries.length, by_source: bySource, entries }, null, 2);
         return { content: await spillOrReturn(ctx, out, `list_activated_world_info(${chatId})`) };
       } catch (err) {
         return { content: JSON.stringify({ error: err.message }), isError: true };
@@ -36212,11 +36586,11 @@ Usage:
       if (!chatId)
         return { content: JSON.stringify({ error: "no chat_id and no pinned chat" }), isError: true };
       try {
-        const result = await ctx.spindle.chats.getMemories(chatId, {
+        const result2 = await ctx.spindle.chats.getMemories(chatId, {
           ...input.top_k !== undefined ? { topK: input.top_k } : {},
           userId: ctx.userId
         });
-        const out = JSON.stringify({ chat_id: chatId, ...result }, null, 2);
+        const out = JSON.stringify({ chat_id: chatId, ...result2 }, null, 2);
         return { content: await spillOrReturn(ctx, out, `list_chat_memories(${chatId})`) };
       } catch (err) {
         return { content: JSON.stringify({ error: err.message }), isError: true };
@@ -36817,15 +37191,15 @@ var init_resolve_macros = __esm(() => {
       const useFocus = input.use_active_character ?? true;
       const target = input.character_id ?? (useFocus ? ctx.characterId ?? undefined : undefined);
       try {
-        const result = await ctx.spindle.macros.resolve(input.template, {
+        const result2 = await ctx.spindle.macros.resolve(input.template, {
           ...chatId ? { chatId } : {},
           ...target ? { characterId: target } : {},
           userId: ctx.userId,
           commit: false
         });
         const out = JSON.stringify({
-          text: result.text,
-          diagnostics: result.diagnostics
+          text: result2.text,
+          diagnostics: result2.diagnostics
         }, null, 2);
         return { content: await spillOrReturn(ctx, out, `resolve_macros(${input.template.length} chars)`) };
       } catch (err) {
@@ -37078,7 +37452,7 @@ var init__registry = __esm(() => {
   init__framework();
   init_apply_glossary();
   init_ask_user_question();
-  init_attach_world_book_to_chat();
+  init_attach_world_book();
   init_list_chat_world_books();
   init_asset_delete();
   init_asset_rename();
@@ -37174,7 +37548,7 @@ var init__registry = __esm(() => {
     "list_active_regex_scripts",
     "list_chat_memories",
     "list_chat_world_books",
-    "attach_world_book_to_chat",
+    "attach_world_book",
     "list_personas",
     "read_persona",
     "read_persona_world_book",
@@ -37305,7 +37679,7 @@ var init__registry = __esm(() => {
   };
   registry2.register(applyGlossaryTool);
   registry2.register(askUserQuestionTool);
-  registry2.register(attachWorldBookToChatTool);
+  registry2.register(attachWorldBookTool);
   registry2.register(listChatWorldBooksTool);
   registry2.register(assetDeleteTool);
   registry2.register(assetRenameTool);
@@ -38554,7 +38928,7 @@ Use the native structured tool_use channel. Text-encoded calls (\`<invoke>\`, JS
 When the user asks "where is X coming from" or "why is the AI saying Y", first \`dry_run_prompt\` (the exact assembled prompt; defaults to the pinned chat, so if none is pinned tell the user to pin one) and \`tmp_grep\` the suspect token. Don't surface-search before that. Content can live in any of:
 
 - Character fields, including the whole \`char/extensions/*\` blob (\`list({path:"char/extensions"})\` + \`grep\`)
-- World books bind in 4 layers: character (\`char/world_book_ids\`), persona (\`persona/<id>/attached_world_book_id\`), chat ("This Chat Only", \`attach_world_book_to_chat\`), and global "Always Active" (host setting, not exposed). \`list_chat_world_books\` shows the first three for a chat. Default \`list\`/\`grep\` see only character-attached: pass \`grep({world_scope:"all"})\` to search the rest, \`list({path:"wb",include_unattached:true})\` to find them. Entries fire conditionally, present != firing.
+- World books bind in 4 layers, three via \`attach_world_book({scope})\`: character, chat ("This Chat Only"), global ("Always Active"). The fourth, persona, is \`set persona/<id>/attached_world_book_id\`. \`list_chat_world_books\` shows all four for a chat. Default \`list\`/\`grep\` see only character-attached: pass \`grep({world_scope:"all"})\` to search the rest, \`list({path:"wb",include_unattached:true})\` to find them. Entries fire conditionally, present != firing.
 - Regex scripts: character, global, chat-scoped (\`list_active_regex_scripts({target})\`)
 - Personas (the active persona description is {{user}}; can carry a world book)
 - Databanks (RAG) and chat memory (\`list_chat_memories\`)
@@ -38736,7 +39110,7 @@ function subscribeToMissingChanges(handler) {
 }
 // spindle.json
 var spindle_default = {
-  version: "0.5.5",
+  version: "0.5.6",
   name: "LumiAgent",
   identifier: "lumiagent",
   author: "amousepad",
@@ -38840,13 +39214,13 @@ async function initHostVersionCheck(log) {
   } catch (err) {
     log.warn(`host-version: getFrontend failed: ${err instanceof Error ? err.message : String(err)}`);
   }
-  const result = checkHostVersion(backend, MINIMUM_LUMIVERSE_VERSION);
-  cached2 = result;
-  const tag = result.needsUpdate ? "WARN" : "ok";
+  const result2 = checkHostVersion(backend, MINIMUM_LUMIVERSE_VERSION);
+  cached2 = result2;
+  const tag = result2.needsUpdate ? "WARN" : "ok";
   log.info(`host-version: lumiverse backend=${backend ?? "unknown"} frontend=${frontend ?? "unknown"} min=${MINIMUM_LUMIVERSE_VERSION} ${tag}`);
-  if (result.needsUpdate)
-    log.warn(result.message);
-  return result;
+  if (result2.needsUpdate)
+    log.warn(result2.message);
+  return result2;
 }
 function getHostVersionWarning() {
   if (!cached2 || !cached2.needsUpdate)
@@ -38947,7 +39321,7 @@ function callFrontend(userId, op, args, timeoutMs = DEFAULT_FRONTEND_RPC_TIMEOUT
     }
   });
 }
-function resolveFrontendRpc(rpcId, fromUserId, result, error51) {
+function resolveFrontendRpc(rpcId, fromUserId, result2, error51) {
   const pending2 = pendingFrontendRpc.get(rpcId);
   if (!pending2)
     return;
@@ -38960,7 +39334,7 @@ function resolveFrontendRpc(rpcId, fromUserId, result, error51) {
   if (error51 !== undefined)
     pending2.reject(new Error(error51));
   else
-    pending2.resolve(result);
+    pending2.resolve(result2);
 }
 function log(level, msg) {
   if (level === "info") {
