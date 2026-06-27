@@ -46,7 +46,7 @@ export interface ToolResult {
 // Ledger filing scope. Phase 0 only ever produces "character"; the other
 // kinds are filing drawers for non-character surfaces added in later phases.
 // variables/images are singleton pseudo-scopes (id is a fixed constant).
-export type ScopeKind = "character" | "persona" | "chat" | "databank" | "preset" | "world_book" | "regex_script" | "variables" | "images";
+export type ScopeKind = "character" | "persona" | "chat" | "databank" | "preset" | "world_book" | "regex_script" | "global_addon" | "variables" | "images";
 
 export interface ScopeRef {
   readonly kind: ScopeKind;
@@ -75,11 +75,13 @@ export type EditSurface =
   | "regex_script"
   | "extension"
   | "persona_field"
+  | "persona_addon"
   | "chat_message"
   | "preset_block"
   | "preset"
   | "world_book"
   | "persona"
+  | "global_addon"
   | "external";
 
 export interface AlternateFieldVariantSnapshot {

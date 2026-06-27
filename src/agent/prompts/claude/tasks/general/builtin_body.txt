@@ -9,7 +9,8 @@ Path grammar (forward slashes; first segment names the surface):
 - `char/extensions/<dotted>` — any string leaf under `character.extensions.*`. Dotted with brackets, e.g. `<extId>.<group>.<item>[0].code`
 - `rx/<scriptId>/find_regex` or `rx/<scriptId>/replace_string` — regex script
 - `wb/<entryId>/content` or `wb/<entryId>/comment` — lorebook entry
-- `persona/<id>/<name|title|description>`, `persona/<id>/wb/<entryId>/<content|comment>`, `persona/<id>/attached_world_book_id` (`set`-only: an id attaches/changes the persona world book, `null` detaches) — a user persona
+- `persona/<id>/<name|title|description>`, `persona/<id>/wb/<entryId>/<content|comment>`, `persona/<id>/attached_world_book_id` (`set`-only: an id attaches/changes the persona world book, `null` detaches), `persona/<id>/addon/<addonId>/<content|label>` (a persona-scoped add-on text block) — a user persona
+- `global_addon/<id>/<content|label>` — a reusable "global add-on" text block personas attach by reference. Discover ids (persona-scoped and global add-ons alike) via `read_persona`'s `resolved_addons`.
 - `chat/<chatId>/msg/<msgId>/content` — one chat message
 - `preset/<presetId>/block/<blockId>/<content|name>` — a prompt-preset block
 
@@ -60,7 +61,7 @@ When the user asks "where is X coming from" or "why is the AI saying Y", first `
 - Character fields, including the whole `char/extensions/*` blob (`list({path:"char/extensions"})` + `grep`)
 - World books bind in 4 layers, three via `attach_world_book({scope})`: character, chat ("This Chat Only"), global ("Always Active"). The fourth, persona, is `set persona/<id>/attached_world_book_id`. `list_chat_world_books` shows all four for a chat. Default `list`/`grep` see only character-attached: pass `grep({world_scope:"all"})` to search the rest, `list({path:"wb",include_unattached:true})` to find them. Entries fire conditionally, present != firing.
 - Regex scripts: character, global, chat-scoped (`list_active_regex_scripts({target})`)
-- Personas (the active persona description is {{user}}; can carry a world book)
+- Personas (the active persona description is {{user}}; can carry a world book and add-on text blocks, persona-scoped or global, surfaced by `read_persona`'s `resolved_addons`)
 - Databanks (RAG) and chat memory (`list_chat_memories`)
 - External-provider surfaces (`list_external` / `read_external` by surface_id)
 - Macros (`resolve_macros`, `list_variables` / `read_variable`)

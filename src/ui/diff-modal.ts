@@ -13,14 +13,16 @@ const SURFACE_LABELS: Record<EditSurface, string> = {
   regex_script: "Regex scripts",
   extension: "Extensions",
   persona_field: "Personas",
+  persona_addon: "Persona add-ons",
   chat_message: "Chat messages",
   preset_block: "Preset blocks",
   preset: "Presets",
   persona: "Personas",
+  global_addon: "Global add-ons",
   external: "External (other extensions)",
 };
 
-const SURFACE_ORDER: EditSurface[] = ["character_field", "alternate_greeting", "alternate_field_variant", "world_book_entry", "world_book", "regex_script", "extension", "persona_field", "chat_message", "preset_block", "preset", "persona", "external"];
+const SURFACE_ORDER: EditSurface[] = ["character_field", "alternate_greeting", "alternate_field_variant", "world_book_entry", "world_book", "regex_script", "extension", "persona_field", "persona_addon", "chat_message", "preset_block", "preset", "persona", "global_addon", "external"];
 
 const MOBILE_BREAKPOINT_PX = 720;
 const DESKTOP_WIDTH_CAP = 1700;

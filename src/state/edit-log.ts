@@ -9,6 +9,7 @@ import type {
   RegexScriptUpdateDTO,
   RegexScriptCreateDTO,
   PersonaUpdateDTO,
+  GlobalAddonUpdateDTO,
   PersonaDTO,
   PersonaCreateDTO,
   WorldBookDTO,
@@ -572,6 +573,21 @@ export async function readLiveValue(
       if (!p) return null;
       return encodeScalar(r.field, (p as unknown as Record<string, unknown>)[r.field]);
     }
+    case "persona_addon": {
+      const [personaId, addonId] = r.surfaceId.split(":");
+      const p = await spindle.personas.get(personaId!, userId);
+      if (!p) return null;
+      const a = readPersonaAddon(p.metadata, addonId!);
+      if (!a) return null;
+      const v = a[r.field];
+      return typeof v === "string" ? v : null;
+    }
+    case "global_addon": {
+      const a = await spindle.global_addons.get(r.surfaceId, userId);
+      if (!a) return null;
+      const v = (a as unknown as Record<string, unknown>)[r.field];
+      return typeof v === "string" ? v : null;
+    }
     default:
       return null;
   }
@@ -756,9 +772,37 @@ export async function writeFieldValue(
       await spindle.personas.update(surfaceId, personaScalarUpdate(field, decodeScalar(field, value)), userId);
       return;
     }
+    case "persona_addon": {
+      const [personaId, addonId] = surfaceId.split(":");
+      const p = await spindle.personas.get(personaId!, userId);
+      if (!p) throw new Error("persona not found");
+      const metadata = writePersonaAddon(p.metadata, addonId!, field, value);
+      await spindle.personas.update(personaId!, { metadata } as PersonaUpdateDTO, userId);
+      return;
+    }
+    case "global_addon": {
+      await spindle.global_addons.update(surfaceId, { [field]: value } as GlobalAddonUpdateDTO, userId);
+      return;
+    }
     default:
       throw new Error(`unsupported surface for write: ${surface}`);
   }
+}
+
+function readPersonaAddon(metadata: unknown, addonId: string): Record<string, any> | null {
+  const addons = (metadata as { addons?: unknown })?.addons;
+  if (!Array.isArray(addons)) return null;
+  return addons.find((a) => a && typeof a === "object" && (a as { id?: unknown }).id === addonId) ?? null;
+}
+
+function writePersonaAddon(metadata: unknown, addonId: string, field: string, value: string): Record<string, any> {
+  const base = (metadata && typeof metadata === "object") ? { ...(metadata as Record<string, any>) } : {};
+  const addons = Array.isArray(base.addons) ? base.addons.map((a: any) => ({ ...a })) : [];
+  const idx = addons.findIndex((a: any) => a?.id === addonId);
+  if (idx < 0) throw new Error(`persona add-on ${addonId} not found`);
+  addons[idx] = { ...addons[idx], [field]: value };
+  base.addons = addons;
+  return base;
 }
 
 export async function revertEditWithCheck(

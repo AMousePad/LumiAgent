@@ -17,7 +17,7 @@
 // used by the recent-read gate and the audit tool — one string, one surface,
 // across read / edit / grep / inspect.
 
-import type { CharacterUpdateDTO, RegexScriptUpdateDTO, WorldBookEntryUpdateDTO, PersonaUpdateDTO, WorldBookDTO } from "lumiverse-spindle-types";
+import type { CharacterUpdateDTO, RegexScriptUpdateDTO, WorldBookEntryUpdateDTO, PersonaUpdateDTO, WorldBookDTO, GlobalAddonUpdateDTO } from "lumiverse-spindle-types";
 import type { ToolCtx } from "./_context";
 import type { EditRecord, ScopeRef } from "../../types";
 import { characterScope } from "../../types";
@@ -52,6 +52,23 @@ export interface AltFieldVariant {
   readonly id: string;
   readonly label: string;
   readonly content: string;
+}
+
+export function readPersonaAddonEntry(metadata: unknown, addonId: string): Record<string, unknown> | null {
+  const addons = (metadata as { addons?: unknown })?.addons;
+  if (!Array.isArray(addons)) return null;
+  const a = addons.find((x) => x && typeof x === "object" && (x as { id?: unknown }).id === addonId);
+  return (a as Record<string, unknown>) ?? null;
+}
+
+export function writePersonaAddonMeta(metadata: unknown, addonId: string, field: string, value: string): Record<string, unknown> {
+  const base = (metadata && typeof metadata === "object" && !Array.isArray(metadata)) ? { ...(metadata as Record<string, unknown>) } : {};
+  const addons = Array.isArray(base.addons) ? base.addons.map((a) => ({ ...(a as object) })) : [];
+  const idx = addons.findIndex((a) => (a as { id?: unknown })?.id === addonId);
+  if (idx < 0) throw new Error(`persona add-on ${addonId} not found`);
+  addons[idx] = { ...addons[idx], [field]: value };
+  base.addons = addons;
+  return base;
 }
 
 export function readAltFieldArray(extensions: unknown, field: AlternateFieldName): AltFieldVariant[] {
@@ -112,6 +129,7 @@ export function scopeForLeafKey(key: string, ctx: ToolCtx): ScopeRef {
   if (key.startsWith("persona/")) return { kind: "persona", id: key.split("/")[1]! };
   if (key.startsWith("chat/")) return { kind: "chat", id: key.split("/")[1]! };
   if (key.startsWith("preset/")) return { kind: "preset", id: key.split("/")[1]! };
+  if (key.startsWith("global_addon/")) return { kind: "global_addon", id: key.split("/")[1]! };
   if (key.startsWith("char/")) {
     const id = key.split("/")[1];
     if (id) return characterScope(id);
@@ -126,7 +144,7 @@ export interface ResolvedLeaf {
   // Canonical key, normalized for the recent-read gate.
   readonly key: string;
   // Surface tag for analytics / ledger.
-  readonly surface: "character_field" | "alternate_greeting" | "extension" | "regex_script" | "world_book_entry" | "persona_field" | "chat_message" | "preset_block";
+  readonly surface: "character_field" | "alternate_greeting" | "extension" | "regex_script" | "world_book_entry" | "persona_field" | "persona_addon" | "chat_message" | "preset_block" | "global_addon";
   // surfaceId is the entity id (character id for char/extension, script id, entry id).
   readonly surfaceId: string;
   // Human-facing label for the workshop diff card.
@@ -393,6 +411,27 @@ export async function resolveRead(ctx: ToolCtx, path: string): Promise<ResolvedL
         scope: { kind: "world_book", id: e.world_book_id },
       };
     }
+    if (parts[2] === "addon") {
+      if (parts.length !== 5) throw new PathError(path, "expected persona/<personaId>/addon/<addonId>/<content|label>");
+      const addonId = parts[3]!;
+      const field = parts[4]!;
+      if (field !== "content" && field !== "label") {
+        throw new PathError(path, `persona add-on field must be content or label, got '${field}'`);
+      }
+      const addon = readPersonaAddonEntry(p.metadata, addonId);
+      if (!addon) throw new PathError(path, `persona add-on ${addonId} not found`);
+      const av = addon[field];
+      if (typeof av !== "string") throw new PathError(path, `add-on.${field} is not a string`);
+      return {
+        key: `persona/${personaId}/addon/${addonId}/${field}`,
+        surface: "persona_addon",
+        surfaceId: `${personaId}:${addonId}`,
+        surfaceLabel: `${p.name} · ${typeof addon.label === "string" && addon.label ? addon.label : addonId}`,
+        field,
+        value: av,
+        scope: { kind: "persona", id: personaId },
+      };
+    }
     if (parts.length !== 3) throw new PathError(path, `expected persona/<personaId>/<field>, got ${parts.length} segments`);
     const field = parts[2]!;
     if (!(PERSONA_STRING_FIELDS as readonly string[]).includes(field)) {
@@ -407,6 +446,28 @@ export async function resolveRead(ctx: ToolCtx, path: string): Promise<ResolvedL
       surfaceLabel: p.name,
       field,
       value: pv,
+    };
+  }
+
+  if (head === "global_addon") {
+    if (parts.length !== 3) throw new PathError(path, "expected global_addon/<id>/<content|label>");
+    const addonId = parts[1]!;
+    const field = parts[2]!;
+    if (field !== "content" && field !== "label") {
+      throw new PathError(path, `global add-on field must be content or label, got '${field}'`);
+    }
+    const a = await ctx.spindle.global_addons.get(addonId, ctx.userId);
+    if (!a) throw new PathError(path, `global add-on ${addonId} not found`);
+    const av = (a as unknown as Record<string, unknown>)[field];
+    if (typeof av !== "string") throw new PathError(path, `add-on.${field} is not a string`);
+    return {
+      key: `global_addon/${addonId}/${field}`,
+      surface: "global_addon",
+      surfaceId: addonId,
+      surfaceLabel: a.label || addonId,
+      field,
+      value: av,
+      scope: { kind: "global_addon", id: addonId },
     };
   }
 
@@ -535,6 +596,27 @@ export async function resolveWrite(
       op: "edit", surface: "persona_field", surfaceId: leaf.surfaceId,
       surfaceLabel: leaf.surfaceLabel, field: leaf.field, before: leaf.value, after: nextValue,
       scope: scopeForLeafKey(leaf.key, ctx),
+    });
+    return;
+  }
+  if (leaf.surface === "persona_addon") {
+    const [personaId, addonId] = leaf.surfaceId.split(":");
+    const p = await ctx.spindle.personas.get(personaId!, ctx.userId);
+    if (!p) throw new Error("persona not found");
+    await ctx.spindle.personas.update(personaId!, { metadata: writePersonaAddonMeta(p.metadata, addonId!, leaf.field, nextValue) } as PersonaUpdateDTO, ctx.userId);
+    ctx.pushEdit({
+      op: "edit", surface: "persona_addon", surfaceId: leaf.surfaceId,
+      surfaceLabel: leaf.surfaceLabel, field: leaf.field, before: leaf.value, after: nextValue,
+      scope: leaf.scope ?? scopeForLeafKey(leaf.key, ctx),
+    });
+    return;
+  }
+  if (leaf.surface === "global_addon") {
+    await ctx.spindle.global_addons.update(leaf.surfaceId, { [leaf.field]: nextValue } as GlobalAddonUpdateDTO, ctx.userId);
+    ctx.pushEdit({
+      op: "edit", surface: "global_addon", surfaceId: leaf.surfaceId,
+      surfaceLabel: leaf.surfaceLabel, field: leaf.field, before: leaf.value, after: nextValue,
+      scope: leaf.scope ?? scopeForLeafKey(leaf.key, ctx),
     });
     return;
   }

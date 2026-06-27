@@ -273,7 +273,7 @@ export const setTool = defineTool({
       result = await setPresetField(ctx, parts[0]!, parts[1]!, value);
     } else if (path.startsWith("persona/")) {
       const parts = path.split("/").slice(1);
-      if (parts.length !== 2) return { content: "Error: expected persona/<personaId>/attached_world_book_id. Persona world-book entries and name/title/description use edit/rewrite, not set.", isError: true };
+      if (parts.length !== 2) return { content: "Error: expected persona/<personaId>/attached_world_book_id. Persona world-book entries, add-ons (persona/<id>/addon/<addonId>/<content|label>), and name/title/description use edit/rewrite, not set.", isError: true };
       result = await setPersonaAttachedWorldBook(ctx, parts[0]!, parts[1]!, value);
     } else {
       return { content: `Error: unknown set path '${path}'. See \`read\` tool for grammar.`, isError: true };

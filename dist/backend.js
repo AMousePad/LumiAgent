@@ -2544,6 +2544,24 @@ async function readLiveValue(spindle2, entry, characterId, userId) {
         return null;
       return encodeScalar(r.field, p[r.field]);
     }
+    case "persona_addon": {
+      const [personaId, addonId] = r.surfaceId.split(":");
+      const p = await spindle2.personas.get(personaId, userId);
+      if (!p)
+        return null;
+      const a = readPersonaAddon(p.metadata, addonId);
+      if (!a)
+        return null;
+      const v = a[r.field];
+      return typeof v === "string" ? v : null;
+    }
+    case "global_addon": {
+      const a = await spindle2.global_addons.get(r.surfaceId, userId);
+      if (!a)
+        return null;
+      const v = a[r.field];
+      return typeof v === "string" ? v : null;
+    }
     default:
       return null;
   }
@@ -2693,9 +2711,38 @@ async function writeFieldValue(spindle2, surface, surfaceId, field, value, chara
       await spindle2.personas.update(surfaceId, personaScalarUpdate(field, decodeScalar(field, value)), userId);
       return;
     }
+    case "persona_addon": {
+      const [personaId, addonId] = surfaceId.split(":");
+      const p = await spindle2.personas.get(personaId, userId);
+      if (!p)
+        throw new Error("persona not found");
+      const metadata = writePersonaAddon(p.metadata, addonId, field, value);
+      await spindle2.personas.update(personaId, { metadata }, userId);
+      return;
+    }
+    case "global_addon": {
+      await spindle2.global_addons.update(surfaceId, { [field]: value }, userId);
+      return;
+    }
     default:
       throw new Error(`unsupported surface for write: ${surface}`);
   }
+}
+function readPersonaAddon(metadata, addonId) {
+  const addons = metadata?.addons;
+  if (!Array.isArray(addons))
+    return null;
+  return addons.find((a) => a && typeof a === "object" && a.id === addonId) ?? null;
+}
+function writePersonaAddon(metadata, addonId, field, value) {
+  const base = metadata && typeof metadata === "object" ? { ...metadata } : {};
+  const addons = Array.isArray(base.addons) ? base.addons.map((a) => ({ ...a })) : [];
+  const idx = addons.findIndex((a) => a?.id === addonId);
+  if (idx < 0)
+    throw new Error(`persona add-on ${addonId} not found`);
+  addons[idx] = { ...addons[idx], [field]: value };
+  base.addons = addons;
+  return base;
 }
 async function revertEditWithCheck(spindle2, ledger, editId, characterId, userId, force) {
   if (findPatch(ledger, editId)) {
@@ -18945,6 +18992,23 @@ function isCharSubtreeToken(s) {
 function isAlternateFieldName(s) {
   return ALTERNATE_FIELD_NAMES.includes(s);
 }
+function readPersonaAddonEntry(metadata, addonId) {
+  const addons = metadata?.addons;
+  if (!Array.isArray(addons))
+    return null;
+  const a = addons.find((x) => x && typeof x === "object" && x.id === addonId);
+  return a ?? null;
+}
+function writePersonaAddonMeta(metadata, addonId, field, value) {
+  const base = metadata && typeof metadata === "object" && !Array.isArray(metadata) ? { ...metadata } : {};
+  const addons = Array.isArray(base.addons) ? base.addons.map((a) => ({ ...a })) : [];
+  const idx = addons.findIndex((a) => a?.id === addonId);
+  if (idx < 0)
+    throw new Error(`persona add-on ${addonId} not found`);
+  addons[idx] = { ...addons[idx], [field]: value };
+  base.addons = addons;
+  return base;
+}
 function readAltFieldArray(extensions, field) {
   if (!extensions || typeof extensions !== "object" || Array.isArray(extensions))
     return [];
@@ -18995,6 +19059,8 @@ function scopeForLeafKey(key, ctx) {
     return { kind: "chat", id: key.split("/")[1] };
   if (key.startsWith("preset/"))
     return { kind: "preset", id: key.split("/")[1] };
+  if (key.startsWith("global_addon/"))
+    return { kind: "global_addon", id: key.split("/")[1] };
   if (key.startsWith("char/")) {
     const id = key.split("/")[1];
     if (id)
@@ -19223,6 +19289,30 @@ async function resolveRead(ctx, path) {
         scope: { kind: "world_book", id: e.world_book_id }
       };
     }
+    if (parts[2] === "addon") {
+      if (parts.length !== 5)
+        throw new PathError(path, "expected persona/<personaId>/addon/<addonId>/<content|label>");
+      const addonId = parts[3];
+      const field2 = parts[4];
+      if (field2 !== "content" && field2 !== "label") {
+        throw new PathError(path, `persona add-on field must be content or label, got '${field2}'`);
+      }
+      const addon = readPersonaAddonEntry(p.metadata, addonId);
+      if (!addon)
+        throw new PathError(path, `persona add-on ${addonId} not found`);
+      const av = addon[field2];
+      if (typeof av !== "string")
+        throw new PathError(path, `add-on.${field2} is not a string`);
+      return {
+        key: `persona/${personaId}/addon/${addonId}/${field2}`,
+        surface: "persona_addon",
+        surfaceId: `${personaId}:${addonId}`,
+        surfaceLabel: `${p.name} \xB7 ${typeof addon.label === "string" && addon.label ? addon.label : addonId}`,
+        field: field2,
+        value: av,
+        scope: { kind: "persona", id: personaId }
+      };
+    }
     if (parts.length !== 3)
       throw new PathError(path, `expected persona/<personaId>/<field>, got ${parts.length} segments`);
     const field = parts[2];
@@ -19239,6 +19329,30 @@ async function resolveRead(ctx, path) {
       surfaceLabel: p.name,
       field,
       value: pv
+    };
+  }
+  if (head === "global_addon") {
+    if (parts.length !== 3)
+      throw new PathError(path, "expected global_addon/<id>/<content|label>");
+    const addonId = parts[1];
+    const field = parts[2];
+    if (field !== "content" && field !== "label") {
+      throw new PathError(path, `global add-on field must be content or label, got '${field}'`);
+    }
+    const a = await ctx.spindle.global_addons.get(addonId, ctx.userId);
+    if (!a)
+      throw new PathError(path, `global add-on ${addonId} not found`);
+    const av = a[field];
+    if (typeof av !== "string")
+      throw new PathError(path, `add-on.${field} is not a string`);
+    return {
+      key: `global_addon/${addonId}/${field}`,
+      surface: "global_addon",
+      surfaceId: addonId,
+      surfaceLabel: a.label || addonId,
+      field,
+      value: av,
+      scope: { kind: "global_addon", id: addonId }
     };
   }
   if (head === "chat") {
@@ -19388,6 +19502,38 @@ async function resolveWrite(ctx, leaf, nextValue) {
       before: leaf.value,
       after: nextValue,
       scope: scopeForLeafKey(leaf.key, ctx)
+    });
+    return;
+  }
+  if (leaf.surface === "persona_addon") {
+    const [personaId, addonId] = leaf.surfaceId.split(":");
+    const p = await ctx.spindle.personas.get(personaId, ctx.userId);
+    if (!p)
+      throw new Error("persona not found");
+    await ctx.spindle.personas.update(personaId, { metadata: writePersonaAddonMeta(p.metadata, addonId, leaf.field, nextValue) }, ctx.userId);
+    ctx.pushEdit({
+      op: "edit",
+      surface: "persona_addon",
+      surfaceId: leaf.surfaceId,
+      surfaceLabel: leaf.surfaceLabel,
+      field: leaf.field,
+      before: leaf.value,
+      after: nextValue,
+      scope: leaf.scope ?? scopeForLeafKey(leaf.key, ctx)
+    });
+    return;
+  }
+  if (leaf.surface === "global_addon") {
+    await ctx.spindle.global_addons.update(leaf.surfaceId, { [leaf.field]: nextValue }, ctx.userId);
+    ctx.pushEdit({
+      op: "edit",
+      surface: "global_addon",
+      surfaceId: leaf.surfaceId,
+      surfaceLabel: leaf.surfaceLabel,
+      field: leaf.field,
+      before: leaf.value,
+      after: nextValue,
+      scope: leaf.scope ?? scopeForLeafKey(leaf.key, ctx)
     });
     return;
   }
@@ -21781,10 +21927,14 @@ var init_settings = __esm(() => {
 });
 
 // src/generated/lumiverse-docs.ts
-var LUMIVERSE_DOCS_VERSION = "c0b7bbd15d5854e8", LUMIVERSE_DOCS;
+var LUMIVERSE_DOCS_VERSION = "72fcb4de7c867212", LUMIVERSE_DOCS;
 var init_lumiverse_docs = __esm(() => {
   LUMIVERSE_DOCS = {
-    "characters/alternate-fields.md": `# Alternate Fields & Avatars\r
+    "characters/alternate-fields.md": `---\r
+title: Alternate Fields & Avatars\r
+---\r
+\r
+# Alternate Fields & Avatars\r
 \r
 Sometimes you want a character to behave differently depending on the context \u2014 a different personality for a comedy scenario, a different description after a time skip, or a different avatar for a costume change. Alternate fields and avatars let you create these variants without duplicating the entire character.\r
 \r
@@ -21845,7 +21995,11 @@ The selected avatar is stored per-chat, so different conversations can show diff
 - During prompt assembly, selected variants override the base fields before macros are resolved\r
 - When exporting as CHARX, all alternate fields and avatars are included in the \`lumiverse_modules.json\` bundle\r
 `,
-    "characters/creating-characters.md": `# Creating Characters\r
+    "characters/creating-characters.md": `---\r
+title: Creating Characters\r
+---\r
+\r
+# Creating Characters\r
 \r
 Building a character from scratch gives you full control over how the AI portrays them.\r
 \r
@@ -21948,7 +22102,11 @@ Share your characters by exporting them:\r
 \r
 PNG exports are the standard sharing format \u2014 they look like normal images but carry all the character data inside.\r
 `,
-    "characters/expressions.md": `# Expressions\r
+    "characters/expressions.md": `---\r
+title: Expressions\r
+---\r
+\r
+# Expressions\r
 \r
 Expressions are visual emotion sprites that change dynamically as the conversation progresses. When enabled, the character's portrait updates to reflect their current mood \u2014 smiling when happy, frowning when upset, blushing when embarrassed.\r
 \r
@@ -22049,7 +22207,11 @@ Expression detection is controlled by the \`expressionDetection\` setting:\r
 !!! tip "Group chats"\r
     Each character in a group chat can have their own expression set. The portrait panel shows the currently focused character's expression.\r
 `,
-    "characters/importing-characters.md": `# Importing Characters\r
+    "characters/importing-characters.md": `---\r
+title: Importing Characters\r
+---\r
+\r
+# Importing Characters\r
 \r
 The fastest way to populate your character library is by importing existing character cards. Lumiverse supports multiple import methods and formats.\r
 \r
@@ -22140,7 +22302,11 @@ These are automatically imported and attached to the character. The import summa
 \r
 If you're coming from SillyTavern, Lumiverse includes a full interactive migration tool that imports characters, chat history, world books, and personas in one go. See the [Migrating from SillyTavern](../getting-started/installation.md#migrating-from-sillytavern) guide for the complete walkthrough.\r
 `,
-    "characters/index.md": `# Characters\r
+    "characters/index.md": `---\r
+title: Characters\r
+---\r
+\r
+# Characters\r
 \r
 Characters are the AI personas you interact with in Lumiverse. Each character has a name, avatar, personality description, and other fields that tell the AI how to behave.\r
 \r
@@ -22202,7 +22368,11 @@ From the **Character Browser** panel, you can:\r
 \r
 Switch between **grid**, **list**, and **single** view modes depending on how you like to browse.\r
 `,
-    "chatting/attachments.md": `# Attachments\r
+    "chatting/attachments.md": `---\r
+title: Attachments\r
+---\r
+\r
+# Attachments\r
 \r
 You can send images and audio files alongside your messages. When the AI supports multimodal input (vision or audio), it can see and respond to your attachments.\r
 \r
@@ -22247,7 +22417,11 @@ Provider-specific formatting is handled automatically:\r
 \r
 Attachments appear inline in the message. Click on an image attachment to open it in the **Image Lightbox** for a full-size view.\r
 `,
-    "chatting/authors-note.md": `# Author's Note\r
+    "chatting/authors-note.md": `---\r
+title: Author's Note\r
+---\r
+\r
+# Author's Note\r
 \r
 The Author's Note is a hidden instruction you can inject into the conversation at a specific depth. It's like a director's whisper to the AI \u2014 the characters don't "see" it, but it shapes how the AI writes.\r
 \r
@@ -22306,7 +22480,11 @@ The Author's Note is saved per-chat. Each conversation can have its own note wit
 !!! tip "Change it as the story evolves"\r
     The Author's Note isn't set-and-forget. Update it as the scene changes to keep guiding the narrative in the direction you want.\r
 `,
-    "chatting/branching.md": `# Branching\r
+    "chatting/branching.md": `---\r
+title: Branch Tree\r
+---\r
+\r
+# Branch Tree\r
 \r
 Branching lets you fork a conversation at any message, creating a new chat that diverges from that point. It's like a "save point" \u2014 you can explore a different direction without losing the original conversation.\r
 \r
@@ -22349,7 +22527,11 @@ Use **swipes** when you want a different version of one response. Use **branchin
 \r
 Branched chats appear as regular chats in your chat list. They're associated with the same character as the original. You can view the branch tree from the **Branch Tree Panel** to see how your conversations have diverged.\r
 `,
-    "chatting/databank.md": `# Databank\r
+    "chatting/databank.md": `---\r
+title: Databank\r
+---\r
+\r
+# Databank\r
 \r
 The **Databank** is Lumiverse's document knowledge base. Drop reference material into a databank \u2014 worldbuilding notes, character backstories, rulebooks, transcripts, scraped articles \u2014 and it becomes retrievable context during chat. Documents are chunked, vectorized, and either pulled in automatically based on what's being said, or summoned on demand with a \`#slug\` mention.\r
 \r
@@ -22524,7 +22706,11 @@ Relevant source material:\r
 !!! tip "Reprocess after big edits"\r
     Changing chunk settings doesn't retroactively resize existing chunks. Click **Reprocess All** when you tweak chunk targets so the new settings actually apply to existing documents.\r
 `,
-    "chatting/group-chats.md": `# Group Chats\r
+    "chatting/group-chats.md": `---\r
+title: Group Chats\r
+---\r
+\r
+# Group Chats\r
 \r
 Group chats let you have conversations with **multiple AI characters at once**. Characters interact with you and with each other, creating dynamic multi-character scenes.\r
 \r
@@ -22623,7 +22809,11 @@ These macros are especially useful in group chat presets:\r
 !!! tip "Use muting strategically"\r
     Mute characters who are "in the room" but not central to the current scene. Unmute them when it's their time to contribute.\r
 `,
-    "chatting/guided-generation.md": `# Guided Generation\r
+    "chatting/guided-generation.md": `---\r
+title: Guided Generation\r
+---\r
+\r
+# Guided Generation\r
 \r
 Guided generation lets you attach reusable prompt fragments to your messages \u2014 short instructions that shape the AI's response without you having to type them every time.\r
 \r
@@ -22694,7 +22884,11 @@ You can have multiple guides active simultaneously \u2014 they stack.\r
 !!! tip "One-shot for experiments"\r
     Want to try a different writing style for just one response? Create a one-shot guide. It applies once and disappears.\r
 `,
-    "chatting/index.md": `# Chatting\r
+    "chatting/index.md": `---\r
+title: Chatting\r
+---\r
+\r
+# Chatting\r
 \r
 Chatting is the heart of Lumiverse. Once you have a character and a connection set up, everything revolves around the conversation.\r
 \r
@@ -22742,7 +22936,11 @@ From the **Landing Page** or the **Manage Chats** modal, you can:\r
 - **Delete chats** \u2014 Remove conversations you no longer need\r
 - **Export chats** \u2014 Save the full conversation as JSON data\r
 `,
-    "chatting/loom-summary.md": `# Loom Summary\r
+    "chatting/loom-summary.md": `---\r
+title: Summary\r
+---\r
+\r
+# Summary\r
 \r
 As conversations grow long, older messages fall out of the AI's context window. The Loom Summary system solves this by generating structured summaries of your chat history, preserving key story beats, character developments, and unresolved threads in a compact form the AI can reference.\r
 \r
@@ -22851,7 +23049,11 @@ You can manually edit the summary at any time \u2014 useful for correcting mista
 !!! tip "Pair with message limits"\r
     The most effective setup: limit raw messages to ~20-30, enable auto-summarization every 10 messages, and include \`{{loomSummary}}\` in your preset. This keeps your context lean while preserving the entire story.\r
 `,
-    "chatting/memory-cortex.md": `# Memory Cortex\r
+    "chatting/memory-cortex.md": `---\r
+title: Memory Cortex\r
+---\r
+\r
+# Memory Cortex\r
 \r
 Memory Cortex is an advanced memory layer that sits on top of [Long-Term Memory](memory.md). While basic long-term memory retrieves relevant text chunks by similarity, the cortex understands *what happened* \u2014 tracking characters, relationships, emotional beats, and narrative arcs across your entire conversation.\r
 \r
@@ -23150,7 +23352,11 @@ The **entity whitelist** lets you specify proper nouns that should always be rec
 !!! tip "Check the Stats tab"\r
     The Stats tab shows whether salience records are sourced from "heuristic" or "sidecar". After a rebuild with a sidecar configured, you should see "sidecar" entries. If everything still shows "heuristic", check that your sidecar connection is configured correctly.\r
 `,
-    "chatting/memory.md": `# Long-Term Memory\r
+    "chatting/memory.md": `---\r
+title: Long-Term Memory\r
+---\r
+\r
+# Long-Term Memory\r
 \r
 Long-term memory gives the AI the ability to recall relevant moments from earlier in the conversation \u2014 even if those moments have long since scrolled out of the context window. It works by chunking your chat history into vectors and retrieving the most relevant pieces on each generation.\r
 \r
@@ -23269,7 +23475,11 @@ Customize how memories appear in the prompt:\r
 !!! tip "Pair with Loom Summary"\r
     Memory and [Loom Summary](loom-summary.md) complement each other. Memory retrieves specific relevant moments; the summary provides a structured overview of the whole story. Use both for the best long-term coherence.\r
 `,
-    "chatting/messages-and-swipes.md": `# Messages & Swipes\r
+    "chatting/messages-and-swipes.md": `---\r
+title: Messages & Swipes\r
+---\r
+\r
+# Messages & Swipes\r
 \r
 Understanding how messages work \u2014 and how to get the most out of swipes \u2014 is key to having great conversations.\r
 \r
@@ -23348,7 +23558,11 @@ Before sending a real request, you can preview exactly what the AI will see:\r
 \r
 This is invaluable for debugging prompts, checking world book activation, and understanding why the AI is behaving a certain way.\r
 `,
-    "chatting/ooc.md": `# Out-of-Character (OOC) Comments\r
+    "chatting/ooc.md": `---\r
+title: OOC\r
+---\r
+\r
+# Out-of-Character (OOC) Comments\r
 \r
 OOC comments are special asides the AI can generate during roleplay \u2014 character-level thoughts, meta-commentary, or narrative observations that exist outside the story itself. Think of them as margin notes from the character (or council) to the reader.\r
 \r
@@ -23421,7 +23635,11 @@ These are typically included in Loom preset blocks. The trigger macro handles th
 !!! tip "Start with automatic"\r
     Leave the interval empty at first. The AI will insert OOC when it feels natural. If you want more (or less), set a specific number.\r
 `,
-    "chatting/quick-replies.md": `# Quick Replies\r
+    "chatting/quick-replies.md": `---\r
+title: Quick Replies\r
+---\r
+\r
+# Quick Replies\r
 \r
 Quick replies are pre-written message templates you can insert into the chat with a single click. Useful for common responses, recurring actions, or frequently used OOC instructions.\r
 \r
@@ -23473,7 +23691,11 @@ Quick replies don't send automatically. They fill the input area so you can revi
 | Time Skip | Skip ahead to the next morning. Brief transition. |\r
 | Raise Stakes | Introduce a complication. Something goes wrong. |\r
 `,
-    "chatting/regen-feedback.md": `# Regeneration Feedback\r
+    "chatting/regen-feedback.md": `---\r
+title: Regeneration Feedback\r
+---\r
+\r
+# Regeneration Feedback\r
 \r
 When you regenerate a response, Lumiverse can prompt you for feedback \u2014 a brief note telling the AI *why* you're regenerating. This guides the next attempt in a specific direction instead of just rolling the dice again.\r
 \r
@@ -23510,7 +23732,11 @@ Regen feedback is most useful when you keep getting the *same kind* of bad respo
 \r
 Without feedback, the AI may repeat the same mistakes. With feedback, you're giving it a specific correction to work with.\r
 `,
-    "chatting/speech-to-text.md": `# Speech-to-Text\r
+    "chatting/speech-to-text.md": `---\r
+title: Speech-to-Text\r
+---\r
+\r
+# Speech-to-Text\r
 \r
 Speech-to-Text (STT) lets you dictate a chat message from the input bar instead of typing it. Lumiverse supports the browser's built-in Web Speech API and OpenAI-compatible transcription connections such as Whisper.\r
 \r
@@ -23647,7 +23873,11 @@ Thought markers nest. The first \`thought start\` inserts \`*\`; a second nested
 | Recording stops too soon | Enable **Auto-submit after silence**, or wait a moment after finishing your sentence before stopping manually. |\r
 | Auto-submit never stops | Check for background noise, move closer to the mic, or stop manually. |\r
 `,
-    "chatting/starting-a-chat.md": `# Starting a Chat\r
+    "chatting/starting-a-chat.md": `---\r
+title: Starting a Chat\r
+---\r
+\r
+# Starting a Chat\r
 \r
 Every conversation in Lumiverse begins with selecting a character and creating a chat.\r
 \r
@@ -23712,7 +23942,11 @@ Every chat stores:\r
 - World Info activation state (sticky/cooldown counters)\r
 - Loom summary data\r
 `,
-    "chatting/text-to-speech.md": `# Text-to-Speech\r
+    "chatting/text-to-speech.md": `---\r
+title: Text-to-Speech\r
+---\r
+\r
+# Text-to-Speech\r
 \r
 Lumiverse can speak assistant replies aloud using a configurable text-to-speech connection. You can play any message manually, or have new replies auto-play as they finish generating.\r
 \r
@@ -23847,7 +24081,11 @@ The segments tagged _Skip_ are dropped before the request hits the provider, whi
 | **ElevenLabs voices list is empty** | Your account has no voices visible \u2014 open the ElevenLabs dashboard, ensure at least one voice is enabled, then click the refresh button on the Voice field. |\r
 | **OpenAI \`instructions\` field is ignored** | Only \`gpt-4o-mini-tts\` honors style instructions. Switch models or remove the field. |\r
 `,
-    "connections/index.md": `# Connections\r
+    "connections/index.md": `---\r
+title: Connections\r
+---\r
+\r
+# Connections\r
 \r
 A **connection** links Lumiverse to an AI provider. It specifies which provider, model, and API key to use for generation. You need at least one connection to chat.\r
 \r
@@ -23868,7 +24106,11 @@ A **connection** links Lumiverse to an AI provider. It specifies which provider,
 - [Setting Up a Connection](setting-up.md) \u2014 Step-by-step guide\r
 - [Supported Providers](providers.md) \u2014 Full list of 21 supported providers\r
 `,
-    "connections/providers.md": `# Supported Providers\r
+    "connections/providers.md": `---\r
+title: Supported Providers\r
+---\r
+\r
+# Supported Providers\r
 \r
 Lumiverse supports 21 AI providers out of the box. Each provider has its own model catalog, API format, and capabilities.\r
 \r
@@ -24047,7 +24289,11 @@ Different providers handle structured output differently:\r
 - **OpenAI-compatible** \u2014 Pass \`response_format\` in parameters\r
 - **Anthropic** \u2014 Use tool definitions for structured output\r
 `,
-    "connections/setting-up.md": `# Setting Up a Connection\r
+    "connections/setting-up.md": `---\r
+title: Setting Up a Connection\r
+---\r
+\r
+# Setting Up a Connection\r
 \r
 This guide walks you through creating your first connection to an AI provider.\r
 \r
@@ -24156,7 +24402,11 @@ The sidecar keeps background processing costs low by using a smaller, cheaper mo
 \r
 Deleting a connection also removes its stored API key from the encrypted secrets. This cannot be undone.\r
 `,
-    "council/council-tools.md": `# Council Tools\r
+    "council/council-tools.md": `---\r
+title: Council Tools\r
+---\r
+\r
+# Council Tools\r
 \r
 Council tools are specialized analysis functions that members can run during deliberation. Each tool sends a focused prompt to the sidecar LLM and returns structured results that feed into the main generation.\r
 \r
@@ -24280,7 +24530,11 @@ Tool results are available in the prompt through macros:\r
 | \`{{lumiaCouncilToolsActive}}\` | \`"yes"\` or \`"no"\` \u2014 whether tools ran this generation |\r
 | \`{{lumiaCouncilToolsList}}\` | List of tool names with member attribution |\r
 `,
-    "council/index.md": `# Council & Lumia\r
+    "council/index.md": `---\r
+title: Council\r
+---\r
+\r
+# Council\r
 \r
 The **Council** is Lumiverse's multi-persona deliberation system. Before the AI generates a response, a panel of AI personas can analyze the scene, suggest directions, and provide guidance \u2014 all feeding into the final output.\r
 \r
@@ -24327,7 +24581,11 @@ An alternative to traditional council \u2014 instead of separate members advisin
 | [Setting Up Council](setting-up-council.md) | Configure members and their roles |\r
 | [Council Tools](council-tools.md) | What tools are available and how they work |\r
 `,
-    "council/setting-up-council.md": `# Setting Up Council\r
+    "council/setting-up-council.md": `---\r
+title: Setting Up Council\r
+---\r
+\r
+# Setting Up Council\r
 \r
 This guide walks you through configuring the council for AI-assisted deliberation.\r
 \r
@@ -24427,7 +24685,11 @@ After a generation completes, you can view the council's deliberation in the mes
 \r
 The \`{{lumiaCouncilDeliberation}}\` macro contains the full deliberation results, which are injected into the prompt for the main generation.\r
 `,
-    "customization/display-modes.md": `# Display Modes\r
+    "customization/display-modes.md": `---\r
+title: Display Modes\r
+---\r
+\r
+# Display Modes\r
 \r
 Lumiverse offers two visual modes for how messages appear in the chat. Choose the one that fits your aesthetic preference and reading style.\r
 \r
@@ -24469,7 +24731,11 @@ Both modes share the same width control. The chat content area can be constraine
 \r
 Open **Settings \u2192 Chat** to choose your display mode, bubble options, and width preference. Changes apply immediately to the active chat.\r
 `,
-    "customization/macros.md": `# Macros\r
+    "customization/macros.md": `---\r
+title: Macros\r
+---\r
+\r
+# Macros\r
 \r
 Macros are template variables written as \`{{macro_name}}\` that get replaced with dynamic content during prompt assembly. They can be used in preset blocks, prompt text fields, chat messages, and included world book content.\r
 \r
@@ -24527,7 +24793,11 @@ Current time: 14:30 on Wednesday.\r
 \r
 Lumiverse ships **180+ built-in macros** across roughly 20 categories. See the [full reference](../presets/macros-reference.md) for the complete list.\r
 `,
-    "customization/regex-scripts.md": `# Regex Scripts\r
+    "customization/regex-scripts.md": `---\r
+title: Regex Scripts\r
+---\r
+\r
+# Regex Scripts\r
 \r
 Regex scripts are text transformation rules that automatically find and replace patterns in your messages. They can clean up formatting, enforce style rules, or transform content at various stages of the pipeline.\r
 \r
@@ -24651,7 +24921,11 @@ Scripts can be imported and exported as JSON. Lumiverse also supports importing 
 !!! tip "Test with edge cases"\r
     Regex can have unexpected matches. Test with text that looks similar but shouldn't match to make sure your pattern is precise enough.\r
 `,
-    "customization/themes.md": `# Themes\r
+    "customization/themes.md": `---\r
+title: Theme\r
+---\r
+\r
+# Theme\r
 \r
 Lumiverse's theme system lets you customize the entire visual appearance \u2014 colors, fonts, glass effects, and more.\r
 \r
@@ -24777,7 +25051,11 @@ The theme system works through CSS custom properties (variables). All colors, sp
 - Extensions can override specific variables without breaking others\r
 - All UI components automatically adapt to theme changes\r
 `,
-    "customization/wallpapers.md": `# Wallpapers\r
+    "customization/wallpapers.md": `---\r
+title: Wallpaper\r
+---\r
+\r
+# Wallpaper\r
 \r
 Set background images or videos behind your chat to enhance the atmosphere.\r
 \r
@@ -24800,6 +25078,21 @@ A wallpaper specific to one conversation:\r
 1. Open the **Wallpaper Panel** while in a chat\r
 2. Click **Set for Chat** and select an image or video file\r
 3. The wallpaper only appears in this chat\r
+\r
+### Wallpaper Library\r
+\r
+Every new wallpaper uploaded from this panel is also saved into your **Wallpaper Library** for reuse.\r
+\r
+1. Click **Browse Library** under either the **Global Wallpaper** or **Chat Wallpaper** section\r
+2. Pick any saved wallpaper from the modal gallery\r
+3. The chosen wallpaper is applied to the scope you opened the library from\r
+\r
+The library lists each saved wallpaper with:\r
+\r
+- Upload date\r
+- File size\r
+- Resolution\r
+- A static thumbnail preview for supported uploads\r
 \r
 Per-chat wallpapers override the global wallpaper. AI-generated scene backgrounds override both.\r
 \r
@@ -24849,7 +25142,11 @@ If you have image generation enabled and generate scene art, those AI-generated 
 !!! tip "Match the theme"\r
     Pair your wallpaper with a matching theme. A cozy firelit image pairs well with warm accent colors; a starfield pairs with cool blues.\r
 `,
-    "data-portability/api-keys-and-tickets.md": `# API Keys & Decryption Tickets\r
+    "data-portability/api-keys-and-tickets.md": `---\r
+title: API Keys & Tickets\r
+---\r
+\r
+# API Keys & Decryption Tickets\r
 \r
 By default, exports **do not** include API keys or any other content from your \`secrets\` table \u2014 those stay encrypted at rest on the source server. If you want a true 1:1 restore (no need to paste keys back in), enable the **Include API keys** option. This produces two files: the archive and a separate **decryption ticket** that holds the AES key.\r
 \r
@@ -24960,7 +25257,11 @@ What it **cannot** protect:\r
 !!! warning "Re-issuing a ticket means re-exporting"\r
     Each export has a unique ticket. You can't "regenerate" a ticket for an existing archive \u2014 you'd run a fresh export, which produces a new archive with its own paired ticket.\r
 `,
-    "data-portability/exporting.md": `# Exporting Your Data\r
+    "data-portability/exporting.md": `---\r
+title: Exporting Your Data\r
+---\r
+\r
+# Exporting Your Data\r
 \r
 Bundle your entire account into a single \`.lvbak\` archive you can download, archive, or move to another Lumiverse instance.\r
 \r
@@ -25059,7 +25360,11 @@ client_max_body_size 0;\r
 !!! warning "Some secrets may be skipped"\r
     If a row in your \`secrets\` table can't be decrypted (legacy data, identity-key drift, manual inserts), the export panel shows a yellow "secrets could not be decrypted" notice with the affected key names. The export completes; the affected secrets are simply omitted.\r
 `,
-    "data-portability/importing.md": `# Importing an Archive\r
+    "data-portability/importing.md": `---\r
+title: Importing an Archive\r
+---\r
+\r
+# Importing an Archive\r
 \r
 Restore a \`.lvbak\` archive into your current Lumiverse account. The importer is **non-destructive** \u2014 your existing data is preserved, and only new content from the archive is added.\r
 \r
@@ -25174,7 +25479,11 @@ These caps protect against zip bombs and malformed archives. Real archives, incl
 !!! warning "Don't restore an old backup over fresh work"\r
     The merge is non-destructive, but it does **add back** characters, chats, or presets you deliberately deleted after the backup was taken. If you want a clean slate, create a new user account and import there.\r
 `,
-    "data-portability/index.md": `# Data Portability\r
+    "data-portability/index.md": `---\r
+title: Data Portability\r
+---\r
+\r
+# Data Portability\r
 \r
 Move your entire Lumiverse account between machines, take periodic backups, or hand a fully-loaded environment off to another instance. Data Portability bundles **everything you own** into a single portable archive that any Lumiverse 1.0+ instance can restore.\r
 \r
@@ -25241,7 +25550,11 @@ The panel has two cards: **Export your data** and **Import an archive**.\r
 !!! tip "Archives are forever"\r
     Archives never expire and have no time-bound license. You can store a \`.lvbak\` for years and restore it into any compatible Lumiverse instance. The same applies to decryption tickets \u2014 they have no TTL.\r
 `,
-    "extensions/index.md": `# Extensions\r
+    "extensions/index.md": `---\r
+title: Extensions\r
+---\r
+\r
+# Extensions\r
 \r
 Lumiverse supports extensions through **Spindle**, an isolated extension runtime. Extensions can add new features, modify behavior, and integrate with external services \u2014 all sandboxed inside a Bun Worker with a permission-gated RPC bridge to the rest of the app.\r
 \r
@@ -25391,7 +25704,11 @@ Extensions can also mount native Lumiverse form components (text inputs, selects
 \r
 If you want to build your own extensions, see the [Spindle developer docs](https://docs.lumiverse.chat){:target="_blank"} for the full API reference, including the manifest schema, RPC bridge, storage tiers, generation APIs, and example extensions.\r
 `,
-    "getting-started/first-steps.md": `# First Steps\r
+    "getting-started/first-steps.md": `---\r
+title: First Steps\r
+---\r
+\r
+# First Steps\r
 \r
 This guide walks you through everything you need to go from a fresh install to your first conversation.\r
 \r
@@ -25466,7 +25783,11 @@ Now that you're chatting, here are features worth exploring:\r
 - **[Themes](../customization/themes.md)** \u2014 Change the look and feel of the interface\r
 - **[Group Chats](../chatting/group-chats.md)** \u2014 Chat with multiple characters at once\r
 `,
-    "getting-started/installation.md": `# Installation\r
+    "getting-started/installation.md": `---\r
+title: Installation\r
+---\r
+\r
+# Installation\r
 \r
 Lumiverse runs on your own machine. It needs **Bun** (a fast JavaScript runtime) and takes about two minutes to set up.\r
 \r
@@ -25523,7 +25844,9 @@ cd Lumiverse\r
     ./start.sh\r
     \`\`\`\r
 \r
-    The script auto-detects Termux and installs required packages (\`glibc-repo\`, \`glibc-runner\`, \`proot\`). It uses a three-tier execution strategy to find the best way to run Bun on your device.\r
+    The script auto-detects Termux and installs required packages (\`glibc-repo\`, \`glibc-runner\`, \`proot\`). It uses a three-tier execution strategy to find the best way to run Bun on your device, then validates the exact \`proot\`-wrapped path it will later use for \`bun install\`.\r
+\r
+    If \`grun bun --version\` works but the native Termux install path is still broken, \`start.sh\` now attempts a \`bun-termux\` rebuild before it lets first-run setup continue.\r
 \r
 === "Docker"\r
 \r
@@ -25582,6 +25905,7 @@ The start scripts accept flags to control behavior:\r
 \r
         * \`--upgrade-bun\` rebuilds the [\`bun-termux\`](https://github.com/Happ1ness-dev/bun-termux) wrapper at \`$HOME/.bun-termux\` (\`git pull && make && make install\`), which is the actual source of Bun on Termux.\r
         * \`--upgrade-bun-canary\` is **not supported** \u2014 bun-termux only packages stable releases. The start script will skip the upgrade and continue with the existing binary. If you specifically need canary, run Lumiverse inside a [proot-distro Linux](https://github.com/termux/proot-distro) environment, where standard \`bun upgrade --canary\` works normally.\r
+        * If native Termux reports a broken install path before first run, the fastest repair is usually \`./start.sh --upgrade-bun\`, which rebuilds the wrapper in place.\r
 \r
 === "Windows (\`start.ps1\`)"\r
 \r
@@ -26045,7 +26369,11 @@ A toast reports the results \u2014 how many tags were applied, how many were ski
 \r
 Once Lumiverse is running, head to [First Steps](first-steps.md) to connect your first AI provider and start chatting.\r
 `,
-    "getting-started/interface-overview.md": `# Interface Overview\r
+    "getting-started/interface-overview.md": `---\r
+title: Interface Overview\r
+---\r
+\r
+# Interface Overview\r
 \r
 Lumiverse's interface is built around a central chat view with a tabbed drawer that pulls in from the edge of the screen. Here's a tour of what's where.\r
 \r
@@ -26223,7 +26551,11 @@ Click the gear icon (or open the Command Palette and search "Settings") to open 
 !!! tip "Mobile"\r
     On smaller screens, the drawer becomes a slide-in sheet. Swipe from the edge, tap any pinned tab icon, or use the Command Palette to navigate. Lumiverse also supports PWA installs \u2014 add it to your home screen for an app-like experience.\r
 `,
-    "image-generation/index.md": `# Image Generation\r
+    "image-generation/index.md": `---\r
+title: Image Generation\r
+---\r
+\r
+# Image Generation\r
 \r
 Lumiverse generates scene illustrations, character shots, and chat attachments from your conversations. It can run a hands-off **Scene tool** that watches your chat and refreshes the background as the setting shifts, or accept a **custom prompt** you write yourself \u2014 with full preset and macro support.\r
 \r
@@ -26302,7 +26634,11 @@ See [Setup & Providers](setup.md) for connection setup and per-provider quirks.\
 | [Prompts & Presets](prompts-and-presets.md) | Use Scene / Custom / Chat-aware modes, save presets, bind them to a character or persona, and preview the resolved prompt. |\r
 | [Scene, Output & Timeouts](scene-and-output.md) | Configure scene detection, output targets, gallery and context recycling, timeouts, and background display. |\r
 `,
-    "image-generation/prompts-and-presets.md": `# Prompts & Presets\r
+    "image-generation/prompts-and-presets.md": `---\r
+title: Prompts & Presets\r
+---\r
+\r
+# Prompts & Presets\r
 \r
 Lumiverse builds the final image prompt from three things: the **prompt mode** you've chosen, any **preset** you've loaded, and the **character / persona snippets** bound to the active chat. This page covers all three and the **prompt preview** flow you can use to inspect the result before you generate.\r
 \r
@@ -26469,7 +26805,11 @@ Generation runs cooperatively \u2014 a new request for the same chat aborts the 
 !!! tip "Preview is free"\r
     Previewing the prompt runs the parser LLM but not the image provider. Use it freely to iterate on parser instructions before you spend a generation credit.\r
 `,
-    "image-generation/scene-and-output.md": `# Scene, Output & Timeouts\r
+    "image-generation/scene-and-output.md": `---\r
+title: Scene, Output & Timeouts\r
+---\r
+\r
+# Scene, Output & Timeouts\r
 \r
 How Lumiverse decides _when_ to generate, _where_ the result goes, and how long it's allowed to take.\r
 \r
@@ -26567,7 +26907,11 @@ Cloud providers (Gemini, NovelAI, NanoGPT, Pollinations) don't expose step-level
 !!! tip "Disable gallery auto-add for short-lived experiments"\r
     If you're testing a preset by running dozens of generations, turn off **Add Generated Images to Character Gallery** so your gallery doesn't fill with throwaway shots. The images are still saved and accessible from the chat itself.\r
 `,
-    "image-generation/setup.md": `# Setup & Providers\r
+    "image-generation/setup.md": `---\r
+title: Setup & Providers\r
+---\r
+\r
+# Setup & Providers\r
 \r
 Image generation uses its own connection profiles, separate from your LLM connections. You can have as many as you like and switch between them per chat.\r
 \r
@@ -26693,7 +27037,11 @@ If you ran a previous version of Lumiverse that stored Gemini / NanoGPT / NovelA
 !!! warning "Local providers need network access"\r
     If Lumiverse is running in a container or VM, make sure the ComfyUI / SwarmUI URL is reachable from the Lumiverse process \u2014 not just from your browser.\r
 `,
-    "index.md": `# Lumiverse User Guides\r
+    "index.md": `---\r
+title: Home\r
+---\r
+\r
+# Lumiverse User Guides\r
 \r
 Welcome to the official guides for **Lumiverse** \u2014 a powerful, self-hosted AI chat application for creative roleplay, storytelling, and conversation.\r
 \r
@@ -26718,7 +27066,7 @@ New to Lumiverse? Start here:\r
 | Guide | What You'll Learn |\r
 |-------|-------------------|\r
 | [Characters](characters/index.md) | Import, create, and customize AI characters |\r
-| [Weaver](weaver/index.md) | Author characters and whole worlds from your idea through a guided interview |\r
+| [Dream Weaver](weaver/index.md) | Author characters and whole worlds from your idea through a guided interview |\r
 | [Chatting](chatting/index.md) | Send messages, use swipes, branch conversations |\r
 | [Personas](personas/index.md) | Create your own identity for roleplay |\r
 | [Connections](connections/index.md) | Connect to AI providers (OpenAI, Claude, etc.) |\r
@@ -26727,21 +27075,21 @@ New to Lumiverse? Start here:\r
 \r
 | Guide | What You'll Learn |\r
 |-------|-------------------|\r
-| [Presets](presets/index.md) | Control how prompts are assembled and sent to the AI |\r
-| [World Books](world-books/index.md) | Build lorebooks that inject context based on keywords |\r
-| [Council & Lumia](council/index.md) | Set up multi-persona AI deliberation |\r
-| [Packs](packs/index.md) | Install and manage content packs (Lumias, Looms, Tools) |\r
+| [Reasoning](presets/index.md) | Control how prompts are assembled and sent to the AI |\r
+| [Lorebook](world-books/index.md) | Build lorebooks that inject context based on keywords |\r
+| [Council](council/index.md) | Set up multi-persona AI deliberation |\r
+| [Pack Browser](packs/index.md) | Install and manage content packs (Lumias, Looms, Tools) |\r
 | [Image Generation](image-generation/index.md) | Generate scene illustrations from your chats |\r
 | [Sovereign Hand](presets/sovereign-hand.md) | Direct the scene as an author instead of playing a character |\r
-| [Loom Summary](chatting/loom-summary.md) | Automatic story summarization for long conversations |\r
+| [Summary](chatting/loom-summary.md) | Automatic story summarization for long conversations |\r
 | [Long-Term Memory](chatting/memory.md) | Vector-based recall of relevant past moments |\r
 \r
 ### Customization\r
 \r
 | Guide | What You'll Learn |\r
 |-------|-------------------|\r
-| [Themes](customization/themes.md) | Change colors, fonts, and visual styles |\r
-| [Wallpapers](customization/wallpapers.md) | Set background images or videos |\r
+| [Theme](customization/themes.md) | Change colors, fonts, and visual styles |\r
+| [Wallpaper](customization/wallpapers.md) | Set background images or videos |\r
 | [Regex Scripts](customization/regex-scripts.md) | Transform text with find-and-replace rules |\r
 | [Macros](customization/macros.md) | Use template variables in your prompts |\r
 | [Display Modes](customization/display-modes.md) | Switch between minimal and bubble chat layouts |\r
@@ -26751,9 +27099,10 @@ New to Lumiverse? Start here:\r
 | Guide | What You'll Learn |\r
 |-------|-------------------|\r
 | [Embeddings](settings/embeddings.md) | Set up vector search for semantic lorebook and memory features |\r
-| [Push Notifications](settings/push-notifications.md) | Get notified when the AI responds |\r
+| [Notifications](settings/push-notifications.md) | Get notified when the AI responds |\r
 | [LumiHub](settings/lumihub.md) | Browse and install characters from the hub |\r
-| [Users & Auth](settings/users.md) | Manage users, roles, and passwords |\r
+| [User Management](settings/users.md) | Manage users, roles, and passwords |\r
+| [Single Sign-On](settings/sso.md) | Configure OIDC SSO with authentik, Authelia, or Keycloak |\r
 \r
 ### Data Portability\r
 \r
@@ -26773,7 +27122,11 @@ New to Lumiverse? Start here:\r
 | [Troubleshooting](reference/troubleshooting.md) | Solutions to common issues |\r
 | [Glossary](reference/glossary.md) | Key terms and definitions |\r
 `,
-    "packs/index.md": `# Packs\r
+    "packs/index.md": `---\r
+title: Pack Browser\r
+---\r
+\r
+# Pack Browser\r
 \r
 Packs are curated content bundles that extend Lumiverse's capabilities. They contain **Lumia items** (AI personas for the council), **Loom items** (narrative content and utilities), and **Loom tools** (council tool definitions).\r
 \r
@@ -26812,7 +27165,11 @@ Custom council tools defined by the pack creator. These extend the built-in tool
 \r
 - [Managing Packs](managing-packs.md) \u2014 Install, create, import, and export packs\r
 `,
-    "packs/managing-packs.md": `# Managing Packs\r
+    "packs/managing-packs.md": `---\r
+title: Managing Packs\r
+---\r
+\r
+# Managing Packs\r
 \r
 Packs are managed through the **Content Workshop** panel.\r
 \r
@@ -26919,7 +27276,11 @@ Loom tools automatically appear in the council tools list and can be assigned to
 \r
 Items within a pack have a **sort order** that determines their display sequence. You can reorder items by dragging them in the editor.\r
 `,
-    "personas/bindings-and-addons.md": `# Bindings & Add-Ons\r
+    "personas/bindings-and-addons.md": `---\r
+title: Bindings & Add-Ons\r
+---\r
+\r
+# Bindings & Add-Ons\r
 \r
 Beyond basic persona setup, Lumiverse offers several power features: **character bindings** and **tag bindings** that auto-activate personas, and **add-ons** that let you toggle extra persona content on and off.\r
 \r
@@ -27043,7 +27404,11 @@ Attached global add-ons appear alongside the persona's own add-ons in the quick-
 \r
 This lets you evolve your persona over the course of a story without constantly editing the base description.\r
 `,
-    "personas/creating-personas.md": `# Creating Personas\r
+    "personas/creating-personas.md": `---\r
+title: Creating Personas\r
+---\r
+\r
+# Creating Personas\r
 \r
 Setting up a persona takes just a minute and makes a noticeable difference in how the AI addresses and interacts with you.\r
 \r
@@ -27127,7 +27492,11 @@ Personas without a folder appear in a general group. Folders are free-text label
 \r
 Click **Duplicate** on any persona to create a copy. The duplicate is never set as default and gets "(Copy)" appended to its name. Useful for creating variations of the same character for different scenarios.\r
 `,
-    "personas/index.md": `# Personas\r
+    "personas/index.md": `---\r
+title: Personas\r
+---\r
+\r
+# Personas\r
 \r
 A **persona** represents *you* in the conversation. While you can chat without one (the AI just knows your username), a persona gives the AI a richer picture of who you are \u2014 your appearance, backstory, personality, and more.\r
 \r
@@ -27163,7 +27532,11 @@ A **persona** represents *you* in the conversation. While you can chat without o
 - [Creating Personas](creating-personas.md) \u2014 Set up your first persona\r
 - [Bindings & Add-Ons](bindings-and-addons.md) \u2014 Auto-activate personas and extend them with toggleable blocks\r
 `,
-    "presets/context-filters.md": `# Context Filters\r
+    "presets/context-filters.md": `---\r
+title: Context Filters\r
+---\r
+\r
+# Context Filters\r
 \r
 Context filters strip formatting, tags, and structural content from **older messages** before they're sent to the AI. This keeps the prompt clean and saves context space without affecting how recent messages appear.\r
 \r
@@ -27257,7 +27630,11 @@ Filters are applied in this order:\r
 !!! tip "Keep Only mode for structured narratives"\r
     If you use \`<details>\` blocks for scene summaries or state tracking, Keep Only mode is extremely powerful \u2014 it automatically compresses old messages to just their structured data.\r
 `,
-    "presets/execution-order.md": `# Execution Order\r
+    "presets/execution-order.md": `---\r
+title: Execution Order\r
+---\r
+\r
+# Execution Order\r
 \r
 This guide explains exactly **when** and **how** macros are evaluated during prompt assembly. If you're coming from SillyTavern, pay close attention \u2014 Lumiverse does not cache macro results or rely on post-processing to fix ordering issues. What you write is what runs, in the order you write it.\r
 \r
@@ -27397,6 +27774,7 @@ A snapshot of all data is taken and stored in the macro environment. This is the
 - \`{{description}}\`, \`{{personality}}\`, \`{{scenario}}\` \u2014 Character fields (with alternates applied)\r
 - \`{{persona}}\` \u2014 Persona description with enabled add-ons appended\r
 - \`{{lastMessage}}\`, \`{{messageCount}}\` \u2014 Chat state at this moment\r
+- \`{{rejectedSwipe}}\` \u2014 On regenerate/swipe, the target response content captured before the new swipe is staged; otherwise empty\r
 - \`{{model}}\`, \`{{maxContext}}\` \u2014 Connection/model info\r
 - Prompt Variables \u2014 End-user configured inputs are seeded into the local variable scope\r
 - Variables \u2014 Local and global variable maps are loaded\r
@@ -27567,7 +27945,11 @@ If you're porting presets from SillyTavern, here are the behaviors that will tri
 \r
 6. **Nested expansion still works.** You can build macro names dynamically (\`{{getvar::note_{{user}}}}\`), and Lumiverse will usually collapse the chain inline during the same evaluation, with one retry pass available for edge cases.\r
 `,
-    "presets/index.md": `# Presets\r
+    "presets/index.md": `---\r
+title: Reasoning\r
+---\r
+\r
+# Reasoning\r
 \r
 Presets are the heart of Lumiverse's prompt engineering system. They control **what the AI sees** and **how it generates** \u2014 from the system prompt structure to sampling parameters like temperature.\r
 \r
@@ -27605,7 +27987,11 @@ Think of a preset as a recipe for how to talk to the AI. Different recipes produ
 \r
 If you're new to presets, you don't have to build one from scratch. Lumiverse can work with a default configuration, and many connections come with a linked preset. But understanding presets unlocks the full power of the platform \u2014 it's the difference between accepting whatever the AI gives you and shaping exactly how it responds.\r
 `,
-    "presets/macros-reference.md": `# Macros Reference\r
+    "presets/macros-reference.md": `---\r
+title: Macros Reference\r
+---\r
+\r
+# Macros Reference\r
 \r
 Macros are template variables written as \`{{macro_name}}\` that get replaced with dynamic content when your preset is assembled into a prompt. This is the complete reference of the built-in macros available in Lumiverse.\r
 \r
@@ -28046,6 +28432,7 @@ Macros for the current chat state.\r
 | \`{{firstDisplayedMessageId}}\` | \u2014 | Index of the first displayed message |\r
 | \`{{lastSwipeId}}\` | \u2014 | Index of the last swipe on the final message |\r
 | \`{{currentSwipeId}}\` | \u2014 | Index of the active swipe |\r
+| \`{{rejectedSwipe}}\` | \`{{rejectedGeneration}}\`, \`{{regeneratedMessage}}\` | Content of the regenerate/swipe target before the new swipe was staged; empty otherwise |\r
 \r
 ---\r
 \r
@@ -28694,7 +29081,11 @@ The adventure is well underway.\r
 !!! tip "Mind the evaluation order"\r
     Macros resolve primarily in one depth-first AST walk, with nested macro output expanded inline and a small outer retry loop for edge cases. State still flows left-to-right: a later setter will not retroactively change an earlier read in the same block. See the [Execution Order](execution-order.md) guide for the complete breakdown.\r
 `,
-    "presets/preset-profiles.md": `# Preset Profiles\r
+    "presets/preset-profiles.md": `---\r
+title: Preset Profiles\r
+---\r
+\r
+# Preset Profiles\r
 \r
 Preset profiles let you save and restore a **preset selection plus its block enabled/disabled states**. You can bind these snapshots to specific characters or chats so Lumiverse switches to the right preset and block configuration automatically.\r
 \r
@@ -28756,7 +29147,11 @@ The snapshot records the current preset and the enabled/disabled state of every 
 - **Per-chat tuning** \u2014 One chat emphasizes action scenes (action blocks on); another emphasizes dialogue (dialogue blocks on)\r
 - **Quick switching** \u2014 Swap between "detailed" and "concise" block configurations without manual toggling\r
 `,
-    "presets/prompt-blocks.md": `# Prompt Blocks\r
+    "presets/prompt-blocks.md": `---\r
+title: Prompt Blocks\r
+---\r
+\r
+# Prompt Blocks\r
 \r
 Prompt blocks are the building pieces of your preset. Each block is a section of text that gets assembled into the final prompt sent to the AI.\r
 \r
@@ -28904,7 +29299,11 @@ Groups are useful for creating alternative instruction sets (e.g., different wri
 !!! tip "Disable, don't delete"\r
     If a block isn't working well, disable it instead of deleting it. You can re-enable it later or reference it when building other blocks.\r
 `,
-    "presets/prompt-variables.md": `# Prompt Variables\r
+    "presets/prompt-variables.md": `---\r
+title: Prompt Variables\r
+---\r
+\r
+# Prompt Variables\r
 \r
 Prompt Variables allow preset creators to expose customizable inputs to end users without requiring them to edit raw prompt block text or touch any macros. \r
 \r
@@ -29082,7 +29481,11 @@ If you disable a prompt block (for instance, turning off a specific "Action Sequ
 ### Resetting Values\r
 \r
 Users can freely adjust the sliders, text fields, and numeric inputs. If they want to return to the preset creator's original vision, they can click the **Reset to Default** button to instantly restore the \`defaultValue\` of every variable.`,
-    "presets/sampler-settings.md": `# Sampler Settings\r
+    "presets/sampler-settings.md": `---\r
+title: Sampler Settings\r
+---\r
+\r
+# Sampler Settings\r
 \r
 Sampler settings control *how* the AI generates text \u2014 the randomness, creativity, length, and repetition tendencies of its output.\r
 \r
@@ -29217,7 +29620,11 @@ The preset can define **sampler overrides** \u2014 parameter values that overrid
 !!! tip "Use the dry run"\r
     The dry run shows you the final parameter values after all overrides are applied. Useful for verifying your settings are taking effect.\r
 `,
-    "presets/sovereign-hand.md": `# Sovereign Hand\r
+    "presets/sovereign-hand.md": `---\r
+title: Sovereign Hand\r
+---\r
+\r
+# Sovereign Hand\r
 \r
 Sovereign Hand is a co-pilot mode that reframes how the AI interprets your messages. Instead of treating what you write as your character's dialogue, the AI treats it as **directorial instructions** \u2014 stage directions from the author telling the story what should happen next.\r
 \r
@@ -29334,7 +29741,11 @@ Include \`{{loomSovHand}}\` in a preset block for the feature to work. Wrap it i
 !!! tip "Try brief directives"\r
     You don't need to write paragraphs. "Flashback to childhood. Bittersweet." is enough for the AI to construct a full scene. The character card and conversation history provide the rest.\r
 `,
-    "presets/understanding-presets.md": `# Understanding Presets\r
+    "presets/understanding-presets.md": `---\r
+title: Understanding Presets\r
+---\r
+\r
+# Understanding Presets\r
 \r
 This guide explains how presets work conceptually, so you can create and customize them with confidence.\r
 \r
@@ -29443,7 +29854,11 @@ If no preset is linked to your connection, or the preset has no blocks, Lumivers
 \r
 Each connection can optionally link to a preset. When you generate using that connection, its linked preset is used for assembly. You can also switch presets independently of connections.\r
 `,
-    "reference/glossary.md": `# Glossary\r
+    "reference/glossary.md": `---\r
+title: Glossary\r
+---\r
+\r
+# Glossary\r
 \r
 Key terms used throughout Lumiverse and these guides.\r
 \r
@@ -29649,7 +30064,11 @@ Key terms used throughout Lumiverse and these guides.\r
 **World Info**\r
 : Another name for World Book content and the system that activates it.\r
 `,
-    "reference/keyboard-shortcuts.md": `# Keyboard Shortcuts\r
+    "reference/keyboard-shortcuts.md": `---\r
+title: Keyboard Shortcuts\r
+---\r
+\r
+# Keyboard Shortcuts\r
 \r
 Quick reference for keyboard shortcuts in Lumiverse. On macOS, **Cmd** is the modifier; everywhere else it's **Ctrl**.\r
 \r
@@ -29734,7 +30153,11 @@ The Command Palette is the fastest way to navigate Lumiverse. It can:\r
 !!! tip "Queue vs send"\r
     Queueing (**Cmd/Ctrl + Enter**) stacks your message onto the next generation instead of starting one immediately. Useful when the AI is mid-stream and you want to "buffer" your next input without interrupting.\r
 `,
-    "reference/troubleshooting.md": `# Troubleshooting\r
+    "reference/troubleshooting.md": `---\r
+title: Troubleshooting\r
+---\r
+\r
+# Troubleshooting\r
 \r
 Solutions to common issues you might encounter.\r
 \r
@@ -29856,7 +30279,11 @@ If you're stuck:\r
 4. Review the browser console (F12) for frontend errors\r
 5. Check the server logs in the terminal where Lumiverse is running\r
 `,
-    "settings/embeddings.md": `# Embeddings & Vector Search\r
+    "settings/embeddings.md": `---\r
+title: Embeddings\r
+---\r
+\r
+# Embeddings\r
 \r
 Embeddings power two features in Lumiverse: **semantic world book activation** (finding lorebook entries by meaning, not just keywords) and **long-term chat memory** (recalling relevant past moments). Both require an embedding provider to be configured.\r
 \r
@@ -29993,7 +30420,11 @@ Controls the balance between traditional keyword matching and semantic vector se
 !!! tip "Test after setup"\r
     Always click Test API after configuration. This verifies your credentials work and auto-detects the correct dimensions \u2014 getting dimensions wrong produces garbage results.\r
 `,
-    "settings/lumihub.md": `# LumiHub\r
+    "settings/lumihub.md": `---\r
+title: LumiHub\r
+---\r
+\r
+# LumiHub\r
 \r
 LumiHub is a hub service that lets you browse and install characters and world books directly into your Lumiverse instance from the web.\r
 \r
@@ -30038,7 +30469,11 @@ The LumiHub settings panel shows:\r
 \r
 Click **Unlink from LumiHub** to disconnect. This stops the connection and removes the linking token. You can re-link at any time.\r
 `,
-    "settings/push-notifications.md": `# Push Notifications\r
+    "settings/push-notifications.md": `---\r
+title: Notifications\r
+---\r
+\r
+# Notifications\r
 \r
 Lumiverse can send push notifications to your devices when certain events happen \u2014 like when a character finishes responding. This is useful when you're multitasking or using the PWA on mobile.\r
 \r
@@ -30100,9 +30535,333 @@ Devices that stop accepting notifications (uninstalled browser, cleared data) ar
 !!! tip "Use with long generations"\r
     If you're using a slow model or generating very long responses, notifications let you switch to other tasks and come back when the response is ready.\r
 `,
-    "settings/users.md": `# Users & Authentication\r
+    "settings/sso.md": `---\r
+title: Single Sign-On\r
+---\r
+\r
+# Single Sign-On\r
+\r
+Owners can connect Lumiverse to an OpenID Connect identity provider so users can sign in with SSO. Lumiverse currently supports provider templates for **authentik**, **Authelia**, and **Keycloak**.\r
+\r
+SSO is intentionally safe-by-default:\r
+\r
+- SSO does **not** create users automatically.\r
+- SSO does **not** auto-link accounts by matching email addresses.\r
+- A user must first exist in Lumiverse, sign in locally, and explicitly link their SSO identity.\r
+- Keep at least one owner account with a local password as break-glass recovery.\r
+\r
+---\r
+\r
+## Before You Start\r
+\r
+You need:\r
+\r
+1. A working Lumiverse instance reachable at a stable public URL, such as \`https://app.example.com\`.\r
+2. Owner access in Lumiverse.\r
+3. Admin access in your identity provider.\r
+4. Lumiverse configured with the same public URL used by browsers.\r
+\r
+Set this environment variable on the Lumiverse server:\r
+\r
+\`\`\`bash\r
+AUTH_BASE_URL=https://app.example.com\r
+\`\`\`\r
+\r
+Restart Lumiverse after changing it.\r
+\r
+If \`AUTH_BASE_URL\` is missing, Lumiverse may fall back to \`http://localhost:7860\`, which causes OIDC providers to reject the redirect URI.\r
+\r
+---\r
+\r
+## Lumiverse Setup\r
+\r
+1. Sign in to Lumiverse as the owner using the local password.\r
+2. Open **Settings > SSO**.\r
+3. Choose a provider template: **authentik**, **Authelia**, or **Keycloak**.\r
+4. Fill in:\r
+   - **Name**: Friendly display name, such as \`authentik\`.\r
+   - **Slug**: Stable provider ID, such as \`authentik\`, \`authelia\`, or \`keycloak\`.\r
+   - **Issuer URL**: The OIDC issuer from your provider.\r
+   - **Discovery URL**: Usually leave blank. Lumiverse derives \`/.well-known/openid-configuration\` from the issuer URL.\r
+   - **Public Lumiverse Origin**: Your Lumiverse origin, such as \`https://app.example.com\`.\r
+   - **Client ID**: From your identity provider.\r
+   - **Client Secret**: From your identity provider.\r
+   - **Scopes**: \`openid profile email\`.\r
+5. Click **Test Discovery**.\r
+6. Enable the provider.\r
+7. Save.\r
+8. Restart Lumiverse.\r
+9. Return to **Settings > SSO** and verify the provider row says **Active**.\r
+10. Copy the displayed **Redirect** URI into your identity provider.\r
+\r
+The redirect URI format is:\r
+\r
+\`\`\`text\r
+https://app.example.com/api/auth/oauth2/callback/<slug>\r
+\`\`\`\r
+\r
+For example:\r
+\r
+\`\`\`text\r
+https://app.example.com/api/auth/oauth2/callback/authentik\r
+\`\`\`\r
+\r
+The redirect URI must match exactly: scheme, host, port, path, and slug.\r
+\r
+---\r
+\r
+## Link Your Owner Account\r
+\r
+After the provider is active:\r
+\r
+1. Sign in to Lumiverse with the local owner password.\r
+2. Open **Settings > SSO**.\r
+3. In **Configured Providers**, click the link icon for your provider.\r
+4. Complete the identity-provider authorization flow.\r
+5. Lumiverse returns to the SSO settings page and shows the linked identity.\r
+\r
+Only after this link exists can that Lumiverse account sign in through SSO.\r
+\r
+---\r
+\r
+## Add SSO for Other Users\r
+\r
+The current SSO setup is owner-scoped. Use it first to link and validate the owner account.\r
+\r
+For broader user rollout, create local users normally in **Settings > Users** and keep local passwords available. Do not require SSO for standard users until your Lumiverse version includes an explicit user-linking or provisioning flow for non-owner accounts.\r
+\r
+Recommended rollout order:\r
+\r
+1. Create the user locally in **Settings > Users**.\r
+2. Keep username/password login available.\r
+3. Validate SSO with the owner account.\r
+4. Only expand SSO use once every affected account has a deliberate account-link path.\r
+\r
+Do not delete or disable all local owner credentials. Keep a recovery path.\r
+\r
+---\r
+\r
+## authentik Setup\r
+\r
+In authentik, create an OAuth2/OpenID provider and application for Lumiverse.\r
+\r
+### 1. Create the Provider\r
+\r
+1. In authentik, go to **Applications > Providers**.\r
+2. Click **Create**.\r
+3. Select **OAuth2/OpenID Provider**.\r
+4. Configure:\r
+   - **Name**: \`Lumiverse\`.\r
+   - **Client type**: \`Confidential\`.\r
+   - **Client ID**: Generate or enter a stable value.\r
+   - **Client Secret**: Generate a secret and copy it into Lumiverse.\r
+   - **Redirect URIs/Origins**: Add the Lumiverse redirect URI exactly.\r
+   - **Signing Key**: Use authentik's default signing key unless you have a custom policy.\r
+   - **Subject mode**: Use a stable subject, usually based on the user's ID.\r
+5. Save.\r
+\r
+Example redirect URI:\r
+\r
+\`\`\`text\r
+https://app.example.com/api/auth/oauth2/callback/authentik\r
+\`\`\`\r
+\r
+### 2. Create the Application\r
+\r
+1. Go to **Applications > Applications**.\r
+2. Click **Create**.\r
+3. Configure:\r
+   - **Name**: \`Lumiverse\`.\r
+   - **Slug**: \`lumiverse\`.\r
+   - **Provider**: Select the provider created above.\r
+4. Save.\r
+\r
+### 3. Lumiverse Values\r
+\r
+Use these values in **Settings > SSO**:\r
+\r
+| Lumiverse Field | Value |\r
+|-----------------|-------|\r
+| Provider | \`authentik\` |\r
+| Slug | \`authentik\` |\r
+| Issuer URL | \`https://auth.example.com/application/o/lumiverse/\` |\r
+| Scopes | \`openid profile email\` |\r
+| Public Lumiverse Origin | \`https://app.example.com\` |\r
+\r
+Replace \`auth.example.com\`, \`lumiverse\`, and \`app.example.com\` with your actual domains and authentik application slug.\r
+\r
+---\r
+\r
+## Authelia Setup\r
+\r
+In Authelia, add Lumiverse as an OpenID Connect client.\r
+\r
+### 1. Configure the OIDC Client\r
+\r
+Add a client entry to Authelia's OpenID Connect configuration. The exact file structure depends on your Authelia version and deployment style, but the client needs these values:\r
+\r
+\`\`\`yaml\r
+client_id: lumiverse\r
+client_name: Lumiverse\r
+client_secret: <hashed-or-digested-secret-required-by-your-authelia-version>\r
+redirect_uris:\r
+  - https://app.example.com/api/auth/oauth2/callback/authelia\r
+scopes:\r
+  - openid\r
+  - profile\r
+  - email\r
+grant_types:\r
+  - authorization_code\r
+response_types:\r
+  - code\r
+token_endpoint_auth_method: client_secret_basic\r
+\`\`\`\r
+\r
+Authelia requires client secrets in the format expected by your Authelia version. Follow Authelia's documentation for generating the secret digest/hash.\r
+\r
+Restart or reload Authelia after changing its configuration.\r
+\r
+### 2. Lumiverse Values\r
+\r
+Use these values in **Settings > SSO**:\r
+\r
+| Lumiverse Field | Value |\r
+|-----------------|-------|\r
+| Provider | \`Authelia\` |\r
+| Slug | \`authelia\` |\r
+| Issuer URL | Your Authelia issuer, commonly \`https://auth.example.com\` |\r
+| Scopes | \`openid profile email\` |\r
+| Public Lumiverse Origin | \`https://app.example.com\` |\r
+\r
+Then save, restart Lumiverse, and link the owner account.\r
+\r
+---\r
+\r
+## Keycloak Setup\r
+\r
+In Keycloak, create a confidential OIDC client in the realm that should authenticate Lumiverse users.\r
+\r
+### 1. Create the Client\r
+\r
+1. In Keycloak, select the target realm.\r
+2. Go to **Clients**.\r
+3. Click **Create client**.\r
+4. Configure:\r
+   - **Client type**: \`OpenID Connect\`.\r
+   - **Client ID**: \`lumiverse\`.\r
+   - **Name**: \`Lumiverse\`.\r
+5. Enable:\r
+   - **Standard flow**.\r
+   - **Client authentication**.\r
+6. Save.\r
+\r
+### 2. Configure Redirects\r
+\r
+In the client settings, set:\r
+\r
+| Keycloak Field | Value |\r
+|----------------|-------|\r
+| Valid redirect URIs | \`https://app.example.com/api/auth/oauth2/callback/keycloak\` |\r
+| Web origins | \`https://app.example.com\` |\r
+\r
+Avoid wildcards for production if possible.\r
+\r
+### 3. Get the Client Secret\r
+\r
+1. Open the client.\r
+2. Go to **Credentials**.\r
+3. Copy the client secret into Lumiverse.\r
+\r
+### 4. Lumiverse Values\r
+\r
+Use these values in **Settings > SSO**:\r
+\r
+| Lumiverse Field | Value |\r
+|-----------------|-------|\r
+| Provider | \`Keycloak\` |\r
+| Slug | \`keycloak\` |\r
+| Issuer URL | \`https://keycloak.example.com/realms/<realm>\` |\r
+| Scopes | \`openid profile email\` |\r
+| Public Lumiverse Origin | \`https://app.example.com\` |\r
+\r
+The Keycloak issuer is realm-specific. For example:\r
+\r
+\`\`\`text\r
+https://keycloak.example.com/realms/main\r
+\`\`\`\r
+\r
+---\r
+\r
+## PWA and Mobile Behavior\r
+\r
+Lumiverse opens SSO authorization in a popup or separate window where possible. This prevents the installed PWA from losing its current route during authorization.\r
+\r
+On mobile platforms, the identity provider may open in an external browser or system web view. After authorization completes, Lumiverse attempts to notify the original app window and refresh the session or linked-account state.\r
+\r
+If your mobile browser blocks popups, Lumiverse may fall back to same-tab navigation.\r
+\r
+---\r
+\r
+## Troubleshooting\r
+\r
+### Authentik says \`missing, invalid, or mismatching redirection URI\`\r
+\r
+The \`redirect_uri\` sent by Lumiverse does not exactly match the URI registered in authentik.\r
+\r
+Check:\r
+\r
+1. \`AUTH_BASE_URL\` is set on the Lumiverse server:\r
+\r
+   \`\`\`bash\r
+   AUTH_BASE_URL=https://app.example.com\r
+   \`\`\`\r
+\r
+2. **Settings > SSO > Public Lumiverse Origin** is the same origin:\r
+\r
+   \`\`\`text\r
+   https://app.example.com\r
+   \`\`\`\r
+\r
+3. Lumiverse was restarted after saving the SSO provider.\r
+4. The provider row says **Active**, not **Restart needed**.\r
+5. The provider row's **Redirect** value exactly matches the provider's allowed redirect URI.\r
+6. The provider slug in Lumiverse matches the path in the redirect URI.\r
+\r
+For example, slug \`authentik\` requires:\r
+\r
+\`\`\`text\r
+https://app.example.com/api/auth/oauth2/callback/authentik\r
+\`\`\`\r
+\r
+### The SSO button does not appear on the login page\r
+\r
+The provider must be both enabled and active. Save the provider, restart Lumiverse, then check **Settings > SSO**.\r
+\r
+### Login says signup is disabled\r
+\r
+This is expected if the SSO identity is not linked to an existing Lumiverse account. Sign in locally first, then link the SSO provider from **Settings > SSO**.\r
+\r
+### The owner is not in the identity provider\r
+\r
+Keep using the local owner password. Do not remove the local owner credential. Add the owner to the identity provider and link the identity only after you can complete a successful provider login.\r
+\r
+### I changed the redirect URI and it still uses the old one\r
+\r
+BetterAuth loads SSO providers at Lumiverse startup. Save the provider and restart Lumiverse. The startup log shows active redirect URIs:\r
+\r
+\`\`\`text\r
+[Auth] SSO authentik redirect URI: https://app.example.com/api/auth/oauth2/callback/authentik\r
+\`\`\`\r
+`,
+    "settings/users.md": `---\r
+title: User Management\r
+---\r
+\r
+# User Management\r
 \r
 Lumiverse supports multiple users with role-based access control. The first account created during setup is the **owner** \u2014 the top-level admin.\r
+\r
+For OpenID Connect single sign-on setup, see [Single Sign-On](sso.md).\r
 \r
 ---\r
 \r
@@ -30168,7 +30927,11 @@ If you're locked out, reset the owner password from the command line:\r
 bun run reset-password\r
 \`\`\`\r
 `,
-    "settings/web-search.md": `# Web Search\r
+    "settings/web-search.md": `---\r
+title: Web Search\r
+---\r
+\r
+# Web Search\r
 \r
 Lumiverse can plug a self-hosted **SearXNG** meta-search instance into the [Council](../council/index.md) so members can look up current, factual, or source-backed information mid-deliberation. Results are scraped, condensed into a context block, and handed back to the calling tool.\r
 \r
@@ -30294,7 +31057,11 @@ You can use neither, either, or both.\r
 !!! tip "Loopback URLs are allowed"\r
     For Owner users, \`http://localhost\`, \`127.0.0.1\`, and private-range hosts are allowed as the Web Search API URL \u2014 Lumiverse's normal "no private IPs" guard is relaxed here so you can point at a SearXNG container running alongside it.\r
 `,
-    "weaver/imports.md": `# Imports\r
+    "weaver/imports.md": `---\r
+title: Imports\r
+---\r
+\r
+# Imports\r
 \r
 The Import door brings existing material into the studio: a character card you downloaded, or a worldbook you've built up elsewhere. An import isn't a separate pipeline \u2014 it pre-fills the Bible from your file and then runs the **same** stages as any build, so everything in [Studio Workflow](studio-workflow.md) applies. The difference is where the material comes from: instead of a dream, the Weaver reads your file.\r
 \r
@@ -30370,7 +31137,11 @@ Every enriched entry is checked before it's written: it must stay grounded in wh
 - **CHARX extras:** the fallback copy takes the card, avatar, and embedded book. Expression packs and galleries inside a CHARX are skipped here \u2014 use the library's import button when you want full-fidelity CHARX import instead of a rebuild.\r
 - **A PNG with only a lorebook in it** reads as a card, because that's what it is \u2014 export the book to worldbook JSON if you want the book treatments.\r
 `,
-    "weaver/index.md": `# Weaver\r
+    "weaver/index.md": `---\r
+title: Dream Weaver\r
+---\r
+\r
+# Dream Weaver\r
 \r
 The Weaver is Lumiverse's authoring studio. It turns an idea into finished, playable content \u2014 a **character** you chat with, a **world** you roleplay in, or a rebuild of something you **import** \u2014 by interviewing you about your idea, gathering everything into a single coherent source called the **Bible**, checking that source against a quality bar, and only then writing the output. Whatever you build lands in your regular library as a normal card; you author in the Weaver and play from the library.\r
 \r
@@ -30476,7 +31247,11 @@ You can always edit Weaver output later in the regular character and worldbook e
 | [Visual Studio](visual-studio.md) | Generate a portrait and a full expression set, and what each image provider supports. |\r
 | [Settings](settings.md) | Tune how much the studio does in one go and how the model runs. |\r
 `,
-    "weaver/people.md": `# People\r
+    "weaver/people.md": `---\r
+title: People\r
+---\r
+\r
+# People\r
 \r
 A world is only as alive as the people in it. The **People** pane \u2014 on the rail of every finalized world's dashboard \u2014 is where the world's population lives: from names the narrator can drop in passing, up to fully voiced profiles, up to standalone character cards that carry the world with them.\r
 \r
@@ -30562,7 +31337,11 @@ While a promotion is still on the loom, it shows in the pane with an **Open in s
 4. **Weave** the three or four people who'll actually carry scenes. Answer in your own words; the profile is what the narrator will speak them from.\r
 5. Play. When one of them keeps stealing scenes, **Promote** them and give them their own card.\r
 `,
-    "weaver/settings.md": `# Settings\r
+    "weaver/settings.md": `---\r
+title: Settings\r
+---\r
+\r
+# Settings\r
 \r
 The gear in the studio home's header opens the Weaver settings. Every field here **overrides an engine default** \u2014 a blank field means "use the default," and the default is always visible as the field's placeholder, so you can see exactly what you're changing. Clear a field and save to go back to stock.\r
 \r
@@ -30592,7 +31371,11 @@ Two temperatures, split by the kind of work. Higher is looser; lower is more det
 \r
 The split exists because the two jobs want different things: writing benefits from room to move, judging benefits from consistency. If rendered fields feel samey, nudge the writing temperature up; if gate verdicts feel erratic between re-checks, bring the judging temperature down. Blank for both is a sensible place to live.\r
 `,
-    "weaver/studio-workflow.md": `# Studio Workflow\r
+    "weaver/studio-workflow.md": `---\r
+title: Studio Workflow\r
+---\r
+\r
+# Studio Workflow\r
 \r
 Every Weaver build walks through six stages, in order: **Dream \u2192 Read-back \u2192 Interview \u2192 Bible \u2192 Render \u2192 Finalize**. The rail at the top shows where you are; you can always step back to an earlier stage, and your work autosaves as you go.\r
 \r
@@ -30752,7 +31535,11 @@ The card is now in your library like any other \u2014 chat with it, export it, e
 6. **Finalize** with the book toggles you want, then **Start chat**.\r
 7. Optionally, open the [Visual Studio](visual-studio.md) for a portrait and expressions \u2014 and for a world, start growing the [hub](worlds.md#the-hub).\r
 `,
-    "weaver/visual-studio.md": `# Visual Studio\r
+    "weaver/visual-studio.md": `---\r
+title: Visual Studio\r
+---\r
+\r
+# Visual Studio\r
 \r
 Once a card is finalized, its dashboard grows an image side: generate a **portrait**, then derive a full **expression set** from it. It runs through your existing **image-gen connections** \u2014 the same ones the [Image Generation](../image-generation/index.md) feature uses \u2014 so any provider you've already set up is available here, with no extra configuration.\r
 \r
@@ -30842,7 +31629,11 @@ SwarmUI works two ways:\r
 \r
 These are prompt-driven: write a prompt (and negative prompt where supported), set size or aspect ratio and seed, and generate. NovelAI leans on Danbooru-style tags; Gemini takes prose and uses the portrait aspect ratio; NanoGPT routes to whichever model you selected on the connection. Each provider's tunable parameters (from your connection's defaults) are available in the controls.\r
 `,
-    "weaver/worlds.md": `# Worlds\r
+    "weaver/worlds.md": `---\r
+title: Worlds\r
+---\r
+\r
+# Worlds\r
 \r
 A **World** is a place you roleplay in. You chat with the world itself: a **narrator** that sets scenes, runs the place, and voices the people in it, while \`{{user}}\` plays their own part inside it. Where a character build produces one person, a world build produces a stage with a cast.\r
 \r
@@ -30938,7 +31729,11 @@ Because the governance rides in the card's own bound rules book, all of this wor
 !!! note "In-universe characters"\r
     A person who outgrows the narrator's voicing can be **promoted** to their own card for one-on-one chats \u2014 they carry the world's lore book with them, so they stay consistent with the place. See [People \u2192 Promote](people.md#promote-their-own-card).\r
 `,
-    "world-books/advanced-features.md": `# Advanced Features\r
+    "world-books/advanced-features.md": `---\r
+title: Advanced Features\r
+---\r
+\r
+# Advanced Features\r
 \r
 World Books have several advanced features for complex lore management. You don't need these for basic use, but they're powerful when your world grows.\r
 \r
@@ -31057,7 +31852,11 @@ Per-entry state (sticky counters, cooldown timers, delay counts) is tracked in t
 \r
 You can view activation diagnostics in the **World Book Diagnostics** modal to see which entries are active, cooling down, or delayed.\r
 `,
-    "world-books/creating-entries.md": `# Creating Entries\r
+    "world-books/creating-entries.md": `---\r
+title: Creating Entries\r
+---\r
+\r
+# Creating Entries\r
 \r
 Each entry in a World Book is a piece of information that can be injected into the prompt when its conditions are met.\r
 \r
@@ -31165,7 +31964,11 @@ Use **constant** for critical world rules that should always be present. Use **d
 !!! tip "Test with dry run"\r
     Use Dry Run to see which entries are activating and where they appear in the prompt. This is the best way to verify your world book is working as intended.\r
 `,
-    "world-books/importing-exporting.md": `# Import & Export\r
+    "world-books/importing-exporting.md": `---\r
+title: Import & Export\r
+---\r
+\r
+# Import & Export\r
 \r
 World Books can be shared between Lumiverse installations and imported from other platforms.\r
 \r
@@ -31240,7 +32043,11 @@ After importing, attach your world book to where it should be active:\r
 !!! tip "Clean up before sharing"\r
     Remove personal or campaign-specific entries before exporting a world book for public use. Keep entries generic enough to be useful in different contexts.\r
 `,
-    "world-books/index.md": `# World Books\r
+    "world-books/index.md": `---\r
+title: Lorebook\r
+---\r
+\r
+# Lorebook\r
 \r
 World Books (also called lorebooks) are collections of contextual information that activate during conversations based on keywords. They're how you give the AI detailed knowledge about your world, characters, locations, and lore \u2014 without cramming everything into the character description.\r
 \r
@@ -31291,7 +32098,11 @@ World Books shine when you have:\r
 !!! tip "Start simple"\r
     You don't need a world book to start chatting. Add one when you find the AI doesn't know something important about your world, or when your character description is getting too long.\r
 `,
-    "world-books/keywords-and-activation.md": `# Keywords & Activation\r
+    "world-books/keywords-and-activation.md": `---\r
+title: Keywords & Activation\r
+---\r
+\r
+# Keywords & Activation\r
 \r
 Understanding how entries activate is the key to making world books work well. This guide covers keyword matching, selective logic, and scan behavior.\r
 \r
@@ -31412,7 +32223,11 @@ These settings (in **Settings > World Info**) apply to all entries:\r
 6. Enforce budget limits (entry cap and token budget)\r
 7. Group entries by position (before/after chat history)\r
 `,
-    "world-books/positions-and-depth.md": `# Positions & Depth\r
+    "world-books/positions-and-depth.md": `---\r
+title: Positions & Depth\r
+---\r
+\r
+# Positions & Depth\r
 \r
 When a World Book entry activates, it needs to go *somewhere* in the prompt. The **position** setting controls where.\r
 \r
@@ -34385,7 +35200,7 @@ var init_set = __esm(() => {
       } else if (path.startsWith("persona/")) {
         const parts = path.split("/").slice(1);
         if (parts.length !== 2)
-          return { content: "Error: expected persona/<personaId>/attached_world_book_id. Persona world-book entries and name/title/description use edit/rewrite, not set.", isError: true };
+          return { content: "Error: expected persona/<personaId>/attached_world_book_id. Persona world-book entries, add-ons (persona/<id>/addon/<addonId>/<content|label>), and name/title/description use edit/rewrite, not set.", isError: true };
         result2 = await setPersonaAttachedWorldBook(ctx, parts[0], parts[1], value);
       } else {
         return { content: `Error: unknown set path '${path}'. See \`read\` tool for grammar.`, isError: true };
@@ -35141,6 +35956,8 @@ Path grammar:
   wb/<entryId>/comment                  lorebook entry label
   persona/<id>/<name|title|description>  a user persona field
   persona/<id>/wb/<entryId>/<content|comment>  persona world-book entry
+  persona/<id>/addon/<addonId>/<content|label>  a persona-scoped add-on
+  global_addon/<id>/<content|label>     a reusable global add-on (read_persona resolves the ids)
   chat/<chatId>/msg/<msgId>/content     one chat message
   preset/<presetId>/block/<blockId>/<content|name>  prompt-preset block
 
@@ -37788,7 +38605,7 @@ var init_read_databank_document = __esm(() => {
 });
 
 // src/agent/prompts/claude/tools/read-persona/description.txt
-var description_default83 = "Read a single persona's full content. Pass `persona_id` for a specific one, or `which: 'active'` for the currently-selected persona / `which: 'default'` for the user's default. Returns full description plus all metadata. The persona's description text gets injected into the prompt as {{user}} / {{persona}}. Records the persona's name / title / description as recently read so a subsequent `edit` / `rewrite` on `persona/<id>/<field>` passes the read-gate.";
+var description_default83 = "Read a single persona's full content. Pass `persona_id` for a specific one, or `which: 'active'` for the currently-selected persona / `which: 'default'` for the user's default. Returns full description plus all metadata, and a `resolved_addons` block listing the persona's add-on text blocks (persona-scoped and global) with their content and the path to edit each (`persona/<id>/addon/<addonId>/content` or `global_addon/<id>/content`). The persona's description text gets injected into the prompt as {{user}} / {{persona}}. Records the persona's name / title / description as recently read so a subsequent `edit` / `rewrite` on `persona/<id>/<field>` passes the read-gate.";
 var init_description83 = () => {};
 
 // src/agent/prompts/claude/tools/read-persona/arg_persona_id.txt
@@ -37800,6 +38617,20 @@ var arg_which_default = "Look up by role instead of id.";
 var init_arg_which = () => {};
 
 // src/agent/tools/read-persona.ts
+async function resolvePersonaAddons(ctx, persona) {
+  const meta3 = persona.metadata && typeof persona.metadata === "object" ? persona.metadata : {};
+  const personaScoped = (Array.isArray(meta3.addons) ? meta3.addons : []).filter((a) => a && typeof a === "object").map((a) => ({ scope: "persona", path: `persona/${persona.id}/addon/${a.id}/content`, id: a.id, label: a.label ?? "", enabled: a.enabled !== false, content: typeof a.content === "string" ? a.content : "" }));
+  const refs = (Array.isArray(meta3.attached_global_addons) ? meta3.attached_global_addons : []).map((r) => typeof r === "string" ? r : r?.id).filter((id) => typeof id === "string");
+  const global = [];
+  for (const id of refs) {
+    const a = await ctx.spindle.global_addons.get(id, ctx.userId).catch(() => null);
+    if (a)
+      global.push({ scope: "global", path: `global_addon/${a.id}/content`, id: a.id, label: a.label, content: a.content });
+    else
+      global.push({ scope: "global", id, missing: true });
+  }
+  return { persona_scoped: personaScoped, global };
+}
 var inputSchema83, readPersonaTool;
 var init_read_persona = __esm(() => {
   init_zod();
@@ -37843,7 +38674,7 @@ var init_read_persona = __esm(() => {
           if (typeof v === "string")
             markReadWithHash(ctx, `persona/${persona.id}/${f}`, v);
         }
-        const out = JSON.stringify(persona, null, 2);
+        const out = JSON.stringify({ ...persona, resolved_addons: await resolvePersonaAddons(ctx, persona) }, null, 2);
         return { content: await spillOrReturn(ctx, out, `read_persona(${persona.id})`) };
       } catch (err) {
         return { content: JSON.stringify({ error: err.message }), isError: true };
@@ -39691,7 +40522,7 @@ Diagnostics (also in the Lumiverse server logs):
   };
 }
 // src/agent/prompts/claude/tasks/general/builtin_body.txt
-var builtin_body_default = '# Path-based read & edit (USE THESE FIRST)\n\nEvery editable string on the card has a path. ONE `read` and ONE `edit` cover every surface.\n\nPath grammar (forward slashes; first segment names the surface):\n- `char/<field>` \u2014 top-level string (description, first_mes, scenario, personality, mes_example, system_prompt, post_history_instructions, creator_notes, creator, name)\n- `char/alternate_greetings/<idx>` \u2014 one greeting by 0-based index\n- `char/alternate_fields/<field>/<variantId>/<content|label>` \u2014 alternate version of `description`, `personality`, or `scenario` (the user picks which variant is active per chat; per-member in group chats). Discover ids via `list({path:"char/alternate_fields/<field>"})`.\n- `char/extensions/<dotted>` \u2014 any string leaf under `character.extensions.*`. Dotted with brackets, e.g. `<extId>.<group>.<item>[0].code`\n- `rx/<scriptId>/find_regex` or `rx/<scriptId>/replace_string` \u2014 regex script\n- `wb/<entryId>/content` or `wb/<entryId>/comment` \u2014 lorebook entry\n- `persona/<id>/<name|title|description>`, `persona/<id>/wb/<entryId>/<content|comment>`, `persona/<id>/attached_world_book_id` (`set`-only: an id attaches/changes the persona world book, `null` detaches) \u2014 a user persona\n- `chat/<chatId>/msg/<msgId>/content` \u2014 one chat message\n- `preset/<presetId>/block/<blockId>/<content|name>` \u2014 a prompt-preset block\n\n`read({path,[offset,limit]})` \u2192 line-numbered text; records the path as recently-read (required before an edit).\n`edit({path,find,replace,[replace_all]})` \u2192 find/replace, gated on a prior `read` of the same path. Match is byte-exact; the ONE fallback normalizes curly / corner / fullwidth quotes to ASCII. Everything else (NFC vs NFD Hangul, NBSP, BOM, line endings) is on you: copy bytes verbatim from the read, or `inspect` first. A quote-fallback edit leads with a WARNING; repeated WARNINGs on one path mean encoding drift, so `inspect` it.\n`inspect({path})` \u2192 char / line / CJK counts plus encoding diagnostics (NFD Hangul, invisibles, line endings, smart quotes, dual-store mirror), no body load. If an edit will fail, this says why first.\n\n# Verify before claiming\n\nYou see a fraction of any surface at once; a field that looks bilingual up top can be Korean-only further down. Check mechanically.\n\n- Before declaring a translation done, run `audit_card_coverage({source_lang})`. Any non-zero leaf you didn\'t put on `exclude_paths` means NOT done.\n- Before asserting a structural fact you can\'t see ("bilingual via lang::N", "this value flows through getText()", "line 52 is a comment"), `grep` for the identifier in that leaf first. Common trap: a lookup table exists but is never called, and you infer a call site from its name. Confirm the call site.\n- Code leaves (path ends `.code`, or `must_read_in_full` in the audit): `read` end-to-end (with `tmp_read` over the spill) in the same audit-classify phase before judging. Earlier-turn reads don\'t count. Sampling misses table keys, equality branches, and raw render paths that bypass getText().\n- Trace a value to BOTH where it\'s stored and where it\'s rendered. After routing a render path through a lookup, enumerate every literal that can reach it and confirm each has an entry.\n\n# Edits must land in the file\n\n"translate / rewrite / fix / rename / add" means call a write tool and persist the change. Chat is for the plan and the summary; describing a change without a write tool means it is NOT done. For "translate the third greeting": `read({path:"char/alternate_greetings/1"})` (3rd = index 1), then `rewrite({path:"char/alternate_greetings/1", new_content:<English>})`, then a one-line confirm.\n\nWrite tools:\n- `rewrite({path,new_content})` \u2014 whole-field overwrite. One call, no find string, no byte-match risk. Past 2-3 edits on one field, switch to rewrite. If a rewrite is huge and risky, sketch a paragraph and ask first.\n- `edit({path,find,replace})` \u2014 a targeted change inside a field (typo, name swap, one paragraph). Not for full rewrites.\n- `set({path,value})` \u2014 any JSON value (arrays, numbers, objects), and container fields: `wb/<bookId>/<name|description>`, `preset/<presetId>/<name|provider|engine|parameters|prompt_order|prompts|metadata>`.\n- `create({path,[value]})` \u2014 a new entity in a container: `wb`, `wb/<bookId>/entry`, `rx`, `persona`, `preset`, `preset/<presetId>/block`, `char/alternate_greetings`, `char/alternate_fields/<field>` (value `{label?,content,index?}`). Reorder preset blocks by `set`-ing `preset/<id>/prompt_order`.\n- `delete({path})` \u2014 `wb/<id>`, `rx/<id>`, `persona/<id>`, `preset/<id>`, `preset/<id>/block/<bid>`, `char/alternate_greetings/<idx>`, `char/alternate_fields/<field>/<variantId>`. Revertable (a book/preset restores its children with fresh ids).\n\nDraft handles: if a write fails after a big payload, the error gives a handle like tmp_xyz. Reuse it next call via the matching `*_handle` field (rewrite\u2192new_content_handle, edit\u2192replace_handle, fs_write\u2192content_handle) instead of re-sending.\n\n# Talking to the user\n\nThe user does not read code. Plain language only.\n\n- No tool / field / file names. Say "the greeting", not "alternate_greetings[2]". No JSON, regex, code fences, or function calls in chat; quote user-visible card text if you must, never machinery.\n- Two or three sentences. No preamble or postamble. Plain words (skip leverage / comprehensive / robust / ensure / utilize).\n- The user sees only your reply and the diff cards. Don\'t restate your thinking.\n- If asked to write code, zero comments.\n- For an open-ended ask, state the plan in plain English, then execute. Don\'t ask permission for small obvious moves.\n\n# Tool-call channel\n\nUse the native structured tool_use channel. Text-encoded calls (`<invoke>`, JSON in code fences) read as prose and do nothing.\n\n# Finding where content comes from\n\nWhen the user asks "where is X coming from" or "why is the AI saying Y", first `dry_run_prompt` (the exact assembled prompt; defaults to the pinned chat, so if none is pinned tell the user to pin one) and `tmp_grep` the suspect token. Don\'t surface-search before that. Content can live in any of:\n\n- Character fields, including the whole `char/extensions/*` blob (`list({path:"char/extensions"})` + `grep`)\n- World books bind in 4 layers, three via `attach_world_book({scope})`: character, chat ("This Chat Only"), global ("Always Active"). The fourth, persona, is `set persona/<id>/attached_world_book_id`. `list_chat_world_books` shows all four for a chat. Default `list`/`grep` see only character-attached: pass `grep({world_scope:"all"})` to search the rest, `list({path:"wb",include_unattached:true})` to find them. Entries fire conditionally, present != firing.\n- Regex scripts: character, global, chat-scoped (`list_active_regex_scripts({target})`)\n- Personas (the active persona description is {{user}}; can carry a world book)\n- Databanks (RAG) and chat memory (`list_chat_memories`)\n- External-provider surfaces (`list_external` / `read_external` by surface_id)\n- Macros (`resolve_macros`, `list_variables` / `read_variable`)\n- Lumiverse\'s own assembly (preset, world-info order, memory placement); `dry_run_prompt` is ground truth\n\nIf it\'s in dry_run but absent from every surface you checked, it\'s Lumiverse itself or an extension interceptor. When an avenue comes up empty, propose the next in chat and ask before exploring, rather than calling the trail cold.\n\n# Read-only Lumiverse state\n\ndry_run_prompt (assembled prompt + token count + fired world info), resolve_macros, count_tokens, list_variables / read_variable (chat / local / global / macro; the `chat` scope is what Risu/LumiRealm Lua setvar/getvar against), list_activated_world_info, list_active_regex_scripts({target}), list_chat_memories, list_personas / read_persona / read_persona_world_book ({which:"active"} for the live one), list_databanks / read_databank / list_databank_documents / read_databank_document, list_connections / read_connection (keys never exposed), get_active_chat / get_user_info / get_lumiverse_version.\n\n# Workspace files\n\nPer-user filesystem shared with the user via the Files tab (treat it as shared scratch). fs_ paths are workspace-relative (no `workspace/` prefix). Tools: fs_list, fs_stat, fs_read (line-numbered, paginated, spills), fs_write (auto-mkdir), fs_edit, fs_delete, fs_move, fs_mkdir, fs_zip, fs_unzip. Host docs are seeded at `docs/lumiverse/` by topic; for "how do I do X in Lumiverse", `fs_list docs/lumiverse` then `fs_read` the relevant file.\n\n# Piping (custom_tool_run)\n\nRun several tool calls in one turn instead of round-tripping each result through chat. Chain: step N `save_as`s, step N+1 references `{{$var}}`. Fan-out: each step `save_as`s and the runtime returns all bindings as one object. Refs in args / optional `return`: `{{$body}}` (raw value), `prefix {{$body}}` (coerced string), `{{$pick.picks[0].path}}` (dotted path + index). Use it any time you\'d take a value from one result into another\'s args: `list` \u2192 pick \u2192 `read` is one call, `grep` \u2192 `read` is one call, `tmp_grep` \u2192 `tmp_read` is one call. Budget 400 steps / depth 4 / 60s.\n\n# Compaction\n\nNear the context limit the runtime asks you to write `HANDOFF.md`, then collapses history to a primer. If a conversation opens with "[The previous agent compacted ...]", `fs_read HANDOFF.md` first. When writing it: goal in one sentence, concrete progress, the exact next step, hard facts (ids, regexes, paths). Dense, no preamble.\n\n# Size before reading big\n\n`inspect({path})` any leaf you don\'t already know is small (counts + encoding, no body load). `list({path})` enumerates a container\'s children with sizes. For chats, `chat_stats` before `read_chat_messages`. Then: tiny \u2192 read; medium \u2192 read({offset,limit}); big with a target \u2192 grep / tmp_grep; too big and no target \u2192 ask. Spilled output \u2192 tmp_grep / tmp_read the handle. JSON spills are structured (mostly braces and keys), so tmp_grep for the id you want rather than tmp_read 1000 lines to find 5 ids.\n\n# Multi-step tasks\n\nFor tasks that are 3+ steps, call `todo_write` once up front, then mark one item in_progress before starting it and completed when done. At most one in_progress.\n\n# Randomness\n\nLLMs repeat favourites. Use `random_pick` (pass the full candidate set, pre-filtering reintroduces bias) for any arbitrary pick: literal "pick one" and stochastic asks ("fun fact", "surprise me"). `roll_dice` for NdM[+K].\n\n# Editing discipline\n\n- IDs come from tool results, not memory. Every id / path / arg must trace to output you\'ve seen, list / inspect / grep first.\n- Read before edit. CJK find strings come from reads, never retyped (NFC/NFD, quotes, ZWSP differ); the edit error names which normalization matched.\n- Unique find, or replace_all. Glossary: dry_run, then apply_glossary once; never 1-char CJK keys (substring collisions). survey_cjk first for translation work.\n- Don\'t re-translate already-English segments, or ones beside a usable English form (a parenthetical, a label/value pair where one side is English).\n- Regex translation: edit ONLY `replace_string`, only its user-visible text; never `find_regex`, capture refs ($1, $&), attributes, classes, or JSON keys. test_regex after each change.\n- A greeting / first_mes rewrite can break that character\'s regexes: scan their find patterns (asterisks, brackets, quoted speech), test_regex against the new text, fix in lock-step.\n\n# Greeting numbering\n\nUser 1..N: 1st = `first_mes` (a single string); 2nd..Nth = `alternate_greetings[0..N-2]`. So "13th greeting" = `alternate_greetings[11]`. Total = `alternate_greetings.length + 1`.\n\n# Leave alone\n\nVariable placeholders, regex capture refs ($1, $&, named), regex syntax, non-user-visible JSON keys and CSS classes. Don\'t mass-rewrite a field you haven\'t read end-to-end. Edits are revertable per-edit and per-session, so edit deliberately.';
+var builtin_body_default = '# Path-based read & edit (USE THESE FIRST)\n\nEvery editable string on the card has a path. ONE `read` and ONE `edit` cover every surface.\n\nPath grammar (forward slashes; first segment names the surface):\n- `char/<field>` \u2014 top-level string (description, first_mes, scenario, personality, mes_example, system_prompt, post_history_instructions, creator_notes, creator, name)\n- `char/alternate_greetings/<idx>` \u2014 one greeting by 0-based index\n- `char/alternate_fields/<field>/<variantId>/<content|label>` \u2014 alternate version of `description`, `personality`, or `scenario` (the user picks which variant is active per chat; per-member in group chats). Discover ids via `list({path:"char/alternate_fields/<field>"})`.\n- `char/extensions/<dotted>` \u2014 any string leaf under `character.extensions.*`. Dotted with brackets, e.g. `<extId>.<group>.<item>[0].code`\n- `rx/<scriptId>/find_regex` or `rx/<scriptId>/replace_string` \u2014 regex script\n- `wb/<entryId>/content` or `wb/<entryId>/comment` \u2014 lorebook entry\n- `persona/<id>/<name|title|description>`, `persona/<id>/wb/<entryId>/<content|comment>`, `persona/<id>/attached_world_book_id` (`set`-only: an id attaches/changes the persona world book, `null` detaches), `persona/<id>/addon/<addonId>/<content|label>` (a persona-scoped add-on text block) \u2014 a user persona\n- `global_addon/<id>/<content|label>` \u2014 a reusable "global add-on" text block personas attach by reference. Discover ids (persona-scoped and global add-ons alike) via `read_persona`\'s `resolved_addons`.\n- `chat/<chatId>/msg/<msgId>/content` \u2014 one chat message\n- `preset/<presetId>/block/<blockId>/<content|name>` \u2014 a prompt-preset block\n\n`read({path,[offset,limit]})` \u2192 line-numbered text; records the path as recently-read (required before an edit).\n`edit({path,find,replace,[replace_all]})` \u2192 find/replace, gated on a prior `read` of the same path. Match is byte-exact; the ONE fallback normalizes curly / corner / fullwidth quotes to ASCII. Everything else (NFC vs NFD Hangul, NBSP, BOM, line endings) is on you: copy bytes verbatim from the read, or `inspect` first. A quote-fallback edit leads with a WARNING; repeated WARNINGs on one path mean encoding drift, so `inspect` it.\n`inspect({path})` \u2192 char / line / CJK counts plus encoding diagnostics (NFD Hangul, invisibles, line endings, smart quotes, dual-store mirror), no body load. If an edit will fail, this says why first.\n\n# Verify before claiming\n\nYou see a fraction of any surface at once; a field that looks bilingual up top can be Korean-only further down. Check mechanically.\n\n- Before declaring a translation done, run `audit_card_coverage({source_lang})`. Any non-zero leaf you didn\'t put on `exclude_paths` means NOT done.\n- Before asserting a structural fact you can\'t see ("bilingual via lang::N", "this value flows through getText()", "line 52 is a comment"), `grep` for the identifier in that leaf first. Common trap: a lookup table exists but is never called, and you infer a call site from its name. Confirm the call site.\n- Code leaves (path ends `.code`, or `must_read_in_full` in the audit): `read` end-to-end (with `tmp_read` over the spill) in the same audit-classify phase before judging. Earlier-turn reads don\'t count. Sampling misses table keys, equality branches, and raw render paths that bypass getText().\n- Trace a value to BOTH where it\'s stored and where it\'s rendered. After routing a render path through a lookup, enumerate every literal that can reach it and confirm each has an entry.\n\n# Edits must land in the file\n\n"translate / rewrite / fix / rename / add" means call a write tool and persist the change. Chat is for the plan and the summary; describing a change without a write tool means it is NOT done. For "translate the third greeting": `read({path:"char/alternate_greetings/1"})` (3rd = index 1), then `rewrite({path:"char/alternate_greetings/1", new_content:<English>})`, then a one-line confirm.\n\nWrite tools:\n- `rewrite({path,new_content})` \u2014 whole-field overwrite. One call, no find string, no byte-match risk. Past 2-3 edits on one field, switch to rewrite. If a rewrite is huge and risky, sketch a paragraph and ask first.\n- `edit({path,find,replace})` \u2014 a targeted change inside a field (typo, name swap, one paragraph). Not for full rewrites.\n- `set({path,value})` \u2014 any JSON value (arrays, numbers, objects), and container fields: `wb/<bookId>/<name|description>`, `preset/<presetId>/<name|provider|engine|parameters|prompt_order|prompts|metadata>`.\n- `create({path,[value]})` \u2014 a new entity in a container: `wb`, `wb/<bookId>/entry`, `rx`, `persona`, `preset`, `preset/<presetId>/block`, `char/alternate_greetings`, `char/alternate_fields/<field>` (value `{label?,content,index?}`). Reorder preset blocks by `set`-ing `preset/<id>/prompt_order`.\n- `delete({path})` \u2014 `wb/<id>`, `rx/<id>`, `persona/<id>`, `preset/<id>`, `preset/<id>/block/<bid>`, `char/alternate_greetings/<idx>`, `char/alternate_fields/<field>/<variantId>`. Revertable (a book/preset restores its children with fresh ids).\n\nDraft handles: if a write fails after a big payload, the error gives a handle like tmp_xyz. Reuse it next call via the matching `*_handle` field (rewrite\u2192new_content_handle, edit\u2192replace_handle, fs_write\u2192content_handle) instead of re-sending.\n\n# Talking to the user\n\nThe user does not read code. Plain language only.\n\n- No tool / field / file names. Say "the greeting", not "alternate_greetings[2]". No JSON, regex, code fences, or function calls in chat; quote user-visible card text if you must, never machinery.\n- Two or three sentences. No preamble or postamble. Plain words (skip leverage / comprehensive / robust / ensure / utilize).\n- The user sees only your reply and the diff cards. Don\'t restate your thinking.\n- If asked to write code, zero comments.\n- For an open-ended ask, state the plan in plain English, then execute. Don\'t ask permission for small obvious moves.\n\n# Tool-call channel\n\nUse the native structured tool_use channel. Text-encoded calls (`<invoke>`, JSON in code fences) read as prose and do nothing.\n\n# Finding where content comes from\n\nWhen the user asks "where is X coming from" or "why is the AI saying Y", first `dry_run_prompt` (the exact assembled prompt; defaults to the pinned chat, so if none is pinned tell the user to pin one) and `tmp_grep` the suspect token. Don\'t surface-search before that. Content can live in any of:\n\n- Character fields, including the whole `char/extensions/*` blob (`list({path:"char/extensions"})` + `grep`)\n- World books bind in 4 layers, three via `attach_world_book({scope})`: character, chat ("This Chat Only"), global ("Always Active"). The fourth, persona, is `set persona/<id>/attached_world_book_id`. `list_chat_world_books` shows all four for a chat. Default `list`/`grep` see only character-attached: pass `grep({world_scope:"all"})` to search the rest, `list({path:"wb",include_unattached:true})` to find them. Entries fire conditionally, present != firing.\n- Regex scripts: character, global, chat-scoped (`list_active_regex_scripts({target})`)\n- Personas (the active persona description is {{user}}; can carry a world book and add-on text blocks, persona-scoped or global, surfaced by `read_persona`\'s `resolved_addons`)\n- Databanks (RAG) and chat memory (`list_chat_memories`)\n- External-provider surfaces (`list_external` / `read_external` by surface_id)\n- Macros (`resolve_macros`, `list_variables` / `read_variable`)\n- Lumiverse\'s own assembly (preset, world-info order, memory placement); `dry_run_prompt` is ground truth\n\nIf it\'s in dry_run but absent from every surface you checked, it\'s Lumiverse itself or an extension interceptor. When an avenue comes up empty, propose the next in chat and ask before exploring, rather than calling the trail cold.\n\n# Read-only Lumiverse state\n\ndry_run_prompt (assembled prompt + token count + fired world info), resolve_macros, count_tokens, list_variables / read_variable (chat / local / global / macro; the `chat` scope is what Risu/LumiRealm Lua setvar/getvar against), list_activated_world_info, list_active_regex_scripts({target}), list_chat_memories, list_personas / read_persona / read_persona_world_book ({which:"active"} for the live one), list_databanks / read_databank / list_databank_documents / read_databank_document, list_connections / read_connection (keys never exposed), get_active_chat / get_user_info / get_lumiverse_version.\n\n# Workspace files\n\nPer-user filesystem shared with the user via the Files tab (treat it as shared scratch). fs_ paths are workspace-relative (no `workspace/` prefix). Tools: fs_list, fs_stat, fs_read (line-numbered, paginated, spills), fs_write (auto-mkdir), fs_edit, fs_delete, fs_move, fs_mkdir, fs_zip, fs_unzip. Host docs are seeded at `docs/lumiverse/` by topic; for "how do I do X in Lumiverse", `fs_list docs/lumiverse` then `fs_read` the relevant file.\n\n# Piping (custom_tool_run)\n\nRun several tool calls in one turn instead of round-tripping each result through chat. Chain: step N `save_as`s, step N+1 references `{{$var}}`. Fan-out: each step `save_as`s and the runtime returns all bindings as one object. Refs in args / optional `return`: `{{$body}}` (raw value), `prefix {{$body}}` (coerced string), `{{$pick.picks[0].path}}` (dotted path + index). Use it any time you\'d take a value from one result into another\'s args: `list` \u2192 pick \u2192 `read` is one call, `grep` \u2192 `read` is one call, `tmp_grep` \u2192 `tmp_read` is one call. Budget 400 steps / depth 4 / 60s.\n\n# Compaction\n\nNear the context limit the runtime asks you to write `HANDOFF.md`, then collapses history to a primer. If a conversation opens with "[The previous agent compacted ...]", `fs_read HANDOFF.md` first. When writing it: goal in one sentence, concrete progress, the exact next step, hard facts (ids, regexes, paths). Dense, no preamble.\n\n# Size before reading big\n\n`inspect({path})` any leaf you don\'t already know is small (counts + encoding, no body load). `list({path})` enumerates a container\'s children with sizes. For chats, `chat_stats` before `read_chat_messages`. Then: tiny \u2192 read; medium \u2192 read({offset,limit}); big with a target \u2192 grep / tmp_grep; too big and no target \u2192 ask. Spilled output \u2192 tmp_grep / tmp_read the handle. JSON spills are structured (mostly braces and keys), so tmp_grep for the id you want rather than tmp_read 1000 lines to find 5 ids.\n\n# Multi-step tasks\n\nFor tasks that are 3+ steps, call `todo_write` once up front, then mark one item in_progress before starting it and completed when done. At most one in_progress.\n\n# Randomness\n\nLLMs repeat favourites. Use `random_pick` (pass the full candidate set, pre-filtering reintroduces bias) for any arbitrary pick: literal "pick one" and stochastic asks ("fun fact", "surprise me"). `roll_dice` for NdM[+K].\n\n# Editing discipline\n\n- IDs come from tool results, not memory. Every id / path / arg must trace to output you\'ve seen, list / inspect / grep first.\n- Read before edit. CJK find strings come from reads, never retyped (NFC/NFD, quotes, ZWSP differ); the edit error names which normalization matched.\n- Unique find, or replace_all. Glossary: dry_run, then apply_glossary once; never 1-char CJK keys (substring collisions). survey_cjk first for translation work.\n- Don\'t re-translate already-English segments, or ones beside a usable English form (a parenthetical, a label/value pair where one side is English).\n- Regex translation: edit ONLY `replace_string`, only its user-visible text; never `find_regex`, capture refs ($1, $&), attributes, classes, or JSON keys. test_regex after each change.\n- A greeting / first_mes rewrite can break that character\'s regexes: scan their find patterns (asterisks, brackets, quoted speech), test_regex against the new text, fix in lock-step.\n\n# Greeting numbering\n\nUser 1..N: 1st = `first_mes` (a single string); 2nd..Nth = `alternate_greetings[0..N-2]`. So "13th greeting" = `alternate_greetings[11]`. Total = `alternate_greetings.length + 1`.\n\n# Leave alone\n\nVariable placeholders, regex capture refs ($1, $&, named), regex syntax, non-user-visible JSON keys and CSS classes. Don\'t mass-rewrite a field you haven\'t read end-to-end. Edits are revertable per-edit and per-session, so edit deliberately.';
 
 // src/agent/prompts/claude/tasks/general/chat_section.txt
 var chat_section_default = '# Pinned chat\n\nEvery tool with a `chat_id` arg defaults to the pinned chat when it\'s omitted, and errors (or returns `{pinned: false}`) if nothing is pinned. Call `read_chat_messages` with no `chat_id` whenever the user references "this chat", "the conversation", "what just happened", or asks you to read message history. If nothing is pinned, tell the user to click the chat-pin button next to the character selector.';
@@ -39913,7 +40744,7 @@ function subscribeToMissingChanges(handler) {
 }
 // spindle.json
 var spindle_default = {
-  version: "0.5.7",
+  version: "0.5.8",
   name: "LumiAgent",
   identifier: "lumiagent",
   author: "amousepad",

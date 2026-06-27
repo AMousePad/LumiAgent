@@ -11,6 +11,8 @@ Path grammar:
   wb/<entryId>/comment                  lorebook entry label
   persona/<id>/<name|title|description>  a user persona field
   persona/<id>/wb/<entryId>/<content|comment>  persona world-book entry
+  persona/<id>/addon/<addonId>/<content|label>  a persona-scoped add-on
+  global_addon/<id>/<content|label>     a reusable global add-on (read_persona resolves the ids)
   chat/<chatId>/msg/<msgId>/content     one chat message
   preset/<presetId>/block/<blockId>/<content|name>  prompt-preset block
 

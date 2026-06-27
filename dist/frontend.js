@@ -6499,13 +6499,15 @@ var SURFACE_LABELS = {
   regex_script: "Regex scripts",
   extension: "Extensions",
   persona_field: "Personas",
+  persona_addon: "Persona add-ons",
   chat_message: "Chat messages",
   preset_block: "Preset blocks",
   preset: "Presets",
   persona: "Personas",
+  global_addon: "Global add-ons",
   external: "External (other extensions)"
 };
-var SURFACE_ORDER = ["character_field", "alternate_greeting", "alternate_field_variant", "world_book_entry", "world_book", "regex_script", "extension", "persona_field", "chat_message", "preset_block", "preset", "persona", "external"];
+var SURFACE_ORDER = ["character_field", "alternate_greeting", "alternate_field_variant", "world_book_entry", "world_book", "regex_script", "extension", "persona_field", "persona_addon", "chat_message", "preset_block", "preset", "persona", "global_addon", "external"];
 var MOBILE_BREAKPOINT_PX = 720;
 var DESKTOP_WIDTH_CAP = 1700;
 var DESKTOP_WIDTH_MIN = 720;
