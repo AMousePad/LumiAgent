@@ -4,12 +4,20 @@ const CHAT_PAGE_SIZE = 200;
 
 export type GroupLorebookMode = "active_character" | "all_unmuted" | "all";
 
+function chatMetadata(chat: ChatDTO): Readonly<Record<string, unknown>> {
+  const metadata = (chat as unknown as { metadata?: unknown }).metadata;
+  return metadata && typeof metadata === "object"
+    ? metadata as Readonly<Record<string, unknown>>
+    : {};
+}
+
 export function isGroupChat(chat: ChatDTO): boolean {
-  return chat.metadata.group === true || chat.metadata.group === 1;
+  const group = chatMetadata(chat)["group"];
+  return group === true || group === 1;
 }
 
 export function groupCharacterIds(chat: ChatDTO): string[] {
-  const raw = chat.metadata.character_ids;
+  const raw = chatMetadata(chat)["character_ids"];
   const ids = Array.isArray(raw)
     ? raw.filter((id): id is string => typeof id === "string" && id.length > 0)
     : [];
@@ -20,12 +28,13 @@ export function groupCharacterIds(chat: ChatDTO): string[] {
 }
 
 export function groupLorebookMode(chat: ChatDTO): GroupLorebookMode {
-  const explicit = chat.metadata.group_lorebook_mode;
+  const metadata = chatMetadata(chat);
+  const explicit = metadata["group_lorebook_mode"];
   if (explicit === "active_character" || explicit === "all_unmuted" || explicit === "all") {
     return explicit;
   }
-  if (chat.metadata.group_card_mode === "merge") return "all";
-  if (chat.metadata.group_card_mode === "merge_ignore_muted") return "all_unmuted";
+  if (metadata["group_card_mode"] === "merge") return "all";
+  if (metadata["group_card_mode"] === "merge_ignore_muted") return "all_unmuted";
   return "active_character";
 }
 
@@ -40,9 +49,10 @@ export function lorebookCharacterIds(chat: ChatDTO, focusedCharacterId: string |
       ? chat.character_id
       : members[0];
   if (mode === "all_unmuted") {
+    const metadata = chatMetadata(chat);
     const muted = new Set(
-      Array.isArray(chat.metadata.muted_character_ids)
-        ? chat.metadata.muted_character_ids.filter((id): id is string => typeof id === "string")
+      Array.isArray(metadata["muted_character_ids"])
+        ? metadata["muted_character_ids"].filter((id): id is string => typeof id === "string")
         : [],
     );
     const unmuted = members.filter((id) => !muted.has(id));

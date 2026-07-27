@@ -18751,11 +18751,16 @@ var init_attach_world_book = __esm(() => {
 });
 
 // src/state/chat-catalog.ts
+function chatMetadata(chat) {
+  const metadata = chat.metadata;
+  return metadata && typeof metadata === "object" ? metadata : {};
+}
 function isGroupChat(chat) {
-  return chat.metadata.group === true || chat.metadata.group === 1;
+  const group = chatMetadata(chat)["group"];
+  return group === true || group === 1;
 }
 function groupCharacterIds(chat) {
-  const raw = chat.metadata.character_ids;
+  const raw = chatMetadata(chat)["character_ids"];
   const ids = Array.isArray(raw) ? raw.filter((id) => typeof id === "string" && id.length > 0) : [];
   if (ids.length === 0 && typeof chat.character_id === "string" && chat.character_id.length > 0) {
     ids.push(chat.character_id);
@@ -18763,13 +18768,14 @@ function groupCharacterIds(chat) {
   return [...new Set(ids)];
 }
 function groupLorebookMode(chat) {
-  const explicit = chat.metadata.group_lorebook_mode;
+  const metadata = chatMetadata(chat);
+  const explicit = metadata["group_lorebook_mode"];
   if (explicit === "active_character" || explicit === "all_unmuted" || explicit === "all") {
     return explicit;
   }
-  if (chat.metadata.group_card_mode === "merge")
+  if (metadata["group_card_mode"] === "merge")
     return "all";
-  if (chat.metadata.group_card_mode === "merge_ignore_muted")
+  if (metadata["group_card_mode"] === "merge_ignore_muted")
     return "all_unmuted";
   return "active_character";
 }
@@ -18782,7 +18788,8 @@ function lorebookCharacterIds(chat, focusedCharacterId) {
     return members;
   const active = focusedCharacterId && members.includes(focusedCharacterId) ? focusedCharacterId : members.includes(chat.character_id) ? chat.character_id : members[0];
   if (mode === "all_unmuted") {
-    const muted = new Set(Array.isArray(chat.metadata.muted_character_ids) ? chat.metadata.muted_character_ids.filter((id) => typeof id === "string") : []);
+    const metadata = chatMetadata(chat);
+    const muted = new Set(Array.isArray(metadata["muted_character_ids"]) ? metadata["muted_character_ids"].filter((id) => typeof id === "string") : []);
     const unmuted = members.filter((id) => !muted.has(id));
     return unmuted.length > 0 ? unmuted : active ? [active] : [];
   }
