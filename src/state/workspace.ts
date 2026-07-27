@@ -5,6 +5,7 @@ import type { SpindleAPI } from "lumiverse-spindle-types";
 // absolute paths, `..` segments, empty segments, and backslashes are rejected.
 
 export const WORKSPACE_ROOT = "workspace";
+const DIRECTORY_MARKER = ".lumiagent-directory";
 
 // Hardcoded ceiling for a single file (chunked upload buffers the full payload
 // before writing, so this is bounded by memory not disk). Total workspace size
@@ -65,6 +66,7 @@ export function normaliseRelPath(input: string): string {
       throw new Error(`invalid path segment in '${input}': '${seg}'`);
     }
     if (seg.length > 200) throw new Error(`path segment too long: '${seg}'`);
+    if (seg === DIRECTORY_MARKER) throw new Error(`reserved workspace path segment: '${seg}'`);
     for (const ch of seg) { if (ch.charCodeAt(0) < 0x20) throw new Error("control characters not allowed in path: " + input); }
   }
   return parts.join("/");
@@ -87,21 +89,25 @@ function basename(rel: string): string {
 
 export async function listDir(spindle: SpindleAPI, userId: string, relPath: string): Promise<FileNode[]> {
   const prefix = listingPrefix(relPath);
+  const parent = normaliseRelPath(relPath);
   let entries: string[];
   try { entries = await spindle.userStorage.list(prefix, userId); } catch { return []; }
-  const out: FileNode[] = [];
+  const childNames: string[] = [];
   const seen = new Set<string>();
   for (const raw of entries) {
-    // Host returns the full descendant tree, normalize backslashes (Windows readdirSync) so the descendant filter actually catches them.
-    const norm = raw.replace(/\\/g, "/");
-    const trimmed = norm.endsWith("/") ? norm.slice(0, -1) : norm;
-    if (trimmed === "" || trimmed.includes("/")) continue;
-    if (seen.has(trimmed)) continue;
-    seen.add(trimmed);
-    const childRel = relPath === "" ? trimmed : `${normaliseRelPath(relPath)}/${trimmed}`;
+    // The host returns recursive files only. The first segment identifies the
+    // immediate child, including directories that contain deeper files.
+    const norm = raw.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+    const childName = norm.split("/")[0] ?? "";
+    if (childName === "" || childName === DIRECTORY_MARKER || seen.has(childName)) continue;
+    seen.add(childName);
+    childNames.push(childName);
+  }
+  const out: FileNode[] = [];
+  for (const childName of childNames) {
+    const childRel = parent === "" ? childName : `${parent}/${childName}`;
     const node = await stat(spindle, userId, childRel).catch(() => null);
-    if (!node) continue;
-    out.push(node);
+    if (node) out.push(node);
   }
   out.sort((a, b) => {
     if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
@@ -155,6 +161,7 @@ export async function makeDir(spindle: SpindleAPI, userId: string, relPath: stri
   const norm = normaliseRelPath(relPath);
   if (norm === "") return;
   await spindle.userStorage.mkdir(absPath(norm), userId);
+  await writeDirectoryMarker(spindle, userId, norm);
 }
 
 export async function remove(spindle: SpindleAPI, userId: string, relPath: string): Promise<void> {
@@ -188,6 +195,8 @@ export async function movePath(spindle: SpindleAPI, userId: string, fromRel: str
     const existing = await stat(spindle, userId, b);
     if (existing) throw new Error(`destination already exists: ${b}`);
   }
+  const source = await stat(spindle, userId, a);
+  if (source?.isDirectory) await writeDirectoryMarker(spindle, userId, a);
   await ensureParentDir(spindle, userId, b);
   await spindle.userStorage.move(absPath(a), absPath(b), userId);
 }
@@ -215,6 +224,13 @@ async function ensureParentDir(spindle: SpindleAPI, userId: string, relPath: str
   if (ix < 0) return;
   const parent = norm.slice(0, ix);
   await spindle.userStorage.mkdir(absPath(parent), userId);
+  await writeDirectoryMarker(spindle, userId, parent);
+}
+
+async function writeDirectoryMarker(spindle: SpindleAPI, userId: string, relPath: string): Promise<void> {
+  const norm = normaliseRelPath(relPath);
+  if (norm === "") return;
+  await spindle.userStorage.write(`${absPath(norm)}/${DIRECTORY_MARKER}`, "", userId);
 }
 
 async function ensureUnderCaps(spindle: SpindleAPI, userId: string, incomingBytes: number, relPath: string, caps: WorkspaceCaps): Promise<void> {

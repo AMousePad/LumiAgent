@@ -32906,6 +32906,8 @@ function normaliseRelPath(input) {
     }
     if (seg.length > 200)
       throw new Error(`path segment too long: '${seg}'`);
+    if (seg === DIRECTORY_MARKER)
+      throw new Error(`reserved workspace path segment: '${seg}'`);
     for (const ch of seg) {
       if (ch.charCodeAt(0) < 32)
         throw new Error("control characters not allowed in path: " + input);
@@ -32927,27 +32929,29 @@ function basename(rel) {
 }
 async function listDir(spindle2, userId, relPath) {
   const prefix = listingPrefix(relPath);
+  const parent = normaliseRelPath(relPath);
   let entries;
   try {
     entries = await spindle2.userStorage.list(prefix, userId);
   } catch {
     return [];
   }
-  const out = [];
+  const childNames = [];
   const seen = new Set;
   for (const raw of entries) {
-    const norm = raw.replace(/\\/g, "/");
-    const trimmed = norm.endsWith("/") ? norm.slice(0, -1) : norm;
-    if (trimmed === "" || trimmed.includes("/"))
+    const norm = raw.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+    const childName = norm.split("/")[0] ?? "";
+    if (childName === "" || childName === DIRECTORY_MARKER || seen.has(childName))
       continue;
-    if (seen.has(trimmed))
-      continue;
-    seen.add(trimmed);
-    const childRel = relPath === "" ? trimmed : `${normaliseRelPath(relPath)}/${trimmed}`;
+    seen.add(childName);
+    childNames.push(childName);
+  }
+  const out = [];
+  for (const childName of childNames) {
+    const childRel = parent === "" ? childName : `${parent}/${childName}`;
     const node = await stat(spindle2, userId, childRel).catch(() => null);
-    if (!node)
-      continue;
-    out.push(node);
+    if (node)
+      out.push(node);
   }
   out.sort((a, b) => {
     if (a.isDirectory !== b.isDirectory)
@@ -32997,6 +33001,7 @@ async function makeDir(spindle2, userId, relPath) {
   if (norm === "")
     return;
   await spindle2.userStorage.mkdir(absPath(norm), userId);
+  await writeDirectoryMarker(spindle2, userId, norm);
 }
 async function remove(spindle2, userId, relPath) {
   const norm = normaliseRelPath(relPath);
@@ -33025,6 +33030,9 @@ async function movePath(spindle2, userId, fromRel, toRel) {
     if (existing)
       throw new Error(`destination already exists: ${b}`);
   }
+  const source = await stat(spindle2, userId, a);
+  if (source?.isDirectory)
+    await writeDirectoryMarker(spindle2, userId, a);
   await ensureParentDir(spindle2, userId, b);
   await spindle2.userStorage.move(absPath(a), absPath(b), userId);
 }
@@ -33055,6 +33063,13 @@ async function ensureParentDir(spindle2, userId, relPath) {
     return;
   const parent = norm.slice(0, ix);
   await spindle2.userStorage.mkdir(absPath(parent), userId);
+  await writeDirectoryMarker(spindle2, userId, parent);
+}
+async function writeDirectoryMarker(spindle2, userId, relPath) {
+  const norm = normaliseRelPath(relPath);
+  if (norm === "")
+    return;
+  await spindle2.userStorage.write(`${absPath(norm)}/${DIRECTORY_MARKER}`, "", userId);
 }
 async function ensureUnderCaps(spindle2, userId, incomingBytes, relPath, caps) {
   if (incomingBytes > caps.maxFileBytes) {
@@ -33079,7 +33094,7 @@ async function getWorkspaceUsage(spindle2, userId) {
     fileCount: all.length
   };
 }
-var WORKSPACE_ROOT = "workspace", WORKSPACE_MAX_FILE_BYTES, WORKSPACE_MAX_FILES = 5000, DEFAULT_WORKSPACE_CAPS;
+var WORKSPACE_ROOT = "workspace", DIRECTORY_MARKER = ".lumiagent-directory", WORKSPACE_MAX_FILE_BYTES, WORKSPACE_MAX_FILES = 5000, DEFAULT_WORKSPACE_CAPS;
 var init_workspace = __esm(() => {
   WORKSPACE_MAX_FILE_BYTES = 1024 * 1024 * 1024;
   DEFAULT_WORKSPACE_CAPS = {
