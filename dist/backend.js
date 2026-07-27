@@ -37009,7 +37009,7 @@ var init_set_toggle = __esm(() => {
 });
 
 // src/agent/prompts/claude/tools/list-characters/description.txt
-var description_default43 = "Enumerate the user's characters so you can address one by id. Returns id, name, tags, attached world-book count, top-level extension keys, and a LumiRealm-presence signal per character.\n\nUse this to find the id of the character the user is talking about, then address it with `char/<id>/<field>` paths or the `character_id` argument on whole-card tools (grep / audit / survey / list / inspect / update_character / apply_glossary).\n\nFor library-wide comparison, classification, or tagging, request bounded `include_fields` previews here instead of reading cards one by one. Fully inspect only ambiguous cards; ask once about unresolved classifications instead of guessing. `extension_key` filters on structural key existence; `grep` cannot find object keys. Extension presence is evidence about tooling, not proof of a card's authorship. For a reviewed multi-card tag change, fetch `bulk_update_character_tags`.\n\nWhen a character is focused you rarely need this. `query` filters by name or tag substring.\n";
+var description_default43 = "Enumerate the user's characters so you can address one by id. Default rows are compact: id, name, tags, and attached world-book count.\n\nUse this to find the id of the character the user is talking about, then address it with `char/<id>/<field>` paths or the `character_id` argument on whole-card tools (grep / audit / survey / list / inspect / update_character / apply_glossary).\n\nFor library-wide comparison, classification, or tagging, request bounded `include_fields` previews instead of reading cards one by one. Fully inspect only ambiguous cards; ask once about unresolved classifications instead of guessing. Extension structure is opt-in: `probe_extension_keys` returns an `extension_presence` map, `include_extension_keys` returns visible top-level keys, and `extension_key` filters by exact visible-key existence. `grep` cannot find object keys. Extension presence is evidence about tooling, not proof of authorship. For a reviewed multi-card tag change, fetch `bulk_update_character_tags`.\n\nWhen a character is focused you rarely need this. `query` filters by name or tag substring.\n";
 var init_description43 = () => {};
 
 // src/agent/prompts/claude/tools/list-characters/arg_query.txt
@@ -37027,7 +37027,7 @@ function extensionSearchPath(key) {
 function visibleTopLevelExtensionKeys(extensions, skip) {
   return Object.keys(extensions ?? {}).filter((key) => !skip(extensionSearchPath(key))).sort();
 }
-var DEFAULT_LIMIT = 100, MAX_LIMIT = 500, DEFAULT_MAX_CHARS_PER_FIELD = 600, MAX_CHARS_PER_FIELD = 4000, DETAIL_FIELDS, inputSchema43, listCharactersTool;
+var DEFAULT_LIMIT = 100, MAX_LIMIT = 500, DEFAULT_MAX_CHARS_PER_FIELD = 600, MAX_CHARS_PER_FIELD = 4000, MAX_EXTENSION_PROBES = 64, DETAIL_FIELDS, extensionKeySchema, inputSchema43, listCharactersTool;
 var init_list_characters = __esm(() => {
   init_zod();
   init__framework();
@@ -37046,9 +37046,12 @@ var init_list_characters = __esm(() => {
     "post_history_instructions",
     "creator"
   ];
+  extensionKeySchema = exports_external.string().trim().min(1, "extension key must contain a non-whitespace character");
   inputSchema43 = exports_external.object({
     query: exports_external.string().optional().describe("Case-insensitive substring filter on character names and tags."),
-    extension_key: exports_external.string().min(1).optional().describe("Exact top-level character extension key to require, such as 'lumirealm'."),
+    extension_key: extensionKeySchema.optional().describe("Exact visible top-level extension key to require."),
+    include_extension_keys: exports_external.boolean().optional().describe("Include visible top-level extension keys in each returned row."),
+    probe_extension_keys: exports_external.array(extensionKeySchema).max(MAX_EXTENSION_PROBES).optional().describe("Report exact visible-key presence without returning extension content."),
     include_fields: exports_external.array(exports_external.enum(DETAIL_FIELDS)).max(DETAIL_FIELDS.length).optional().describe("Optional card-text previews for bulk comparison or classification."),
     max_chars_per_field: exports_external.number().int().min(100).max(MAX_CHARS_PER_FIELD).optional().describe(`Per-field preview cap. Default ${DEFAULT_MAX_CHARS_PER_FIELD}, max ${MAX_CHARS_PER_FIELD}.`),
     offset: exports_external.number().int().min(0).optional().describe("Pagination offset. Default 0."),
@@ -37062,7 +37065,14 @@ var init_list_characters = __esm(() => {
       type: "object",
       properties: {
         query: { type: "string", description: arg_query_default2 },
-        extension_key: { type: "string", description: "Exact top-level extension key to require, for example 'lumirealm'." },
+        extension_key: { type: "string", minLength: 1, description: "Exact visible top-level extension key to require." },
+        include_extension_keys: { type: "boolean", description: "Include visible top-level extension keys in each row." },
+        probe_extension_keys: {
+          type: "array",
+          items: { type: "string", minLength: 1 },
+          maxItems: MAX_EXTENSION_PROBES,
+          description: "Exact top-level keys to report in each row's extension_presence map."
+        },
         include_fields: { type: "array", items: { type: "string", enum: DETAIL_FIELDS }, maxItems: DETAIL_FIELDS.length },
         max_chars_per_field: { type: "integer", minimum: 100, maximum: MAX_CHARS_PER_FIELD },
         offset: { type: "integer", minimum: 0 },
@@ -37077,20 +37087,29 @@ var init_list_characters = __esm(() => {
       const limit = Math.min(MAX_LIMIT, Math.max(1, Math.floor(input.limit ?? DEFAULT_LIMIT)));
       const offset = Math.max(0, Math.floor(input.offset ?? 0));
       const q = input.query?.trim().toLowerCase();
-      const requiredExtension = input.extension_key?.trim();
+      const requiredExtension = input.extension_key;
+      const includeExtensionKeys = input.include_extension_keys === true;
+      const probeExtensionKeys = [...new Set(input.probe_extension_keys ?? [])];
       const includeFields = [...new Set(input.include_fields ?? [])];
       const maxChars = input.max_chars_per_field ?? DEFAULT_MAX_CHARS_PER_FIELD;
-      const skipExtensionSearch = await buildExtensionsSearchSkip(ctx.spindle, ctx.userId);
-      const toRow = (c) => {
-        const extensionKeys = visibleTopLevelExtensionKeys(c.extensions, skipExtensionSearch);
+      const needsExtensionMetadata = requiredExtension !== undefined || includeExtensionKeys || probeExtensionKeys.length > 0;
+      const skipExtensionSearch = needsExtensionMetadata ? await buildExtensionsSearchSkip(ctx.spindle, ctx.userId) : () => false;
+      const toRow = (c, knownExtensionKeys) => {
         const row = {
           id: c.id,
           name: c.name,
           tags: c.tags ?? [],
-          world_book_count: c.world_book_ids?.length ?? 0,
-          extension_keys: extensionKeys,
-          has_lumirealm: extensionKeys.includes("lumirealm")
+          world_book_count: c.world_book_ids?.length ?? 0
         };
+        if (includeExtensionKeys || probeExtensionKeys.length > 0) {
+          const extensionKeys = knownExtensionKeys ?? visibleTopLevelExtensionKeys(c.extensions, skipExtensionSearch);
+          if (includeExtensionKeys)
+            row["extension_keys"] = extensionKeys;
+          if (probeExtensionKeys.length > 0) {
+            const present = new Set(extensionKeys);
+            row["extension_presence"] = Object.fromEntries(probeExtensionKeys.map((key) => [key, present.has(key)]));
+          }
+        }
         if (includeFields.length > 0) {
           const fields = {};
           for (const field of includeFields) {
@@ -37105,17 +37124,7 @@ var init_list_characters = __esm(() => {
         }
         return row;
       };
-      const matchesFilters = (c) => {
-        if (q) {
-          const tags = Array.isArray(c.tags) ? c.tags : [];
-          if (!c.name.toLowerCase().includes(q) && !tags.some((tag) => tag.toLowerCase().includes(q)))
-            return false;
-        }
-        if (requiredExtension && !visibleTopLevelExtensionKeys(c.extensions, skipExtensionSearch).includes(requiredExtension))
-          return false;
-        return true;
-      };
-      if (!q && !requiredExtension) {
+      if (!q && requiredExtension === undefined) {
         const res = await ctx.spindle.characters.list({ limit, offset, userId: ctx.userId });
         const out2 = JSON.stringify({
           total: res.total,
@@ -37124,25 +37133,65 @@ var init_list_characters = __esm(() => {
           returned: res.data.length,
           has_more: offset + res.data.length < res.total,
           next_offset: offset + res.data.length < res.total ? offset + res.data.length : null,
+          ...includeExtensionKeys ? { include_extension_keys: true } : {},
+          ...probeExtensionKeys.length > 0 ? { probe_extension_keys: probeExtensionKeys } : {},
           ...includeFields.length > 0 ? { include_fields: includeFields, max_chars_per_field: maxChars } : {},
-          characters: res.data.map(toRow)
+          characters: res.data.map((character) => toRow(character))
         }, null, 2);
         return { content: await spillOrReturn(ctx, out2, "list_characters") };
       }
-      const library = await listAllCharacters(ctx.spindle, ctx.userId);
-      const matches = library.filter(matchesFilters);
-      const windowed = matches.slice(offset, offset + limit).map(toRow);
+      const windowed = [];
+      const seen = new Set;
+      let libraryTotal = 0;
+      let scanned = 0;
+      let matched = 0;
+      let pageOffset = 0;
+      for (;; ) {
+        const res = await ctx.spindle.characters.list({
+          limit: MAX_LIMIT,
+          offset: pageOffset,
+          userId: ctx.userId
+        });
+        libraryTotal = res.total;
+        scanned += res.data.length;
+        for (const c of res.data) {
+          if (seen.has(c.id))
+            continue;
+          seen.add(c.id);
+          if (q) {
+            const tags = Array.isArray(c.tags) ? c.tags : [];
+            if (!c.name.toLowerCase().includes(q) && !tags.some((tag) => tag.toLowerCase().includes(q))) {
+              continue;
+            }
+          }
+          let extensionKeys;
+          if (requiredExtension !== undefined) {
+            extensionKeys = visibleTopLevelExtensionKeys(c.extensions, skipExtensionSearch);
+            if (!extensionKeys.includes(requiredExtension))
+              continue;
+          }
+          if (matched >= offset && windowed.length < limit) {
+            windowed.push(toRow(c, extensionKeys));
+          }
+          matched++;
+        }
+        if (res.data.length === 0 || scanned >= res.total)
+          break;
+        pageOffset += res.data.length;
+      }
       const out = JSON.stringify({
-        total: matches.length,
-        total_library: library.length,
+        total: matched,
+        total_library: libraryTotal,
         offset,
         returned: windowed.length,
-        has_more: offset + windowed.length < matches.length,
-        next_offset: offset + windowed.length < matches.length ? offset + windowed.length : null,
+        has_more: offset + windowed.length < matched,
+        next_offset: offset + windowed.length < matched ? offset + windowed.length : null,
         ...q ? { query: input.query } : {},
-        ...requiredExtension ? { extension_key: requiredExtension } : {},
+        ...requiredExtension !== undefined ? { extension_key: requiredExtension } : {},
+        ...includeExtensionKeys ? { include_extension_keys: true } : {},
+        ...probeExtensionKeys.length > 0 ? { probe_extension_keys: probeExtensionKeys } : {},
         ...includeFields.length > 0 ? { include_fields: includeFields, max_chars_per_field: maxChars } : {},
-        scanned: library.length,
+        scanned,
         characters: windowed
       }, null, 2);
       return { content: await spillOrReturn(ctx, out, "list_characters") };
