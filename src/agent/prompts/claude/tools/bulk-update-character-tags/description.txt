@@ -1,0 +1,3 @@
+Preview or apply one tag batch across multiple characters. Each row may `add` and/or `remove` exact tags while preserving all others, or use `set` alone to replace the full tag array.
+
+The default is `dry_run:true`. Review its complete before/after diff, then repeat the same updates with `dry_run:false` and the returned `preview_hash`. Preflight errors make zero writes; each live row is rechecked, and a mid-batch failure compensates prior writes without overwriting divergent tags. A live batch uses one approval and records one reversible edit per changed character.

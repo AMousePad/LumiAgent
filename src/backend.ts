@@ -1055,7 +1055,10 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
           // (off-contract but reachable), track it like a normal turn so the
           // mutation stays revertable instead of landing silently on the spindle.
           s.edits.push(ev.entry);
-          void appendEntries(spindle, ev.entry.scope, [ev.entry], userId).catch((e) => log("warn", `ledger append failed: ${(e as Error).message}`));
+          // runAgent yields edit_logged before the owning tool_finished event.
+          // Awaiting here makes the ledger durable before either the UI or the
+          // provider can observe that tool as successfully completed.
+          await appendEntries(spindle, ev.entry.scope, [ev.entry], userId);
           break;
         default: break;
       }
@@ -2631,13 +2634,16 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
           // ledger. In All Characters mode the agent can edit any character by
           // id, so character-scoped edits are valid here too. Don't drop them.
           s.edits.push(ev.entry);
-          void appendEntries(spindle, ev.entry.scope, [ev.entry], userId).catch((e) => log("warn", `ledger append failed: ${(e as Error).message}`));
+          // Keep the generator paused until this edit is durably recorded.
+          // The next yielded event is tool_finished, so successful completion
+          // can no longer race a fire-and-forget ledger write.
+          await appendEntries(spindle, ev.entry.scope, [ev.entry], userId);
           break;
         case "revert_logged": {
-          if (s.characterId === null) break;
           // Agent-driven revert (revert_session_edits). Ledger persistence already
           // happened inside the tool; mirror into session.edits and notify
-          // the frontend the same way user-driven workshop reverts do.
+          // the frontend the same way user-driven workshop reverts do. This is
+          // scope-addressed and must work in All Characters mode.
           if (ev.outcome.kind === "clean" || ev.outcome.kind === "noop_already_reverted") {
             const idsToMark = new Set<string>([ev.editId]);
             if (ev.outcome.kind === "clean" && ev.outcome.cascadedEditIds) {
@@ -2652,8 +2658,14 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
           // regex_script reverts (the workshop wouldn't correlate them to the
           // matching scope view).
           const revertedEntry = s.edits.find((e) => e.id === ev.editId);
-          const revertedScope = revertedEntry?.scope ?? characterScope(s.characterId);
-          send({ type: "edit_reverted", scope: revertedScope, editId: ev.editId, outcome: ev.outcome }, userId);
+          const revertedScope = ev.scope
+            ?? revertedEntry?.scope
+            ?? (s.characterId === null ? null : characterScope(s.characterId));
+          if (revertedScope) {
+            send({ type: "edit_reverted", scope: revertedScope, editId: ev.editId, outcome: ev.outcome }, userId);
+          } else {
+            log("warn", `revert_logged missing scope for edit ${ev.editId}; session mirror updated but scope UI could not be notified`);
+          }
           break;
         }
         case "edits_resynced": {

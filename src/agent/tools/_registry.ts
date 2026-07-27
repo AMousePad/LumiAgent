@@ -7,6 +7,7 @@ import { listChatWorldBooksTool } from "./list-chat-world-books";
 import { assetDeleteTool } from "./asset-delete";
 import { assetRenameTool } from "./asset-rename";
 import { auditCardCoverageTool } from "./audit-card-coverage";
+import { bulkUpdateCharacterTagsTool } from "./bulk-update-character-tags";
 import { chatStatsTool } from "./chat-stats";
 import { countCjkCharsTool } from "./count-cjk-chars";
 import { createTool } from "./create";
@@ -136,6 +137,7 @@ const DEFERRED_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   // Metadata mutators. Path-based set/edit cover the common cases; these are
   // for the long-tail non-string fields.
   "update_character", "update_regex_script", "update_world_book_entry",
+  "bulk_update_character_tags",
   // Session edit-ledger management. Niche; the workshop UI is the usual path.
   "list_session_edits", "revert_session_edits", "squash_session_edits",
   // Workspace + tmp long-tail. Core reads (fs_read/fs_write/fs_list/fs_edit/
@@ -238,6 +240,7 @@ registry.register(listChatWorldBooksTool);
 registry.register(assetDeleteTool);
 registry.register(assetRenameTool);
 registry.register(auditCardCoverageTool);
+registry.register(bulkUpdateCharacterTagsTool);
 registry.register(readTool);
 registry.register(editTool);
 registry.register(rewriteTool);

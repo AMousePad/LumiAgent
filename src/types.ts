@@ -349,7 +349,7 @@ export type AgentEvent =
   | { type: "tool_started"; call_id: string; name: string; args: Record<string, unknown> }
   | { type: "tool_finished"; call_id: string; result: string; is_error: boolean; edit_ids: readonly string[] }
   | { type: "edit_logged"; entry: EditLogEntry }
-  | { type: "revert_logged"; editId: string; outcome: RevertOutcomeWire }
+  | { type: "revert_logged"; editId: string; outcome: RevertOutcomeWire; scope?: ScopeRef }
   | { type: "edits_resynced"; absorbedToMerged?: Readonly<Record<string, string>> }
   | { type: "turn_completed"; turn: number; finish_reason: string; usage?: { prompt: number; completion: number; total: number; estimated?: boolean } | undefined; cleanedContent?: string | undefined }
   | { type: "paused_for_input"; reason: PausedReason; detail?: string | undefined }

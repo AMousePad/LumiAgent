@@ -274,8 +274,9 @@ export const listTool = defineTool({
   requiresCharacter: false,
   execute: async (input, ctx) => {
     const maxEntries = input.max_entries ?? 200;
-    const maxDepth = input.max_depth ?? 4;
     const path = input.path.trim();
+    const rootExtensions = path === "char/extensions" || path === "extensions";
+    const maxDepth = input.max_depth ?? (rootExtensions ? 1 : 4);
     try {
       const personaOrPreset = path === "persona" || path === "personas"
         || path === "preset" || path === "presets" || path.startsWith("preset/");

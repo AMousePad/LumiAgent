@@ -10,7 +10,7 @@ import type {
   EditSurface,
 } from "../types";
 import { fileKeyOf, scopeKeyString } from "../types";
-import type { ScopeRef } from "../types";
+import type { ScopeKind, ScopeRef } from "../types";
 import {
   type ScopedLedgerV2,
   type FileKey,
@@ -564,19 +564,30 @@ export function laterEditsOnSameFile(_ledger: ScopedLedger, _editId: string): Ed
   return [];
 }
 
-// Non-character scopes (persona / chat / preset / world_book / regex_script)
-// have no entity list to iterate, so the agent's own edits there are invisible
-// to character-ledger-only tools. Enumerate those ledger directories so
-// list_session_edits / revert_session_edits can span every scope the agent
-// wrote this session, not just the focused character.
-const NON_CHARACTER_SCOPE_KINDS = ["persona", "chat", "preset", "world_book", "regex_script"] as const;
+// Enumerate persisted ledger directories when an operation must span entities
+// instead of following the current focus (bulk tag edits can touch hundreds of
+// character scopes in one call).
+const LEDGER_SCOPE_KINDS: readonly ScopeKind[] = [
+  "character",
+  "persona",
+  "chat",
+  "databank",
+  "preset",
+  "world_book",
+  "regex_script",
+  "global_addon",
+  "variables",
+  "images",
+];
 
-export async function listNonCharacterScopeLedgers(
+export async function listScopeLedgers(
   spindle: SpindleAPI,
   userId: string,
+  kinds: readonly ScopeKind[] = LEDGER_SCOPE_KINDS,
 ): Promise<Array<{ scope: ScopeRef; ledger: ScopedLedger }>> {
   const out: Array<{ scope: ScopeRef; ledger: ScopedLedger }> = [];
-  for (const kind of NON_CHARACTER_SCOPE_KINDS) {
+  const seen = new Set<string>();
+  for (const kind of kinds) {
     let names: string[] = [];
     try { names = await spindle.userStorage.list(`${LEDGER_DIR}/${kind}/`, userId); } catch { /* no dir yet */ }
     for (const rel of names) {
@@ -584,11 +595,50 @@ export async function listNonCharacterScopeLedgers(
       if (!base.endsWith(".json")) continue;
       const id = base.slice(0, -5);
       const scope: ScopeRef = { kind, id };
+      const key = scopeKeyString(scope);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const ledger = await loadLedger(spindle, scope, userId).catch(() => null);
+      if (ledger) out.push({ scope, ledger });
+    }
+  }
+
+  // A character ledger written before scope-addressed storage lives directly
+  // under `ledgers/<characterId>.json`. userStorage.list is non-recursive, so
+  // enumerate those flat files when character scopes are requested and route
+  // each through loadLedger's one-way migration. Without this pass, a global
+  // list/revert can only discover legacy history after that character happens
+  // to become focused.
+  if (kinds.includes("character")) {
+    let legacyNames: string[] = [];
+    try { legacyNames = await spindle.userStorage.list(`${LEDGER_DIR}/`, userId); } catch { /* no dir yet */ }
+    for (const rel of legacyNames) {
+      const prefix = `${LEDGER_DIR}/`;
+      const normalisedRel = rel.replace(/\\/g, "/");
+      const relative = normalisedRel.startsWith(prefix) ? normalisedRel.slice(prefix.length) : normalisedRel;
+      const base = relative.replace(/\/$/, "");
+      if (base.includes("/") || !base.endsWith(".json")) continue;
+      const id = base.slice(0, -5);
+      const scope: ScopeRef = { kind: "character", id };
+      const key = scopeKeyString(scope);
+      if (seen.has(key)) continue;
+      seen.add(key);
       const ledger = await loadLedger(spindle, scope, userId).catch(() => null);
       if (ledger) out.push({ scope, ledger });
     }
   }
   return out;
+}
+
+export async function listNonCharacterScopeLedgers(
+  spindle: SpindleAPI,
+  userId: string,
+): Promise<Array<{ scope: ScopeRef; ledger: ScopedLedger }>> {
+  return listScopeLedgers(
+    spindle,
+    userId,
+    LEDGER_SCOPE_KINDS.filter((kind) => kind !== "character"),
+  );
 }
 
 // Re-export the entry record types for callers that used to import them via

@@ -1,5 +1,5 @@
 import type { SpindleAPI } from "lumiverse-spindle-types";
-import type { EditRecord, RevertOutcomeWire } from "../../types";
+import type { EditRecord, RevertOutcomeWire, ScopeRef } from "../../types";
 import { ErrorCode, codedError } from "./_error_codes";
 
 export interface ToolCtx {
@@ -31,7 +31,7 @@ export interface ToolCtx {
   // The agent reverted one of its prior edits through a tool. The loop turns
   // these into revert_logged events the backend converts into edit_reverted
   // wire messages (same plumbing as user-driven workshop reverts).
-  pushRevert(editId: string, outcome: RevertOutcomeWire): void;
+  pushRevert(editId: string, outcome: RevertOutcomeWire, scope?: ScopeRef): void;
   // The agent ran a squash. The loop emits an edits_resynced event the
   // backend uses to push the fresh ledger view to the frontend. Pass the
   // absorbed → merged id map from squashMessage so the backend can rewrite

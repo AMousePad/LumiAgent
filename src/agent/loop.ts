@@ -6,6 +6,7 @@ import type {
   LlmMessage,
   LlmMessagePart,
   RevertOutcomeWire,
+  ScopeRef,
   ToolCall,
   ToolResult,
   ToolSchema,
@@ -329,7 +330,7 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
 
   interface CallBuffer {
     readonly edits: EditRecord[];
-    readonly reverts: Array<{ editId: string; outcome: RevertOutcomeWire }>;
+    readonly reverts: Array<{ editId: string; outcome: RevertOutcomeWire; scope?: ScopeRef }>;
     readonly images: QueuedImage[];
     resync: boolean;
     // squash_session_edits passes the absorbed → merged id map so the backend
@@ -359,7 +360,9 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
       recentReads,
       setFinished: (s) => { finishedSummary = s; },
       pushEdit: (rec) => { buffer.edits.push(rec); },
-      pushRevert: (editId, outcome) => { buffer.reverts.push({ editId, outcome }); },
+      pushRevert: (editId, outcome, scope) => {
+        buffer.reverts.push(scope === undefined ? { editId, outcome } : { editId, outcome, scope });
+      },
       queueImage: (img) => { buffer.images.push(img); },
       pushLedgerResync: (remap) => {
         buffer.resync = true;
@@ -723,7 +726,12 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
       queuedImages.push(...oc.buffer.images);
       results.push({ call_id: oc.tc.call_id, name: oc.tc.name, content: oc.resultText, ...(oc.isError ? { is_error: true } : {}) });
       for (const e of editsForCall) yield { type: "edit_logged", entry: e };
-      for (const r of oc.buffer.reverts) { revertedThisTurn = true; yield { type: "revert_logged", editId: r.editId, outcome: r.outcome }; }
+      for (const r of oc.buffer.reverts) {
+        revertedThisTurn = true;
+        yield r.scope === undefined
+          ? { type: "revert_logged", editId: r.editId, outcome: r.outcome }
+          : { type: "revert_logged", editId: r.editId, outcome: r.outcome, scope: r.scope };
+      }
       if (oc.buffer.resync) yield oc.buffer.resyncRemap
         ? { type: "edits_resynced", absorbedToMerged: oc.buffer.resyncRemap }
         : { type: "edits_resynced" };

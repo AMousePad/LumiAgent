@@ -1,13 +1,11 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
-import { loadLedger, listNonCharacterScopeLedgers, type ScopedLedger } from "../../state/ledger";
-import { characterScope } from "../../types";
-import { resolveCharacterTarget, noTargetResult } from "./_context";
+import { listScopeLedgers, type ScopedLedger } from "../../state/ledger";
 import description from "../prompts/claude/tools/list-session-edits/description.txt";
 import argScope from "../prompts/claude/tools/list-session-edits/arg_scope.txt";
 
 const inputSchema = z.object({
-  scope: z.enum(["current_message", "current_session", "all_sessions"]).optional().describe("current_message: just this response. current_session: every edit you've made in this session. all_sessions: every agent-authored edit on this character across every session (useful when the user asks about prior conversations). Default current_message."),
+  scope: z.enum(["current_message", "current_session", "all_sessions"]).optional().describe("current_message: just this response. current_session: every edit made in this session across all targets. all_sessions: every agent-authored edit across the library. Default current_message."),
   include_reverted: z.boolean().optional().describe("Include already-reverted edits. Default false."),
   limit: z.number().int().positive().max(500).optional(),
 }).strict();
@@ -25,11 +23,8 @@ export const listSessionEditsTool = defineTool({
     },
     additionalProperties: false,
   },
-  requiresCharacter: true,
+  requiresCharacter: false,
   execute: async (input, ctx) => {
-    let cid: string;
-    try { cid = resolveCharacterTarget(ctx); }
-    catch (err) { const nt = noTargetResult(err); if (nt) return nt; throw err; }
     const scope = input.scope ?? "current_message";
     const includeReverted = input.include_reverted ?? false;
     const out: Array<Record<string, unknown>> = [];
@@ -43,6 +38,8 @@ export const listSessionEditsTool = defineTool({
           if (!includeReverted && p.reverted) continue;
           out.push({
             edit_id: p.id,
+            scope_kind: ledger.scope.kind,
+            scope_id: ledger.scope.id,
             op: "edit",
             surface: f.key.surface,
             surface_id: f.key.surfaceId,
@@ -70,6 +67,8 @@ export const listSessionEditsTool = defineTool({
         if (!includeReverted && sp.reverted) continue;
         out.push({
           edit_id: sp.id,
+          scope_kind: ledger.scope.kind,
+          scope_id: ledger.scope.id,
           op: sp.op,
           surface: sp.surface,
           surface_id: sp.surfaceId,
@@ -86,13 +85,7 @@ export const listSessionEditsTool = defineTool({
       }
     };
 
-    collect(await loadLedger(ctx.spindle, characterScope(cid), ctx.userId));
-    // Persona / chat / preset / world_book / regex_script edits the agent made
-    // this session file into their own per-scope ledgers, invisible to a
-    // character-only scan. Enumerate them so the listing is scope-complete.
-    for (const { ledger } of await listNonCharacterScopeLedgers(ctx.spindle, ctx.userId)) {
-      collect(ledger);
-    }
+    for (const { ledger } of await listScopeLedgers(ctx.spindle, ctx.userId)) collect(ledger);
     out.sort((a, b) => (a["ts"] as number) - (b["ts"] as number));
     const limited = input.limit !== undefined ? out.slice(0, input.limit) : out;
     return { content: JSON.stringify({ scope, count: limited.length, total: out.length, edits: limited }) };

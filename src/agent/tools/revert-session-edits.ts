@@ -1,15 +1,14 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
-import { loadLedger, findPatch, findStructural, listNonCharacterScopeLedgers, type ScopedLedger } from "../../state/ledger";
-import { characterScope, type ScopeRef } from "../../types";
+import { findPatch, findStructural, listScopeLedgers, type ScopedLedger } from "../../state/ledger";
+import type { ScopeRef } from "../../types";
 import { revertEditWithCheck } from "../../state/edit-log";
 import { spliceRevertedFromSession } from "../../state/sessions";
-import { resolveCharacterTarget, noTargetResult } from "./_context";
 import description from "../prompts/claude/tools/revert-session-edits/description.txt";
 import argAllowCrossSession from "../prompts/claude/tools/revert-session-edits/arg_allow_cross_session.txt";
 
 const inputSchema = z.object({
-  edit_ids: z.array(z.string().min(1)).min(1).max(50).describe("Edit ids from list_session_edits."),
+  edit_ids: z.array(z.string().min(1)).min(1).max(500).describe("Edit ids from list_session_edits."),
   allow_cross_session: z.boolean().optional().describe("Allow reverting edits you made in a DIFFERENT chat session. Default false: only current-session edits are revertable. Opt in only when the user asks to undo work from an earlier conversation."),
 }).strict();
 
@@ -20,28 +19,18 @@ export const revertSessionEditsTool = defineTool({
   jsonSchema: {
     type: "object",
     properties: {
-      edit_ids: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 50 },
+      edit_ids: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 500 },
       allow_cross_session: { type: "boolean", description: argAllowCrossSession },
     },
     required: ["edit_ids"],
     additionalProperties: false,
   },
-  requiresCharacter: true,
+  requiresCharacter: false,
   execute: async (input, ctx) => {
-    let cid: string;
-    try { cid = resolveCharacterTarget(ctx); }
-    catch (err) { const nt = noTargetResult(err); if (nt) return nt; throw err; }
     const allowCrossSession = input.allow_cross_session === true;
-    // The agent can write into several ledgers in one session: the focused
-    // character plus any persona / chat / preset / world_book / regex_script it
-    // touched. Search all of them so a created persona / preset / wb entry can
-    // be reverted, not just character-scoped edits.
-    const scopeLedgers: Array<{ scope: ScopeRef; ledger: ScopedLedger }> = [
-      { scope: characterScope(cid), ledger: await loadLedger(ctx.spindle, characterScope(cid), ctx.userId) },
-      ...(await listNonCharacterScopeLedgers(ctx.spindle, ctx.userId)),
-    ];
+    const scopeLedgers = await listScopeLedgers(ctx.spindle, ctx.userId);
 
-    interface Accepted { id: string; ownerSessionId: string | null; ts: number; ledger: ScopedLedger; }
+    interface Accepted { id: string; ownerSessionId: string | null; ts: number; scope: ScopeRef; ledger: ScopedLedger; }
     const accepted: Accepted[] = [];
     const rejected: Array<{ edit_id: string; reason: string }> = [];
     for (const id of input.edit_ids) {
@@ -50,12 +39,12 @@ export const revertSessionEditsTool = defineTool({
       // presets, preset blocks) live on ledger.structural. Search every scope
       // ledger so cross-scope structural edits are revertable, not just
       // character-scoped ones.
-      let found: { author: string | undefined; sessionId: string | null; ts: number; ledger: ScopedLedger } | null = null;
-      for (const { ledger } of scopeLedgers) {
+      let found: { author: string | undefined; sessionId: string | null; ts: number; scope: ScopeRef; ledger: ScopedLedger } | null = null;
+      for (const { scope, ledger } of scopeLedgers) {
         const located = findPatch(ledger, id);
-        if (located) { found = { author: located.patch.author, sessionId: located.patch.sessionId, ts: located.patch.ts, ledger }; break; }
+        if (located) { found = { author: located.patch.author, sessionId: located.patch.sessionId, ts: located.patch.ts, scope, ledger }; break; }
         const struct = findStructural(ledger, id);
-        if (struct) { found = { author: struct.author, sessionId: struct.sessionId, ts: struct.ts, ledger }; break; }
+        if (struct) { found = { author: struct.author, sessionId: struct.sessionId, ts: struct.ts, scope, ledger }; break; }
       }
       if (!found) { rejected.push({ edit_id: id, reason: "not_found" }); continue; }
       if (found.author !== "agent") { rejected.push({ edit_id: id, reason: "not_agent_authored" }); continue; }
@@ -63,7 +52,7 @@ export const revertSessionEditsTool = defineTool({
         rejected.push({ edit_id: id, reason: "different_session (pass allow_cross_session: true to permit)" });
         continue;
       }
-      accepted.push({ id, ownerSessionId: found.sessionId, ts: found.ts, ledger: found.ledger });
+      accepted.push({ id, ownerSessionId: found.sessionId, ts: found.ts, scope: found.scope, ledger: found.ledger });
     }
 
     // Newest-first to minimise cascade chatter.
@@ -85,13 +74,12 @@ export const revertSessionEditsTool = defineTool({
     // Current-session ids are mirrored by the loop's revert_logged handler.
     const foreignSessionEdits = new Map<string, Set<string>>();
 
-    for (const { id, ownerSessionId, ledger } of accepted) {
-      // characterId arg is only consulted by character-scoped surfaces
-      // (character_field / alternate_* / extension), which only exist in the
-      // character ledger; non-character surfaces route purely by surfaceId, so
-      // passing cid is safe for every scope.
-      const outcome = await revertEditWithCheck(ctx.spindle, ledger, id, cid, ctx.userId, /* force */ true);
-      ctx.pushRevert(id, outcome);
+    for (const { id, ownerSessionId, scope, ledger } of accepted) {
+      // Character surfaces must use their owning character id, not the current
+      // focus; a bulk tag call can place one edit in hundreds of ledgers.
+      const characterId = scope.kind === "character" ? scope.id : (ctx.characterId ?? "");
+      const outcome = await revertEditWithCheck(ctx.spindle, ledger, id, characterId, ctx.userId, /* force */ true);
+      ctx.pushRevert(id, outcome, scope);
       outcomes.push({ edit_id: id, owner_session_id: ownerSessionId, ...outcome });
       if (outcome.kind === "clean") {
         // Splice the primary AND each cascade victim into ITS OWN owning
@@ -108,7 +96,7 @@ export const revertSessionEditsTool = defineTool({
 
     if (foreignSessionEdits.size > 0) {
       await Promise.allSettled(Array.from(foreignSessionEdits, ([sid, ids]) => {
-        const note = `[Note from the system: an agent acting in a different chat session for this character has reverted ${ids.size === 1 ? "an edit" : `${ids.size} edits`} that ${ids.size === 1 ? "was" : "were"} made here earlier. The affected fields have been restored to their prior state. This happened outside this conversation; do not bring it up unless the user asks.]`;
+        const note = `[Note from the system: an agent acting in a different chat session has reverted ${ids.size === 1 ? "an edit" : `${ids.size} edits`} that ${ids.size === 1 ? "was" : "were"} made here earlier. The affected fields have been restored to their prior state. This happened outside this conversation; do not bring it up unless the user asks.]`;
         return spliceRevertedFromSession(ctx.spindle, sid, ids, [note], ctx.userId);
       }));
     }

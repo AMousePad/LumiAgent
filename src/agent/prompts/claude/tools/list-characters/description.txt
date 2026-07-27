@@ -1,5 +1,7 @@
-Enumerate the user's characters so you can address one by id. Returns id, name, tags, and attached world-book count per character.
+Enumerate the user's characters so you can address one by id. Returns id, name, tags, attached world-book count, top-level extension keys, and a LumiRealm-presence signal per character.
 
 Use this to find the id of the character the user is talking about, then address it with `char/<id>/<field>` paths or the `character_id` argument on whole-card tools (grep / audit / survey / list / inspect / update_character / apply_glossary).
+
+For library-wide comparison, classification, or tagging, request bounded `include_fields` previews here instead of reading cards one by one. Fully inspect only ambiguous cards; ask once about unresolved classifications instead of guessing. `extension_key` filters on structural key existence; `grep` cannot find object keys. Extension presence is evidence about tooling, not proof of a card's authorship. For a reviewed multi-card tag change, fetch `bulk_update_character_tags`.
 
 When a character is focused you rarely need this. `query` filters by name or tag substring.

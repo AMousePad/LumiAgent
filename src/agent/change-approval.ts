@@ -131,6 +131,7 @@ const TOOL_LABELS: Readonly<Record<string, string>> = {
   squash_session_edits: "Squash the edit ledger",
   translate_card_strings: "Apply card translations",
   update_character: "Update character metadata",
+  bulk_update_character_tags: "Update character tags in bulk",
   update_external: "Update external-provider content",
   update_regex_script: "Update a regex script",
   update_world_book_entry: "Update a lorebook entry",
@@ -224,6 +225,11 @@ function resolveTarget(
   if (toolName === "update_character" || toolName === "set_default_variables_text") {
     return `character:${stringField(args, "character_id") ?? focusedCharacter}`;
   }
+  if (toolName === "bulk_update_character_tags") {
+    const updates = args["updates"];
+    const count = Array.isArray(updates) ? updates.length : 0;
+    return `${count} character${count === 1 ? "" : "s"}`;
+  }
   if (toolName === "squash_session_edits") {
     return `character:${focusedCharacter} / current assistant edit ledger`;
   }
@@ -270,6 +276,9 @@ export function changeApprovalPolicyFor(
   if (toolName === "custom_tool_run") return { kind: "delegate" };
   if (NO_CHANGE_TOOLS.has(toolName)) return { kind: "none" };
   if ((toolName === "apply_glossary" || toolName === "translate_card_strings") && args["dry_run"] === true) {
+    return { kind: "none" };
+  }
+  if (toolName === "bulk_update_character_tags" && args["dry_run"] !== false) {
     return { kind: "none" };
   }
   if ((toolName === "web_search" || toolName === "web_fetch") && stringField(args, "save_to") === null) {

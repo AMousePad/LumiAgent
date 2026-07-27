@@ -79,7 +79,7 @@ Per-user filesystem shared with the user via the Files tab (treat it as shared s
 
 # Piping (custom_tool_run)
 
-Run several tool calls in one turn instead of round-tripping each result through chat. Chain: step N `save_as`s, step N+1 references `{{$var}}`. Fan-out: each step `save_as`s and the runtime returns all bindings as one object. Refs in args / optional `return`: `{{$body}}` (raw value), `prefix {{$body}}` (coerced string), `{{$pick.picks[0].path}}` (dotted path + index). Use it any time you'd take a value from one result into another's args: `list` → pick → `read` is one call, `grep` → `read` is one call, `tmp_grep` → `tmp_read` is one call. Budget 400 steps / depth 4 / 60s.
+Use `custom_tool_run` for dependency chains and small static bundles. Its steps run sequentially and it has no loop/foreach; issue independent read-only calls together so the runtime can execute them in parallel. Chain: step N `save_as`s, step N+1 references `{{$var}}`. Refs in args / optional `return`: `{{$body}}` (raw value), `prefix {{$body}}` (coerced string), `{{$pick.picks[0].path}}` (dotted path + index). Budget 400 steps / depth 4 / 60s.
 
 # Compaction
 
