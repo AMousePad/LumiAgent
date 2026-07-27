@@ -22102,7 +22102,7 @@ var init_settings = __esm(() => {
 });
 
 // src/generated/lumiverse-docs.ts
-var LUMIVERSE_DOCS_VERSION = "89f7a762b8edf6fe", LUMIVERSE_DOCS;
+var LUMIVERSE_DOCS_VERSION = "05d90029ee30bb04", LUMIVERSE_DOCS;
 var init_lumiverse_docs = __esm(() => {
   LUMIVERSE_DOCS = {
     "characters/alternate-fields.md": `---\r
@@ -24766,7 +24766,7 @@ title: Setting Up Council\r
 \r
 # Setting Up Council\r
 \r
-This guide walks you through configuring the council for AI-assisted deliberation.\r
+This guide walks you through configuring the council for AI-assisted tool feedback.\r
 \r
 ---\r
 \r
@@ -24815,11 +24815,15 @@ Configure the sidecar in:\r
 !!! tip "Use a fast, cheap model"\r
     The sidecar handles quick analysis tasks, not full creative writing. A smaller model (like Haiku, Flash, or GPT-4o-mini) works well and keeps costs low.\r
 \r
+### Exclude Latest User Message from Sidecar\r
+\r
+Enable **Exclude Latest User Message from Sidecar** in the Council panel when a lightweight sidecar tends to treat the current user turn as a command to answer. The tool receives the preceding context but not that newest user-authored message, and still returns only its assigned feedback.\r
+\r
 ---\r
 \r
 ## Council Without Tools\r
 \r
-Council mode works even without assigning any tools. In this case, members engage in **pure self-debate** \u2014 they deliberate and discuss among themselves, providing general narrative guidance without structured tool outputs.\r
+Council members produce feedback only through their assigned tools. With no tools assigned, Council adds no tool feedback for that generation.\r
 \r
 ---\r
 \r
@@ -24838,7 +24842,7 @@ Each member brings their own perspective based on their Lumia's personality and 
 \r
 ## Enabling Historical Deliberations\r
 \r
-Historical deliberations give a council member continuity across turns. Use them when a member/tool should remember plans it has already proposed, warnings it has raised, or story threads it is intentionally developing in the background.\r
+Historical deliberations preserve useful continuity across turns, such as earlier plans, warnings, or story threads.\r
 \r
 To enable historical deliberations for a member:\r
 \r
@@ -24849,10 +24853,7 @@ To enable historical deliberations for a member:\r
 \r
 The setting is per member/tool assignment. For example, you can retain \`3\` prior **Suggest Direction** outputs for a Story Architect while leaving that same member's **Voice Concern** history disabled.\r
 \r
-Historical entries are included in two places:\r
-\r
-- The sidecar council tool sees prior outputs from the same member/tool before writing its next deliberation.\r
-- The main model receives a separate historical-baseline block alongside the current \`{{lumiaCouncilDeliberation}}\` output.\r
+The main model receives a separate historical-baseline block alongside the current \`{{lumiaCouncilDeliberation}}\` output. The sidecar does not receive its own prior output, which prevents it from simply repeating it.\r
 \r
 Lumiverse labels historical deliberations as continuity context only. They are not treated as a required template and should not override current chat history, active world info, or the latest user message.\r
 \r
@@ -25050,6 +25051,128 @@ You can select multiple placements for the same script.\r
 \r
 ---\r
 \r
+## Associative Regex Actions\r
+\r
+Associative regex actions turn elements in replacement HTML into choices. This is useful for interactive scene cards, CYOA responses, suggested dialogue, loadout selectors, and similar interfaces.\r
+\r
+Actions require a script with the **Display** target. In the replacement HTML, associate a clickable element with an action by giving it a \`data-regex-action\` value:\r
+\r
+\`\`\`html\r
+<button type="button" data-regex-action="enter-gate">Enter the gate</button>\r
+\`\`\`\r
+\r
+Then add an action in the script's **Actions** section whose ID is \`enter-gate\`. An element's regular \`id\` attribute can also be used, but \`data-regex-action\` is recommended because it does not interfere with CSS or page IDs.\r
+\r
+Each action has these fields:\r
+\r
+| Field | Description |\r
+|-------|-------------|\r
+| **ID** | Connects the action to \`data-regex-action\` in the replacement HTML. IDs must be unique within the script. |\r
+| **Type: Send** | Sends visible user content and starts generation immediately. |\r
+| **Type: Append** | Waits for the user's next message, then adds hidden content to that generation's prompt. |\r
+| **Type: Effects only** | Claims the choice without sending a message. Use this for state, editable drafts, forks, or combinations of them. |\r
+| **Multi-select option** | Lets this option be selected independently. Multi-select actions are staged instead of generating immediately, then stacked on the next Send. |\r
+| **Selection cost** | Numeric cost of a multi-select option. Accepts a literal such as \`2\` or a capture such as \`$3\`, allowing the regex creator or generated output to set the price. |\r
+| **Block cost limit** | Positive total-cost bound for the rendered block. Accepts literals and captures. If options resolve different limits, the lowest positive value is enforced. |\r
+| **Title / Subtitle** | Labels and hover text for the action. These may contain capture references. |\r
+| **Content** | The visible message or hidden prompt modifier produced by the action. |\r
+| **State effects** | Optional chat-variable updates committed when the action is claimed. The key is fixed by the creator; the value may contain capture references. |\r
+\r
+Titles, subtitles, content, cost, and limit support the same capture references as the replacement string, including \`$1\`, \`$2\`, \`$&\`, and named captures such as \`$<location>\`.\r
+\r
+### Persistent state effects\r
+\r
+Use **Add state effect** to let a choice update a persistent chat variable. State values are available to prompts and later regex scripts through \`{{getchatvar::key}}\`.\r
+\r
+For example, an action matching a named \`route\` capture can set:\r
+\r
+\`\`\`json\r
+{\r
+  "type": "set_state",\r
+  "key": "adventure.route",\r
+  "value": "$<route>"\r
+}\r
+\`\`\`\r
+\r
+The key is creator-defined and cannot contain captures. Values and drafts are resolved from the stored assistant message when the action is claimed. Actions containing composable effects are disabled in user messages and rejected by the server; editing the browser payload cannot choose a different key, value, draft, or fork point.\r
+\r
+Effects are additive and backward compatible. Existing actions without an \`effects\` field continue to behave exactly as before. A state effect is committed with the action's normal one-shot claim, including batched multi-select claims.\r
+\r
+### Draft and fork effects\r
+\r
+A **draft** effect places capture-resolved text in the composer without sending it. It can either replace the current draft or append to it, leaving the user free to edit before sending.\r
+\r
+A **fork** effect creates and opens a chat branch at the assistant message that rendered the action. Combine it with state and draft effects to build a complete branching choice:\r
+\r
+\`\`\`json\r
+{\r
+  "id": "take-rooftops",\r
+  "type": "effects",\r
+  "multi_select": false,\r
+  "cost": "1",\r
+  "limit": "3",\r
+  "title": "Take the rooftops",\r
+  "subtitle": "Create an editable branch",\r
+  "content": "",\r
+  "effects": [\r
+    { "type": "set_state", "key": "adventure.route", "value": "$<route>" },\r
+    { "type": "fork" },\r
+    { "type": "draft", "mode": "replace", "content": "Let's take $<route>." }\r
+  ]\r
+}\r
+\`\`\`\r
+\r
+The state update and fork are committed together. The new branch inherits the updated chat state, then opens with the draft waiting in its composer. Draft and fork effects require an **Effects only** action and cannot be multi-select. State effects may also be attached to existing Send or Append actions.\r
+\r
+### One-shot behavior\r
+\r
+Each rendered regex match is a stateful action block. A normal action consumes the entire block when selected. Multi-select choices remain provisional until Send: click an option once to add it and click it again to remove it. At Send, the selected options are claimed together and become one-shot.\r
+\r
+Used choices stay disabled when the user scrolls away, refreshes, or opens the chat on another client. This prevents an old scene card from triggering the same generation influence more than once. If normal and multi-select actions are mixed in one block, a normal **Send** action acts as the commit trigger: its content and all staged modifiers are claimed and sent together. A normal **Append** action is non-triggering and cannot replace staged selections from its own block.\r
+\r
+### How multi-select content is applied\r
+\r
+Multi-select actions wait for the next Send signal:\r
+\r
+- An option can be toggled on or off until Send begins.\r
+- A new option is rejected when its cost would put the block above its limit.\r
+- Clicking a normal Send action also counts as Send and batches that action with every staged modifier.\r
+- **Send** modifiers are joined to the user's visible message, separated by blank lines.\r
+- **Append** modifiers are stacked in a hidden prompt appendix attached to that user message.\r
+- A visible Send modifier can enable Send even when the text box is empty.\r
+- Append-only selections keep waiting until the user sends an actual message.\r
+\r
+### Importable examples\r
+\r
+- [Scene card with a single action](../assets/examples/regex-actions/scene-card-action.json) transforms \`<scene>...</scene>\` output into a styled HTML card. Its button sends the captured choice immediately.\r
+- [Multi-select scene planner](../assets/examples/regex-actions/multi-select-scene-planner.json) provides two visible selections and one hidden tone modifier, all stacked on the next Send.\r
+\r
+The first example expects AI output shaped like this:\r
+\r
+\`\`\`xml\r
+<scene>\r
+  <location>Moonlit Courtyard</location>\r
+  <description>A silver gate stands between ivy-covered walls.</description>\r
+  <choice>Open the silver gate</choice>\r
+</scene>\r
+\`\`\`\r
+\r
+The multi-select demo expects:\r
+\r
+\`\`\`xml\r
+<scene-options>\r
+  <title>Crossing the Sleeping City</title>\r
+  <budget>3</budget>\r
+  <route cost="2">Take the rooftops</route>\r
+  <companion cost="1">Bring Lyra</companion>\r
+  <tone cost="1">Keep the scene tense and quiet</tone>\r
+</scene-options>\r
+\`\`\`\r
+\r
+Import either JSON file through **Regex Scripts \u2192 Import**.\r
+\r
+---\r
+\r
 ## Scope\r
 \r
 | Scope | Applies To |\r
@@ -25198,7 +25321,59 @@ For richer sharing \u2014 including custom CSS, component overrides, and bundled
 For full styling control beyond what the Theme Panel exposes, open **Settings \u2192 Appearance \u2192 Custom CSS** (or invoke the Custom CSS modal from the Theme Panel). It supports:\r
 \r
 - **Custom CSS** \u2014 raw CSS that's injected after the built-in stylesheet, so you can override any variable or selector\r
-- **Component Overrides** \u2014 drop-in TSX replacements for built-in components (advanced; imported overrides are quarantined until you explicitly approve them, for safety)\r
+- **Component Overrides** \u2014 safe TSX decorators for built-in components (advanced; imported overrides are quarantined until you explicitly approve them, for safety)\r
+\r
+Component starter templates render \`<Original />\`, a trusted slot containing the\r
+complete built-in component. Keep that slot in the template and add markup around\r
+it so native behavior\u2014actions, swipes, editing, greetings, accessibility, and new\r
+features added in later releases\u2014continues to work. Removing \`<Original />\` opts\r
+into a full replacement, which means the replacement must recreate every feature\r
+it needs.\r
+\r
+\`\`\`jsx\r
+export default function BubbleMessage(props) {\r
+  return (\r
+    <>\r
+      <Original />\r
+      <div className="message-decoration">\u2726</div>\r
+    </>\r
+  )\r
+}\r
+\`\`\`\r
+\r
+Use per-component CSS when the change is purely visual; it layers onto the native\r
+component without changing its React structure.\r
+\r
+### Choosing message avatar resolution\r
+\r
+The example below intentionally replaces the built-in message markup because it\r
+changes the avatar source, not just its presentation. A full replacement must\r
+also render any actions or controls it wants to retain. For sizing, cropping,\r
+borders, and other visual avatar changes, keep \`<Original />\` and use CSS instead.\r
+\r
+\`BubbleMessage\` and \`MinimalMessage\` component overrides receive the same avatar sources. Use \`message.avatar\` when the theme needs a specific shape or resolution:\r
+\r
+\`\`\`jsx\r
+export default function BubbleMessage({ message, styles }) {\r
+  const avatarSrc = message.avatar.cropped.lg || message.avatar.cropped.sm || message.avatarUrl\r
+\r
+  return (\r
+    <div className={styles.card || ''}>\r
+      <img src={avatarSrc || ''} alt={message.displayName} />\r
+      <Content />\r
+    </div>\r
+  )\r
+}\r
+\`\`\`\r
+\r
+The available sources are:\r
+\r
+- \`message.avatar.cropped.sm\`, \`.lg\`, and \`.full\` \u2014 the square crop at about 300 px, about 700 px, or original resolution\r
+- \`message.avatar.original.sm\`, \`.lg\`, and \`.full\` \u2014 the uploaded aspect ratio at those same tiers\r
+- \`message.avatarUrl\` \u2014 the source selected by the current message style; it also follows that style's **Use full-size avatars** preference\r
+- \`message.fullAvatarUrl\` \u2014 the original aspect ratio at full resolution\r
+\r
+Use the same expressions in a \`MinimalMessage\` override; only the exported function/component being overridden changes. Changing an image's \`src\` requires a component override\u2014Custom CSS can resize or crop the rendered image, but cannot select another source URL.\r
 \r
 ---\r
 \r
@@ -25222,6 +25397,20 @@ A **Theme Pack** bundles everything together \u2014 theme variables, custom CSS,
 - **Import Pack** \u2014 Load a pack into Lumiverse. Imported component overrides arrive disabled by default and must be explicitly enabled, which prevents an untrusted pack from running arbitrary code on import.\r
 \r
 Theme Packs travel with their assets, so a recipient sees exactly what you see without needing to re-upload images.\r
+\r
+### Safe theme recovery\r
+\r
+If custom CSS or a component override makes the interface inaccessible, open Lumiverse with \`?safe-theme=1\` appended to its URL, for example \`https://lumiverse.example.com/?safe-theme=1\`. This suppresses custom CSS and component CSS/TSX overrides for that browser session without deleting them. Remove the query parameter and reload when the theme has been repaired.\r
+\r
+Server operators and theme developers can also start Lumiverse with safe theme mode enabled:\r
+\r
+\`\`\`bash\r
+./start.sh --safe-theme\r
+# Windows PowerShell: .\\start.ps1 -SafeTheme\r
+# Direct/server/container launches can set LUMIVERSE_SAFE_THEME=true instead.\r
+\`\`\`\r
+\r
+The startup flag applies to every browser using that server. Unset it and restart Lumiverse to restore saved styling. The existing \`Ctrl+Shift+U\` shortcut remains available when the app has mounted; unlike safe theme mode, the shortcut persists the disabled state of the current CSS and component overrides.\r
 \r
 ---\r
 \r
@@ -25886,6 +26075,327 @@ Extensions can also mount native Lumiverse form components (text inputs, selects
 \r
 If you want to build your own extensions, see the [Spindle developer docs](https://docs.lumiverse.chat){:target="_blank"} for the full API reference, including the manifest schema, RPC bridge, storage tiers, generation APIs, and example extensions.\r
 `,
+    "getting-started/desktop-tray.md": `---\r
+title: Experimental Lumiverse Desktop\r
+---\r
+\r
+# Experimental Lumiverse Desktop\r
+\r
+Lumiverse Desktop is an experimental Tauri-powered integrated browser with a\r
+macOS menu bar, Windows system tray, and Linux StatusNotifier (AppIndicator)\r
+icon. It runs a local Lumiverse checkout without leaving a terminal open and\r
+opens Lumiverse in its native desktop window. The tray keeps server controls,\r
+status, and update actions within reach.\r
+\r
+It is intended for people running Lumiverse from a local clone. It does not\r
+support Termux, Docker, or a remote Lumiverse server.\r
+\r
+!!! warning "Experimental desktop app"\r
+    Lumiverse Desktop is experimental. Use the normal browser experience if\r
+    you need the most established path while the integrated Tauri browser\r
+    continues to evolve.\r
+\r
+!!! note "Optional companion"\r
+    The standard \`./start.sh\` and \`./start.ps1\` launchers remain the normal\r
+    way to run Lumiverse. They do not install or open the tray app\r
+    automatically.\r
+\r
+---\r
+\r
+## Before you begin\r
+\r
+Start Lumiverse normally once before setting up the tray. This lets the normal\r
+launcher install Bun, install backend dependencies, and run the first-time\r
+setup wizard.\r
+\r
+You also need the following build tools:\r
+\r
+| Platform | Required tools |\r
+|----------|----------------|\r
+| macOS | [Rust](https://rustup.rs/) stable and Xcode Command Line Tools (\`xcode-select --install\`) |\r
+| Windows | [Rust](https://rustup.rs/) stable, the Microsoft C++ Build Tools, and WebView2 (included with most Windows 11 installations) |\r
+| Linux | [Rust](https://rustup.rs/) stable plus the GTK/WebKitGTK and AppIndicator packages listed below |\r
+\r
+The tray app uses the same Bun version as Lumiverse: Bun 1.3.13 or later.\r
+\r
+### Linux dependencies\r
+\r
+The Linux tray icon uses the StatusNotifierItem/AppIndicator D-Bus protocol.\r
+Install the required native packages before building the app:\r
+\r
+=== "Debian / Ubuntu"\r
+\r
+    \`\`\`bash\r
+    sudo apt install build-essential curl wget file libssl-dev \\\r
+      libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \\\r
+      librsvg2-dev libxdo-dev\r
+    \`\`\`\r
+\r
+=== "Fedora"\r
+\r
+    \`\`\`bash\r
+    sudo dnf install gcc gcc-c++ make curl wget file openssl-devel \\\r
+      webkit2gtk4.1-devel libappindicator-gtk3-devel \\\r
+      librsvg2-devel libxdo-devel\r
+    \`\`\`\r
+\r
+=== "Arch Linux"\r
+\r
+    \`\`\`bash\r
+    sudo pacman -S --needed base-devel curl wget file openssl \\\r
+      webkit2gtk-4.1 libappindicator-gtk3 librsvg libxdo\r
+    \`\`\`\r
+\r
+Package names vary by distribution. If your distribution does not provide\r
+\`libayatana-appindicator3-dev\`, use its \`libappindicator\` development package\r
+instead. An unpackaged Linux build also needs the matching AppIndicator\r
+runtime library on the computer where it runs.\r
+\r
+KDE Plasma displays these tray items natively. GNOME Shell needs an\r
+AppIndicator/KStatusNotifier extension, such as **AppIndicator and\r
+KStatusNotifierItem Support**, before the icon will appear.\r
+\r
+---\r
+\r
+## Build Lumiverse Desktop\r
+\r
+From the root of your Lumiverse checkout, run:\r
+\r
+\`\`\`bash\r
+cd desktop\r
+bun install\r
+bun run tauri build\r
+\`\`\`\r
+\r
+The finished app and installer files are placed under\r
+\`desktop/src-tauri/target/release/bundle/\`.\r
+\r
+=== "macOS"\r
+\r
+    Open the generated \`.app\` or install from the generated \`.dmg\`.\r
+\r
+=== "Windows"\r
+\r
+    Run the generated \`.msi\` or \`.exe\` installer, then open **Lumiverse Desktop**\r
+    from the Start menu.\r
+\r
+=== "Linux"\r
+\r
+    Install the generated package for your distribution (\`.deb\` or \`.rpm\`) or\r
+    run the generated \`.AppImage\`, then open **Lumiverse Desktop** from your\r
+    desktop's application launcher.\r
+\r
+!!! tip "Building from a checkout"\r
+    When you run a build directly from your Lumiverse checkout, the tray can\r
+    usually find that checkout automatically. If you install the app elsewhere\r
+    or move the checkout later, configure it manually as described below.\r
+\r
+---\r
+\r
+## Connect Lumiverse Desktop to Lumiverse\r
+\r
+1. Open **Lumiverse Desktop**. Its icon appears in the macOS menu bar, Windows\r
+   notification area, or Linux desktop's status area. On GNOME, first enable\r
+   an AppIndicator/KStatusNotifier extension as described above.\r
+2. Open the tray menu and choose **Set Lumiverse Folder\u2026**.\r
+3. Select the root folder of your Lumiverse clone\u2014the folder containing\r
+   \`start.sh\`, \`start.ps1\`, and \`scripts/\`.\r
+4. The tray finds Bun automatically. If it cannot, install or update Bun with\r
+   the normal Lumiverse launcher, then reopen the tray app.\r
+5. Choose **Start Server**. Lumiverse opens in the experimental integrated\r
+   browser when the local server is ready.\r
+\r
+The **Start Server at Launch** option is enabled by default. Disable it if you\r
+want the tray icon to open without starting Lumiverse. You can also enable\r
+**Launch at Login** from the tray menu.\r
+\r
+---\r
+\r
+## Using Lumiverse Desktop\r
+\r
+The menu provides:\r
+\r
+- **Start Server / Stop Server** \u2014 controls the Lumiverse process owned by the tray app.\r
+- **Open Lumiverse** \u2014 opens or closes the integrated browser. Its submenu\r
+  can reload that browser or open the same address in your default browser.\r
+- **Serving Stats** \u2014 shows the port, process ID, uptime, branch, and version.\r
+- **Check for Updates / Apply Update** \u2014 uses Lumiverse's normal Git-based update flow.\r
+\r
+Closing the tray app stops the runner and the server it started. If Lumiverse\r
+was started separately from a terminal, the tray can show that it is running,\r
+but it does not take ownership of or stop that process.\r
+\r
+---\r
+\r
+## Uninstalling\r
+\r
+Lumiverse is self-contained: the folder you cloned **is** the install. The\r
+server never writes configuration, databases, or services anywhere else on\r
+your system, so removing it is mostly a matter of deleting that one folder.\r
+\r
+This page covers the server, the optional Experimental Lumiverse Desktop, and the\r
+shared tools that Lumiverse installs but does not own.\r
+\r
+!!! warning "Your data lives in the folder"\r
+    The \`data/\` directory inside your Lumiverse folder holds your characters,\r
+    chats, world books, and accounts. Deleting the folder deletes all of it.\r
+    If you want to keep anything, [export it first](../data-portability/exporting.md).\r
+\r
+---\r
+\r
+### Uninstall the Lumiverse server\r
+\r
+1. Stop the server (**Ctrl + C** in its terminal, or **Stop Server** in the\r
+   tray app).\r
+2. Delete the folder you cloned:\r
+\r
+=== "macOS"\r
+\r
+    \`\`\`bash\r
+    rm -rf /path/to/Lumiverse\r
+    \`\`\`\r
+\r
+=== "Windows"\r
+\r
+    \`\`\`powershell\r
+    Remove-Item -Recurse -Force C:\\path\\to\\Lumiverse\r
+    \`\`\`\r
+\r
+That is the entire server uninstall. There are no launch daemons, registry\r
+entries, or hidden data directories to clean up \u2014 everything lived in the\r
+folder.\r
+\r
+!!! tip "Resetting instead of uninstalling"\r
+    To start fresh without removing Lumiverse, delete just \`data/\` and \`.env\`\r
+    inside the folder, then run the setup wizard again.\r
+\r
+---\r
+\r
+### Uninstall Lumiverse Desktop\r
+\r
+Skip this section if you never built or installed\r
+[Lumiverse Desktop](desktop-tray.md).\r
+\r
+#### 1. Turn off Launch at Login, then quit\r
+\r
+If you enabled **Launch at Login**, turn it off from the tray menu before\r
+quitting \u2014 the app removes its own login item. Then choose **Quit** (this\r
+also stops any server the tray started).\r
+\r
+#### 2. Remove the app\r
+\r
+=== "macOS"\r
+\r
+    Delete **Lumiverse Desktop.app** from \`/Applications\` (or wherever you put\r
+    it). Builds you never installed live inside the Lumiverse folder under\r
+    \`desktop/src-tauri/target/\` and are removed along with it.\r
+\r
+=== "Windows"\r
+\r
+    Uninstall **Lumiverse Desktop** from **Settings \u2192 Apps**. If you ran the\r
+    portable \`.exe\` instead of an installer, just delete it.\r
+\r
+#### 3. Remove the tray app's data\r
+\r
+The tray stores its settings and logs in the standard per-app locations:\r
+\r
+=== "macOS"\r
+\r
+    \`\`\`bash\r
+    rm -rf ~/Library/{Application\\ Support,Caches,WebKit}/chat.lumiverse.tray \\\r
+           ~/Library/{Caches,WebKit}/lumiverse-tray\r
+    \`\`\`\r
+\r
+=== "Windows"\r
+\r
+    \`\`\`powershell\r
+    Remove-Item -Recurse -Force $env:APPDATA\\chat.lumiverse.tray,\r
+        $env:LOCALAPPDATA\\chat.lumiverse.tray -ErrorAction SilentlyContinue\r
+    \`\`\`\r
+\r
+#### 4. Check for a leftover login item\r
+\r
+Only present if **Launch at Login** was enabled and step 1 was skipped:\r
+\r
+=== "macOS"\r
+\r
+    The login item is a LaunchAgent plist in \`~/Library/LaunchAgents\`:\r
+\r
+    \`\`\`bash\r
+    ls ~/Library/LaunchAgents | grep -i lumiverse\r
+    \`\`\`\r
+\r
+    If one is listed, unregister and delete it (substitute the name you found):\r
+\r
+    \`\`\`bash\r
+    launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/chat.lumiverse.tray.plist\r
+    rm -f ~/Library/LaunchAgents/chat.lumiverse.tray.plist\r
+    \`\`\`\r
+\r
+=== "Windows"\r
+\r
+    The login item is a per-user registry value (no admin rights involved):\r
+\r
+    \`\`\`powershell\r
+    reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v "Lumiverse Desktop" /f\r
+    \`\`\`\r
+\r
+Nothing tray-related is ever installed system-wide: no \`/Library/LaunchDaemons\`\r
+entries on macOS, no HKLM registry keys or services on Windows.\r
+\r
+---\r
+\r
+### Shared tools Lumiverse does not own\r
+\r
+These are general-purpose tools that remain installed. Keep them if any other\r
+software uses them; otherwise they have their own uninstall paths:\r
+\r
+| Tool | Why it's there | Where it lives | How to remove |\r
+|------|----------------|----------------|---------------|\r
+| **Bun** | Runs the server; auto-installed by \`start.sh\` / \`start.ps1\` if missing | \`~/.bun\` | Delete \`~/.bun\` and remove the \`BUN_INSTALL\` lines from your shell profile |\r
+| **Rust toolchain** | Only needed if you built the tray app yourself | \`~/.cargo\`, \`~/.rustup\` | \`rustup self uninstall\` |\r
+| **Git** | Cloning and updates | System package | Leave it \u2014 nearly everything uses Git |\r
+\r
+---\r
+\r
+## Troubleshooting\r
+\r
+### The tray says no Lumiverse folder is configured\r
+\r
+Choose **Set Lumiverse Folder\u2026** and select the root of the clone, not the\r
+\`desktop\` subfolder. The selected folder must contain \`scripts/runner.ts\`.\r
+\r
+### The tray cannot find Bun\r
+\r
+Run the normal launcher from the Lumiverse root once:\r
+\r
+=== "macOS"\r
+\r
+    \`\`\`bash\r
+    ./start.sh\r
+    \`\`\`\r
+\r
+=== "Windows"\r
+\r
+    \`\`\`powershell\r
+    .\\start.ps1\r
+    \`\`\`\r
+\r
+=== "Linux"\r
+\r
+    \`\`\`bash\r
+    ./start.sh\r
+    \`\`\`\r
+\r
+Then quit and reopen Lumiverse Desktop.\r
+\r
+### The build fails\r
+\r
+Confirm that Rust stable and the platform build tools listed above are\r
+installed, then run the build commands again from \`desktop/\`. The tray is a\r
+native app, so it needs those tools even though the Lumiverse server itself\r
+does not.\r
+`,
     "getting-started/first-steps.md": `---\r
 title: First Steps\r
 ---\r
@@ -25977,7 +26487,7 @@ Lumiverse runs on your own machine. It needs **Bun** (a fast JavaScript runtime)
 \r
 ## Requirements\r
 \r
-- **Bun** v1.1 or later \u2014 [Install Bun](https://bun.sh) (the start scripts auto-install Bun if it's missing)\r
+- **Bun** v1.3.13 or later \u2014 [Install Bun](https://bun.sh) (the start scripts auto-install Bun if missing and auto-upgrade older versions to latest stable)\r
 - A modern web browser (Chrome, Firefox, Edge, Safari)\r
 - An API key from at least one AI provider (OpenAI, Anthropic, Google, etc.)\r
 \r
@@ -26036,7 +26546,7 @@ After the shell opens, continue with the normal startup command below.\r
     ./start.sh\r
     \`\`\`\r
 \r
-    The script auto-detects Termux and installs required packages (\`glibc-repo\`, \`glibc-runner\`, \`proot\`). It uses a three-tier execution strategy to find the best way to run Bun on your device, then validates the exact \`proot\`-wrapped path it will later use for \`bun install\`.\r
+    The script auto-detects Termux and installs required packages (\`glibc-repo\`, \`glibc-runner\`, \`proot\`). It uses a three-tier execution strategy to find the best way to run Bun on your device, then validates the exact \`proot\`-wrapped path it will later use for \`bun install\`. If Bun is older than 1.3.13, startup uses the \`bun-termux\` manager to atomically update both the Bun runtime and its wrapper before continuing.\r
 \r
     If \`grun bun --version\` works but the native Termux install path is still broken, \`start.sh\` now attempts a \`bun-termux\` rebuild before it lets first-run setup continue.\r
 \r
@@ -26045,6 +26555,12 @@ After the shell opens, continue with the normal startup command below.\r
     See [Docker Installation](#docker) below.\r
 \r
 The start script handles everything: auto-installs Bun if needed, runs \`bun install\`, triggers the setup wizard on first launch, and starts the server.\r
+\r
+!!! tip "Optional desktop tray"\r
+    On macOS, Windows, and Linux, you can build an optional menu bar/system\r
+    tray companion that manages a local Lumiverse checkout. The Linux icon\r
+    requires a desktop environment with StatusNotifier/AppIndicator support.\r
+    See [Experimental Lumiverse Desktop](desktop-tray.md) for requirements and setup.\r
 \r
 ### 4. Open in your browser\r
 \r
@@ -26083,7 +26599,7 @@ The start scripts accept flags to control behavior:\r
 \r
     | Flag | Description |\r
     |------|-------------|\r
-    | *(no flags)* | Start normally (frontend + backend) |\r
+    | *(no flags)* | Start normally; auto-upgrade Bun to latest stable when below 1.3.13 |\r
     | \`-b\`, \`--build\` | Rebuild frontend before starting |\r
     | \`--build-only\` | Rebuild frontend only, don't start |\r
     | \`--backend-only\` | Start backend only, skip frontend |\r
@@ -26098,15 +26614,15 @@ The start scripts accept flags to control behavior:\r
     !!! note "Termux behavior"\r
         Bun's built-in \`bun upgrade\` command does not work on native Termux \u2014 it aborts with \`'bun upgrade' is unsupported on systems without ld\` because Termux uses Android's bionic libc, not glibc. On Termux:\r
 \r
-        * \`--upgrade-bun\` rebuilds the [\`bun-termux\`](https://github.com/Happ1ness-dev/bun-termux) wrapper at \`$HOME/.bun-termux\` (\`git pull && make && make install\`), which is the actual source of Bun on Termux.\r
+        * \`--upgrade-bun\` updates the Bun runtime and rebuilds the [\`bun-termux\`](https://github.com/Happ1ness-dev/bun-termux) wrapper at \`$HOME/.bun-termux\`. The upstream manager installs both through atomic renames, so an already-running wrapper does not cause Android's \`Text file busy\` error.\r
         * \`--upgrade-bun-canary\` is **not supported** \u2014 bun-termux only packages stable releases. The start script will skip the upgrade and continue with the existing binary. If you specifically need canary, run Lumiverse inside a [proot-distro Linux](https://github.com/termux/proot-distro) environment, where standard \`bun upgrade --canary\` works normally.\r
-        * If native Termux reports a broken install path before first run, the fastest repair is usually \`./start.sh --upgrade-bun\`, which rebuilds the wrapper in place.\r
+        * If native Termux reports a broken install path before first run, the fastest repair is usually \`./start.sh --upgrade-bun\`, which updates the runtime and wrapper in place.\r
 \r
 === "Windows (\`start.ps1\`)"\r
 \r
     | Flag | Description |\r
     |------|-------------|\r
-    | *(no flags)* | Start normally |\r
+    | *(no flags)* | Start normally; auto-upgrade Bun to latest stable when below 1.3.13 |\r
     | \`-Build\` or \`-b\` | Rebuild frontend before starting |\r
     | \`-Mode build-only\` | Rebuild frontend only |\r
     | \`-Mode backend-only\` | Start backend only |\r
@@ -26234,6 +26750,7 @@ If you'd rather throw away the cache entirely (slower, but belt-and-braces), pas
 | \`PORT\` | \`7860\` | Server port |\r
 | \`DATA_DIR\` | \`./data\` | Data directory inside the container |\r
 | \`TRUST_ANY_ORIGIN\` | \`true\` | Accept requests from any origin |\r
+| \`LUMIVERSE_SAFE_THEME\` | \`false\` | Temporarily suppress custom CSS and component overrides for emergency recovery |\r
 | \`TRUSTED_ORIGINS\` | \u2014 | Comma-separated allowed origins (for production) |\r
 | \`AUTH_SECRET\` | auto-derived | Explicit auth signing secret; usually leave unset |\r
 | \`ENCRYPTION_KEY\` | auto-generated | Legacy/manual encryption key override; usually leave unset |\r
@@ -26295,6 +26812,7 @@ Lumiverse uses a \`.env\` file for runtime configuration (created by the setup w
 | \`DATA_DIR\` | \`./data\` | Override the data directory location |\r
 | \`TRUSTED_ORIGINS\` | \u2014 | CORS origins (comma-separated) |\r
 | \`TRUST_ANY_ORIGIN\` | \`false\` | Accept requests from any origin |\r
+| \`LUMIVERSE_SAFE_THEME\` | \`false\` | Temporarily suppress custom CSS and component overrides for emergency recovery |\r
 | \`FRONTEND_DIR\` | \u2014 | Custom path to frontend dist folder |\r
 | \`SPINDLE_EPHEMERAL_GLOBAL_MAX_BYTES\` | \`524288000\` | Extension storage limit (500 MB) |\r
 | \`SPINDLE_EPHEMERAL_EXTENSION_DEFAULT_MAX_BYTES\` | \`52428800\` | Default per-extension storage limit |\r
@@ -27278,6 +27796,9 @@ New to Lumiverse? Start here:\r
 2. **[First Steps](getting-started/first-steps.md)** \u2014 Connect an API, import a character, send your first message\r
 3. **[Interface Overview](getting-started/interface-overview.md)** \u2014 Learn the layout and where to find things\r
 \r
+Prefer to manage a local Lumiverse server from your menu bar or notification\r
+area? See the optional [Experimental Lumiverse Desktop](getting-started/desktop-tray.md).\r
+\r
 ---\r
 \r
 ## Guides by Topic\r
@@ -27572,15 +28093,18 @@ Each add-on is a labeled block of text with an on/off toggle:\r
 - **Label** \u2014 A short name (e.g., "Combat Skills," "Secret Backstory," "Romantic Interest")\r
 - **Content** \u2014 The text that gets appended to your persona description when enabled\r
 - **Enabled** \u2014 Whether it's currently active\r
+- **Outlet** *(optional)* \u2014 A named persona-only content slot that exposes this add-on through \`{{persona_outlet::name}}\` instead of appending it to the persona description\r
 \r
-When an add-on is enabled, its content is appended to the \`{{persona}}\` macro output during prompt assembly.\r
+When an add-on is enabled with no outlet, its content is appended to the \`{{persona}}\` macro output during prompt assembly. Give it an outlet name to place it precisely in a preset block, character field, or another macro-aware prompt location with \`{{persona_outlet::name}}\`.\r
+\r
+Add-ons sharing a persona outlet are joined in their add-on order. Persona outlets are separate from Lorebook outlets, even when they use the same name, so each system remains independently manageable.\r
 \r
 ### Creating Add-Ons\r
 \r
 1. Open the persona editor\r
 2. Click the **Add-Ons** button\r
 3. Click **Add New** in the add-ons modal\r
-4. Fill in the label and content\r
+4. Fill in the label and content; optionally set an outlet name\r
 5. Toggle it on or off\r
 \r
 ### Quick Toggling\r
@@ -27594,6 +28118,14 @@ During a chat, you can quickly toggle add-ons without opening the full editor:\r
 The puzzle icon only appears when your active persona has at least one add-on.\r
 \r
 Toggles flipped from this dropdown are remembered **per chat** \u2014 opening another chat with the same persona doesn't carry the change over, so you can have one chat where "Injured" is on and another where it's off.\r
+\r
+### Add-On Avatar Overrides\r
+\r
+An add-on can also carry alternative persona art. Set its avatar in the add-on editor and that art is used while the add-on is enabled. This is useful for outfits, forms, or any other appearance-changing description block.\r
+\r
+Avatar overrides are persona-specific, including for attached global add-ons: a shared text add-on does not force every persona using it to share the same artwork. If several enabled add-ons have avatar overrides, the **most recently toggled** one wins. Turning that add-on off immediately falls back to the next most-recent enabled override, then to the persona's base avatar.\r
+\r
+For chat views, use the chat-scoped persona avatar URL (\`/api/v1/personas/:personaId/avatar?chat_id=:chatId\`). The add-on toggle response includes \`metadata.persona_addon_avatar_versions[personaId]\`; append it as a \`v\` query parameter when rendering an image so the browser replaces an already-loaded avatar immediately after a toggle.\r
 \r
 ---\r
 \r
@@ -27993,7 +28525,8 @@ A snapshot of all data is taken and stored in the macro environment. This is the
 \r
 - \`{{char}}\`, \`{{user}}\`, \`{{group}}\` \u2014 Names are frozen here\r
 - \`{{description}}\`, \`{{personality}}\`, \`{{scenario}}\` \u2014 Character fields (with alternates applied)\r
-- \`{{persona}}\` \u2014 Persona description with enabled add-ons appended\r
+- \`{{persona}}\` \u2014 Persona description with enabled add-ons that have no persona outlet appended\r
+- \`{{persona_outlet::name}}\` \u2014 Enabled persona add-ons assigned to that persona-only outlet\r
 - \`{{lastMessage}}\`, \`{{messageCount}}\` \u2014 Chat state at this moment\r
 - \`{{rejectedSwipe}}\` \u2014 On regenerate/swipe, the target response content captured before the new swipe is staged; otherwise empty\r
 - \`{{model}}\`, \`{{maxContext}}\` \u2014 Connection/model info\r
@@ -28322,6 +28855,7 @@ Utility macros for text manipulation and flow control.\r
 | \`{{input}}\` | \u2014 | The raw text of the last user message |\r
 | \`{{reverse::text}}\` | \u2014 | Reverses the given text |\r
 | \`{{outlet::name}}\` | \u2014 | Resolves the content exported by an active world-info entry outlet |\r
+| \`{{persona_outlet::name}}\` | \`{{personaOutlet::name}}\` | Resolves content exported by enabled persona add-ons assigned to that outlet |\r
 | \`{{banned}}\` | \u2014 | Placeholder for banned token lists |\r
 \r
 ### Conditional Logic\r
@@ -28675,10 +29209,12 @@ Macros that pull from the character card fields. These respect [alternate field]
 | \`{{description}}\` | \`{{charDescription}}\` | Character's description |\r
 | \`{{personality}}\` | \`{{charPersonality}}\` | Character's personality |\r
 | \`{{scenario}}\` | \`{{charScenario}}\` | Character's scenario |\r
-| \`{{persona}}\` | \`{{userPersona}}\` | Your persona's description (includes enabled add-ons) |\r
+| \`{{persona}}\` | \`{{userPersona}}\` | Your persona's description (includes enabled add-ons with no persona outlet) |\r
 | \`{{sub}}\` | \`{{subjectivePronoun}}\`, \`{{personaSubjectivePronoun}}\` | Your persona's subjective pronoun |\r
 | \`{{obj}}\` | \`{{objectivePronoun}}\`, \`{{personaObjectivePronoun}}\` | Your persona's objective pronoun |\r
-| \`{{poss}}\` | \`{{possessivePronoun}}\`, \`{{personaPossessivePronoun}}\` | Your persona's possessive pronoun |\r
+| \`{{poss}}\` | \`{{possessivePronoun}}\`, \`{{personaPossessivePronoun}}\` | Your persona's possessive determiner (e.g. \`their\`) |\r
+| \`{{ref}}\` | \`{{reflexivePronoun}}\`, \`{{personaReflexivePronoun}}\` | Your persona's reflexive pronoun |\r
+| \`{{poss_p}}\` | \`{{possessivePronounStandalone}}\`, \`{{personaPossessivePronounStandalone}}\` | Your persona's standalone possessive pronoun |\r
 | \`{{mesExamples}}\` | \`{{mes_examples}}\`, \`{{exampleMessages}}\` | Character's example dialogue |\r
 | \`{{mesExamplesRaw}}\` | \u2014 | Raw example dialogue (unprocessed) |\r
 | \`{{system}}\` | \`{{charPrompt}}\`, \`{{charSystem}}\` | Character's system prompt |\r
@@ -29209,6 +29745,32 @@ Information about the current system state.\r
 | \`{{hasExtension::name}}\` | \`{{has_extension}}\` | \`"true"\` / \`"false"\` \u2014 whether a named extension is active |\r
 | \`{{userColorMode}}\` | \`{{user_color_mode}}\`, \`{{colorMode}}\`, \`{{color_mode}}\` | User's color scheme (\`dark\`, \`light\`, or \`system\`) |\r
 \r
+### Prompt Block Placement\r
+\r
+These read-only macros report the **effective placement** of the preset block currently being rendered. If that block uses a [Placement Selector](prompt-variables.md#placement-selector), they reflect the user's saved Dropdown choice; otherwise they reflect the block's ordinary configuration.\r
+\r
+| Macro | Aliases | Returns |\r
+|-------|---------|---------|\r
+| \`{{promptBlockRole}}\` | \`{{blockRole}}\`, \`{{prompt_block_role}}\` | Current block role: \`system\`, \`user\`, \`assistant\`, \`user_append\`, or \`assistant_append\` |\r
+| \`{{promptBlockPosition}}\` | \`{{blockPosition}}\`, \`{{prompt_block_position}}\` | Current block position: \`pre_history\`, \`post_history\`, or \`in_history\` |\r
+| \`{{promptBlockDepth}}\` | \`{{blockDepth}}\`, \`{{prompt_block_depth}}\` | Current block depth as a number (including \`0\`) |\r
+\r
+They resolve to an empty string outside preset-block rendering, such as in a free-form macro preview. They only report placement; they cannot move or modify a block.\r
+\r
+**Example \u2014 adapt wording to placement:**\r
+\r
+\`\`\`\r
+{{if::{{promptBlockPosition}} == in_history}}\r
+This is an in-history reminder. Treat it as context attached near the conversation.\r
+{{else}}\r
+This is a top-level instruction block.\r
+{{/if}}\r
+\r
+{{if::{{promptBlockRole}} == system}}\r
+Follow these instructions at the system level.\r
+{{/if}}\r
+\`\`\`\r
+\r
 ---\r
 \r
 ## Reasoning / Chain-of-Thought\r
@@ -29440,7 +30002,7 @@ title: Preset Profiles\r
 \r
 # Preset Profiles\r
 \r
-Preset profiles let you save and restore a **preset selection plus its block enabled/disabled states**. You can bind these snapshots to specific characters or chats so Lumiverse switches to the right preset and block configuration automatically.\r
+Preset profiles let you save and restore a **preset selection plus its block enabled/disabled states**. You can bind these snapshots to specific personas, characters, or chats so Lumiverse switches to the right preset and block configuration automatically.\r
 \r
 ---\r
 \r
@@ -29462,6 +30024,10 @@ A baseline snapshot for one specific preset. Think of it as that preset's "gener
 \r
 A preset + block snapshot bound to a specific character. When you open a chat with that character, Lumiverse switches to that preset and restores its block states automatically.\r
 \r
+### Persona Profile\r
+\r
+A preset + block snapshot bound to a specific persona. Switching to that persona restores its preset and block states, which makes one-click persona changes useful for distinct writing modes as well as distinct identities. A persona profile overrides a character profile, because the explicit persona switch is the newer contextual choice.\r
+\r
 ### Chat Profile\r
 \r
 A preset + block snapshot bound to a specific chat. This is the most specific level \u2014 it overrides both the default and character profiles.\r
@@ -29473,11 +30039,12 @@ A preset + block snapshot bound to a specific chat. This is the most specific le
 When assembling a prompt, Lumiverse resolves the active profile in this order:\r
 \r
 1. **Chat profile** \u2014 If the current chat has a profile, use it\r
-2. **Character profile** \u2014 Otherwise, if the character has a profile, use it\r
-3. **Default profile** \u2014 Otherwise, use the default profile\r
-4. **Raw preset states** \u2014 If no profiles exist at all, use the block states as they are in the preset\r
+2. **Persona profile** \u2014 Otherwise, if the active persona has a profile, use it\r
+3. **Character profile** \u2014 Otherwise, if the character has a profile, use it\r
+4. **Default profile** \u2014 Otherwise, use the default profile\r
+5. **Raw preset states** \u2014 If no profiles exist at all, use the block states as they are in the preset\r
 \r
-Chat and character profiles are authoritative: they choose the preset first, then apply that profile's block states. Defaults are stored per preset, so the default profile only applies to the currently selected preset.\r
+Chat, persona, and character profiles are authoritative: they choose the preset first, then apply that profile's block states. Defaults are stored per preset, so the default profile only applies to the currently selected preset.\r
 \r
 ---\r
 \r
@@ -29487,6 +30054,7 @@ Chat and character profiles are authoritative: they choose the preset first, the
 2. Click **Capture Profile** (or the equivalent in the Loom Builder)\r
 3. Choose what to save as:\r
     - **Default** \u2014 The baseline snapshot for the current preset\r
+    - **Persona** \u2014 Bound to the active persona\r
     - **Character** \u2014 Bound to the current character\r
     - **Chat** \u2014 Bound to the current chat\r
 \r
@@ -29715,6 +30283,26 @@ In your block, just write:\r
 \r
 The user picks \`Warm\` from the dropdown; the prompt receives the full warm-tone instruction.\r
 \r
+### Placement Selector\r
+\r
+A **Dropdown** on a block can also choose where that *same block* is inserted. This is useful when a preset needs a small set of model- or adherence-oriented modes without asking users to edit the block itself.\r
+\r
+1. Add a Dropdown variable to the block and define its options.\r
+2. In the block's **Prompt Variables** section, enable **Placement selector**.\r
+3. Choose that Dropdown as the controlling variable, then configure a **Role**, **Position**, and, when needed, **Depth** for each option.\r
+\r
+For example, a Dropdown named \`adherence_target\` might offer these profiles:\r
+\r
+| Option | Role | Position | Depth |\r
+|--------|------|----------|-------|\r
+| \`Balanced\` | \`system\` | Before Chat History | \u2014 |\r
+| \`Frontier\` | \`user\` | Within Chat History | \`0\` |\r
+| \`Deep reminder\` | \`system\` | Within Chat History | \`3\` |\r
+\r
+Only Dropdowns can control placement, and the variable must belong to the block it controls. The option's normal **value** still works with \`{{var::...}}\`; its placement profile is configured separately.\r
+\r
+When a user selects and saves an option in **Configure Prompt Variables**, the block uses that option's placement on the next prompt build. The Loom block-list role badge also reflects the saved selection. If a selection or profile is unavailable, Lumiverse uses the block's ordinary Role, Position, and Depth as the safe fallback.\r
+\r
 ### On / Off\r
 \r
 An On/Off switch is the simplest possible variable: a single toggle that resolves to \`1\` (on) or \`0\` (off). Because \`0\` is falsy, you can gate entire prompt sections behind it with \`{{if::...}}\`:\r
@@ -29831,9 +30419,12 @@ The modal aggregates all variables from the preset, but **it only shows variable
 \r
 If you disable a prompt block (for instance, turning off a specific "Action Sequences" module), any Prompt Variables attached to that block will disappear from the modal. This ensures users are never confused by settings that are inactive.\r
 \r
+For a Dropdown configured as a **Placement selector**, the modal also shows the Role, Position, and applicable Depth that the currently selected option will use. Save your choice to apply it to the preset.\r
+\r
 ### Resetting Values\r
 \r
-Users can freely adjust the sliders, text fields, and numeric inputs. If they want to return to the preset creator's original vision, they can click the **Reset to Default** button to instantly restore the \`defaultValue\` of every variable.`,
+Users can freely adjust the sliders, text fields, and numeric inputs. If they want to return to the preset creator's original vision, they can click the **Reset to Default** button to instantly restore the \`defaultValue\` of every variable.\r
+`,
     "presets/sampler-settings.md": `---\r
 title: Sampler Settings\r
 ---\r
@@ -30325,7 +30916,7 @@ Key terms used throughout Lumiverse and these guides.\r
 : Settings panel for instance-level operations \u2014 check for updates, switch git branches, restart the server. Requires the runner to be attached.\r
 \r
 **Outlet**\r
-: A named content slot a world book entry can export \u2014 referenced from presets and other entries via \`{{outlet::name}}\`.\r
+: A named content slot a world book entry can export \u2014 referenced from presets and other entries via \`{{outlet::name}}\`. Persona add-ons use the separate \`{{persona_outlet::name}}\` namespace.\r
 \r
 ## P\r
 \r
@@ -30336,7 +30927,7 @@ Key terms used throughout Lumiverse and these guides.\r
 : Your identity in conversations \u2014 includes name, pronouns, description, avatar, and optional add-ons.\r
 \r
 **Persona Add-On**\r
-: An optional, toggleable block of content attached to a persona. Lets you extend your persona description dynamically without editing it.\r
+: An optional, toggleable block of content attached to a persona. It can extend \`{{persona}}\` directly or be sent to a named persona outlet for precise prompt placement.\r
 \r
 **Preset**\r
 : A saved configuration defining prompt block order, sampler settings, and completion behavior.\r
@@ -32635,6 +33226,8 @@ Any one of these appearing in the chat will trigger the entry.\r
 \r
 !!! tip "Use whole-word matching for common words"\r
     If your keyword is "fire," whole-word matching prevents it from triggering on "firehouse," "firewall," or "campfire" \u2014 unless those are relevant too.\r
+\r
+You can force **Case Sensitive** or **Match Whole Words** for every entry at once from **Lorebook \u2192 Activation Settings**. Turning a global option off returns control to each entry's own setting without changing any entries.\r
 \r
 ---\r
 \r
@@ -41669,7 +42262,7 @@ function subscribeToMissingChanges(handler) {
 }
 // spindle.json
 var spindle_default = {
-  version: "0.5.9",
+  version: "0.6.0",
   name: "LumiAgent",
   identifier: "lumiagent",
   author: "amousepad",
