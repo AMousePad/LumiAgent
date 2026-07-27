@@ -1946,6 +1946,31 @@ ${LOADERS_CSS}
 }
 .la-session-item-tick svg { width: 16px; height: 16px; display: block; }
 
+.la-approval { display: flex; flex-direction: column; gap: 10px; }
+.la-approval-title { margin: 0; font-size: 16px; color: var(--lumiverse-text); }
+.la-approval-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.la-approval-chip {
+  padding: 2px 8px; border-radius: 999px; text-transform: uppercase;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
+  color: var(--lumiverse-primary); background: var(--lumiverse-primary-015);
+}
+.la-approval-chip.is-danger { color: var(--lumiverse-danger); background: var(--lumiverse-danger-015); }
+.la-approval-tool, .la-approval-target {
+  color: var(--lumiverse-text); overflow-wrap: anywhere; white-space: pre-wrap;
+}
+.la-approval-label {
+  margin-top: 4px; color: var(--lumiverse-text-muted);
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+}
+.la-approval-details {
+  max-height: 320px; margin: 0; padding: 12px; overflow: auto;
+  border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius-md);
+  color: var(--lumiverse-text); background: var(--lumiverse-bg-elevated);
+  font: 12px/1.45 var(--lumiverse-font-mono); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.la-approval-note { margin: 0; color: var(--lumiverse-text-muted); font-size: 12px; }
+.la-approval-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+
 @media (max-width: 640px) {
   .la-header { padding: 8px 10px; }
   .la-thread { padding: 16px 10px 16px; }

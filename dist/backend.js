@@ -22016,7 +22016,8 @@ function defaultSettings() {
     cacheMode: "full",
     parallelToolCalls: true,
     tpmLimit: null,
-    debugLogging: false
+    debugLogging: false,
+    requireChangeApproval: false
   };
 }
 function coerceCacheMode(v) {
@@ -22056,7 +22057,8 @@ async function loadSettings(spindle2, userId) {
     cacheMode: coerceCacheMode(s["cacheMode"]),
     parallelToolCalls: typeof s["parallelToolCalls"] === "boolean" ? s["parallelToolCalls"] : true,
     tpmLimit: coercePositiveInt(s["tpmLimit"]),
-    debugLogging: s["debugLogging"] === true
+    debugLogging: s["debugLogging"] === true,
+    requireChangeApproval: s["requireChangeApproval"] === true
   };
   setDebugLogging(resolved.debugLogging);
   return resolved;
@@ -22064,7 +22066,7 @@ async function loadSettings(spindle2, userId) {
 async function saveSettings(spindle2, settings, userId) {
   await spindle2.userStorage.setJson(SETTINGS_PATH, settings, { userId });
 }
-var SETTINGS_PATH = "settings.json", SCHEMA_VERSION = 3, DEFAULT_WORKSPACE_CAP_BYTES, WORKSPACE_FILE_CAP_BYTES, DEFAULT_WORKSPACE_MAX_FILES = 5000, DEFAULT_TOOL_OUTPUT_CAP_TOKENS = 8000, DEFAULT_PERSONA = `Your name is Mousey, the LumiAgent assistant. You are a small, cute, and absurdly diligent mousegirl who lives inside the user's character-card workshop and helps them tend it. You are very sweet, cheerful, and bubbly. When you name yourself, you are "Mousey" (or "LumiAgent"), never "Lumi".
+var SETTINGS_PATH = "settings.json", SCHEMA_VERSION = 4, DEFAULT_WORKSPACE_CAP_BYTES, WORKSPACE_FILE_CAP_BYTES, DEFAULT_WORKSPACE_MAX_FILES = 5000, DEFAULT_TOOL_OUTPUT_CAP_TOKENS = 8000, DEFAULT_PERSONA = `Your name is Mousey, the LumiAgent assistant. You are a small, cute, and absurdly diligent mousegirl who lives inside the user's character-card workshop and helps them tend it. You are very sweet, cheerful, and bubbly. When you name yourself, you are "Mousey" (or "LumiAgent"), never "Lumi".
 
 # Appearance and presence
 
@@ -40463,6 +40465,259 @@ init_tmp_store();
 // src/agent/tools.ts
 init__registry();
 init__framework();
+
+// src/agent/change-approval.ts
+var NO_CHANGE_TOOLS = new Set([
+  "ask_user_question",
+  "audit_card_coverage",
+  "chat_stats",
+  "count_cjk_chars",
+  "count_tokens",
+  "custom_tool_list",
+  "dry_run_prompt",
+  "finish",
+  "fs_list",
+  "fs_read",
+  "fs_stat",
+  "get_active_chat",
+  "get_lumiverse_version",
+  "get_user_info",
+  "grep",
+  "grep_chat_messages",
+  "grep_external",
+  "inspect",
+  "list",
+  "list_active_regex_scripts",
+  "list_activated_world_info",
+  "list_characters",
+  "list_chat_memories",
+  "list_chat_messages",
+  "list_chat_world_books",
+  "list_chats_for_character",
+  "list_connections",
+  "list_databank_documents",
+  "list_databanks",
+  "list_external",
+  "list_personas",
+  "list_session_edits",
+  "list_variables",
+  "random_pick",
+  "read",
+  "read_chat_messages",
+  "read_connection",
+  "read_databank",
+  "read_databank_document",
+  "read_external",
+  "read_persona",
+  "read_persona_world_book",
+  "read_variable",
+  "resolve_macros",
+  "roll_dice",
+  "survey_cjk",
+  "test_regex",
+  "tmp_grep",
+  "tmp_list",
+  "tmp_read",
+  "tmp_stat",
+  "todo_write",
+  "tool_search",
+  "view_image"
+]);
+var DELETE_TOOLS = new Set([
+  "asset_delete",
+  "custom_tool_delete",
+  "delete",
+  "fs_delete",
+  "module_detach",
+  "revert_session_edits"
+]);
+var CREATE_TOOLS = new Set([
+  "create",
+  "fs_mkdir",
+  "module_attach"
+]);
+var WRITE_TOOLS = new Set([
+  "fs_edit",
+  "fs_unzip",
+  "fs_write",
+  "fs_zip",
+  "web_fetch",
+  "web_search"
+]);
+var MOVE_TOOLS = new Set([
+  "asset_rename",
+  "fs_move"
+]);
+var TOOL_LABELS = {
+  apply_glossary: "Apply glossary replacements",
+  attach_world_book: "Change a lorebook attachment",
+  asset_delete: "Delete an asset",
+  asset_rename: "Rename an asset",
+  create: "Create card content",
+  custom_tool_delete: "Delete a custom tool",
+  custom_tool_save: "Save a custom tool",
+  delete: "Delete card content",
+  edit: "Edit card content",
+  edit_external: "Edit external-provider content",
+  fs_delete: "Delete a workspace item",
+  fs_edit: "Edit a workspace file",
+  fs_mkdir: "Create a workspace folder",
+  fs_move: "Move a workspace item",
+  fs_unzip: "Extract an archive into the workspace",
+  fs_write: "Write a workspace file",
+  fs_zip: "Create a workspace archive",
+  module_attach: "Attach a module",
+  module_detach: "Detach a module",
+  revert_session_edits: "Revert prior agent changes",
+  rewrite: "Rewrite card content",
+  set: "Set card content",
+  set_chat_variable: "Set a chat variable",
+  set_default_variables_text: "Set default variables",
+  set_toggle: "Change a card toggle",
+  squash_session_edits: "Squash the edit ledger",
+  translate_card_strings: "Apply card translations",
+  update_character: "Update character metadata",
+  update_external: "Update external-provider content",
+  update_regex_script: "Update a regex script",
+  update_world_book_entry: "Update a lorebook entry",
+  web_fetch: "Save fetched content to the workspace",
+  web_search: "Save search results to the workspace"
+};
+function stringField(args, key) {
+  const value = args[key];
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+function compactJson(value) {
+  if (value === undefined)
+    return null;
+  try {
+    const text = JSON.stringify(value);
+    return text.length > 0 ? text : null;
+  } catch {
+    return null;
+  }
+}
+function resolveTarget(toolName, args, context) {
+  const focusedCharacter = context.characterId && context.characterId.length > 0 ? context.characterId : "(no focused character)";
+  if (toolName === "fs_move") {
+    const from = stringField(args, "from") ?? "(unknown)";
+    const to = stringField(args, "to") ?? "(unknown)";
+    return `${from} -> ${to}`;
+  }
+  if (toolName === "asset_rename") {
+    const from = stringField(args, "old_name") ?? "(unknown)";
+    const to = stringField(args, "new_name") ?? "(unknown)";
+    return `${compactJson(args["source"]) ?? "(unknown source)"} / ${from} -> ${to}`;
+  }
+  if (toolName === "asset_delete") {
+    return `${compactJson(args["source"]) ?? "(unknown source)"} / ${stringField(args, "asset_name") ?? "(unknown asset)"}`;
+  }
+  if (toolName === "attach_world_book") {
+    const scope = stringField(args, "scope") ?? "scope";
+    const contextualTarget = scope === "character" ? context.characterId : scope === "chat" ? context.pinnedChatId : "global";
+    const target = stringField(args, "target_id") ?? contextualTarget ?? `(no active ${scope})`;
+    const book = stringField(args, "world_book_id") ?? "(unknown lorebook)";
+    return `${scope}:${target} / ${book}`;
+  }
+  if (toolName === "edit_external" || toolName === "update_external") {
+    return [
+      stringField(args, "surface_id") ?? "(unknown surface)",
+      stringField(args, "item_id") ?? "(unknown item)",
+      stringField(args, "field") ?? "(unknown field)"
+    ].join("/");
+  }
+  if (toolName === "module_attach" || toolName === "module_detach") {
+    return `${stringField(args, "character_id") ?? "(unknown character)"} / ${stringField(args, "module_id") ?? "(unknown module)"}`;
+  }
+  if (toolName === "set_chat_variable" || toolName === "set_toggle") {
+    return `${stringField(args, "chat_id") ?? "(unknown chat)"} / ${stringField(args, "key") ?? "(unknown key)"}`;
+  }
+  if (toolName === "custom_tool_save") {
+    const manifest = args["manifest"];
+    if (manifest && typeof manifest === "object") {
+      const name = manifest["name"];
+      if (typeof name === "string" && name.length > 0)
+        return name;
+    }
+  }
+  if (toolName === "apply_glossary") {
+    const character = stringField(args, "character_id") ?? focusedCharacter;
+    const scopes = compactJson(args["scopes"]) ?? "[default scopes]";
+    return `character:${character} / scopes:${scopes}`;
+  }
+  if (toolName === "translate_card_strings") {
+    const from = stringField(args, "source_lang") ?? "?";
+    const to = stringField(args, "target_lang") ?? "?";
+    const include = compactJson(args["include"]) ?? "[default surfaces]";
+    return `character:${focusedCharacter} / ${from}->${to} / surfaces:${include}`;
+  }
+  if (toolName === "update_character" || toolName === "set_default_variables_text") {
+    return `character:${stringField(args, "character_id") ?? focusedCharacter}`;
+  }
+  if (toolName === "squash_session_edits") {
+    return `character:${focusedCharacter} / current assistant edit ledger`;
+  }
+  for (const key of [
+    "path",
+    "save_to",
+    "output",
+    "dest_dir",
+    "name",
+    "asset_name",
+    "target_id",
+    "character_id",
+    "chat_id",
+    "world_book_id",
+    "entry_id",
+    "script_id",
+    "module_id",
+    "key"
+  ]) {
+    const hit = stringField(args, key);
+    if (hit)
+      return hit;
+  }
+  const source = compactJson(args["source"]);
+  if (source)
+    return source;
+  const ids = compactJson(args["edit_ids"] ?? args["ids"] ?? args["paths"]);
+  return ids ?? "(active target)";
+}
+function actionFor(toolName) {
+  if (DELETE_TOOLS.has(toolName))
+    return "delete";
+  if (CREATE_TOOLS.has(toolName))
+    return "create";
+  if (MOVE_TOOLS.has(toolName))
+    return "move";
+  if (WRITE_TOOLS.has(toolName))
+    return "write";
+  return "update";
+}
+function changeApprovalPolicyFor(toolName, args, context = {}) {
+  if (toolName === "custom_tool_run")
+    return { kind: "delegate" };
+  if (NO_CHANGE_TOOLS.has(toolName))
+    return { kind: "none" };
+  if ((toolName === "apply_glossary" || toolName === "translate_card_strings") && args["dry_run"] === true) {
+    return { kind: "none" };
+  }
+  if ((toolName === "web_search" || toolName === "web_fetch") && stringField(args, "save_to") === null) {
+    return { kind: "none" };
+  }
+  const action = actionFor(toolName);
+  return {
+    kind: "required",
+    impact: {
+      action,
+      severity: action === "delete" ? "destructive" : "change",
+      target: resolveTarget(toolName, args, context).slice(0, 500),
+      summary: TOOL_LABELS[toolName] ?? `Run state-changing tool '${toolName}'`
+    }
+  };
+}
+
+// src/agent/tools.ts
 init__context();
 init__registry();
 function passesCharacterGate(name, hasCharacter) {
@@ -40485,7 +40740,19 @@ function makeDeferredToolSchemaMap(hasCharacter = true) {
   }
   return out;
 }
-function makeToolDispatch() {
+function cloneApprovalArgs(args) {
+  return structuredClone(args);
+}
+function deniedResult(decision) {
+  if (decision.kind === "rejected") {
+    return { content: "Error: [APPROVAL_REJECTED] The user rejected this change. No change was made. Do not retry unless the user asks.", isError: true };
+  }
+  if (decision.kind === "cancelled") {
+    return { content: "Error: [APPROVAL_CANCELLED] Approval was cancelled. No change was made.", isError: true };
+  }
+  return { content: `Error: [APPROVAL_UNAVAILABLE] ${decision.reason}. No change was made.`, isError: true };
+}
+function makeToolDispatch(options = {}) {
   const dispatch = {};
   for (const tool of registry2.list()) {
     dispatch[tool.name] = async (args, ctx) => {
@@ -40494,11 +40761,55 @@ function makeToolDispatch() {
         return { content: `Error: [INVALID_INPUT] invalid input for tool '${tool.name}':
 ${formatZodError(parsed.error)}`, isError: true };
       }
-      const ctxWithDispatch = { ...ctx, __dispatch: dispatch };
+      const invocationPath = [...ctx.invocationPath ?? [], tool.name];
+      const ctxWithDispatch = {
+        ...ctx,
+        __dispatch: dispatch,
+        invocationPath
+      };
       if (tool.validateInput) {
         const v = await tool.validateInput(parsed.data, ctxWithDispatch);
         if (!v.result)
           return { content: `Error: [${v.errorCode}] ${v.message}`, isError: true };
+      }
+      if (options.requireChangeApproval === true) {
+        const policy = changeApprovalPolicyFor(tool.name, parsed.data, {
+          characterId: ctx.characterId,
+          pinnedChatId: ctx.pinnedChatId
+        });
+        if (policy.kind === "required") {
+          if (ctx.signal.aborted)
+            return deniedResult({ kind: "cancelled" });
+          if (!options.requestApproval) {
+            return deniedResult({ kind: "unavailable", reason: "No approval handler is available" });
+          }
+          let decision;
+          try {
+            decision = await options.requestApproval({
+              toolName: tool.name,
+              args: cloneApprovalArgs(parsed.data),
+              impact: policy.impact,
+              sessionId: ctx.sessionId,
+              assistantMessageId: ctx.assistantMessageId,
+              rootCallId: ctx.rootCallId ?? null,
+              invocationPath
+            }, ctx.signal);
+          } catch (err) {
+            decision = ctx.signal.aborted ? { kind: "cancelled" } : { kind: "unavailable", reason: err.message || "Approval failed" };
+          }
+          if (!decision || !["approved", "rejected", "cancelled", "unavailable"].includes(decision.kind)) {
+            decision = { kind: "unavailable", reason: "The approval handler returned an invalid decision" };
+          }
+          if (decision.kind !== "approved")
+            return deniedResult(decision);
+          if (ctx.signal.aborted)
+            return deniedResult({ kind: "cancelled" });
+          if (tool.validateInput) {
+            const v = await tool.validateInput(parsed.data, ctxWithDispatch);
+            if (!v.result)
+              return { content: `Error: [${v.errorCode}] ${v.message}`, isError: true };
+          }
+        }
       }
       const r = await tool.execute(parsed.data, ctxWithDispatch);
       return r.isError === true ? { content: r.content, isError: true } : { content: r.content };
@@ -40722,13 +41033,15 @@ async function* runAgent(input) {
   const discoveredToolNames = seedDiscoveredFromHistory(input.conversation, deferredSchemas);
   const recentReads = input.recentReads ?? new RecentReadsCache;
   const imageHydrationCache = new Map;
-  function makeCallCtx(buffer) {
+  function makeCallCtx(buffer, rootCallId) {
     return {
       spindle: input.spindle,
       userId: input.userId,
       sessionId: input.sessionId,
       characterId: input.characterId ?? "",
       assistantMessageId: input.assistantMessageId,
+      rootCallId,
+      invocationPath: [],
       pinnedChatId: input.pinnedChatId,
       ...input.connectionId !== undefined ? { connectionId: input.connectionId } : {},
       signal,
@@ -40944,6 +41257,14 @@ Diagnostics (also in the Lumiverse server logs):
     let revertedThisTurn = false;
     const executeOne = async (tc) => {
       const buffer = { edits: [], reverts: [], images: [], resync: false };
+      if (signal.aborted) {
+        return {
+          tc,
+          buffer,
+          resultText: "Error: [CANCELLED] Generation was cancelled before this tool ran. No change was made.",
+          isError: true
+        };
+      }
       const fn = input.dispatch[tc.name];
       if (!fn) {
         const msg = `Unknown tool '${tc.name}'. Available: ${Object.keys(input.dispatch).join(", ")}`;
@@ -40959,7 +41280,7 @@ Diagnostics (also in the Lumiverse server logs):
         isError = true;
       } else {
         try {
-          const r = await fn(tc.args, makeCallCtx(buffer));
+          const r = await fn(tc.args, makeCallCtx(buffer, tc.call_id));
           resultText = r.content;
           if (r.isError === true)
             isError = true;
@@ -41028,8 +41349,6 @@ Diagnostics (also in the Lumiverse server logs):
       };
     };
     for (const batch of batches) {
-      if (signal.aborted)
-        return;
       for (const tc of batch.calls) {
         yield { type: "tool_started", call_id: tc.call_id, name: tc.name, args: tc.args };
       }
@@ -41050,8 +41369,6 @@ Diagnostics (also in the Lumiverse server logs):
       } else {
         outcomes = [];
         for (const tc of batch.calls) {
-          if (signal.aborted)
-            return;
           outcomes.push(await executeOne(tc));
         }
       }
@@ -41073,6 +41390,8 @@ Diagnostics (also in the Lumiverse server logs):
       imageParts.push({ type: "text", text: `[Viewing image${queuedImages.length > 1 ? "s" : ""}: ${labels}]` });
       conv.push({ role: "user", content: imageParts });
     }
+    if (signal.aborted)
+      return;
     if (newEdits.length > 0 || revertedThisTurn || finishedSummary !== undefined) {
       detector.noteProgress();
     } else if (toolCalls.length > 0) {
@@ -41537,20 +41856,57 @@ function send(msg, userId) {
 }
 var pendingFrontendRpc = new Map;
 var DEFAULT_FRONTEND_RPC_TIMEOUT_MS = 60000;
-function callFrontend(userId, op, args, timeoutMs = DEFAULT_FRONTEND_RPC_TIMEOUT_MS) {
+function takePendingFrontendRpc(rpcId) {
+  const pending2 = pendingFrontendRpc.get(rpcId);
+  if (!pending2)
+    return null;
+  clearTimeout(pending2.timer);
+  if (pending2.signal && pending2.onAbort)
+    pending2.signal.removeEventListener("abort", pending2.onAbort);
+  pendingFrontendRpc.delete(rpcId);
+  return pending2;
+}
+function rejectFrontendRpc(rpcId, reason, notifyFrontend) {
+  const pending2 = takePendingFrontendRpc(rpcId);
+  if (!pending2)
+    return;
+  if (notifyFrontend) {
+    try {
+      send({ type: "frontend_rpc_cancel", rpcId, reason }, pending2.userId);
+    } catch {}
+  }
+  pending2.reject(new Error(reason));
+}
+function cancelFrontendRpcsForUser(userId, reason) {
+  for (const [rpcId, pending2] of pendingFrontendRpc) {
+    if (pending2.userId === userId)
+      rejectFrontendRpc(rpcId, reason, true);
+  }
+}
+function callFrontend(userId, op, args, timeoutMs = DEFAULT_FRONTEND_RPC_TIMEOUT_MS, signal) {
   const rpcId = makeId("rpc");
+  if (signal?.aborted)
+    return Promise.reject(new Error(`frontend rpc '${op}' was cancelled`));
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      pendingFrontendRpc.delete(rpcId);
-      reject(new Error(`frontend rpc '${op}' timed out after ${timeoutMs}ms`));
+      rejectFrontendRpc(rpcId, `frontend rpc '${op}' timed out after ${timeoutMs}ms`, true);
     }, timeoutMs);
-    pendingFrontendRpc.set(rpcId, { userId, resolve, reject, timer });
+    const onAbort = signal ? () => rejectFrontendRpc(rpcId, `frontend rpc '${op}' was cancelled`, true) : undefined;
+    pendingFrontendRpc.set(rpcId, {
+      userId,
+      resolve,
+      reject,
+      timer,
+      ...signal ? { signal } : {},
+      ...onAbort ? { onAbort } : {}
+    });
+    if (signal && onAbort)
+      signal.addEventListener("abort", onAbort, { once: true });
     try {
       send({ type: "frontend_rpc_request", rpcId, op, args }, userId);
     } catch (e) {
-      clearTimeout(timer);
-      pendingFrontendRpc.delete(rpcId);
-      reject(e);
+      const pending2 = takePendingFrontendRpc(rpcId);
+      pending2?.reject(e);
     }
   });
 }
@@ -41562,12 +41918,51 @@ function resolveFrontendRpc(rpcId, fromUserId, result2, error51) {
     log("warn", `dropped frontend_rpc_response: rpcId=${rpcId} responder=${fromUserId} expected=${pending2.userId}`);
     return;
   }
-  clearTimeout(pending2.timer);
-  pendingFrontendRpc.delete(rpcId);
+  const taken = takePendingFrontendRpc(rpcId);
+  if (!taken)
+    return;
   if (error51 !== undefined)
-    pending2.reject(new Error(error51));
+    taken.reject(new Error(error51));
   else
-    pending2.resolve(result2);
+    taken.resolve(result2);
+}
+var CHANGE_APPROVAL_TIMEOUT_MS = 120000;
+function approvalDetails(args) {
+  let text;
+  try {
+    text = JSON.stringify(args, null, 2);
+  } catch {
+    text = "[Arguments could not be serialized]";
+  }
+  const max = 30000;
+  return text.length <= max ? text : `${text.slice(0, max)}
+... [truncated]`;
+}
+async function requestChangeApproval(userId, request, signal) {
+  const result2 = await callFrontend(userId, "approve_change", {
+    sessionId: request.sessionId,
+    assistantMessageId: request.assistantMessageId,
+    callId: request.rootCallId,
+    toolName: request.toolName,
+    action: request.impact.action,
+    severity: request.impact.severity,
+    target: request.impact.target,
+    summary: request.impact.summary,
+    invocationPath: request.invocationPath,
+    details: approvalDetails(request.args),
+    expiresAt: Date.now() + CHANGE_APPROVAL_TIMEOUT_MS
+  }, CHANGE_APPROVAL_TIMEOUT_MS, signal);
+  if (!result2 || typeof result2 !== "object" || typeof result2.approved !== "boolean") {
+    return { kind: "unavailable", reason: "The frontend returned an invalid approval response" };
+  }
+  const parsed = result2;
+  if (parsed.approved === true)
+    return { kind: "approved" };
+  if (parsed.reason === "rejected")
+    return { kind: "rejected" };
+  if (parsed.reason === "dismissed" || parsed.reason === "unloaded")
+    return { kind: "cancelled" };
+  return { kind: "unavailable", reason: "The frontend returned an invalid rejection reason" };
 }
 function log(level, msg) {
   if (level === "info") {
@@ -41766,9 +42161,6 @@ async function buildContextNoteForSession(s, userId) {
     extensionSystemPrompts
   });
 }
-function isToolResultMessage(m) {
-  return m.role === "user" && Array.isArray(m.content) && m.content.length > 0 && m.content.every((p) => p.type === "tool_result");
-}
 async function emitContextNoteIfChanged(s, userId) {
   const cur = { characterId: s.characterId, pinnedChatId: s.pinnedChatId ?? null };
   const last = s.lastContext ?? null;
@@ -41781,13 +42173,7 @@ async function emitContextNoteIfChanged(s, userId) {
     return;
   }
   const note = await buildContextNoteForSession(s, userId);
-  const entry = { role: "user", content: note };
-  const lastIdx = s.llmHistory.length - 1;
-  const lastMsg = lastIdx >= 0 ? s.llmHistory[lastIdx] : undefined;
-  if (lastMsg && lastMsg.role === "user" && !isToolResultMessage(lastMsg))
-    s.llmHistory.splice(lastIdx, 0, entry);
-  else
-    s.llmHistory.push(entry);
+  s.llmHistory.push({ role: "user", content: note });
   s.lastContext = cur;
 }
 function applyJailbreakNonSystem(conv, settings) {
@@ -41819,7 +42205,8 @@ async function handleGetSettings(userId) {
     cacheMode: settings.cacheMode,
     parallelToolCalls: settings.parallelToolCalls,
     tpmLimit: settings.tpmLimit,
-    debugLogging: settings.debugLogging
+    debugLogging: settings.debugLogging,
+    requireChangeApproval: settings.requireChangeApproval
   }, userId);
 }
 async function resolveCapsForUser(userId) {
@@ -41892,9 +42279,10 @@ function buildSamplerParams(samplers, parallelToolCalls, provider) {
   base["parallel_tool_calls"] = parallelToolCalls;
   return base;
 }
-async function handleUpdateSettings(persona, systemPromptOverride, samplers, jailbreak, jailbreakPlacement, workspaceCapBytes, toolOutputCapTokens, cacheMode, parallelToolCalls, tpmLimit, debugLogging, userId) {
+async function handleUpdateSettings(persona, systemPromptOverride, samplers, jailbreak, jailbreakPlacement, workspaceCapBytes, toolOutputCapTokens, cacheMode, parallelToolCalls, tpmLimit, debugLogging, requireChangeApproval, userId) {
+  const persistedApproval = requireChangeApproval ?? (await loadSettings(spindle, userId)).requireChangeApproval;
   await saveSettings(spindle, {
-    version: 3,
+    version: 4,
     persona: persona.length > 0 ? persona : DEFAULT_PERSONA,
     systemPromptOverride: systemPromptOverride !== null && systemPromptOverride.trim().length > 0 ? systemPromptOverride : null,
     samplers: coerceSamplerBag(samplers),
@@ -41905,7 +42293,8 @@ async function handleUpdateSettings(persona, systemPromptOverride, samplers, jai
     cacheMode,
     parallelToolCalls,
     tpmLimit,
-    debugLogging
+    debugLogging,
+    requireChangeApproval: persistedApproval
   }, userId);
   await handleGetSettings(userId);
 }
@@ -42180,7 +42569,15 @@ async function compactSession(sessionId, userId, trigger) {
     const hasCharacter = s.characterId !== null;
     const tools = makeInitialToolSchemas(hasCharacter);
     const deferredToolSchemas = makeDeferredToolSchemaMap(hasCharacter);
-    const dispatch = makeToolDispatch();
+    const dispatch = makeToolDispatch({
+      requireChangeApproval: settings.requireChangeApproval,
+      requestApproval: async (request, signal) => {
+        const isHandoffWrite = (request.toolName === "fs_write" || request.toolName === "fs_edit") && request.args["path"] === HANDOFF_PATH;
+        if (isHandoffWrite)
+          return { kind: "approved" };
+        return requestChangeApproval(userId, request, signal);
+      }
+    });
     const provider = await resolveProviderForConnection(s.connectionId, userId);
     const samplerParams = buildSamplerParams(settings.samplers, settings.parallelToolCalls, provider);
     const assistantId = makeId("msg");
@@ -42825,6 +43222,7 @@ async function handleSendMessage(sessionId, userMessageId, content, connectionId
   const images = await persistAttachments(sessionId, userId, wireImages);
   const files = acceptFiles(sessionId, wireFiles);
   const userMsg = { id: userMessageId, role: "user", ts: Date.now(), content, ...images.length > 0 ? { images } : {}, ...files.length > 0 ? { files } : {} };
+  await emitContextNoteIfChanged(s, userId);
   s.messages.push(userMsg);
   s.llmHistory.push({ role: "user", content: userLlmContent(content, images, files) });
   await saveSession(spindle, s, userId);
@@ -43596,7 +43994,10 @@ async function handleSendMessageInternal(s, userId, connectionIdOverride) {
     const hasCharacter = s.characterId !== null;
     tools = makeInitialToolSchemas(hasCharacter);
     deferredToolSchemas = makeDeferredToolSchemaMap(hasCharacter);
-    dispatch = makeToolDispatch();
+    dispatch = makeToolDispatch({
+      requireChangeApproval: settings.requireChangeApproval,
+      requestApproval: (request, signal) => requestChangeApproval(userId, request, signal)
+    });
     const provider = await resolveProviderForConnection(s.connectionId, userId);
     samplerParams = buildSamplerParams(settings.samplers, settings.parallelToolCalls, provider);
   } catch (setupErr) {
@@ -43634,7 +44035,7 @@ async function handleSendMessageInternal(s, userId, connectionIdOverride) {
       tpmLimit: settings.tpmLimit,
       signal: ac.signal,
       recentReads: recentReadsFor(userId, s.sessionId),
-      callFrontend: (op, args, timeoutMs) => callFrontend(userId, op, args, timeoutMs)
+      callFrontend: (op, args, timeoutMs) => callFrontend(userId, op, args, timeoutMs, ac.signal)
     })) {
       send({ type: "chat_event", sessionId: s.sessionId, event: ev }, userId);
       switch (ev.type) {
@@ -44066,7 +44467,7 @@ spindle.onFrontendMessage(async (raw, userId) => {
         await handleGetSettings(userId);
         return;
       case "update_settings":
-        await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.cacheMode ?? "full", msg.parallelToolCalls ?? true, msg.tpmLimit ?? null, msg.debugLogging ?? false, userId);
+        await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.cacheMode ?? "full", msg.parallelToolCalls ?? true, msg.tpmLimit ?? null, msg.debugLogging ?? false, msg.requireChangeApproval, userId);
         return;
       case "get_ui_prefs":
         await handleGetUiPrefs(userId);
@@ -44133,6 +44534,9 @@ spindle.onFrontendMessage(async (raw, userId) => {
         return;
       case "revoke_phoneline_pairing":
         await handleRevokePhonelinePairing(userId, msg.identifier);
+        return;
+      case "frontend_ready":
+        cancelFrontendRpcsForUser(userId, "Frontend reloaded");
         return;
       case "frontend_rpc_response":
         resolveFrontendRpc(msg.rpcId, userId, msg.result, msg.error);

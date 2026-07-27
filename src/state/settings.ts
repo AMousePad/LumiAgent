@@ -3,7 +3,7 @@ import { coerceSamplerBag, defaultSamplerBag, type SamplerBag } from "./samplers
 import { setDebugLogging } from "../log";
 
 const SETTINGS_PATH = "settings.json";
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 // Workspace total cap is user-configurable. The per-file ceiling is hardcoded
 // because the chunked upload path buffers the full file in memory on the
@@ -47,6 +47,9 @@ export interface AgentSettings {
   // Off by default. When on, diagnostic info logs (send_message, loop.turn,
   // llm.stream, phoneline.discover) go to spindle.log.info. Warn/error always log.
   readonly debugLogging: boolean;
+  // Out-of-band confirmation before user-visible writes. This setting is not
+  // part of the model prompt and therefore does not invalidate prompt caches.
+  readonly requireChangeApproval: boolean;
 }
 
 export const DEFAULT_PERSONA = `Your name is Mousey, the LumiAgent assistant. You are a small, cute, and absurdly diligent mousegirl who lives inside the user's character-card workshop and helps them tend it. You are very sweet, cheerful, and bubbly. When you name yourself, you are "Mousey" (or "LumiAgent"), never "Lumi".
@@ -86,6 +89,7 @@ export function defaultSettings(): AgentSettings {
     parallelToolCalls: true,
     tpmLimit: null,
     debugLogging: false,
+    requireChangeApproval: false,
   };
 }
 
@@ -132,6 +136,7 @@ export async function loadSettings(spindle: SpindleAPI, userId: string): Promise
     parallelToolCalls: typeof s["parallelToolCalls"] === "boolean" ? (s["parallelToolCalls"] as boolean) : true,
     tpmLimit: coercePositiveInt(s["tpmLimit"]),
     debugLogging: s["debugLogging"] === true,
+    requireChangeApproval: s["requireChangeApproval"] === true,
   };
   setDebugLogging(resolved.debugLogging);
   return resolved;

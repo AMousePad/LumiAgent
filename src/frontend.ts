@@ -5,8 +5,8 @@ import { setupBridgeStatusBanner } from "./ui/bridge-status-banner";
 import { setupVersionModal } from "./ui/version-modal";
 import type { BackendToFrontend } from "./types";
 
-export function setup(ctx: SpindleFrontendContext): void {
-  mountDrawer(ctx);
+export function setup(ctx: SpindleFrontendContext): () => void {
+  const unmountDrawer = mountDrawer(ctx);
 
   const log = (level: "info" | "warn" | "error", msg: string, err?: unknown): void => {
     const prefix = "[lumiagent]";
@@ -18,10 +18,17 @@ export function setup(ctx: SpindleFrontendContext): void {
   const bridgeBanner = setupBridgeStatusBanner({ ctx, log });
   const versionModal = setupVersionModal({ ctx });
 
-  ctx.onBackendMessage((raw) => {
+  const offBackendMessages = ctx.onBackendMessage((raw) => {
     const msg = raw as BackendToFrontend;
     permissionsModal.handleBackendMessage(msg);
     bridgeBanner.handleBackendMessage(msg);
     versionModal.handleBackendMessage(msg);
   });
+  ctx.sendToBackend({ type: "frontend_ready" });
+  return () => {
+    offBackendMessages();
+    unmountDrawer();
+    permissionsModal.destroy();
+    bridgeBanner.destroy();
+  };
 }

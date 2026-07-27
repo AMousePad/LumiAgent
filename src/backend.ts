@@ -20,9 +20,10 @@ import type {
   ScopeRef,
   CharacterStorageEntry,
   SessionStatusWire,
+  ChangeApprovalResultWire,
 } from "./types";
 import { runAgent } from "./agent/loop";
-import { listDeferredToolNames, makeDeferredToolSchemaMap, makeInitialToolSchemas, makeToolDispatch, RecentReadsCache, toolRequiresCharacter } from "./agent/tools";
+import { listDeferredToolNames, makeDeferredToolSchemaMap, makeInitialToolSchemas, makeToolDispatch, RecentReadsCache, toolRequiresCharacter, type ToolApprovalDecision, type ToolApprovalRequest } from "./agent/tools";
 import { systemMessageWithCache } from "./agent/cache-control";
 import { buildGeneralSystemPrompt, buildContextNote } from "./tasks/general";
 import { fillPrompt } from "./agent/prompts/_fill";
@@ -176,23 +177,71 @@ function send(msg: BackendToFrontend, userId: string): void {
 // that needs a browser-side capability (Chrome Translator, etc.) hands a
 // request to the frontend via this channel. Keyed by rpcId; the frontend
 // posts back a frontend_rpc_response which resolves the pending promise.
-interface PendingRpc { userId: string; resolve: (v: unknown) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }
+interface PendingRpc {
+  userId: string;
+  resolve: (v: unknown) => void;
+  reject: (e: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+  signal?: AbortSignal;
+  onAbort?: () => void;
+}
 const pendingFrontendRpc = new Map<string, PendingRpc>();
 const DEFAULT_FRONTEND_RPC_TIMEOUT_MS = 60_000;
 
-function callFrontend(userId: string, op: string, args: unknown, timeoutMs = DEFAULT_FRONTEND_RPC_TIMEOUT_MS): Promise<unknown> {
+function takePendingFrontendRpc(rpcId: string): PendingRpc | null {
+  const pending = pendingFrontendRpc.get(rpcId);
+  if (!pending) return null;
+  clearTimeout(pending.timer);
+  if (pending.signal && pending.onAbort) pending.signal.removeEventListener("abort", pending.onAbort);
+  pendingFrontendRpc.delete(rpcId);
+  return pending;
+}
+
+function rejectFrontendRpc(rpcId: string, reason: string, notifyFrontend: boolean): void {
+  const pending = takePendingFrontendRpc(rpcId);
+  if (!pending) return;
+  if (notifyFrontend) {
+    try { send({ type: "frontend_rpc_cancel", rpcId, reason }, pending.userId); }
+    catch { /* frontend is already unavailable */ }
+  }
+  pending.reject(new Error(reason));
+}
+
+function cancelFrontendRpcsForUser(userId: string, reason: string): void {
+  for (const [rpcId, pending] of pendingFrontendRpc) {
+    if (pending.userId === userId) rejectFrontendRpc(rpcId, reason, true);
+  }
+}
+
+function callFrontend(
+  userId: string,
+  op: string,
+  args: unknown,
+  timeoutMs = DEFAULT_FRONTEND_RPC_TIMEOUT_MS,
+  signal?: AbortSignal,
+): Promise<unknown> {
   const rpcId = makeId("rpc");
+  if (signal?.aborted) return Promise.reject(new Error(`frontend rpc '${op}' was cancelled`));
   return new Promise<unknown>((resolve, reject) => {
     const timer = setTimeout(() => {
-      pendingFrontendRpc.delete(rpcId);
-      reject(new Error(`frontend rpc '${op}' timed out after ${timeoutMs}ms`));
+      rejectFrontendRpc(rpcId, `frontend rpc '${op}' timed out after ${timeoutMs}ms`, true);
     }, timeoutMs);
-    pendingFrontendRpc.set(rpcId, { userId, resolve, reject, timer });
+    const onAbort = signal
+      ? (): void => rejectFrontendRpc(rpcId, `frontend rpc '${op}' was cancelled`, true)
+      : undefined;
+    pendingFrontendRpc.set(rpcId, {
+      userId,
+      resolve,
+      reject,
+      timer,
+      ...(signal ? { signal } : {}),
+      ...(onAbort ? { onAbort } : {}),
+    });
+    if (signal && onAbort) signal.addEventListener("abort", onAbort, { once: true });
     try { send({ type: "frontend_rpc_request", rpcId, op, args }, userId); }
     catch (e) {
-      clearTimeout(timer);
-      pendingFrontendRpc.delete(rpcId);
-      reject(e as Error);
+      const pending = takePendingFrontendRpc(rpcId);
+      pending?.reject(e as Error);
     }
   });
 }
@@ -207,10 +256,48 @@ function resolveFrontendRpc(rpcId: string, fromUserId: string, result: unknown, 
     log("warn", `dropped frontend_rpc_response: rpcId=${rpcId} responder=${fromUserId} expected=${pending.userId}`);
     return;
   }
-  clearTimeout(pending.timer);
-  pendingFrontendRpc.delete(rpcId);
-  if (error !== undefined) pending.reject(new Error(error));
-  else pending.resolve(result);
+  const taken = takePendingFrontendRpc(rpcId);
+  if (!taken) return;
+  if (error !== undefined) taken.reject(new Error(error));
+  else taken.resolve(result);
+}
+
+const CHANGE_APPROVAL_TIMEOUT_MS = 120_000;
+
+function approvalDetails(args: Readonly<Record<string, unknown>>): string {
+  let text: string;
+  try { text = JSON.stringify(args, null, 2); }
+  catch { text = "[Arguments could not be serialized]"; }
+  const max = 30_000;
+  return text.length <= max ? text : `${text.slice(0, max)}\n... [truncated]`;
+}
+
+async function requestChangeApproval(
+  userId: string,
+  request: ToolApprovalRequest,
+  signal: AbortSignal,
+): Promise<ToolApprovalDecision> {
+  const result = await callFrontend(userId, "approve_change", {
+    sessionId: request.sessionId,
+    assistantMessageId: request.assistantMessageId,
+    callId: request.rootCallId,
+    toolName: request.toolName,
+    action: request.impact.action,
+    severity: request.impact.severity,
+    target: request.impact.target,
+    summary: request.impact.summary,
+    invocationPath: request.invocationPath,
+    details: approvalDetails(request.args),
+    expiresAt: Date.now() + CHANGE_APPROVAL_TIMEOUT_MS,
+  }, CHANGE_APPROVAL_TIMEOUT_MS, signal);
+  if (!result || typeof result !== "object" || typeof (result as { approved?: unknown }).approved !== "boolean") {
+    return { kind: "unavailable", reason: "The frontend returned an invalid approval response" };
+  }
+  const parsed = result as ChangeApprovalResultWire;
+  if (parsed.approved === true) return { kind: "approved" };
+  if (parsed.reason === "rejected") return { kind: "rejected" };
+  if (parsed.reason === "dismissed" || parsed.reason === "unloaded") return { kind: "cancelled" };
+  return { kind: "unavailable", reason: "The frontend returned an invalid rejection reason" };
 }
 
 function log(level: "info" | "warn" | "error", msg: string): void {
@@ -439,18 +526,10 @@ async function buildContextNoteForSession(s: PersistedSession, userId: string): 
   });
 }
 
-// A tool_results turn is encoded as role "user" with only tool_result parts.
-function isToolResultMessage(m: LlmMessage): boolean {
-  return m.role === "user" && Array.isArray(m.content) && m.content.length > 0 && m.content.every((p) => p.type === "tool_result");
-}
-
 // Emit a one-shot focus/pin context note into llmHistory when the state the
-// agent was last told about differs from current. Inserts the note just before
-// the trailing user message so the agent reads it ahead of the user's words;
-// wire-coalescing merges the two user turns. Switching focus / pin several
-// times before a send collapses to a single note (state-diff, not per-switch).
-// The note lives in llmHistory only (not s.messages), and rebuildLlmHistory
-// drops it, so resend paths clear s.lastContext to force re-emission.
+// agent was last told about differs from current. This is append-only. Normal
+// sends call it before appending the new user turn, preserving every cached
+// prefix byte while still placing the note ahead of the user's words.
 async function emitContextNoteIfChanged(s: PersistedSession, userId: string): Promise<void> {
   const cur = { characterId: s.characterId, pinnedChatId: s.pinnedChatId ?? null };
   const last = s.lastContext ?? null;
@@ -459,13 +538,7 @@ async function emitContextNoteIfChanged(s: PersistedSession, userId: string): Pr
   const lastMeaningful = !!last && (last.characterId !== null || last.pinnedChatId !== null);
   if (!curMeaningful && !lastMeaningful) { s.lastContext = cur; return; }
   const note = await buildContextNoteForSession(s, userId);
-  const entry: LlmMessage = { role: "user", content: note };
-  const lastIdx = s.llmHistory.length - 1;
-  const lastMsg = lastIdx >= 0 ? s.llmHistory[lastIdx]! : undefined;
-  // Splicing before a tool_results turn (also role user) would orphan the
-  // assistant tool_use from its tool_result (strict providers 400), append after instead.
-  if (lastMsg && lastMsg.role === "user" && !isToolResultMessage(lastMsg)) s.llmHistory.splice(lastIdx, 0, entry);
-  else s.llmHistory.push(entry);
+  s.llmHistory.push({ role: "user", content: note });
   s.lastContext = cur;
 }
 
@@ -502,6 +575,7 @@ async function handleGetSettings(userId: string): Promise<void> {
     parallelToolCalls: settings.parallelToolCalls,
     tpmLimit: settings.tpmLimit,
     debugLogging: settings.debugLogging,
+    requireChangeApproval: settings.requireChangeApproval,
   }, userId);
 }
 
@@ -608,10 +682,12 @@ async function handleUpdateSettings(
   parallelToolCalls: boolean,
   tpmLimit: number | null,
   debugLogging: boolean,
+  requireChangeApproval: boolean | undefined,
   userId: string,
 ): Promise<void> {
+  const persistedApproval = requireChangeApproval ?? (await loadSettings(spindle, userId)).requireChangeApproval;
   await saveSettings(spindle, {
-    version: 3,
+    version: 4,
     persona: persona.length > 0 ? persona : DEFAULT_PERSONA,
     systemPromptOverride: systemPromptOverride !== null && systemPromptOverride.trim().length > 0 ? systemPromptOverride : null,
     samplers: coerceSamplerBag(samplers),
@@ -623,6 +699,7 @@ async function handleUpdateSettings(
     parallelToolCalls,
     tpmLimit,
     debugLogging,
+    requireChangeApproval: persistedApproval,
   }, userId);
   await handleGetSettings(userId);
 }
@@ -914,7 +991,15 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
     const hasCharacter = s.characterId !== null;
     const tools = makeInitialToolSchemas(hasCharacter);
     const deferredToolSchemas = makeDeferredToolSchemaMap(hasCharacter);
-    const dispatch = makeToolDispatch();
+    const dispatch = makeToolDispatch({
+      requireChangeApproval: settings.requireChangeApproval,
+      requestApproval: async (request, signal) => {
+        const isHandoffWrite = (request.toolName === "fs_write" || request.toolName === "fs_edit")
+          && request.args["path"] === HANDOFF_PATH;
+        if (isHandoffWrite) return { kind: "approved" };
+        return requestChangeApproval(userId, request, signal);
+      },
+    });
     const provider = await resolveProviderForConnection(s.connectionId, userId);
     const samplerParams = buildSamplerParams(settings.samplers, settings.parallelToolCalls, provider);
     const assistantId = makeId("msg");
@@ -1594,6 +1679,10 @@ async function handleSendMessage(
   const images = await persistAttachments(sessionId, userId, wireImages);
   const files = acceptFiles(sessionId, wireFiles);
   const userMsg: ChatUserMessage = { id: userMessageId, role: "user", ts: Date.now(), content, ...(images.length > 0 ? { images } : {}), ...(files.length > 0 ? { files } : {}) };
+  // Append context first so focus/pin changes never splice into an existing
+  // prompt prefix. handleSendMessageInternal calls the same helper as a
+  // fallback for continue/regenerate paths and will no-op here.
+  await emitContextNoteIfChanged(s, userId);
   s.messages.push(userMsg);
   s.llmHistory.push({ role: "user", content: userLlmContent(content, images, files) });
   await saveSession(spindle, s, userId);
@@ -2469,7 +2558,10 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
     const hasCharacter = s.characterId !== null;
     tools = makeInitialToolSchemas(hasCharacter);
     deferredToolSchemas = makeDeferredToolSchemaMap(hasCharacter);
-    dispatch = makeToolDispatch();
+    dispatch = makeToolDispatch({
+      requireChangeApproval: settings.requireChangeApproval,
+      requestApproval: (request, signal) => requestChangeApproval(userId, request, signal),
+    });
     const provider = await resolveProviderForConnection(s.connectionId, userId);
     samplerParams = buildSamplerParams(settings.samplers, settings.parallelToolCalls, provider);
   } catch (setupErr) {
@@ -2500,7 +2592,7 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
       maxTurns: DEFAULT_MAX_TURNS_PER_MESSAGE, startingTurn: lastTurn,
       cacheMode: settings.cacheMode, tpmLimit: settings.tpmLimit, signal: ac.signal,
       recentReads: recentReadsFor(userId, s.sessionId),
-      callFrontend: (op, args, timeoutMs) => callFrontend(userId, op, args, timeoutMs),
+      callFrontend: (op, args, timeoutMs) => callFrontend(userId, op, args, timeoutMs, ac.signal),
     })) {
       send({ type: "chat_event", sessionId: s.sessionId, event: ev }, userId);
       switch (ev.type) {
@@ -2921,7 +3013,7 @@ spindle.onFrontendMessage(async (raw: unknown, userId: string) => {
       case "set_pinned_chat": await handleSetPinnedChat(msg.sessionId, msg.chatId, userId); return;
       case "set_focus": await handleSetFocus(msg.sessionId, msg.characterId, userId); return;
       case "get_settings": await handleGetSettings(userId); return;
-      case "update_settings": await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.cacheMode ?? "full", msg.parallelToolCalls ?? true, msg.tpmLimit ?? null, msg.debugLogging ?? false, userId); return;
+      case "update_settings": await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.cacheMode ?? "full", msg.parallelToolCalls ?? true, msg.tpmLimit ?? null, msg.debugLogging ?? false, msg.requireChangeApproval, userId); return;
       case "get_ui_prefs": await handleGetUiPrefs(userId); return;
       case "update_ui_prefs": await handleUpdateUiPrefs(msg.connectionId, msg.lastSessionId, userId); return;
       case "compact_session": void compactSession(msg.sessionId, userId, "manual"); return;
@@ -2944,6 +3036,7 @@ spindle.onFrontendMessage(async (raw: unknown, userId: string) => {
       case "get_phoneline_pairings": await handleGetPhonelinePairings(userId); return;
       case "set_phoneline_pairing": await handleSetPhonelinePairing(userId, msg.identifier, msg.allowed); return;
       case "revoke_phoneline_pairing": await handleRevokePhonelinePairing(userId, msg.identifier); return;
+      case "frontend_ready": cancelFrontendRpcsForUser(userId, "Frontend reloaded"); return;
       case "frontend_rpc_response": resolveFrontendRpc(msg.rpcId, userId, msg.result, msg.error); return;
       default:
         log("warn", `unknown frontend message type=${(msg as { type?: string }).type ?? "?"}`);

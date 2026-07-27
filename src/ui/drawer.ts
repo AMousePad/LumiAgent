@@ -18,6 +18,7 @@ import type {
   ScopeRef,
   SessionStatusWire,
   SessionSummaryWire,
+  ChangeApprovalRequestWire,
 } from "../types";
 import { characterScope, scopeKeyString } from "../types";
 import { STYLES } from "./styles";
@@ -34,6 +35,7 @@ import { mountCombo, type ComboHandle } from "./combo";
 import { handleAgentEvent, type AgentEventCtx } from "./agent-event-handler";
 import { ICON_TRASH, ICON_DOWNLOAD, ICON_PIN, ICON_PIN_OFF, ICON_NEW, ICON_SESSIONS, ICON_SETTINGS, ICON_TICK, ICON_WORKSHOP, ICON_EXPAND, ICON_COLLAPSE, ICON_LUMIAGENT } from "./icons";
 import { MOUSEY_SITTING_DATA_URL } from "../generated/mousey";
+import { createChangeApprovalController } from "./change-approval-modal";
 
 // Combobox sentinel for the "(No character)" entry. The dropdown stores it as
 // a string id; everywhere else (state.characterId, wire messages, persisted
@@ -90,7 +92,7 @@ interface UiState {
   scopeLedgers: Map<string, readonly EditLogEntry[]>;
   chatsForCharacter: ChatSummary[];
   pinnedChatId: string | null;
-  settings: { persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody?: string; samplers?: Readonly<Record<string, number | null>>; jailbreak?: string; jailbreakPlacement?: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes?: number | null; workspaceCapDefaultBytes?: number; workspaceFileCapBytes?: number; toolOutputCapTokens?: number | null; toolOutputCapDefaultTokens?: number; cacheMode?: "off" | "system_only" | "full"; parallelToolCalls?: boolean; tpmLimit?: number | null; debugLogging?: boolean } | null;
+  settings: { persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody?: string; samplers?: Readonly<Record<string, number | null>>; jailbreak?: string; jailbreakPlacement?: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes?: number | null; workspaceCapDefaultBytes?: number; workspaceFileCapBytes?: number; toolOutputCapTokens?: number | null; toolOutputCapDefaultTokens?: number; cacheMode?: "off" | "system_only" | "full"; parallelToolCalls?: boolean; tpmLimit?: number | null; debugLogging?: boolean; requireChangeApproval?: boolean } | null;
   pendingPinChatId: string | null;
   // Single-shot, reset after consume so a later list_chats won't re-pin after the user explicitly unpinned.
   autoPinNeeded: boolean;
@@ -185,6 +187,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
 
   const root = tab.root;
   root.classList.add("la-drawer");
+  const changeApprovals = createChangeApprovalController(ctx);
 
   const state: UiState = {
     characters: [],
@@ -1579,6 +1582,18 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
 
     wrap.appendChild(el("hr", "la-settings-divider"));
 
+    wrap.appendChild(el("label", "la-settings-label", "Change approval"));
+    wrap.appendChild(el("div", "la-settings-hint", "Pause before each card, chat, lorebook, regex, external-provider, or workspace write so you can approve or reject it."));
+    const changeApprovalRow = el("div", "la-settings-row");
+    changeApprovalRow.append(el("label", "la-settings-row-label", "Ask before changes"));
+    const changeApprovalInput = document.createElement("input");
+    changeApprovalInput.type = "checkbox";
+    changeApprovalInput.className = "la-checkbox";
+    changeApprovalRow.appendChild(changeApprovalInput);
+    wrap.appendChild(changeApprovalRow);
+
+    wrap.appendChild(el("hr", "la-settings-divider"));
+
     wrap.appendChild(el("label", "la-settings-label", "Prompt caching"));
     wrap.appendChild(el("div", "la-settings-hint", "Anthropic-only. OpenAI, Gemini, DeepSeek, and other providers cache the prompt prefix automatically upstream regardless of this setting."));
     const cacheModeRow = el("div", "la-settings-row");
@@ -1719,6 +1734,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       cacheModeSelect.value = s.cacheMode ?? "full";
       parallelToolsInput.checked = s.parallelToolCalls ?? true;
       debugLogInput.checked = s.debugLogging ?? false;
+      changeApprovalInput.checked = s.requireChangeApproval ?? false;
       tpmInput.value = s.tpmLimit ? String(s.tpmLimit) : "";
       renderSamplers();
     };
@@ -1862,6 +1878,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         parallelToolCalls: parallelToolsInput.checked,
         tpmLimit: parsePosInt(tpmInput.value),
         debugLogging: debugLogInput.checked,
+        requireChangeApproval: changeApprovalInput.checked,
       };
       const key = JSON.stringify(payload);
       if (key === lastCommitted) return;
@@ -1890,7 +1907,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     for (const inp of [personaArea, promptArea, jbArea, wsCapInput, toolCapInput, tpmInput]) {
       inp.addEventListener("blur", () => commit());
     }
-    for (const inp of [jbPlacement, cacheModeSelect, parallelToolsInput, debugLogInput]) {
+    for (const inp of [jbPlacement, cacheModeSelect, parallelToolsInput, debugLogInput, changeApprovalInput]) {
       inp.addEventListener("change", () => commit());
     }
 
@@ -2599,7 +2616,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     clearErrorBanners,
   };
 
-  ctx.onBackendMessage((raw) => {
+  const offBackendMessages = ctx.onBackendMessage((raw) => {
     const msg = raw as BackendToFrontend;
     switch (msg.type) {
       case "characters_pushed":
@@ -2983,6 +3000,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
           parallelToolCalls: msg.parallelToolCalls,
           tpmLimit: msg.tpmLimit,
           debugLogging: msg.debugLogging,
+          requireChangeApproval: msg.requireChangeApproval,
         };
         for (const h of settingsListeners.handlers) h();
         break;
@@ -3085,6 +3103,8 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
               const { resizeBase64 } = await import("./image-resize");
               const a = msg.args as { data: string; mime_type: string };
               result = await resizeBase64(a.data, a.mime_type);
+            } else if (msg.op === "approve_change") {
+              result = await changeApprovals.show(msg.rpcId, msg.args as ChangeApprovalRequestWire);
             } else {
               sendBackend({ type: "frontend_rpc_response", rpcId: msg.rpcId, error: `unknown rpc op '${msg.op}'` });
               return;
@@ -3096,6 +3116,9 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         })();
         break;
       }
+      case "frontend_rpc_cancel":
+        changeApprovals.cancel(msg.rpcId, msg.reason);
+        break;
       case "scope_squashed": {
         // The scope's ledger was cleared. Drop its cached slot; if the combo
         // was focused on it, fall back to the active scope.
@@ -3147,7 +3170,9 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
 
   return () => {
     off();
+    offBackendMessages();
     offChatSwitched();
+    changeApprovals.destroy();
     charCombo.destroy();
     removeStyle();
     tab.destroy();

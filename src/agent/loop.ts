@@ -340,7 +340,7 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
     resyncRemap?: Record<string, string>;
   }
 
-  function makeCallCtx(buffer: CallBuffer): ToolCtx {
+  function makeCallCtx(buffer: CallBuffer, rootCallId: string): ToolCtx {
     return {
       spindle: input.spindle,
       userId: input.userId,
@@ -350,6 +350,8 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
       // when a tool needs a character but got neither an explicit id nor focus.
       characterId: input.characterId ?? "",
       assistantMessageId: input.assistantMessageId,
+      rootCallId,
+      invocationPath: [],
       pinnedChatId: input.pinnedChatId,
       ...(input.connectionId !== undefined ? { connectionId: input.connectionId } : {}),
       signal,
@@ -628,6 +630,14 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
 
     const executeOne = async (tc: ToolCall): Promise<CallOutcome> => {
       const buffer: CallBuffer = { edits: [], reverts: [], images: [], resync: false };
+      if (signal.aborted) {
+        return {
+          tc,
+          buffer,
+          resultText: "Error: [CANCELLED] Generation was cancelled before this tool ran. No change was made.",
+          isError: true,
+        };
+      }
       const fn = input.dispatch[tc.name];
       if (!fn) {
         const msg = `Unknown tool '${tc.name}'. Available: ${Object.keys(input.dispatch).join(", ")}`;
@@ -643,7 +653,7 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
         isError = true;
       } else {
         try {
-          const r = await fn(tc.args, makeCallCtx(buffer));
+          const r = await fn(tc.args, makeCallCtx(buffer, tc.call_id));
           resultText = r.content;
           if (r.isError === true) isError = true;
         } catch (err) {
@@ -727,7 +737,6 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
     };
 
     for (const batch of batches) {
-      if (signal.aborted) return;
       // Emit tool_started for every call in this batch BEFORE dispatching, so
       // the UI sees all in-flight blocks at once when the batch goes parallel.
       for (const tc of batch.calls) {
@@ -754,7 +763,6 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
         // Serial single call (or an unsafe batch of 1).
         outcomes = [];
         for (const tc of batch.calls) {
-          if (signal.aborted) return;
           outcomes.push(await executeOne(tc));
         }
       }
@@ -783,6 +791,10 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
       imageParts.push({ type: "text", text: `[Viewing image${queuedImages.length > 1 ? "s" : ""}: ${labels}]` });
       conv.push({ role: "user", content: imageParts });
     }
+
+    // Once the provider has emitted tool uses, always append one ordered result
+    // per call before honoring cancellation. This keeps history protocol-valid.
+    if (signal.aborted) return;
 
     // Loop detection with progress known. Any forward motion this turn clears
     // the detector, so repetition that coexists with progress never fires.

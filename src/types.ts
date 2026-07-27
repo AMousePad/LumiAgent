@@ -43,6 +43,24 @@ export interface ToolResult {
   readonly is_error?: boolean | undefined;
 }
 
+export interface ChangeApprovalRequestWire {
+  readonly sessionId: string;
+  readonly assistantMessageId: string;
+  readonly callId: string | null;
+  readonly toolName: string;
+  readonly action: "create" | "update" | "delete" | "move" | "write";
+  readonly severity: "change" | "destructive";
+  readonly target: string;
+  readonly summary: string;
+  readonly invocationPath: readonly string[];
+  readonly details: string;
+  readonly expiresAt: number;
+}
+
+export type ChangeApprovalResultWire =
+  | { readonly approved: true }
+  | { readonly approved: false; readonly reason: "rejected" | "dismissed" | "unloaded" };
+
 // Ledger filing scope. Phase 0 only ever produces "character"; the other
 // kinds are filing drawers for non-character surfaces added in later phases.
 // variables/images are singleton pseudo-scopes (id is a fixed constant).
@@ -361,7 +379,7 @@ export type FrontendToBackend =
   | { type: "set_pinned_chat"; sessionId: string; chatId: string | null }
   | { type: "set_focus"; sessionId: string; characterId: string | null }
   | { type: "get_settings" }
-  | { type: "update_settings"; persona: string; systemPromptOverride: string | null; samplers: Readonly<Record<string, number | null>>; jailbreak: string; jailbreakPlacement: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes: number | null; toolOutputCapTokens: number | null; cacheMode?: "off" | "system_only" | "full"; parallelToolCalls?: boolean; tpmLimit?: number | null; debugLogging?: boolean }
+  | { type: "update_settings"; persona: string; systemPromptOverride: string | null; samplers: Readonly<Record<string, number | null>>; jailbreak: string; jailbreakPlacement: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes: number | null; toolOutputCapTokens: number | null; cacheMode?: "off" | "system_only" | "full"; parallelToolCalls?: boolean; tpmLimit?: number | null; debugLogging?: boolean; requireChangeApproval?: boolean }
   | { type: "get_ui_prefs" }
   | { type: "update_ui_prefs"; connectionId: string | null; lastSessionId: string | null }
   | { type: "ws_list"; path: string }
@@ -385,6 +403,7 @@ export type FrontendToBackend =
   | { type: "get_phoneline_pairings" }
   | { type: "set_phoneline_pairing"; identifier: string; allowed: boolean }
   | { type: "revoke_phoneline_pairing"; identifier: string }
+  | { type: "frontend_ready" }
   | { type: "frontend_rpc_response"; rpcId: string; result?: unknown; error?: string };
 
 export type BackendToFrontend =
@@ -411,7 +430,7 @@ export type BackendToFrontend =
   | { type: "pinned_chat_set"; sessionId: string; chatId: string | null }
   | { type: "focus_set"; sessionId: string; characterId: string | null; characterName: string; pinnedChatId: string | null }
   | { type: "focus_rejected"; sessionId: string; reason: string }
-  | { type: "settings_pushed"; persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody: string; samplers: Readonly<Record<string, number | null>>; jailbreak: string; jailbreakPlacement: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes: number | null; workspaceCapDefaultBytes: number; workspaceFileCapBytes: number; toolOutputCapTokens: number | null; toolOutputCapDefaultTokens: number; cacheMode: "off" | "system_only" | "full"; parallelToolCalls: boolean; tpmLimit: number | null; debugLogging: boolean }
+  | { type: "settings_pushed"; persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody: string; samplers: Readonly<Record<string, number | null>>; jailbreak: string; jailbreakPlacement: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes: number | null; workspaceCapDefaultBytes: number; workspaceFileCapBytes: number; toolOutputCapTokens: number | null; toolOutputCapDefaultTokens: number; cacheMode: "off" | "system_only" | "full"; parallelToolCalls: boolean; tpmLimit: number | null; debugLogging: boolean; requireChangeApproval: boolean }
   | { type: "ui_prefs_pushed"; connectionId: string | null; lastSessionId: string | null }
   | { type: "ws_listed"; path: string; entries: readonly WorkspaceEntry[] }
   | { type: "ws_text_pushed"; path: string; content: string; sizeBytes: number }
@@ -431,7 +450,8 @@ export type BackendToFrontend =
   | { type: "notify_missing_permissions"; missing: readonly string[]; purposes: Readonly<Record<string, string>> }
   | { type: "notify_bridge_status"; offline: boolean; missingPermissions: readonly string[]; missingFor?: string }
   | { type: "host_version_warning"; hostVersion: string | null; minimum: string; message: string }
-  | { type: "frontend_rpc_request"; rpcId: string; op: string; args: unknown };
+  | { type: "frontend_rpc_request"; rpcId: string; op: string; args: unknown }
+  | { type: "frontend_rpc_cancel"; rpcId: string; reason: string };
 
 export interface CharacterStorageEntry {
   readonly characterId: string;
