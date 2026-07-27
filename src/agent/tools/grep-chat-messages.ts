@@ -61,7 +61,7 @@ export const grepChatMessagesTool = defineTool({
     const chat = await ctx.spindle.chats.get(chatId, ctx.userId);
     if (!chat) return { content: `Error: chat ${chatId} not found`, isError: true };
     const all = await ctx.spindle.chat.getMessages(chatId);
-    const hits: Array<{ idx: number; id: string; role: string; line: number; match: string; preview: string }> = [];
+    const hits: Array<{ idx: number; id: string; role: string; speaker_name: string; line: number; match: string; preview: string }> = [];
     let remaining = cap;
     for (let i = 0; i < all.length && remaining > 0; i++) {
       const m = all[i]!;
@@ -78,7 +78,7 @@ export const grepChatMessagesTool = defineTool({
         if (matches.length === 0) continue;
         const preview = line.length > CHAT_GREP_PREVIEW_CHARS ? `${line.slice(0, CHAT_GREP_PREVIEW_CHARS - 5)} […]` : line;
         for (const mm of matches) {
-          hits.push({ idx: i, id: m.id, role: m.role, line: li + 1, match: mm, preview });
+          hits.push({ idx: i, id: m.id, role: m.role, speaker_name: m.name, line: li + 1, match: mm, preview });
           remaining--;
           if (remaining <= 0) break;
         }

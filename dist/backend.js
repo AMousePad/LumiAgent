@@ -18750,8 +18750,88 @@ var init_attach_world_book = __esm(() => {
   });
 });
 
+// src/state/chat-catalog.ts
+function isGroupChat(chat) {
+  return chat.metadata.group === true || chat.metadata.group === 1;
+}
+function groupCharacterIds(chat) {
+  const raw = chat.metadata.character_ids;
+  const ids = Array.isArray(raw) ? raw.filter((id) => typeof id === "string" && id.length > 0) : [];
+  if (ids.length === 0 && typeof chat.character_id === "string" && chat.character_id.length > 0) {
+    ids.push(chat.character_id);
+  }
+  return [...new Set(ids)];
+}
+function groupLorebookMode(chat) {
+  const explicit = chat.metadata.group_lorebook_mode;
+  if (explicit === "active_character" || explicit === "all_unmuted" || explicit === "all") {
+    return explicit;
+  }
+  if (chat.metadata.group_card_mode === "merge")
+    return "all";
+  if (chat.metadata.group_card_mode === "merge_ignore_muted")
+    return "all_unmuted";
+  return "active_character";
+}
+function lorebookCharacterIds(chat, focusedCharacterId) {
+  if (!isGroupChat(chat))
+    return chat.character_id ? [chat.character_id] : [];
+  const members = groupCharacterIds(chat);
+  const mode = groupLorebookMode(chat);
+  if (mode === "all")
+    return members;
+  const active = focusedCharacterId && members.includes(focusedCharacterId) ? focusedCharacterId : members.includes(chat.character_id) ? chat.character_id : members[0];
+  if (mode === "all_unmuted") {
+    const muted = new Set(Array.isArray(chat.metadata.muted_character_ids) ? chat.metadata.muted_character_ids.filter((id) => typeof id === "string") : []);
+    const unmuted = members.filter((id) => !muted.has(id));
+    return unmuted.length > 0 ? unmuted : active ? [active] : [];
+  }
+  return active ? [active] : [];
+}
+function chatIncludesCharacter(chat, characterId) {
+  return isGroupChat(chat) ? groupCharacterIds(chat).includes(characterId) : chat.character_id === characterId;
+}
+function countChatsByCharacter(chats) {
+  const counts = new Map;
+  for (const chat of chats) {
+    const characterIds = isGroupChat(chat) ? groupCharacterIds(chat) : [chat.character_id];
+    for (const characterId of new Set(characterIds)) {
+      if (!characterId)
+        continue;
+      counts.set(characterId, (counts.get(characterId) ?? 0) + 1);
+    }
+  }
+  return counts;
+}
+async function listAllChats(spindle2, userId) {
+  const chats = [];
+  const seen = new Set;
+  let offset = 0;
+  let total = Number.POSITIVE_INFINITY;
+  while (offset < total) {
+    const page = await spindle2.chats.list({ userId, limit: CHAT_PAGE_SIZE, offset });
+    total = Math.max(0, page.total);
+    for (const chat of page.data) {
+      if (seen.has(chat.id))
+        continue;
+      seen.add(chat.id);
+      chats.push(chat);
+    }
+    if (page.data.length === 0)
+      break;
+    offset += page.data.length;
+  }
+  return chats;
+}
+async function listChatsForCharacter(spindle2, userId, characterId) {
+  const chats = await listAllChats(spindle2, userId);
+  return chats.filter((chat) => chatIncludesCharacter(chat, characterId)).sort((a, b) => b.updated_at - a.updated_at);
+}
+var CHAT_PAGE_SIZE = 200;
+
 // src/agent/prompts/claude/tools/list-chat-world-books/description.txt
-var description_default4 = 'List every world book bound to a chat, grouped by binding scope: character (`char/world_book_ids`), persona (active persona\'s attached book), and chat ("This Chat Only", `chat.metadata.chat_world_book_ids`).\n\nUse this, not `list({path:"wb"})`, to answer "what lorebooks are active for this chat" \u2014 plain `list` only sees character-attached books and reports the others as unattached. The fourth layer, global "Always Active" books, is included here under scope `global`. A book bound at multiple scopes is reported once, under the narrowest (character > persona > chat > global).\n\nWorks with no chat pinned and no chat_id: it then answers only the user-level layers (persona, global), which need no chat. To answer "which lorebooks are global / Always Active?", call it with no argument. Pass a chat_id (or pin a chat) to also include the character- and chat-bound layers.';
+var description_default4 = `List a chat's character or group, persona, chat, and global world books. With no chat, returns persona and global books only.
+`;
 var init_description4 = () => {};
 
 // src/agent/prompts/claude/tools/list-chat-world-books/arg_chat_id.txt
@@ -18791,20 +18871,35 @@ var init_list_chat_world_books = __esm(() => {
         }
         const seen = new Set;
         const rows = [];
-        const addBook = async (id, scope) => {
-          if (seen.has(id))
+        const addBook = async (id, scope, characterId) => {
+          if (seen.has(id)) {
+            if (characterId) {
+              const existing = rows.find((row) => row.world_book_id === id);
+              if (existing?.character_ids && !existing.character_ids.includes(characterId)) {
+                existing.character_ids.push(characterId);
+              }
+            }
             return;
+          }
           seen.add(id);
           const wb = await ctx.spindle.world_books.get(id, ctx.userId);
           if (!wb)
             return;
           const meta3 = await ctx.spindle.world_books.entries.list(id, { limit: 1, userId: ctx.userId });
-          rows.push({ world_book_id: id, label: wb.name, entries: meta3.total, scope });
+          rows.push({
+            world_book_id: id,
+            label: wb.name,
+            entries: meta3.total,
+            scope,
+            ...characterId ? { character_ids: [characterId] } : {}
+          });
         };
         if (chat) {
-          const character = await ctx.spindle.characters.get(chat.character_id, ctx.userId);
-          for (const id of character?.world_book_ids ?? [])
-            await addBook(id, "character");
+          for (const characterId of lorebookCharacterIds(chat, ctx.characterId)) {
+            const character = await ctx.spindle.characters.get(characterId, ctx.userId);
+            for (const id of character?.world_book_ids ?? [])
+              await addBook(id, "character", characterId);
+          }
         }
         const persona = await ctx.spindle.personas.getActive(ctx.userId) ?? await ctx.spindle.personas.getDefault(ctx.userId);
         if (persona?.attached_world_book_id)
@@ -18820,6 +18915,11 @@ var init_list_chat_world_books = __esm(() => {
           await addBook(id, "global");
         return { content: JSON.stringify({
           chat_id: chatId,
+          ...chat && isGroupChat(chat) ? {
+            is_group: true,
+            group_lorebook_mode: groupLorebookMode(chat),
+            character_ids_used: lorebookCharacterIds(chat, ctx.characterId)
+          } : {},
           ...chat ? {} : { note: "No chat pinned: showing user-level layers only (persona, global). Pin a chat or pass chat_id to also include character- and chat-bound books." },
           count: rows.length,
           books: rows
@@ -20113,7 +20213,8 @@ var init_audit_card_coverage = __esm(() => {
 });
 
 // src/agent/prompts/claude/tools/chat-stats/description.txt
-var description_default8 = "Call this first when the user references a chat. Cheap orientation: returns total_messages, total_chars, longest_message_chars, by_role counts, first_ts, last_ts. Use the result to choose between read_chat_messages (small), list_chat_messages (skim), or grep_chat_messages (search).";
+var description_default8 = `Summarize a chat's size, role and speaker counts, and time range before reading or searching it.
+`;
 var init_description8 = () => {};
 
 // src/agent/tools/chat-stats.ts
@@ -20152,11 +20253,13 @@ var init_chat_stats = __esm(() => {
         return { content: `Error: chat ${chatId} not found`, isError: true };
       const all = await ctx.spindle.chat.getMessages(chatId);
       const by_role = {};
+      const by_speaker = {};
       let totalChars = 0;
       let firstTs = null;
       let lastTs = null;
       for (const m of all) {
         by_role[m.role] = (by_role[m.role] ?? 0) + 1;
+        by_speaker[m.name] = (by_speaker[m.name] ?? 0) + 1;
         totalChars += m.content.length;
         const ts = m.send_date ?? m.created_at;
         if (typeof ts === "number") {
@@ -20175,6 +20278,7 @@ var init_chat_stats = __esm(() => {
           total_chars: totalChars,
           longest_message_chars: longest,
           by_role,
+          by_speaker,
           first_ts: firstTs,
           last_ts: lastTs,
           hint: all.length > 200 ? `Big chat. Prefer grep_chat_messages for content search, list_chat_messages for skimming, or read_chat_messages with offset/limit for targeted ranges. read_chat_messages defaults to offset 0 (oldest first); pass offset ${Math.max(0, all.length - 100)} to read the most recent ~100 messages.` : "Small enough to read end-to-end if needed."
@@ -34328,7 +34432,8 @@ var init_grep = __esm(() => {
 });
 
 // src/agent/prompts/claude/tools/grep-chat-messages/description.txt
-var description_default33 = "Regex search across message contents. Returns hits with idx, id, role, line, match, preview. Use this for any 'where did we say X' question on a big chat, before falling back to read_chat_messages.";
+var description_default33 = `Regex search chat messages. Returns matched message ids, speakers, lines, and previews.
+`;
 var init_description33 = () => {};
 
 // src/agent/prompts/claude/tools/grep-chat-messages/arg_flags.txt
@@ -34418,7 +34523,7 @@ var init_grep_chat_messages = __esm(() => {
             continue;
           const preview = line.length > CHAT_GREP_PREVIEW_CHARS ? `${line.slice(0, CHAT_GREP_PREVIEW_CHARS - 5)} [\u2026]` : line;
           for (const mm of matches) {
-            hits.push({ idx: i, id: m.id, role: m.role, line: li + 1, match: mm, preview });
+            hits.push({ idx: i, id: m.id, role: m.role, speaker_name: m.name, line: li + 1, match: mm, preview });
             remaining--;
             if (remaining <= 0)
               break;
@@ -35941,7 +36046,8 @@ var init_list_characters = __esm(() => {
 });
 
 // src/agent/prompts/claude/tools/list-chat-messages/description.txt
-var description_default43 = "Skim a chat's messages as metadata only: idx, id, role, char count, and an 80-char snippet per message. Cheap on tokens. Use for picking which specific messages to read in full afterwards.";
+var description_default43 = `Skim a chat's messages by id, role, speaker, size, and short snippet. Use this to choose messages to read in full.
+`;
 var init_description43 = () => {};
 
 // src/agent/prompts/claude/tools/list-chat-messages/arg_offset.txt
@@ -35997,6 +36103,7 @@ var init_list_chat_messages = __esm(() => {
         idx: offset + i,
         id: m.id,
         role: m.role,
+        speaker_name: m.name,
         chars: m.content.length,
         snippet: m.content.length > CHAT_LIST_SNIPPET_CHARS ? m.content.slice(0, CHAT_LIST_SNIPPET_CHARS - 1) + "\u2026" : m.content
       }));
@@ -36015,7 +36122,8 @@ var init_list_chat_messages = __esm(() => {
 });
 
 // src/agent/prompts/claude/tools/list-chats-for-character/description.txt
-var description_default44 = "List all of a character's chat sessions. Returns id, name, updated_at, message_count, is_active (whether the host is currently showing this chat). Use this to discover what chats exist before reading messages, or to suggest one for the user to pin.";
+var description_default44 = `List solo and group chats containing a character. Returns chat ids, membership, timestamps, and active or pinned state.
+`;
 var init_description44 = () => {};
 
 // src/agent/tools/list-chats-for-character.ts
@@ -36048,17 +36156,18 @@ var init_list_chats_for_character = __esm(() => {
       try {
         active = await ctx.spindle.chats.getActive(ctx.userId) ?? null;
       } catch {}
-      const res = await ctx.spindle.chats.list({ characterId: target, userId: ctx.userId, limit: 200 });
-      const rows = res.data.map((c) => ({
+      const chats = await listChatsForCharacter(ctx.spindle, ctx.userId, target);
+      const rows = chats.map((c) => ({
         id: c.id,
         name: c.name,
+        is_group: isGroupChat(c),
+        character_ids: isGroupChat(c) ? groupCharacterIds(c) : [c.character_id],
         updated_at: c.updated_at,
         created_at: c.created_at,
         is_active: active?.id === c.id,
         is_pinned: ctx.pinnedChatId === c.id
       }));
-      rows.sort((a, b) => b.updated_at - a.updated_at);
-      return { content: JSON.stringify({ total: res.total, returned: rows.length, pinned_chat_id: ctx.pinnedChatId, chats: rows }, null, 2) };
+      return { content: JSON.stringify({ total: rows.length, returned: rows.length, pinned_chat_id: ctx.pinnedChatId, chats: rows }, null, 2) };
     }
   });
 });
@@ -36498,6 +36607,7 @@ async function readChatMessagesImpl(ctx, chatId, offsetIn, limitIn) {
     idx: offset + i,
     id: m.id,
     role: m.role,
+    speaker_name: m.name,
     content: m.content,
     swipe_count: m.swipes.length,
     active_swipe: m.swipe_id
@@ -36505,6 +36615,8 @@ async function readChatMessagesImpl(ctx, chatId, offsetIn, limitIn) {
   const payload = JSON.stringify({
     chat_id: chatId,
     chat_name: chat.name,
+    is_group: isGroupChat(chat),
+    character_ids: isGroupChat(chat) ? groupCharacterIds(chat) : [chat.character_id],
     total: all.length,
     offset,
     returned: messages.length,
@@ -38311,7 +38423,7 @@ var init_dry_run_prompt = __esm(() => {
       },
       required: []
     },
-    requiresCharacter: true,
+    requiresCharacter: false,
     execute: async (input, ctx) => {
       const chatId = input.chat_id ?? ctx.pinnedChatId;
       if (!chatId) {
@@ -38364,7 +38476,7 @@ var init_get_active_chat = __esm(() => {
     description: description_default69,
     inputSchema: inputSchema69,
     jsonSchema: { type: "object", properties: {}, required: [] },
-    requiresCharacter: true,
+    requiresCharacter: false,
     execute: async (_input, ctx) => {
       try {
         const chat = await ctx.spindle.chats.getActive(ctx.userId);
@@ -38496,7 +38608,7 @@ var init_list_activated_world_info = __esm(() => {
       },
       required: []
     },
-    requiresCharacter: true,
+    requiresCharacter: false,
     execute: async (input, ctx) => {
       const chatId = input.chat_id ?? ctx.pinnedChatId;
       if (!chatId)
@@ -38553,7 +38665,7 @@ var init_list_chat_memories = __esm(() => {
       },
       required: []
     },
-    requiresCharacter: true,
+    requiresCharacter: false,
     execute: async (input, ctx) => {
       const chatId = input.chat_id ?? ctx.pinnedChatId;
       if (!chatId)
@@ -41479,13 +41591,14 @@ function characterToSummary(c, regexCount, chatCount) {
   };
 }
 async function handleListCharacters(userId) {
-  const res = await spindle.characters.list({ limit: 1000, userId });
+  const [res, chats] = await Promise.all([
+    spindle.characters.list({ limit: 1000, userId }),
+    listAllChats(spindle, userId)
+  ]);
+  const chatCounts = countChatsByCharacter(chats);
   const summaries = await Promise.all(res.data.map(async (c) => {
-    const [rxs, chats] = await Promise.all([
-      spindle.regex_scripts.list({ scope: "character", scopeId: c.id, userId, limit: 1 }),
-      spindle.chats.list({ characterId: c.id, userId, limit: 1 })
-    ]);
-    return characterToSummary(c, rxs.total, chats.total);
+    const rxs = await spindle.regex_scripts.list({ scope: "character", scopeId: c.id, userId, limit: 1 });
+    return characterToSummary(c, rxs.total, chatCounts.get(c.id) ?? 0);
   }));
   send({ type: "characters_pushed", characters: summaries }, userId);
 }
@@ -41501,7 +41614,7 @@ async function handleListConnections(userId) {
   send({ type: "connections_pushed", connections: out }, userId);
 }
 async function handleListChats(characterId, sessionId, userId) {
-  log("info", `list_chats characterId=${characterId} sessionId=${sessionId ?? "none"}`);
+  log("info", `list_chats characterId=${characterId ?? "(none)"} sessionId=${sessionId ?? "none"}`);
   let active = null;
   try {
     active = await spindle.chats.getActive(userId) ?? null;
@@ -41512,7 +41625,7 @@ async function handleListChats(characterId, sessionId, userId) {
     try {
       const s = await loadSessionWithPending(sessionId, userId);
       if (s) {
-        const characterMatch = s.characterId === characterId;
+        const characterMatch = (s.characterId ?? null) === characterId;
         log("info", `list_chats: loaded session sessionCharacterId=${s.characterId} pinnedChatId=${s.pinnedChatId ?? "null"} characterMatch=${characterMatch}`);
         if (characterMatch && s.pinnedChatId !== null && s.pinnedChatId !== undefined) {
           pinnedChatId = s.pinnedChatId;
@@ -41527,10 +41640,12 @@ async function handleListChats(characterId, sessionId, userId) {
   }
   log("info", `list_chats: resolved pinnedChatId=${pinnedChatId ?? "null"} source=${pinSource}`);
   try {
-    const res = await spindle.chats.list({ characterId, userId, limit: 200 });
-    const chats = res.data.map((c) => ({
+    const matches = characterId === null ? (await listAllChats(spindle, userId)).filter((chat) => chat.metadata.temporary !== true && typeof chat.character_id === "string" && chat.character_id.length > 0).sort((a, b) => b.updated_at - a.updated_at) : await listChatsForCharacter(spindle, userId, characterId);
+    const chats = matches.map((c) => ({
       id: c.id,
       characterId: c.character_id,
+      isGroup: isGroupChat(c),
+      memberCharacterIds: isGroupChat(c) ? groupCharacterIds(c) : [c.character_id],
       name: c.name,
       updatedAt: c.updated_at,
       createdAt: c.created_at,
@@ -42521,7 +42636,7 @@ async function handleSetFocus(sessionId, characterId, userId) {
     return;
   }
   if ((s.characterId ?? null) === (characterId ?? null)) {
-    send({ type: "focus_set", sessionId, characterId, characterName: s.characterName }, userId);
+    send({ type: "focus_set", sessionId, characterId, characterName: s.characterName, pinnedChatId: s.pinnedChatId ?? null }, userId);
     return;
   }
   let characterName = "";
@@ -42538,6 +42653,16 @@ async function handleSetFocus(sessionId, characterId, userId) {
       return;
     }
   }
+  let pinnedChatId = characterId === null ? s.pinnedChatId ?? null : null;
+  if (characterId !== null && s.pinnedChatId) {
+    try {
+      const pinnedChat = await spindle.chats.get(s.pinnedChatId, userId);
+      if (pinnedChat && chatIncludesCharacter(pinnedChat, characterId))
+        pinnedChatId = pinnedChat.id;
+    } catch {
+      pinnedChatId = null;
+    }
+  }
   if (activeSessions.has(scopedKey(userId, sessionId))) {
     send({ type: "focus_rejected", sessionId, reason: "Can't switch character while a generation is in flight." }, userId);
     return;
@@ -42545,10 +42670,10 @@ async function handleSetFocus(sessionId, characterId, userId) {
   const stillPending = pendingSessions.has(scopedKey(userId, sessionId));
   s.characterId = characterId;
   s.characterName = characterName;
-  s.pinnedChatId = null;
+  s.pinnedChatId = pinnedChatId;
   if (!stillPending)
     await saveSession(spindle, s, userId);
-  send({ type: "focus_set", sessionId, characterId, characterName }, userId);
+  send({ type: "focus_set", sessionId, characterId, characterName, pinnedChatId }, userId);
 }
 async function handleListSessions(filter, userId) {
   const prefix = `${userId}:`;

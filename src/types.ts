@@ -295,6 +295,8 @@ export interface ConnectionSummary {
 export interface ChatSummary {
   readonly id: string;
   readonly characterId: string;
+  readonly isGroup: boolean;
+  readonly memberCharacterIds: readonly string[];
   readonly name: string;
   readonly updatedAt: number;
   readonly createdAt: number;
@@ -355,7 +357,7 @@ export type FrontendToBackend =
   | { type: "fork_session"; sourceSessionId: string; messageId: string }
   | { type: "delete_message"; sessionId: string; messageId: string; editsAction: "keep" | "revert" }
   | { type: "free_tool_result"; sessionId: string; callId: string }
-  | { type: "list_chats"; characterId: string; sessionId?: string | undefined }
+  | { type: "list_chats"; characterId: string | null; sessionId?: string | undefined }
   | { type: "set_pinned_chat"; sessionId: string; chatId: string | null }
   | { type: "set_focus"; sessionId: string; characterId: string | null }
   | { type: "get_settings" }
@@ -405,9 +407,9 @@ export type BackendToFrontend =
   | { type: "edit_reverted"; scope: ScopeRef; editId: string; outcome: RevertOutcomeWire }
   | { type: "edits_reverted_bulk"; scope: ScopeRef; outcomes: ReadonlyArray<{ editId: string; outcome: RevertOutcomeWire }> }
   | { type: "session_truncated"; sessionId: string; messages: readonly ChatMessage[]; edits: readonly EditLogEntry[] }
-  | { type: "chats_pushed"; characterId: string; chats: readonly ChatSummary[]; pinnedChatId: string | null }
+  | { type: "chats_pushed"; characterId: string | null; chats: readonly ChatSummary[]; pinnedChatId: string | null }
   | { type: "pinned_chat_set"; sessionId: string; chatId: string | null }
-  | { type: "focus_set"; sessionId: string; characterId: string | null; characterName: string }
+  | { type: "focus_set"; sessionId: string; characterId: string | null; characterName: string; pinnedChatId: string | null }
   | { type: "focus_rejected"; sessionId: string; reason: string }
   | { type: "settings_pushed"; persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody: string; samplers: Readonly<Record<string, number | null>>; jailbreak: string; jailbreakPlacement: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes: number | null; workspaceCapDefaultBytes: number; workspaceFileCapBytes: number; toolOutputCapTokens: number | null; toolOutputCapDefaultTokens: number; cacheMode: "off" | "system_only" | "full"; parallelToolCalls: boolean; tpmLimit: number | null; debugLogging: boolean }
   | { type: "ui_prefs_pushed"; connectionId: string | null; lastSessionId: string | null }

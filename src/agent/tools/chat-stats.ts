@@ -34,11 +34,13 @@ export const chatStatsTool = defineTool({
     if (!chat) return { content: `Error: chat ${chatId} not found`, isError: true };
     const all = await ctx.spindle.chat.getMessages(chatId);
     const by_role: Record<string, number> = {};
+    const by_speaker: Record<string, number> = {};
     let totalChars = 0;
     let firstTs: number | null = null;
     let lastTs: number | null = null;
     for (const m of all) {
       by_role[m.role] = (by_role[m.role] ?? 0) + 1;
+      by_speaker[m.name] = (by_speaker[m.name] ?? 0) + 1;
       totalChars += m.content.length;
       const ts = (m as unknown as { send_date?: number; created_at?: number }).send_date ?? (m as unknown as { created_at?: number }).created_at;
       if (typeof ts === "number") {
@@ -55,6 +57,7 @@ export const chatStatsTool = defineTool({
         total_chars: totalChars,
         longest_message_chars: longest,
         by_role,
+        by_speaker,
         first_ts: firstTs,
         last_ts: lastTs,
         hint: all.length > 200

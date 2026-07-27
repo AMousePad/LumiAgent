@@ -8505,11 +8505,6 @@ Revert those edits to the character now, or leave them applied?`;
       sendBackend({ type: "set_pinned_chat", sessionId: state.sessionId, chatId });
       return;
     }
-    if (!state.characterId) {
-      composerStatus.textContent = "Pick a character first.";
-      composerStatus.classList.add("is-error");
-      return;
-    }
     if (state.startingSession) {
       state.pendingPinChatId = chatId;
       return;
@@ -8541,11 +8536,6 @@ Revert those edits to the character now, or leave them applied?`;
     }, 8000);
   };
   const openChatPickerModal = () => {
-    if (!state.characterId) {
-      composerStatus.textContent = "Pick a character first.";
-      composerStatus.classList.add("is-error");
-      return;
-    }
     sendBackend({ type: "list_chats", characterId: state.characterId, ...state.sessionId ? { sessionId: state.sessionId } : {} });
     const handle = ctx.ui.showModal({ title: "Pin a chat", width: 520, maxHeight: 560 });
     const note = el7("p", "la-modal-note", "Pick a chat to give the agent read access to its message history. The agent uses the pinned chat when you reference 'this chat', 'the conversation', etc. Pin nothing to keep the agent isolated from your chat data.");
@@ -8560,14 +8550,16 @@ Revert those edits to the character now, or leave them applied?`;
       });
       list.appendChild(unpin);
       if (state.chatsForCharacter.length === 0) {
-        list.appendChild(el7("div", "la-diff-pane-empty", "No chats yet for this character."));
+        list.appendChild(el7("div", "la-diff-pane-empty", state.characterId ? "No chats yet for this character." : "No chats available."));
         return;
       }
       for (const c of state.chatsForCharacter) {
         const row = el7("div", `la-session-item ${c.isPinned ? "is-active" : ""}`);
         const main = el7("div", "la-session-item-main");
         main.append(Object.assign(el7("div"), { textContent: c.name + (c.isActive ? "  (currently open)" : "") }));
-        main.append(el7("div", "la-session-item-meta", `updated ${new Date(c.updatedAt).toLocaleString()}`));
+        const memberNames = c.memberCharacterIds.map((id) => state.characters.find((character) => character.id === id)?.name ?? id).join(", ");
+        const kind = c.isGroup ? `Group: ${memberNames} · ` : "";
+        main.append(el7("div", "la-session-item-meta", `${kind}updated ${new Date(c.updatedAt).toLocaleString()}`));
         row.appendChild(main);
         if (c.isPinned) {
           const tick = el7("span", "la-session-item-tick");
@@ -9912,6 +9904,7 @@ Revert those edits to the character now, or leave them applied?`;
           sendBackend({ type: "list_chats", characterId: msg.characterId, sessionId: msg.sessionId });
         } else {
           sendBackend({ type: "list_characters_storage" });
+          sendBackend({ type: "list_chats", characterId: null, sessionId: msg.sessionId });
         }
         break;
       case "session_status":
@@ -10121,9 +10114,8 @@ Revert those edits to the character now, or leave them applied?`;
         if (msg.sessionId === state.sessionId) {
           state.pinnedChatId = msg.chatId;
           setChatPinned(msg.chatId !== null);
-        }
-        if (state.characterId)
           sendBackend({ type: "list_chats", characterId: state.characterId, sessionId: msg.sessionId });
+        }
         break;
       case "focus_set":
         if (msg.sessionId === state.sessionId) {
@@ -10134,10 +10126,10 @@ Revert those edits to the character now, or leave them applied?`;
           updateComposer();
           updateSessionBar();
           if (changed) {
-            state.pinnedChatId = null;
+            state.pinnedChatId = msg.pinnedChatId;
             state.chatsForCharacter = [];
-            state.autoPinNeeded = msg.characterId !== null;
-            setChatPinned(false);
+            state.autoPinNeeded = msg.characterId !== null && msg.pinnedChatId === null;
+            setChatPinned(msg.pinnedChatId !== null);
             if (msg.characterId) {
               sendBackend({ type: "list_character_edits", characterId: msg.characterId });
               sendBackend({ type: "list_chats", characterId: msg.characterId, sessionId: msg.sessionId });

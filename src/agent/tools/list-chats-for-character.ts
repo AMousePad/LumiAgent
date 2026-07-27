@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import { resolveCharacterTarget, noTargetResult } from "./_context";
+import { groupCharacterIds, isGroupChat, listChatsForCharacter } from "../../state/chat-catalog";
 import description from "../prompts/claude/tools/list-chats-for-character/description.txt";
 
 const inputSchema = z.object({
@@ -19,16 +20,17 @@ export const listChatsForCharacterTool = defineTool({
     catch (err) { const nt = noTargetResult(err); if (nt) return nt; throw err; }
     let active: { id: string } | null = null;
     try { active = await ctx.spindle.chats.getActive(ctx.userId) ?? null; } catch { /* permission may not be granted */ }
-    const res = await ctx.spindle.chats.list({ characterId: target, userId: ctx.userId, limit: 200 });
-    const rows = res.data.map((c) => ({
+    const chats = await listChatsForCharacter(ctx.spindle, ctx.userId, target);
+    const rows = chats.map((c) => ({
       id: c.id,
       name: c.name,
+      is_group: isGroupChat(c),
+      character_ids: isGroupChat(c) ? groupCharacterIds(c) : [c.character_id],
       updated_at: c.updated_at,
       created_at: c.created_at,
       is_active: active?.id === c.id,
       is_pinned: ctx.pinnedChatId === c.id,
     }));
-    rows.sort((a, b) => b.updated_at - a.updated_at);
-    return { content: JSON.stringify({ total: res.total, returned: rows.length, pinned_chat_id: ctx.pinnedChatId, chats: rows }, null, 2) };
+    return { content: JSON.stringify({ total: rows.length, returned: rows.length, pinned_chat_id: ctx.pinnedChatId, chats: rows }, null, 2) };
   },
 });

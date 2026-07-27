@@ -21,7 +21,7 @@ export const listChatMemoriesTool = defineTool({
     },
     required: [],
   },
-  requiresCharacter: true,
+  requiresCharacter: false,
   execute: async (input, ctx) => {
     const chatId = input.chat_id ?? ctx.pinnedChatId;
     if (!chatId) return { content: JSON.stringify({ error: "no chat_id and no pinned chat" }), isError: true };

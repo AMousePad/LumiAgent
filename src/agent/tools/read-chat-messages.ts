@@ -3,6 +3,7 @@ import { defineTool } from "./_framework";
 import { spillOrReturn } from "./_io";
 import type { ToolCtx } from "./_context";
 import type { ToolResult } from "./_framework";
+import { groupCharacterIds, isGroupChat } from "../../state/chat-catalog";
 import description from "../prompts/claude/tools/read-chat-messages/description.txt";
 import argChatId from "../prompts/claude/tools/read-chat-messages/arg_chat_id.txt";
 
@@ -25,6 +26,7 @@ export async function readChatMessagesImpl(
     idx: offset + i,
     id: m.id,
     role: m.role,
+    speaker_name: m.name,
     content: m.content,
     swipe_count: m.swipes.length,
     active_swipe: m.swipe_id,
@@ -32,6 +34,8 @@ export async function readChatMessagesImpl(
   const payload = JSON.stringify({
     chat_id: chatId,
     chat_name: chat.name,
+    is_group: isGroupChat(chat),
+    character_ids: isGroupChat(chat) ? groupCharacterIds(chat) : [chat.character_id],
     total: all.length,
     offset,
     returned: messages.length,

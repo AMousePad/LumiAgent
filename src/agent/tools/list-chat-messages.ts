@@ -46,6 +46,7 @@ export const listChatMessagesTool = defineTool({
       idx: offset + i,
       id: m.id,
       role: m.role,
+      speaker_name: m.name,
       chars: m.content.length,
       snippet: m.content.length > CHAT_LIST_SNIPPET_CHARS
         ? m.content.slice(0, CHAT_LIST_SNIPPET_CHARS - 1) + "…"

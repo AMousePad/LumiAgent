@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import { groupLorebookMode, isGroupChat, lorebookCharacterIds } from "../../state/chat-catalog";
 import description from "../prompts/claude/tools/list-chat-world-books/description.txt";
 import argChatId from "../prompts/claude/tools/list-chat-world-books/arg_chat_id.txt";
 
@@ -16,6 +17,7 @@ interface BookRow {
   label: string;
   entries: number;
   scope: "character" | "persona" | "chat" | "global";
+  character_ids?: string[];
 }
 
 export const listChatWorldBooksTool = defineTool({
@@ -44,20 +46,36 @@ export const listChatWorldBooksTool = defineTool({
 
       const seen = new Set<string>();
       const rows: BookRow[] = [];
-      const addBook = async (id: string, scope: BookRow["scope"]) => {
-        if (seen.has(id)) return;
+      const addBook = async (id: string, scope: BookRow["scope"], characterId?: string) => {
+        if (seen.has(id)) {
+          if (characterId) {
+            const existing = rows.find((row) => row.world_book_id === id);
+            if (existing?.character_ids && !existing.character_ids.includes(characterId)) {
+              existing.character_ids.push(characterId);
+            }
+          }
+          return;
+        }
         seen.add(id);
         const wb = await ctx.spindle.world_books.get(id, ctx.userId);
         if (!wb) return;
         const meta = await ctx.spindle.world_books.entries.list(id, { limit: 1, userId: ctx.userId });
-        rows.push({ world_book_id: id, label: wb.name, entries: meta.total, scope });
+        rows.push({
+          world_book_id: id,
+          label: wb.name,
+          entries: meta.total,
+          scope,
+          ...(characterId ? { character_ids: [characterId] } : {}),
+        });
       };
 
       // Order is the narrowness precedence: a book bound at multiple scopes keeps
       // the first (narrowest) label. character > persona > chat > global.
       if (chat) {
-        const character = await ctx.spindle.characters.get(chat.character_id, ctx.userId);
-        for (const id of character?.world_book_ids ?? []) await addBook(id, "character");
+        for (const characterId of lorebookCharacterIds(chat, ctx.characterId)) {
+          const character = await ctx.spindle.characters.get(characterId, ctx.userId);
+          for (const id of character?.world_book_ids ?? []) await addBook(id, "character", characterId);
+        }
       }
 
       // The host's prompt assembly uses the active persona OR the default one
@@ -78,6 +96,11 @@ export const listChatWorldBooksTool = defineTool({
 
       return { content: JSON.stringify({
         chat_id: chatId,
+        ...(chat && isGroupChat(chat) ? {
+          is_group: true,
+          group_lorebook_mode: groupLorebookMode(chat),
+          character_ids_used: lorebookCharacterIds(chat, ctx.characterId),
+        } : {}),
         ...(chat ? {} : { note: "No chat pinned: showing user-level layers only (persona, global). Pin a chat or pass chat_id to also include character- and chat-bound books." }),
         count: rows.length,
         books: rows,

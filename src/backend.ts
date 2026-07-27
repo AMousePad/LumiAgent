@@ -58,6 +58,14 @@ import {
   PERMISSION_PURPOSE,
 } from "./state/permissions";
 import { initHostVersionCheck, getHostVersionWarning } from "./state/version-check";
+import {
+  chatIncludesCharacter,
+  countChatsByCharacter,
+  groupCharacterIds,
+  isGroupChat,
+  listAllChats,
+  listChatsForCharacter,
+} from "./state/chat-catalog";
 
 // Operator-scoped: one process serves every user, so any map keyed only by
 // a user-supplied id (sessionId, rpcId, transferId) is a cross-user channel.
@@ -230,15 +238,15 @@ function characterToSummary(c: CharacterDTO, regexCount: number, chatCount: numb
 }
 
 async function handleListCharacters(userId: string): Promise<void> {
-  const res = await spindle.characters.list({ limit: 1000, userId });
+  const [res, chats] = await Promise.all([
+    spindle.characters.list({ limit: 1000, userId }),
+    listAllChats(spindle, userId),
+  ]);
+  const chatCounts = countChatsByCharacter(chats);
   const summaries: CharacterSummary[] = await Promise.all(
     res.data.map(async (c) => {
-      // limit:1 — only the `total` is needed, not the rows.
-      const [rxs, chats] = await Promise.all([
-        spindle.regex_scripts.list({ scope: "character", scopeId: c.id, userId, limit: 1 }),
-        spindle.chats.list({ characterId: c.id, userId, limit: 1 }),
-      ]);
-      return characterToSummary(c, rxs.total, chats.total);
+      const rxs = await spindle.regex_scripts.list({ scope: "character", scopeId: c.id, userId, limit: 1 });
+      return characterToSummary(c, rxs.total, chatCounts.get(c.id) ?? 0);
     }),
   );
   send({ type: "characters_pushed", characters: summaries }, userId);
@@ -256,8 +264,8 @@ async function handleListConnections(userId: string): Promise<void> {
   send({ type: "connections_pushed", connections: out }, userId);
 }
 
-async function handleListChats(characterId: string, sessionId: string | undefined, userId: string): Promise<void> {
-  log("info", `list_chats characterId=${characterId} sessionId=${sessionId ?? "none"}`);
+async function handleListChats(characterId: string | null, sessionId: string | undefined, userId: string): Promise<void> {
+  log("info", `list_chats characterId=${characterId ?? "(none)"} sessionId=${sessionId ?? "none"}`);
   let active: { id: string } | null = null;
   try { active = await spindle.chats.getActive(userId) ?? null; } catch { /* permission may not be granted yet */ }
   let pinnedChatId: string | null = null;
@@ -267,7 +275,7 @@ async function handleListChats(characterId: string, sessionId: string | undefine
     try {
       const s = await loadSessionWithPending(sessionId, userId);
       if (s) {
-        const characterMatch = s.characterId === characterId;
+        const characterMatch = (s.characterId ?? null) === characterId;
         log("info", `list_chats: loaded session sessionCharacterId=${s.characterId} pinnedChatId=${s.pinnedChatId ?? "null"} characterMatch=${characterMatch}`);
         if (characterMatch && s.pinnedChatId !== null && s.pinnedChatId !== undefined) {
           pinnedChatId = s.pinnedChatId;
@@ -280,10 +288,19 @@ async function handleListChats(characterId: string, sessionId: string | undefine
   }
   log("info", `list_chats: resolved pinnedChatId=${pinnedChatId ?? "null"} source=${pinSource}`);
   try {
-    const res = await spindle.chats.list({ characterId, userId, limit: 200 });
-    const chats = res.data.map((c) => ({
+    const matches = characterId === null
+      ? (await listAllChats(spindle, userId))
+        .filter((chat) =>
+          chat.metadata.temporary !== true
+          && typeof chat.character_id === "string"
+          && chat.character_id.length > 0)
+        .sort((a, b) => b.updated_at - a.updated_at)
+      : await listChatsForCharacter(spindle, userId, characterId);
+    const chats = matches.map((c) => ({
       id: c.id,
       characterId: c.character_id,
+      isGroup: isGroupChat(c),
+      memberCharacterIds: isGroupChat(c) ? groupCharacterIds(c) : [c.character_id],
       name: c.name,
       updatedAt: c.updated_at,
       createdAt: c.created_at,
@@ -1350,7 +1367,7 @@ async function handleSetFocus(sessionId: string, characterId: string | null, use
   const s = await loadSessionWithPending(sessionId, userId);
   if (!s) { send({ type: "session_deleted", sessionId }, userId); return; }
   if ((s.characterId ?? null) === (characterId ?? null)) {
-    send({ type: "focus_set", sessionId, characterId, characterName: s.characterName }, userId);
+    send({ type: "focus_set", sessionId, characterId, characterName: s.characterName, pinnedChatId: s.pinnedChatId ?? null }, userId);
     return;
   }
   let characterName = "";
@@ -1364,6 +1381,15 @@ async function handleSetFocus(sessionId: string, characterId: string | null, use
       return;
     }
   }
+  let pinnedChatId: string | null = characterId === null ? s.pinnedChatId ?? null : null;
+  if (characterId !== null && s.pinnedChatId) {
+    try {
+      const pinnedChat = await spindle.chats.get(s.pinnedChatId, userId);
+      if (pinnedChat && chatIncludesCharacter(pinnedChat, characterId)) pinnedChatId = pinnedChat.id;
+    } catch {
+      pinnedChatId = null;
+    }
+  }
   // Re-check after the awaits above: a concurrent send_message could have
   // promoted this pending session and started a generation against the SAME
   // shared object. Mutating it now would swap the character mid-generation, and
@@ -1375,10 +1401,9 @@ async function handleSetFocus(sessionId: string, characterId: string | null, use
   const stillPending = pendingSessions.has(scopedKey(userId, sessionId));
   s.characterId = characterId;
   s.characterName = characterName;
-  // The pinned chat belonged to the previous character.
-  s.pinnedChatId = null;
+  s.pinnedChatId = pinnedChatId;
   if (!stillPending) await saveSession(spindle, s, userId);
-  send({ type: "focus_set", sessionId, characterId, characterName }, userId);
+  send({ type: "focus_set", sessionId, characterId, characterName, pinnedChatId }, userId);
 }
 
 async function handleListSessions(filter: string | null | undefined, userId: string): Promise<void> {

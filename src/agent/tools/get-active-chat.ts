@@ -9,7 +9,7 @@ export const getActiveChatTool = defineTool({
   description,
   inputSchema,
   jsonSchema: { type: "object", properties: {}, required: [] },
-  requiresCharacter: true,
+  requiresCharacter: false,
   execute: async (_input, ctx) => {
     try {
       const chat = await ctx.spindle.chats.getActive(ctx.userId);
