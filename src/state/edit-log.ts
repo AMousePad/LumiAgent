@@ -503,6 +503,7 @@ export async function readLiveValue(
       const c = await spindle.characters.get(characterId, userId);
       if (!c) return null;
       const v = (c as unknown as Record<string, unknown>)[r.field];
+      if (r.valueEncoding === "json") return JSON.stringify(v === undefined ? null : v);
       return typeof v === "string" ? v : null;
     }
     case "alternate_greeting": {
@@ -710,7 +711,8 @@ export async function writeFieldValue(
 ): Promise<void> {
   switch (surface) {
     case "character_field": {
-      await spindle.characters.update(characterId, { [field]: value } as CharacterUpdateDTO, userId);
+      const decoded = valueEncoding === "json" ? JSON.parse(value) : value;
+      await spindle.characters.update(characterId, { [field]: decoded } as CharacterUpdateDTO, userId);
       return;
     }
     case "alternate_greeting": {

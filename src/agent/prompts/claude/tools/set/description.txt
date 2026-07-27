@@ -3,6 +3,7 @@ Wholesale write of any JSON value at a path. Use for structural changes the read
 - Toggling a boolean (regex.disabled, world_book_entry.constant)
 - Changing a number (priority, position, sort_order, depth)
 - Replacing an array / object value (e.g. extensions.lumirealm.payload.scriptstate_defaults)
+- Replacing character tags: `set({path:"char/tags", value:["tag one","tag two"]})`
 - Setting a typed value at an extension path that isn't a string
 - Attaching / changing a persona's world book: `set({path:"persona/<personaId>/attached_world_book_id", value:"<worldBookId>"})`; `value:null` detaches
 

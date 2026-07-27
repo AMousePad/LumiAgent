@@ -10,7 +10,7 @@ const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 500;
 
 const inputSchema = z.object({
-  query: z.string().optional().describe("Case-insensitive substring filter on the character name."),
+  query: z.string().optional().describe("Case-insensitive substring filter on character names and tags."),
   offset: z.number().int().min(0).optional().describe("Pagination offset. Default 0."),
   limit: z.number().int().positive().max(MAX_LIMIT).optional().describe(`Max characters to return. Default ${DEFAULT_LIMIT}, max ${MAX_LIMIT}.`),
 }).strict();
@@ -35,9 +35,10 @@ export const listCharactersTool = defineTool({
     const limit = Math.min(MAX_LIMIT, Math.max(1, Math.floor(input.limit ?? DEFAULT_LIMIT)));
     const offset = Math.max(0, Math.floor(input.offset ?? 0));
     const q = input.query?.trim().toLowerCase();
-    const toRow = (c: { id: string; name: string; world_book_ids?: readonly string[] }) => ({
+    const toRow = (c: { id: string; name: string; tags?: readonly string[]; world_book_ids?: readonly string[] }) => ({
       id: c.id,
       name: c.name,
+      tags: c.tags ?? [],
       world_book_count: c.world_book_ids?.length ?? 0,
     });
 
@@ -65,7 +66,11 @@ export const listCharactersTool = defineTool({
       const res = await ctx.spindle.characters.list({ limit: MAX_LIMIT, offset: pageOffset, userId: ctx.userId });
       libraryTotal = res.total;
       scanned += res.data.length;
-      for (const c of res.data) if (c.name.toLowerCase().includes(q)) matches.push(toRow(c));
+      for (const c of res.data) {
+        if (c.name.toLowerCase().includes(q) || c.tags.some((tag) => tag.toLowerCase().includes(q))) {
+          matches.push(toRow(c));
+        }
+      }
       if (res.data.length === 0 || scanned >= res.total) break;
       pageOffset += res.data.length;
     }

@@ -25,6 +25,19 @@ export function isRegexScriptBigField(s: string): s is RegexScriptBigField {
   return (REGEX_SCRIPT_BIG_FIELDS as readonly string[]).includes(s);
 }
 
+export function normaliseCharacterTags(value: unknown): string[] | null {
+  if (!Array.isArray(value) || value.some((tag) => typeof tag !== "string")) return null;
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of value as string[]) {
+    const tag = raw.trim();
+    if (tag === "" || seen.has(tag)) continue;
+    seen.add(tag);
+    out.push(tag);
+  }
+  return out;
+}
+
 export function wbLabel(e: WorldBookEntryDTO): string {
   const keys = Array.isArray(e.key) ? e.key : [];
   return e.comment || (keys.length > 0 ? keys.join("|") : `entry ${e.id}`);

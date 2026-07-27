@@ -2464,6 +2464,8 @@ async function readLiveValue(spindle2, entry, characterId, userId) {
       if (!c)
         return null;
       const v = c[r.field];
+      if (r.valueEncoding === "json")
+        return JSON.stringify(v === undefined ? null : v);
       return typeof v === "string" ? v : null;
     }
     case "alternate_greeting": {
@@ -2650,7 +2652,8 @@ async function revertFieldEditV2(spindle2, ledger, editId, characterId, userId, 
 async function writeFieldValue(spindle2, surface, surfaceId, field, value, characterId, userId, valueEncoding) {
   switch (surface) {
     case "character_field": {
-      await spindle2.characters.update(characterId, { [field]: value }, userId);
+      const decoded = valueEncoding === "json" ? JSON.parse(value) : value;
+      await spindle2.characters.update(characterId, { [field]: decoded }, userId);
       return;
     }
     case "alternate_greeting": {
@@ -17745,6 +17748,20 @@ var init__context = __esm(() => {
 function isCharacterStringField(s) {
   return CHARACTER_STRING_FIELDS.includes(s);
 }
+function normaliseCharacterTags(value) {
+  if (!Array.isArray(value) || value.some((tag) => typeof tag !== "string"))
+    return null;
+  const out = [];
+  const seen = new Set;
+  for (const raw of value) {
+    const tag = raw.trim();
+    if (tag === "" || seen.has(tag))
+      continue;
+    seen.add(tag);
+    out.push(tag);
+  }
+  return out;
+}
 function wbLabel(e) {
   const keys = Array.isArray(e.key) ? e.key : [];
   return e.comment || (keys.length > 0 ? keys.join("|") : `entry ${e.id}`);
@@ -19195,6 +19212,19 @@ async function resolveRead(ctx, path) {
         value: v2
       };
     }
+    if (sub === "tags") {
+      if (subParts.length !== 1)
+        throw new PathError(path, `expected char/tags, got ${subParts.length} subsegments`);
+      return {
+        key: `char/${characterId}/tags`,
+        surface: "character_field",
+        surfaceId: characterId,
+        surfaceLabel: c.name,
+        field: "tags",
+        value: JSON.stringify(c.tags ?? []),
+        valueEncoding: "json"
+      };
+    }
     if (subParts.length !== 1)
       throw new PathError(path, `expected char/<field>, got ${subParts.length} subsegments`);
     if (!isCharacterStringField(sub))
@@ -19401,7 +19431,27 @@ async function resolveRead(ctx, path) {
 async function resolveWrite(ctx, leaf, nextValue) {
   if (leaf.surface === "character_field") {
     const charId = leaf.surfaceId;
-    const patch = { [leaf.field]: nextValue };
+    let written = nextValue;
+    let patch;
+    if (leaf.field === "tags" && leaf.valueEncoding === "json") {
+      let parsed;
+      try {
+        parsed = JSON.parse(nextValue);
+      } catch {
+        throw new Error('char/tags expects a JSON string array. Use set({path:"char/tags", value:[...]}).');
+      }
+      const tags = normaliseCharacterTags(parsed);
+      if (tags === null) {
+        throw new Error('char/tags expects a JSON string array. Use set({path:"char/tags", value:[...]}).');
+      }
+      written = JSON.stringify(tags);
+      if (written !== nextValue) {
+        throw new Error('char/tags edits must keep canonical compact JSON. Use set({path:"char/tags", value:[...]}).');
+      }
+      patch = { tags };
+    } else {
+      patch = { [leaf.field]: nextValue };
+    }
     await ctx.spindle.characters.update(charId, patch, ctx.userId);
     ctx.pushEdit({
       op: "edit",
@@ -19410,7 +19460,8 @@ async function resolveWrite(ctx, leaf, nextValue) {
       surfaceLabel: leaf.surfaceLabel,
       field: leaf.field,
       before: leaf.value,
-      after: nextValue,
+      after: written,
+      ...leaf.valueEncoding !== undefined ? { valueEncoding: leaf.valueEncoding } : {},
       scope: characterScope(charId)
     });
     return;
@@ -19591,6 +19642,16 @@ async function* iterateAllLeaves(ctx, characterId, opts) {
       yield { key: `char/${characterId}/${field}`, surface: "character_field", surfaceId: characterId, surfaceLabel: c.name, field, value: v, scope: charScope };
     }
   }
+  yield {
+    key: `char/${characterId}/tags`,
+    surface: "character_field",
+    surfaceId: characterId,
+    surfaceLabel: c.name,
+    field: "tags",
+    value: JSON.stringify(c.tags ?? []),
+    valueEncoding: "json",
+    scope: charScope
+  };
   if (Array.isArray(c.alternate_greetings)) {
     for (let i = 0;i < c.alternate_greetings.length; i++) {
       const v = c.alternate_greetings[i];
@@ -19682,6 +19743,7 @@ var init__path_v2 = __esm(() => {
   init__surfaces();
   CHAR_SUBTREE_TOKENS = new Set([
     ...CHARACTER_STRING_FIELDS,
+    "tags",
     "alternate_greetings",
     "alternate_fields",
     "extensions"
@@ -34787,7 +34849,8 @@ Each returned row carries:
 - \`size\`     \u2014 for string leaves: character count. For arrays/objects: child count. For \`wb_entry\`: content character count.
 - \`entries\`  \u2014 only on \`world_book\` rows: total entry count in the book. Read this, not \`size\`, to gauge book volume.
 
-Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole via \`inspect\`; to \`read\` / \`edit\` a string leaf, append the field name (\`rx/<scriptId>/find_regex\` or \`/replace_string\`; \`wb/<entryId>/content\` or \`/comment\`). Leaf paths (\`char/<field>\`, \`char/alternate_greetings/<idx>\`, \`char/extensions/<dotted>\`) are directly read/editable.`;
+Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole via \`inspect\`; to \`read\` / \`edit\` a string leaf, append the field name (\`rx/<scriptId>/find_regex\` or \`/replace_string\`; \`wb/<entryId>/content\` or \`/comment\`). Leaf paths (\`char/<field>\`, \`char/alternate_greetings/<idx>\`, \`char/extensions/<dotted>\`) are directly read/editable.
+`;
 var init_description36 = () => {};
 
 // src/agent/prompts/claude/tools/list/arg_path.txt
@@ -34829,6 +34892,7 @@ async function listCharacterRoot(ctx, characterId, maxEntries) {
     if (typeof v === "string")
       out.push({ path: `char/${f}`, type: "string", size: v.length });
   }
+  out.push({ path: "char/tags", type: "array", size: c.tags?.length ?? 0 });
   if (Array.isArray(c.alternate_greetings) && c.alternate_greetings.length > 0) {
     out.push({ path: "char/alternate_greetings", type: "array", size: c.alternate_greetings.length });
   }
@@ -35248,7 +35312,26 @@ ${draftReuseNote(h, next.length, "new_content")}`, isError: true };
 });
 
 // src/agent/prompts/claude/tools/set/description.txt
-var description_default38 = "Wholesale write of any JSON value at a path. Use for structural changes the read/edit/rewrite trio can't make:\n\n- Toggling a boolean (regex.disabled, world_book_entry.constant)\n- Changing a number (priority, position, sort_order, depth)\n- Replacing an array / object value (e.g. extensions.lumirealm.payload.scriptstate_defaults)\n- Setting a typed value at an extension path that isn't a string\n- Attaching / changing a persona's world book: `set({path:\"persona/<personaId>/attached_world_book_id\", value:\"<worldBookId>\"})`; `value:null` detaches\n\nPath grammar matches `read` / `edit` / `rewrite`. The value field accepts any JSON-encodable type. For string-leaf paths, set is a wholesale alternative to `rewrite` (no read-gate, so use only when you don't need to anchor against current content).\n\nRecords before/after in the ledger like every other edit \u2014 fully revertable.\n\nFor multi-field atomic character updates use `update_character({patch})`.\n\nReturns:\n- `path` \u2014 path written.\n- `before_chars`, `after_chars` \u2014 string length before vs after (non-string values are JSON-stringified for measurement).\n- `before_peek`, `after_peek` \u2014 first 120 chars of each side, for verification.";
+var description_default38 = `Wholesale write of any JSON value at a path. Use for structural changes the read/edit/rewrite trio can't make:
+
+- Toggling a boolean (regex.disabled, world_book_entry.constant)
+- Changing a number (priority, position, sort_order, depth)
+- Replacing an array / object value (e.g. extensions.lumirealm.payload.scriptstate_defaults)
+- Replacing character tags: \`set({path:"char/tags", value:["tag one","tag two"]})\`
+- Setting a typed value at an extension path that isn't a string
+- Attaching / changing a persona's world book: \`set({path:"persona/<personaId>/attached_world_book_id", value:"<worldBookId>"})\`; \`value:null\` detaches
+
+Path grammar matches \`read\` / \`edit\` / \`rewrite\`. The value field accepts any JSON-encodable type. For string-leaf paths, set is a wholesale alternative to \`rewrite\` (no read-gate, so use only when you don't need to anchor against current content).
+
+Records before/after in the ledger like every other edit \u2014 fully revertable.
+
+For multi-field atomic character updates use \`update_character({patch})\`.
+
+Returns:
+- \`path\` \u2014 path written.
+- \`before_chars\`, \`after_chars\` \u2014 string length before vs after (non-string values are JSON-stringified for measurement).
+- \`before_peek\`, \`after_peek\` \u2014 first 120 chars of each side, for verification.
+`;
 var init_description38 = () => {};
 
 // src/agent/prompts/claude/tools/set/arg_path.txt
@@ -35266,6 +35349,27 @@ function stringify(v) {
   return JSON.stringify(v ?? null);
 }
 async function setCharacterField(ctx, characterId, field, value) {
+  if (field === "tags") {
+    const tags = normaliseCharacterTags(value);
+    if (tags === null) {
+      return `[INVALID_VALUE_TYPE] char/tags expects a string array`;
+    }
+    const c2 = await ctx.spindle.characters.get(characterId, ctx.userId);
+    if (!c2)
+      return "character not found";
+    const before2 = JSON.stringify(c2.tags ?? []);
+    const after = JSON.stringify(tags);
+    await ctx.spindle.characters.update(characterId, { tags }, ctx.userId);
+    return {
+      before: before2,
+      after,
+      label: c2.name,
+      surface: "character_field",
+      surfaceId: characterId,
+      field,
+      valueEncoding: "json"
+    };
+  }
   if (!isCharacterStringField(field))
     return `[PATH_NOT_FOUND] unknown character field '${field}'`;
   if (typeof value !== "string")
@@ -35728,7 +35832,7 @@ var init_set_toggle = __esm(() => {
 });
 
 // src/agent/prompts/claude/tools/list-characters/description.txt
-var description_default42 = "Enumerate the user's characters so you can address one by id. Returns id, name, and attached world-book count per character.\n\nUse this to find the id of the character the user is talking about, then address it with `char/<id>/<field>` paths or the `character_id` argument on whole-card tools (grep / audit / survey / list / inspect / update_character / apply_glossary).\n\nWhen a character is focused you rarely need this. `query` filters by name substring.";
+var description_default42 = "Enumerate the user's characters so you can address one by id. Returns id, name, tags, and attached world-book count per character.\n\nUse this to find the id of the character the user is talking about, then address it with `char/<id>/<field>` paths or the `character_id` argument on whole-card tools (grep / audit / survey / list / inspect / update_character / apply_glossary).\n\nWhen a character is focused you rarely need this. `query` filters by name or tag substring.\n";
 var init_description42 = () => {};
 
 // src/agent/prompts/claude/tools/list-characters/arg_query.txt
@@ -35748,7 +35852,7 @@ var init_list_characters = __esm(() => {
   init_arg_query2();
   init_arg_limit();
   inputSchema42 = exports_external.object({
-    query: exports_external.string().optional().describe("Case-insensitive substring filter on the character name."),
+    query: exports_external.string().optional().describe("Case-insensitive substring filter on character names and tags."),
     offset: exports_external.number().int().min(0).optional().describe("Pagination offset. Default 0."),
     limit: exports_external.number().int().positive().max(MAX_LIMIT).optional().describe(`Max characters to return. Default ${DEFAULT_LIMIT}, max ${MAX_LIMIT}.`)
   }).strict();
@@ -35775,6 +35879,7 @@ var init_list_characters = __esm(() => {
       const toRow = (c) => ({
         id: c.id,
         name: c.name,
+        tags: c.tags ?? [],
         world_book_count: c.world_book_ids?.length ?? 0
       });
       if (!q) {
@@ -35796,9 +35901,11 @@ var init_list_characters = __esm(() => {
         const res = await ctx.spindle.characters.list({ limit: MAX_LIMIT, offset: pageOffset, userId: ctx.userId });
         libraryTotal = res.total;
         scanned += res.data.length;
-        for (const c of res.data)
-          if (c.name.toLowerCase().includes(q))
+        for (const c of res.data) {
+          if (c.name.toLowerCase().includes(q) || c.tags.some((tag) => tag.toLowerCase().includes(q))) {
             matches.push(toRow(c));
+          }
+        }
         if (res.data.length === 0 || scanned >= res.total)
           break;
         pageOffset += res.data.length;
@@ -36280,6 +36387,7 @@ var description_default50 = `Reads any string-valued surface on the character by
 
 Path grammar:
   char/<field>                          top-level character string (description, first_mes, scenario, personality, mes_example, system_prompt, post_history_instructions, creator_notes, creator, name)
+  char/tags                             tags as a compact JSON string array
   char/alternate_greetings/<idx>        one greeting by 0-based index
   char/alternate_fields/<field>/<variantId>/<content|label>  one variant of description / personality / scenario. Discover ids via list({path:"char/alternate_fields/<field>"}).
   char/extensions/<dotted-extension>    a string leaf under character.extensions (dotted-with-brackets, e.g. lumirealm.payload.triggers[0].effect[0].value)
@@ -36296,7 +36404,8 @@ Path grammar:
 
 Records the path as 'recently read' so a subsequent \`edit\` on the same path passes the read-gate.
 
-Returns: a plain string body. Most of the time that's line-numbered text (\`   1\\tcontent line\\n   2\\t...\`). If the body would exceed the per-call budget it spills, and you get JSON of the form \`{spilled: true, tmp_handle: "tmp_...", peek, total_chars, total_lines, hint}\` \u2014 pass \`tmp_handle\` to \`tmp_grep\` / \`tmp_read\` / \`tmp_stat\` from there.`;
+Returns: a plain string body. Most of the time that's line-numbered text (\`   1\\tcontent line\\n   2\\t...\`). If the body would exceed the per-call budget it spills, and you get JSON of the form \`{spilled: true, tmp_handle: "tmp_...", peek, total_chars, total_lines, hint}\` \u2014 pass \`tmp_handle\` to \`tmp_grep\` / \`tmp_read\` / \`tmp_stat\` from there.
+`;
 var init_description50 = () => {};
 
 // src/agent/prompts/claude/tools/read/arg_path.txt
@@ -37777,7 +37886,7 @@ var init_tmp_stat = __esm(() => {
 });
 
 // src/agent/prompts/claude/tools/update-character/description.txt
-var description_default63 = 'Replaces one or more top-level character fields atomically.\n\nUsage:\n- Pass only the fields to change in `patch`.\n- For a single field\'s find/replace use `edit({path: "char/<field>", ...})`.\n- For wholesale overwrite of a single field use `rewrite` or `set`.';
+var description_default63 = 'Replaces one or more top-level character fields atomically.\n\nUsage:\n- Pass only the fields to change in `patch`.\n- `tags` accepts a string array and can be changed with other fields atomically.\n- For a single field\'s find/replace use `edit({path: "char/<field>", ...})`.\n- For wholesale overwrite of a single field use `rewrite` or `set`.\n';
 var init_description63 = () => {};
 
 // src/agent/tools/update-character.ts
@@ -37786,6 +37895,7 @@ var init_update_character = __esm(() => {
   init_zod();
   init__framework();
   init__context();
+  init__surfaces();
   init_description63();
   inputSchema63 = exports_external.object({
     patch: exports_external.record(exports_external.string(), exports_external.unknown()),
@@ -37822,6 +37932,17 @@ var init_update_character = __esm(() => {
         };
       }
       for (const [k, v] of Object.entries(patch)) {
+        if (k === "tags") {
+          const tags = normaliseCharacterTags(v);
+          if (tags === null) {
+            return {
+              content: "Error: [INVALID_VALUE_TYPE] 'tags' expects a string array.",
+              isError: true
+            };
+          }
+          patch.tags = tags;
+          continue;
+        }
         if (typeof v !== "string") {
           const kind = Array.isArray(v) ? "array" : v === null ? "null" : typeof v;
           return {
@@ -37836,6 +37957,24 @@ var init_update_character = __esm(() => {
       const updated = await ctx.spindle.characters.update(target, patch, ctx.userId);
       for (const [k, v] of Object.entries(patch)) {
         const before = c[k];
+        if (k === "tags" && Array.isArray(v)) {
+          const beforeJson = JSON.stringify(Array.isArray(before) ? before : []);
+          const afterJson = JSON.stringify(v);
+          if (beforeJson === afterJson)
+            continue;
+          ctx.pushEdit({
+            op: "edit",
+            surface: "character_field",
+            surfaceId: target,
+            surfaceLabel: c.name,
+            field: k,
+            before: beforeJson,
+            after: afterJson,
+            valueEncoding: "json",
+            scope: characterScope(target)
+          });
+          continue;
+        }
         if (typeof before !== "string" || typeof v !== "string")
           continue;
         if (before === v)
@@ -41077,7 +41216,7 @@ function subscribeToMissingChanges(handler) {
 }
 // spindle.json
 var spindle_default = {
-  version: "0.5.8",
+  version: "0.5.9",
   name: "LumiAgent",
   identifier: "lumiagent",
   author: "amousepad",
@@ -41116,7 +41255,7 @@ var spindle_default = {
   ],
   entry_backend: "dist/backend.js",
   entry_frontend: "dist/frontend.js",
-  minimum_lumiverse_version: "1.0.0"
+  minimum_lumiverse_version: "1.1.2"
 };
 
 // src/state/version-check.ts

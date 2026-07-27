@@ -4,6 +4,7 @@
 //
 //   char/<field>                       -> top-level character string field
 //                                          (description, first_mes, scenario, …)
+//   char/tags                          -> character tags as a JSON string array
 //   char/alternate_greetings/<idx>     -> one greeting by 0-based index
 //   char/extensions/<dotted>           -> a string leaf under character.extensions.*
 //                                          dotted-path uses '.' separators and
@@ -21,7 +22,7 @@ import type { CharacterUpdateDTO, RegexScriptUpdateDTO, WorldBookEntryUpdateDTO,
 import type { ToolCtx } from "./_context";
 import type { EditRecord, ScopeRef } from "../../types";
 import { characterScope } from "../../types";
-import { CHARACTER_STRING_FIELDS, isCharacterStringField, wbLabel } from "./_surfaces";
+import { CHARACTER_STRING_FIELDS, isCharacterStringField, normaliseCharacterTags, wbLabel } from "./_surfaces";
 import { parseExtensionPath, getAtPath, setAtPath } from "./_paths";
 
 // Top-level char-subtree token set. parts[1] is one of these for the focused
@@ -30,6 +31,7 @@ import { parseExtensionPath, getAtPath, setAtPath } from "./_paths";
 // with this fixed token set.
 const CHAR_SUBTREE_TOKENS: ReadonlySet<string> = new Set<string>([
   ...CHARACTER_STRING_FIELDS,
+  "tags",
   "alternate_greetings",
   "alternate_fields",
   "extensions",
@@ -153,6 +155,8 @@ export interface ResolvedLeaf {
   readonly field: string;
   // Current value at the leaf.
   readonly value: string;
+  // Structured leaves use their canonical JSON text for reads and patching.
+  readonly valueEncoding?: "json";
   // Filing-scope override resolved at read time. Used when the key alone
   // doesn't carry enough info, e.g. wb/<entryId>/... where scopeForLeafKey
   // would otherwise mis-file under entry id instead of book id in
@@ -318,6 +322,18 @@ export async function resolveRead(ctx: ToolCtx, path: string): Promise<ResolvedL
         surfaceLabel: `extensions.${extPath}`,
         field: extPath,
         value: v,
+      };
+    }
+    if (sub === "tags") {
+      if (subParts.length !== 1) throw new PathError(path, `expected char/tags, got ${subParts.length} subsegments`);
+      return {
+        key: `char/${characterId}/tags`,
+        surface: "character_field",
+        surfaceId: characterId,
+        surfaceLabel: c.name,
+        field: "tags",
+        value: JSON.stringify(c.tags ?? []),
+        valueEncoding: "json",
       };
     }
     if (subParts.length !== 1) throw new PathError(path, `expected char/<field>, got ${subParts.length} subsegments`);
@@ -525,11 +541,29 @@ export async function resolveWrite(
 ): Promise<void> {
   if (leaf.surface === "character_field") {
     const charId = leaf.surfaceId;
-    const patch: CharacterUpdateDTO = { [leaf.field]: nextValue } as CharacterUpdateDTO;
+    let written = nextValue;
+    let patch: CharacterUpdateDTO;
+    if (leaf.field === "tags" && leaf.valueEncoding === "json") {
+      let parsed: unknown;
+      try { parsed = JSON.parse(nextValue); }
+      catch { throw new Error("char/tags expects a JSON string array. Use set({path:\"char/tags\", value:[...]})."); }
+      const tags = normaliseCharacterTags(parsed);
+      if (tags === null) {
+        throw new Error("char/tags expects a JSON string array. Use set({path:\"char/tags\", value:[...]}).");
+      }
+      written = JSON.stringify(tags);
+      if (written !== nextValue) {
+        throw new Error("char/tags edits must keep canonical compact JSON. Use set({path:\"char/tags\", value:[...]}).");
+      }
+      patch = { tags };
+    } else {
+      patch = { [leaf.field]: nextValue } as CharacterUpdateDTO;
+    }
     await ctx.spindle.characters.update(charId, patch, ctx.userId);
     ctx.pushEdit({
       op: "edit", surface: "character_field", surfaceId: charId,
-      surfaceLabel: leaf.surfaceLabel, field: leaf.field, before: leaf.value, after: nextValue,
+      surfaceLabel: leaf.surfaceLabel, field: leaf.field, before: leaf.value, after: written,
+      ...(leaf.valueEncoding !== undefined ? { valueEncoding: leaf.valueEncoding } : {}),
       scope: characterScope(charId),
     } satisfies EditRecord);
     return;
@@ -681,6 +715,16 @@ export async function* iterateAllLeaves(ctx: ToolCtx, characterId: string, opts?
       yield { key: `char/${characterId}/${field}`, surface: "character_field", surfaceId: characterId, surfaceLabel: c.name, field, value: v, scope: charScope };
     }
   }
+  yield {
+    key: `char/${characterId}/tags`,
+    surface: "character_field",
+    surfaceId: characterId,
+    surfaceLabel: c.name,
+    field: "tags",
+    value: JSON.stringify(c.tags ?? []),
+    valueEncoding: "json",
+    scope: charScope,
+  };
   if (Array.isArray(c.alternate_greetings)) {
     for (let i = 0; i < c.alternate_greetings.length; i++) {
       const v = c.alternate_greetings[i];

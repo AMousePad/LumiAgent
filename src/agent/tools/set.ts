@@ -4,7 +4,7 @@ import { defineTool } from "./_framework";
 import { type ToolCtx, resolveCharacterTarget, noTargetResult } from "./_context";
 import type { EditRecord, ScopeRef } from "../../types";
 import { characterScope } from "../../types";
-import { isCharacterStringField, wbLabel, coerceKeyList, WB_ENTRY_KEY_FIELDS, WB_ENTRY_WRITABLE_FIELDS } from "./_surfaces";
+import { isCharacterStringField, normaliseCharacterTags, wbLabel, coerceKeyList, WB_ENTRY_KEY_FIELDS, WB_ENTRY_WRITABLE_FIELDS } from "./_surfaces";
 import { parseExtensionPath, setAtPath } from "./_paths";
 import { ExtensionRefusedError, assertExtensionWriteAllowed, scopeForLeafKey, isCharSubtreeToken, isAlternateFieldName, readAltFieldArray, writeAltFieldArray, ALTERNATE_FIELD_NAMES } from "./_path_v2";
 import { encodeScalar } from "../../state/edit-log";
@@ -22,7 +22,27 @@ function stringify(v: unknown): string {
   return JSON.stringify(v ?? null);
 }
 
-async function setCharacterField(ctx: ToolCtx, characterId: string, field: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string } | string> {
+async function setCharacterField(ctx: ToolCtx, characterId: string, field: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string; valueEncoding?: "json" } | string> {
+  if (field === "tags") {
+    const tags = normaliseCharacterTags(value);
+    if (tags === null) {
+      return `[INVALID_VALUE_TYPE] char/tags expects a string array`;
+    }
+    const c = await ctx.spindle.characters.get(characterId, ctx.userId);
+    if (!c) return "character not found";
+    const before = JSON.stringify(c.tags ?? []);
+    const after = JSON.stringify(tags);
+    await ctx.spindle.characters.update(characterId, { tags }, ctx.userId);
+    return {
+      before,
+      after,
+      label: c.name,
+      surface: "character_field",
+      surfaceId: characterId,
+      field,
+      valueEncoding: "json",
+    };
+  }
   if (!isCharacterStringField(field)) return `[PATH_NOT_FOUND] unknown character field '${field}'`;
   if (typeof value !== "string") return `[INVALID_VALUE_TYPE] char/${field} expects a string value, got ${typeof value}`;
   const c = await ctx.spindle.characters.get(characterId, ctx.userId);

@@ -48,6 +48,7 @@ async function listCharacterRoot(ctx: ToolCtx, characterId: string, maxEntries: 
     const v = (c as unknown as Record<string, unknown>)[f];
     if (typeof v === "string") out.push({ path: `char/${f}`, type: "string", size: v.length });
   }
+  out.push({ path: "char/tags", type: "array", size: c.tags?.length ?? 0 });
   if (Array.isArray(c.alternate_greetings) && c.alternate_greetings.length > 0) {
     out.push({ path: "char/alternate_greetings", type: "array", size: c.alternate_greetings.length });
   }

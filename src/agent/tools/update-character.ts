@@ -3,6 +3,7 @@ import { defineTool } from "./_framework";
 import { resolveCharacterTarget, noTargetResult } from "./_context";
 import { characterScope } from "../../types";
 import type { CharacterUpdateDTO } from "lumiverse-spindle-types";
+import { normaliseCharacterTags } from "./_surfaces";
 import description from "../prompts/claude/tools/update-character/description.txt";
 
 const inputSchema = z.object({
@@ -38,11 +39,20 @@ export const updateCharacterTool = defineTool({
         isError: true,
       };
     }
-    // Refuse non-string fields up front. Writing them is fine at the spindle,
-    // but the ledger loop below only logs strings, so a `world_book_ids` or
-    // `tags` patch would land on the character un-revertable. Route those to
-    // the path-based tools instead (set on `char/<field>`).
+    // Refuse non-string fields except tags. Tags use canonical JSON in the
+    // ledger so they remain revertable through the same character surface.
     for (const [k, v] of Object.entries(patch as Record<string, unknown>)) {
+      if (k === "tags") {
+        const tags = normaliseCharacterTags(v);
+        if (tags === null) {
+          return {
+            content: "Error: [INVALID_VALUE_TYPE] 'tags' expects a string array.",
+            isError: true,
+          };
+        }
+        patch.tags = tags;
+        continue;
+      }
       if (typeof v !== "string") {
         const kind = Array.isArray(v) ? "array" : v === null ? "null" : typeof v;
         return {
@@ -56,6 +66,23 @@ export const updateCharacterTool = defineTool({
     const updated = await ctx.spindle.characters.update(target, patch, ctx.userId);
     for (const [k, v] of Object.entries(patch as Record<string, unknown>)) {
       const before = (c as unknown as Record<string, unknown>)[k];
+      if (k === "tags" && Array.isArray(v)) {
+        const beforeJson = JSON.stringify(Array.isArray(before) ? before : []);
+        const afterJson = JSON.stringify(v);
+        if (beforeJson === afterJson) continue;
+        ctx.pushEdit({
+          op: "edit",
+          surface: "character_field",
+          surfaceId: target,
+          surfaceLabel: c.name,
+          field: k,
+          before: beforeJson,
+          after: afterJson,
+          valueEncoding: "json",
+          scope: characterScope(target),
+        });
+        continue;
+      }
       if (typeof before !== "string" || typeof v !== "string") continue;
       if (before === v) continue;
       ctx.pushEdit({ op: "edit", surface: "character_field", surfaceId: target, surfaceLabel: c.name, field: k, before, after: v, scope: characterScope(target) });
