@@ -21927,7 +21927,7 @@ var init_settings = __esm(() => {
 });
 
 // src/generated/lumiverse-docs.ts
-var LUMIVERSE_DOCS_VERSION = "72fcb4de7c867212", LUMIVERSE_DOCS;
+var LUMIVERSE_DOCS_VERSION = "89f7a762b8edf6fe", LUMIVERSE_DOCS;
 var init_lumiverse_docs = __esm(() => {
   LUMIVERSE_DOCS = {
     "characters/alternate-fields.md": `---\r
@@ -22074,6 +22074,8 @@ Notes for other users (or yourself) about the character. These are **never sent 
 ### Tags\r
 \r
 Labels for organizing your library. Add tags like "fantasy," "sci-fi," "male," "OC," etc. You can filter your Character Browser by tags.\r
+\r
+Tags are also available to your prompts through macros, so a character's tags can shape what gets generated. Gate content on a tag with \`{{if::{{hasTag::villain}}}}...{{/if}}\`, list them with \`{{charTags}}\`, grab a specific one with \`{{tag::0}}\`, or pick one at random with \`{{randomTag}}\`. See the [Character Tags macros](../presets/macros-reference.md#character-tags) in the Macros Reference for the full set.\r
 \r
 ---\r
 \r
@@ -22794,6 +22796,8 @@ These macros are especially useful in group chat presets:\r
 | \`{{groupLastSpeaker}}\` | Name of the character who spoke last |\r
 | \`{{isGroupChat}}\` | "yes" or "no" |\r
 | \`{{charGroupFocused}}\` | The currently targeted character's name |\r
+| \`{{charGroupFocusedDescription}}\` | The currently targeted character's description |\r
+| \`{{charGroupFocusedPersonality}}\` | The currently targeted character's personality |\r
 | \`{{groupCardMode}}\` | Card composition mode: "solo", "swap", "merge", or "merge_ignore_muted" |\r
 \r
 ---\r
@@ -24778,15 +24782,15 @@ Current time: 14:30 on Wednesday.\r
 | Category | Examples | Full List |\r
 |----------|----------|-----------|\r
 | **Names** | \`{{user}}\`, \`{{char}}\`, \`{{group}}\` | [Identity macros](../presets/macros-reference.md#identity-names) |\r
-| **Character data** | \`{{description}}\`, \`{{personality}}\`, \`{{scenario}}\` | [Character macros](../presets/macros-reference.md#character-data) |\r
+| **Character data** | \`{{description}}\`, \`{{personality}}\`, \`{{scenario}}\`, \`{{charTags}}\`, \`{{hasTag}}\` | [Character macros](../presets/macros-reference.md#character-data) |\r
 | **Chat state** | \`{{lastMessage}}\`, \`{{messageCount}}\`, \`{{messageAt::0}}\` | [Chat macros](../presets/macros-reference.md#chat-conversation) |\r
 | **String** | \`{{upper}}\`, \`{{replace}}\`, \`{{len}}\`, \`{{split}}\` | [String macros](../presets/macros-reference.md#string-manipulation) |\r
 | **Math** | \`{{calc::2+3}}\`, \`{{clamp}}\`, \`{{min}}\`, \`{{max}}\` | [Math macros](../presets/macros-reference.md#math) |\r
-| **Logic** | \`{{switch}}\`, \`{{default}}\`, \`{{and}}\`, \`{{not}}\` | [Logic macros](../presets/macros-reference.md#logic-comparisons) |\r
+| **Logic** | \`{{switch}}\`, \`{{case}}\`, \`{{default}}\`, \`{{and}}\`, \`{{not}}\`, \`{{matches}}\` | [Logic macros](../presets/macros-reference.md#logic-comparisons) |\r
 | **Random** | \`{{random::1::100}}\`, \`{{pick::a::b::c}}\`, \`{{roll::2d6}}\` | [Entropy macros](../presets/macros-reference.md#random-entropy) |\r
 | **Variables** | \`{{.var}}\` (local), \`{{@var}}\` (chat-persisted), \`{{$var}}\` (global) | [Variable macros](../presets/macros-reference.md#variables) |\r
 | **Prompt Variables** | \`{{var::tone}}\`, \`{{varDefault::tone}}\` | [Prompt variable macros](../presets/macros-reference.md#prompt-variables-preset-inputs) |\r
-| **Conditionals** | \`{{if .var == 5}}...{{else}}...{{/if}}\` | [Core macros](../presets/macros-reference.md#core-macros) |\r
+| **Conditionals** | \`{{if .var == 5}}...{{elseif::...}}...{{else}}...{{/if}}\`, \`{{unless}}\` | [Core macros](../presets/macros-reference.md#core-macros) |\r
 | **Memory & Retrieval** | \`{{memories}}\`, \`{{databank}}\`, \`{{entities}}\` | [Memory macros](../presets/macros-reference.md#memory) |\r
 | **Formatting** | \`{{bullets}}\`, \`{{numbered}}\` | [Formatting macros](../presets/macros-reference.md#formatting) |\r
 | **Council & Lumia** | \`{{lumiaCouncilDeliberation}}\`, \`{{loomStyle}}\` | [Council macros](../presets/macros-reference.md#lumia-council) |\r
@@ -24847,8 +24851,11 @@ This converts \`*italic text*\` into \`<em>italic text</em>\`.\r
 | **AI Output** | The AI's response |\r
 | **World Info** | World book entry content |\r
 | **Reasoning** | Reasoning/thinking blocks |\r
+| **Memory** | Content as it's written to long-term memory |\r
 \r
 You can select multiple placements for the same script.\r
+\r
+**Memory** placement is independent of target: it strips text as it's saved to long-term memory (vector search and the memory cortex), before storage and embedding, while the displayed message keeps the full text. Use it to keep tracker or HUD blocks out of recalled memory. Macros aren't available at ingestion, so memory scripts must use literal patterns.\r
 \r
 ---\r
 \r
@@ -25813,7 +25820,17 @@ git clone https://github.com/prolix-oc/Lumiverse.git\r
 cd Lumiverse\r
 \`\`\`\r
 \r
-### 2. Start the server\r
+### 2. Optional: Enter the Nix shell\r
+\r
+If you use **Nix** or **NixOS** with flakes enabled, the repository now includes a \`flake.nix\` with Bun, Node.js/npm, Git, SQLite, FFmpeg, \`pkg-config\`, Python 3, and common native libraries used by Lumiverse.\r
+\r
+\`\`\`bash\r
+nix develop\r
+\`\`\`\r
+\r
+After the shell opens, continue with the normal startup command below.\r
+\r
+### 3. Start the server\r
 \r
 === "macOS / Linux"\r
 \r
@@ -25854,7 +25871,7 @@ cd Lumiverse\r
 \r
 The start script handles everything: auto-installs Bun if needed, runs \`bun install\`, triggers the setup wizard on first launch, and starts the server.\r
 \r
-### 3. Open in your browser\r
+### 4. Open in your browser\r
 \r
 Navigate to \`http://localhost:7860\`. On first launch, the setup wizard guides you through account creation.\r
 \r
@@ -25862,12 +25879,15 @@ Navigate to \`http://localhost:7860\`. On first launch, the setup wizard guides 
 \r
 ## First-Run Setup Wizard\r
 \r
-The setup wizard runs automatically on first launch. It walks through four steps:\r
+The setup wizard runs automatically on first launch. It walks through five steps:\r
 \r
 1. **Admin Account** \u2014 Set a username (default: \`admin\`) and password (minimum 8 characters)\r
 2. **Server Port** \u2014 Choose a port (default: \`7860\`)\r
 3. **Extension Storage** \u2014 Set the maximum storage for extensions (default: 500 MB)\r
-4. **Identity Generation** \u2014 Creates \`data/lumiverse.identity\` (your encryption key) and \`data/owner.credentials\`\r
+4. **Disk Health Monitoring** \u2014 Optionally install smartmontools for SMART disk health checks\r
+5. **Identity Generation** \u2014 Creates \`data/lumiverse.identity\` (your encryption key) and \`data/owner.credentials\`\r
+\r
+For manual SMART installation, Linux \`sudo\` requirements, and an explanation of the reported drive metrics, see [Disk Health & SMART](../settings/disk-health.md).\r
 \r
 You can also run the wizard manually:\r
 \r
@@ -26765,6 +26785,32 @@ masterpiece, best quality, 1girl, long red hair, leather jacket, gold earrings, 
 Swap to a different persona or character mid-chat and the splices update automatically on the next generation.\r
 \r
 ---\r
+## LoRA Presets\r
+\r
+**Image Generation \u2192 LoRA Presets** saves an ordered stack of LoRA filenames, strengths, and optional base tags. Load a preset from **Active LoRA Preset**, then add rows or edit its name before saving. Base tags are prepended to the generated prompt only while that preset is active and not bypassed.\r
+\r
+When the active connection supports model discovery (**ComfyUI**, **SwarmUI**, or **SD API**), the filename picker offers its available LoRAs. Selecting an option stores its exact provider filename. You can always type a filename manually instead\u2014useful for a new file that has not appeared in a model list yet. A failed lookup remains visible with **Retry** and never locks the manual filename field.\r
+\r
+### Ordering Layers\r
+\r
+Rows are applied in their displayed order, so reorder them deliberately:\r
+\r
+- Drag the visible grip to move a row with a pointer or touch input.\r
+- With keyboard focus on the grip, press **Space** to pick up or drop it, use the arrow keys to move it, and press **Escape** to cancel.\r
+- The saved order is preserved for generation. Raw provider-supplied entries remain first and are not scaled or bypassed, followed by the active, non-bypassed preset's rows and then the active, non-bypassed character layer.\r
+\r
+For SwarmUI, the ordered names and model strengths are sent as matching \`loras\` / \`loraweights\` lists. SD API receives an ordered LoRA array whose entries use the filename as \`path\` and model strength as \`multiplier\`; it does not use the separate CLIP strength. In an imported ComfyUI workflow, rows fill successive mapped \`LoraLoader\` nodes with separate model and CLIP strengths.\r
+\r
+### Layer Controls\r
+\r
+Under **LoRA Controls**:\r
+\r
+- **Bypass Character LoRA** skips only the active chat character's configured layer and its base tags; raw provider-supplied LoRAs stay prepended and are not scaled or bypassed.\r
+- **Bypass Active LoRA Preset** skips only the selected preset's rows and base tags. A bypassed preset's base tags are not applied; raw provider-supplied LoRAs stay prepended and are not scaled or bypassed.\r
+- **LoRA Strength Scale** multiplies model and CLIP strengths only for active, non-bypassed preset and character layers from 0 to 2. Raw provider-supplied LoRAs stay prepended and are not scaled or bypassed. Set it to \`0\` to keep the configured layers while disabling their strengths for a generation.\r
+\r
+---\r
+\r
 \r
 ## Prompt Preview\r
 \r
@@ -28113,7 +28159,7 @@ Utility macros for text manipulation and flow control.\r
 {{/if}}\r
 \`\`\`\r
 \r
-The condition can be any value \u2014 it's truthy unless it's empty, \`"0"\`, \`"false"\`, \`"null"\`, or \`"undefined"\`.\r
+The condition can be any value \u2014 it's truthy unless it's empty, \`"0"\`, \`"false"\`, \`"null"\`, \`"undefined"\`, \`"no"\`, or \`"off"\` (case-insensitive for the named falsy values).\r
 \r
 Only the selected branch is resolved. Side-effect macros in the unselected branch do not run.\r
 \r
@@ -28131,6 +28177,30 @@ Only the selected branch is resolved. Side-effect macros in the unselected branc
 {{if::{{.score}} == 100}}perfect!{{/if}}\r
 \`\`\`\r
 \r
+**Else-if chains** \u2014 use \`{{elseif}}\` or \`{{elif}}\` to avoid deeply nested \`if\` blocks:\r
+\r
+\`\`\`\r
+{{if::{{groupCardMode}} == solo}}\r
+Solo chat rules.\r
+{{elseif::{{groupCardMode}} == swap}}\r
+Focused group-member rules.\r
+{{elseif::{{groupCardMode}} == merge_ignore_muted}}\r
+Merged non-muted group rules.\r
+{{else}}\r
+Merged group rules.\r
+{{/if}}\r
+\`\`\`\r
+\r
+**Unless** \u2014 invert a condition at the block level:\r
+\r
+\`\`\`\r
+{{unless::{{isGroupChat}}}}\r
+Only include this in solo chats.\r
+{{else}}\r
+Only include this in group chats.\r
+{{/unless}}\r
+\`\`\`\r
+\r
 **Variable shorthand** \u2014 \`.var\`, \`$var\`, and \`@var\` resolve automatically in conditions:\r
 \r
 \`\`\`\r
@@ -28139,6 +28209,9 @@ Only the selected branch is resolved. Side-effect macros in the unselected branc
 {{if !.gameOver}}still playing{{/if}}\r
 {{if @hp > 0}}still alive{{/if}}\r
 \`\`\`\r
+\r
+!!! note "Resolution limits"\r
+    Macro resolution is guarded by a work budget rather than a shallow nesting-depth cap. Deep finite macro chains can resolve beyond 1000 levels, but runaway recursion or explosive expansion is stopped with diagnostics. Individual generators such as \`{{repeat}}\`, \`{{range}}\`, and iteration macros still cap item counts at 1000 to keep prompt assembly bounded.\r
 \r
 ---\r
 \r
@@ -28232,6 +28305,33 @@ Keep only the list items whose body \u2014 an \`{{if}}\`-style condition \u2014 
 \`\`\`\r
 {{filter::1,2,3,4::n}}{{gt::{{.n}}::2}}{{/filter}}                  \u2014 "3, 4"\r
 {{filter::{{players}}::p}}{{ne::{{.p}}::{{hostName}}}}{{/filter}}    \u2014 everyone but the host\r
+\`\`\`\r
+\r
+### \`{{map}}\` / \`{{collect}}\`\r
+\r
+Transform each item in a list and return the transformed values as a delimited list. It uses the same loop bindings and hygiene as \`{{foreach}}\`.\r
+\r
+\`\`\`\r
+{{map::a,b,c::x}}{{upper::{{.x}}}}{{/map}}          \u2014 "A, B, C"\r
+\`\`\`\r
+\r
+Arguments:\r
+\r
+| Position | Meaning | Default |\r
+|----------|---------|---------|\r
+| 1 | Input list | Required |\r
+| 2 | Loop variable name | \`item\` |\r
+| 3 | Input delimiter | \`,\` |\r
+| 4 | Output delimiter | \`, \` |\r
+\r
+\`\`\`\r
+{{map::Alice|Bob|Cara::name::|:: / }}{{.name_number}}={{.name}}{{/map}}\r
+\`\`\`\r
+\r
+produces:\r
+\r
+\`\`\`\r
+1=Alice / 2=Bob / 3=Cara\r
 \`\`\`\r
 \r
 ### \`{{some}}\` / \`{{every}}\`\r
@@ -28348,6 +28448,8 @@ Macros for character and user identity.\r
 | \`{{groupNotMuted}}\` | \`{{group_not_muted}}\` | Names of non-muted group members |\r
 | \`{{notChar}}\` | \`{{not_char}}\` | The non-character party (usually the user) |\r
 | \`{{charGroupFocused}}\` | \`{{charFocused}}\`, \`{{char_group_focused}}\` | The targeted character in a group chat |\r
+| \`{{charGroupFocusedDescription}}\` | \`{{charFocusedDescription}}\`, \`{{char_group_focused_description}}\` | The focused group character's description |\r
+| \`{{charGroupFocusedPersonality}}\` | \`{{charFocusedPersonality}}\`, \`{{char_group_focused_personality}}\` | The focused group character's personality |\r
 | \`{{isGroupChat}}\` | \`{{is_group_chat}}\` | \`"yes"\` or \`"no"\` \u2014 usable as a condition |\r
 | \`{{isNarrator}}\` | \`{{is_narrator}}\` | \`"yes"\` or \`"no"\` \u2014 whether the active persona is a narrator (not a self-insert) |\r
 | \`{{groupOthers}}\` | \`{{group_others}}\` | Group members excluding the focused character |\r
@@ -28413,6 +28515,35 @@ Macros that pull from the character card fields. These respect [alternate field]
 | \`{{firstMessage}}\` | \`{{firstMes}}\`, \`{{first_message}}\` | Character's first/greeting message |\r
 | \`{{original}}\` | \u2014 | Character description (original card text) |\r
 \r
+### Character Tags\r
+\r
+Macros that read the current character card's tags \u2014 categorical labels such as \`Fantasy\`, \`Warrior\`, \`OC\`, or \`Female\`.\r
+\r
+| Macro | Aliases | Returns |\r
+|-------|---------|---------|\r
+| \`{{charTags}}\` | \`{{characterTags}}\`, \`{{char_tags}}\`, \`{{tags}}\` | Comma-separated list of all the character's tags |\r
+| \`{{tag::index}}\` | \`{{tagAt}}\`, \`{{tag_at}}\`, \`{{charTagAt}}\`, \`{{nthTag}}\` | Single tag at a 0-based index (negative counts from the end); empty if out of range |\r
+| \`{{tagCount}}\` | \`{{tag_count}}\`, \`{{tags_count}}\`, \`{{numTags}}\`, \`{{charTagCount}}\` | Number of tags |\r
+| \`{{randomTag}}\` | \`{{random_tag}}\`, \`{{randomCharTag}}\` | One randomly chosen tag (empty if the character has none) |\r
+| \`{{hasTag::name}}\` | \`{{charTag}}\`, \`{{char_tag}}\`, \`{{has_tag}}\`, \`{{tagged}}\` | \`"true"\` if the character has the tag (case-insensitive), else empty \u2014 usable as a condition |\r
+\r
+\`\`\`\r
+{{charTags}}                         \u2014 "Fantasy, Warrior, Male"\r
+{{tagCount}}                         \u2014 "3"\r
+{{tag::0}}                           \u2014 "Fantasy" (first tag)\r
+{{tag::-1}}                          \u2014 "Male" (last tag)\r
+{{hasTag::warrior}}                  \u2014 "true" (case-insensitive)\r
+{{randomTag}}                        \u2014 one of the tags at random\r
+\r
+{{if::{{hasTag::villain}}}}The character is a villain.{{/if}}\r
+{{foreach::{{charTags}}::t}}- {{.t}}{{newline}}{{/foreach}}\r
+{{count::{{charTags}}}}              \u2014 same as {{tagCount}}\r
+{{includes::{{charTags}}::Warrior}}  \u2014 "true"\r
+\`\`\`\r
+\r
+!!! tip "Composing with Lists"\r
+    \`{{charTags}}\` returns the same clean comma-separated list form used by the [Lists](#lists) macros, so it feeds directly into \`{{count}}\`, \`{{first}}\`, \`{{includes}}\`, \`{{foreach}}\`, \`{{slice}}\`, and the rest of the Lists/Iteration family. Use \`{{hasTag}}\` when you need a condition-friendly gate for tag-specific content. Like the rest of the list family, these macros split on commas, so a tag label that itself contains a comma is treated as two entries.\r
+\r
 ---\r
 \r
 ## Chat & Conversation\r
@@ -28424,6 +28555,7 @@ Macros for the current chat state.\r
 | \`{{lastMessage}}\` | \`{{last_message}}\` | Content of the most recent message |\r
 | \`{{lastMessageId}}\` | \`{{last_message_id}}\` | Index of the last message |\r
 | \`{{lastUserMessage}}\` | \`{{last_user_message}}\` | Content of the last message from you |\r
+| \`{{userInput}}\` | \`{{user_input}}\` | Exact input-bar draft captured when the generation began; empty for generations not started from the input bar |\r
 | \`{{lastCharMessage}}\` | \`{{last_char_message}}\`, \`{{lastBotMessage}}\` | Content of the last character message |\r
 | \`{{lastMessageName}}\` | \u2014 | Name of whoever sent the last message |\r
 | \`{{messageCount}}\` | \`{{message_count}}\`, \`{{messagecount}}\` | Total message count in the chat |\r
@@ -28557,6 +28689,27 @@ Composable boolean logic and multi-branch conditionals.\r
 | \`{{switch::value::c1::r1::c2::r2::default}}\` | \u2014 | Matching result, or default | Value, then case/result pairs, optional default |\r
 | \`{{default::value::fallback}}\` | \`{{fallback}}\`, \`{{coalesce}}\` | First truthy value | Primary value, fallback |\r
 \r
+\`{{switch}}\` also has a scoped block form for larger branches:\r
+\r
+\`\`\`\r
+{{switch::{{groupCardMode}}}}\r
+{{case::solo}}\r
+Solo chat instructions.\r
+{{/case}}\r
+{{case::swap}}\r
+Focused group-member instructions.\r
+{{/case}}\r
+{{case::merge::merge_ignore_muted}}\r
+Merged group instructions.\r
+{{/case}}\r
+{{default}}\r
+Fallback instructions.\r
+{{/default}}\r
+{{/switch}}\r
+\`\`\`\r
+\r
+Only the matching \`{{case}}\` body, or the \`{{default}}\` body, is resolved.\r
+\r
 ### Boolean Operators\r
 \r
 | Macro | Returns | Args |\r
@@ -28576,6 +28729,18 @@ Composable boolean logic and multi-branch conditionals.\r
 | \`{{gte::a::b}}\` | \`"true"\` if a >= b |\r
 | \`{{lte::a::b}}\` | \`"true"\` if a <= b |\r
 \r
+### Predicate Helpers\r
+\r
+| Macro | Aliases | Returns |\r
+|-------|---------|---------|\r
+| \`{{empty::value}}\` | \`{{isEmpty}}\` | \`"true"\` when the value is exactly empty |\r
+| \`{{blank::value}}\` | \`{{isBlank}}\` | \`"true"\` when the value is empty or whitespace-only |\r
+| \`{{number::value}}\` | \`{{isNumber}}\`, \`{{numeric}}\` | \`"true"\` for finite numbers |\r
+| \`{{integer::value}}\` | \`{{isInteger}}\`, \`{{int}}\` | \`"true"\` for integer strings |\r
+| \`{{matches::text::pattern::flags}}\` | \u2014 | \`"true"\` when \`text\` matches a regex pattern |\r
+| \`{{startsWith::text::prefix}}\` | \`{{starts_with}}\` | \`"true"\` when \`text\` starts with \`prefix\` |\r
+| \`{{endsWith::text::suffix}}\` | \`{{ends_with}}\` | \`"true"\` when \`text\` ends with \`suffix\` |\r
+\r
 **Examples:**\r
 \r
 \`\`\`\r
@@ -28589,6 +28754,14 @@ Composable boolean logic and multi-branch conditionals.\r
 \r
 {{if::{{gt::{{messageCount}}::50}}}}\r
   This is a long conversation.\r
+{{/if}}\r
+\r
+{{if::{{blank::{{.optional_note}}}}}}\r
+  No note was provided.\r
+{{/if}}\r
+\r
+{{if::{{matches::{{lastUserMessage}}::\\\\bhelp\\\\b::i}}}}\r
+  The user asked for help.\r
 {{/if}}\r
 \`\`\`\r
 \r
@@ -28621,7 +28794,7 @@ Include internal thoughts\r
 \r
 ## Chat Utilities\r
 \r
-Access individual messages, track state, and query character metadata.\r
+Access individual messages, track state, and query chat metadata.\r
 \r
 | Macro | Aliases | Returns | Args |\r
 |-------|---------|---------|------|\r
@@ -28630,8 +28803,6 @@ Access individual messages, track state, and query character metadata.\r
 | \`{{chatAge}}\` | \`{{chat_age}}\` | Human-readable time since chat creation | \u2014 |\r
 | \`{{counter::name}}\` | \u2014 | Incremented value (1, 2, 3...) | Counter name (stored as local variable) |\r
 | \`{{toggle::name}}\` | \u2014 | Flipped boolean (\`"true"\` \u2194 \`"false"\`) | Toggle name (stored as local variable) |\r
-| \`{{charTags}}\` | \`{{char_tags}}\`, \`{{characterTags}}\` | Comma-separated list of the character's tags | \u2014 |\r
-| \`{{charTag::tag}}\` | \`{{char_tag}}\`, \`{{hasTag}}\`, \`{{has_tag}}\` | \`"true"\` / \`"false"\` \u2014 whether character has this tag | Tag name (case-insensitive) |\r
 | \`{{rcounter::name}}\` | \u2014 | Render-scoped counter (resets each prompt build, never persisted) | Counter name; optional second arg \`reset\` to zero it |\r
 \r
 **Examples:**\r
@@ -28643,10 +28814,6 @@ Access individual messages, track state, and query character metadata.\r
 \r
 {{counter::scene_count}}          \u2014 auto-incrementing scene counter\r
 {{toggle::narrator_mode}}         \u2014 flip between narrator on/off\r
-\r
-{{if::{{charTag::fantasy}}}}\r
-Include world-building details.\r
-{{/if}}\r
 \r
 This chat started {{chatAge}} ago.\r
 \`\`\`\r
@@ -28703,10 +28870,21 @@ Local variables live for the duration of a single evaluation pass. They are usef
 | \`{{decvar::key}}\` | Decrement by 1 (returns new value) | Variable name |\r
 | \`{{hasvar::key}}\` | Check if variable exists (\`"true"\` / \`"false"\`) | Variable name |\r
 | \`{{deletevar::key}}\` | Delete a variable | Variable name |\r
+| \`{{let::key::value}}...{{/let}}\` | Temporarily bind local variables for the scoped body, then restore previous values | Pairs of name/value arguments |\r
 \r
-Aliases: \`{{varexists}}\` for \`{{hasvar}}\`, \`{{flushvar}}\` for \`{{deletevar}}\`\r
+Aliases: \`{{varexists}}\` for \`{{hasvar}}\`, \`{{flushvar}}\` for \`{{deletevar}}\`, \`{{withVar}}\` / \`{{scope}}\` for \`{{let}}\`\r
 \r
 **Shorthand:** \`.\` prefix \u2014 \`{{.myVar}}\`, \`{{.score = 100}}\`, \`{{.counter++}}\`\r
+\r
+**Scoped temporary variables:**\r
+\r
+\`\`\`\r
+{{let::speaker::{{char}}::tone::quiet}}\r
+Write {{.speaker}} with a {{.tone}} voice.\r
+{{/let}}\r
+\`\`\`\r
+\r
+\`{{let}}\` is hygienic: if a local variable already existed, its previous value is restored after the block; if it did not exist, it is removed after the block.\r
 \r
 ### Chat-Persisted Variables\r
 \r
@@ -28994,7 +29172,7 @@ Macros for the Loom narrative system.\r
 \r
 ## Condition-Compatible Macros\r
 \r
-These macros return \`"yes"\` / \`"no"\` or \`"true"\` / \`"false"\` and are designed for use with \`{{if}}\`:\r
+These macros return condition-friendly truthy/falsy values (such as \`"yes"\` / \`"no"\` or \`"true"\` / empty) and are designed for use with \`{{if}}\`:\r
 \r
 | Macro | True When |\r
 |-------|-----------|\r
@@ -29011,8 +29189,8 @@ These macros return \`"yes"\` / \`"no"\` or \`"true"\` / \`"false"\` and are des
 | \`{{haschatvar::key}}\` | Chat-persisted variable exists |\r
 | \`{{hasgvar::key}}\` | Global variable exists |\r
 | \`{{hasPromptVar::name}}\` | A prompt variable is available |\r
+| \`{{hasTag::name}}\` | Character has the given tag (case-insensitive) |\r
 | \`{{var::name::ison::keyA,keyB}}\` | All listed option keys are selected on a multi-select prompt variable |\r
-| \`{{charTag::tag}}\` | Character has the specified tag |\r
 | \`{{regexInstalled::id}}\` | Regex script with that ID is installed and enabled |\r
 | \`{{and::a::b}}\` | All arguments are truthy |\r
 | \`{{or::a::b}}\` | Any argument is truthy |\r
@@ -29030,7 +29208,7 @@ Council deliberation results:\r
 {{lumiaCouncilDeliberation}}\r
 {{/if}}\r
 \r
-{{if::{{and::{{charTag::fantasy}}::{{gt::{{messageCount}}::5}}}}}}\r
+{{if::{{and::{{hasTag::fantasy}}::{{gt::{{messageCount}}::5}}}}}}\r
 The adventure is well underway.\r
 {{/if}}\r
 \`\`\`\r
@@ -30278,6 +30456,159 @@ If you're stuck:\r
 3. Check the World Book Diagnostics for activation issues\r
 4. Review the browser console (F12) for frontend errors\r
 5. Check the server logs in the terminal where Lumiverse is running\r
+`,
+    "settings/disk-health.md": `---\r
+title: Disk Health & SMART\r
+---\r
+\r
+# Disk Health & SMART\r
+\r
+Lumiverse can read [SMART](https://www.smartmontools.org/wiki/WhatIsSmart) health information from physical HDDs, SATA SSDs, and NVMe SSDs. Open **Settings \u2192 Operator \u2192 Disk Health** to see the latest result.\r
+\r
+SMART is a useful early-warning system, not a guarantee that a drive will or will not fail. Keep tested backups regardless of the reported state.\r
+\r
+---\r
+\r
+## Install smartmontools\r
+\r
+From the Lumiverse project directory, run:\r
+\r
+\`\`\`bash\r
+bun run install:smartctl\r
+\`\`\`\r
+\r
+The command detects the supported package manager on your system and installs the \`smartmontools\` package, which provides \`smartctl\`. On Linux it opens the normal \`sudo\` prompt only for the package-manager command; Lumiverse never receives or stores your administrator password.\r
+\r
+After it succeeds, restart Lumiverse and use **Refresh SMART Data** in **Settings \u2192 Operator \u2192 Disk Health**.\r
+\r
+!!! note "Automatic first-run setup"\r
+    The first-run wizard offers this installation automatically. Run \`bun run install:smartctl\` later if you skipped it or if the installation did not complete.\r
+\r
+### If the installer cannot install it\r
+\r
+Install \`smartmontools\` with your operating system's package manager, then restart Lumiverse.\r
+\r
+| Platform | Command |\r
+|----------|---------|\r
+| Debian / Ubuntu | \`sudo apt-get install smartmontools\` |\r
+| Fedora / RHEL | \`sudo dnf install smartmontools\` |\r
+| Arch Linux | \`sudo pacman -S smartmontools\` |\r
+| Alpine | \`sudo apk add smartmontools\` |\r
+| openSUSE | \`sudo zypper install smartmontools\` |\r
+| macOS (Homebrew) | \`brew install smartmontools\` |\r
+\r
+On Windows, install smartmontools with its installer or \`choco install smartmontools -y\`, then restart Lumiverse as an Administrator. Native Termux normally cannot access physical disks, so Disk Health is unavailable there by default.\r
+\r
+---\r
+\r
+## Linux: running Lumiverse with SMART access\r
+\r
+On Linux, reading a physical drive's SMART log normally requires root-level access to the block device. Installing \`smartmontools\` is not enough by itself: the **Lumiverse backend process must currently run with \`sudo\`/root privileges** to collect SMART data.\r
+\r
+1. Stop the normal Lumiverse process.\r
+2. Install smartmontools with \`bun run install:smartctl\`.\r
+3. From the project directory, start Lumiverse with:\r
+\r
+    \`\`\`bash\r
+    sudo -E ./start.sh\r
+    \`\`\`\r
+\r
+4. Open **Settings \u2192 Operator \u2192 Disk Health** and select **Refresh SMART Data**.\r
+\r
+\`-E\` preserves the current shell environment so the elevated launcher can find a Bun installation that belongs to your user account. If your system does not permit \`sudo -E\`, start it with explicit environment values instead:\r
+\r
+\`\`\`bash\r
+sudo env "PATH=$PATH" "BUN_INSTALL=\${BUN_INSTALL:-$HOME/.bun}" ./start.sh\r
+\`\`\`\r
+\r
+!!! warning "Running the whole server as root"\r
+    This grants root access to Lumiverse, its installed extensions, and every process it starts. Use it only on a trusted, locally administered machine. Keep remote access disabled unless it is protected by strong authentication and a trusted network. Do not make block devices world-readable or add the service user to a broad disk-access group just to enable SMART; those changes can also permit raw disk writes.\r
+\r
+!!! warning "File ownership"\r
+    A root-run server can create root-owned files in \`data/\`, logs, and caches. If you later return to running Lumiverse as your normal user, fix the ownership first:\r
+\r
+    \`\`\`bash\r
+    sudo chown -R "$USER":"$(id -gn)" data\r
+    \`\`\`\r
+\r
+### Services and Docker\r
+\r
+For a system service, configure the Lumiverse process to run as \`root\` and use absolute paths for the working directory and Bun executable. Do not rely on an interactive \`sudo\` prompt in a service definition.\r
+\r
+Docker needs a different form of access: map only the specific host devices to monitor and grant the required raw-I/O capability. See the commented SMART example in \`docker-compose.yml\`. Do not use Docker's \`privileged: true\` mode solely for Disk Health.\r
+\r
+---\r
+\r
+## Understanding the health status\r
+\r
+| Status | Meaning | What to do |\r
+|--------|---------|------------|\r
+| **Healthy** | No SMART failure or warning evidence was reported. | Continue normal backups and periodic checks. |\r
+| **Warning** | SMART has a historical pre-fail condition, logged errors, or a concerning SSD metric. | Back up important data promptly and inspect the condition text. Watch whether the count changes. |\r
+| **Failing** | SMART says the drive is failing, a pre-fail value is below its threshold now, or NVMe reports a severe condition such as read-only mode. | Back up immediately and plan to replace the drive. |\r
+| **Unavailable** | Lumiverse could not read SMART data. This is not a health result. | Check installation, Linux privilege, USB/SATA bridge support, or Docker device access. |\r
+| **Standby** | Lumiverse deliberately skipped a sleeping drive. | Refresh after the drive is active if you need a result; Lumiverse will not wake it just for monitoring. |\r
+\r
+When SMART finds a warning or failure, owners and admins receive a Disk Health toast once per browser page load. It names the affected drive and the evidence behind the alert. The current alert is re-delivered periodically for operators who connect after startup.\r
+\r
+---\r
+\r
+## SSD metrics\r
+\r
+Lumiverse shows only values that the SSD controller actually reports. ATA/SATA attribute names are vendor-specific, so some fields may be absent.\r
+\r
+| Metric | Meaning |\r
+|--------|---------|\r
+| **Wear used / Endurance remaining** | The controller's estimate of rated write endurance used and left. NVMe may report more than 100% used after its rated endurance is exhausted. |\r
+| **Available spare** | Remaining replacement flash blocks on NVMe. A value at or below the drive's threshold is a warning. |\r
+| **Data written** | Host writes reported by the controller. This is useful for comparing with the drive's endurance rating, but it is not a direct failure prediction. |\r
+| **Media errors** | NVMe media/data-integrity errors, or the closest ATA equivalent when available. Non-zero values deserve investigation. |\r
+| **Program / erase failures** | NAND programming or erase failures reported by some SATA SSDs. Non-zero values are warnings. |\r
+| **Wear-leveling / reserved blocks** | Vendor-specific counters for flash wear and spare-block consumption. Compare their trend over time rather than assuming a universal threshold. |\r
+| **Unsafe shutdowns** | NVMe power losses without a clean shutdown. This is useful context, but does not by itself mean the SSD is failing. |\r
+\r
+---\r
+\r
+## HDD metrics\r
+\r
+In addition to temperature and error counters, rotating drives show these lifecycle values when supported:\r
+\r
+| Metric | Meaning |\r
+|--------|---------|\r
+| **Power-on hours** | Total time the drive has been powered. Useful context for age and warranty, not a failure verdict by itself. |\r
+| **Power cycles** | Number of times the drive has been powered on. |\r
+| **Start/stop cycles** | Number of spindle start/stop operations. |\r
+| **Load/unload cycles** | Number of head-load or head-park cycles. Frequent parking can make this rise quickly on some laptop drives. |\r
+| **Reallocated sectors** | Sectors remapped to spare space. A rising count is a reason to back up and investigate. |\r
+| **Pending sectors** | Sectors waiting to be re-tested or remapped. Back up promptly; these are often more urgent than a stable historical reallocation count. |\r
+| **Uncorrectable sectors** | Sectors the drive could not read during an offline scan. Treat a non-zero or rising value seriously. |\r
+\r
+## Pre-fail conditions\r
+\r
+**Pre-fail** is an ATA SMART attribute category, not an immediate failure message. A pre-fail attribute matters when its **WHEN_FAILED** state reports one of the following:\r
+\r
+- **FAILING_NOW** \u2014 the attribute's normalized value is currently at or below its manufacturer threshold. Lumiverse marks the drive as **Failing**.\r
+- **In_the_past** \u2014 the attribute crossed its threshold previously. Lumiverse marks it as a **Warning** and includes the attribute name in the toast and Disk Health details.\r
+\r
+For example, \`Cumulativ_Corrected_ECC\` with \`In_the_past\` means the drive recorded that pre-fail condition in its history. It does not prove the drive is failing right now, but it is a good reason to verify backups, inspect the full \`smartctl --all /dev/sdX\` report, and monitor for new or increasing errors.\r
+\r
+---\r
+\r
+## Troubleshooting\r
+\r
+### \`smartctl could not read SMART data from this device\`\r
+\r
+On Linux, first confirm that Lumiverse itself was started with \`sudo\` as described above. Then test the drive directly in a local terminal:\r
+\r
+\`\`\`bash\r
+sudo smartctl --all /dev/sda\r
+\`\`\`\r
+\r
+Replace \`/dev/sda\` with the device shown in Disk Health. If the command works directly but not in Lumiverse, restart the elevated Lumiverse process and refresh the page. USB-to-SATA bridges sometimes need a transport-specific smartctl device type; Lumiverse attempts auto-detection, but not every bridge exposes SMART data.\r
+\r
+### No drives found in Docker\r
+\r
+The container cannot see host drives by default. Map the exact devices you want to monitor and add the raw-I/O capability shown in the compose-file example. Do not expose every device or use privileged mode solely for SMART.\r
 `,
     "settings/embeddings.md": `---\r
 title: Embeddings\r
@@ -32200,7 +32531,7 @@ These settings (in **Settings > World Info**) apply to all entries:\r
 \r
 | Setting | Default | Description |\r
 |---------|---------|-------------|\r
-| **Global Scan Depth** | Unlimited | Default scan depth for entries without a custom scan depth |\r
+| **Global Scan Depth** | Unlimited | Number of recent messages searched for both keyword matching and vector retrieval; per-entry overrides affect keyword matching only |\r
 | **Max Recursion Passes** | 3 | How many times keywords in activated entries can trigger other entries |\r
 | **Max Activated Entries** | Unlimited | Cap on total activated entries |\r
 | **Max Token Budget** | Unlimited | Rough token limit for all world info content |\r
@@ -32219,6 +32550,8 @@ These settings (in **Settings > World Info**) apply to all entries:\r
     e. Check cooldown timer (if cooling down)\r
 3. Constant entries are always included\r
 4. Apply group logic (if entries are in groups)\r
+\r
+When vectorized world-book entries are enabled, semantic retrieval uses the same **Global Scan Depth** message window. Per-entry scan depth overrides remain specific to that entry's keyword matching and do not suppress independent vector retrieval. Unlimited depth considers all visible, non-empty messages, with the vector query still protected by its token safety limit.\r
 5. Sort by priority\r
 6. Enforce budget limits (entry cap and token budget)\r
 7. Group entries by position (before/after chat history)\r

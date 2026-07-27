@@ -32,8 +32,7 @@ import { openDiffModal, type DiffModalHandle } from "./diff-modal";
 import { mountWorkspacePanel, type WorkspacePanelHandle } from "./workspace-panel";
 import { mountCombo, type ComboHandle } from "./combo";
 import { handleAgentEvent, type AgentEventCtx } from "./agent-event-handler";
-import { ICON_TRASH, ICON_DOWNLOAD, ICON_PIN, ICON_PIN_OFF, ICON_NEW, ICON_SESSIONS, ICON_SETTINGS, ICON_TICK, ICON_WORKSHOP, ICON_EXPAND, ICON_COLLAPSE } from "./icons";
-import { DEFAULT_ICON_DATA_URL } from "../generated/default-icon";
+import { ICON_TRASH, ICON_DOWNLOAD, ICON_PIN, ICON_PIN_OFF, ICON_NEW, ICON_SESSIONS, ICON_SETTINGS, ICON_TICK, ICON_WORKSHOP, ICON_EXPAND, ICON_COLLAPSE, ICON_LUMIAGENT } from "./icons";
 import { MOUSEY_SITTING_DATA_URL } from "../generated/mousey";
 
 // Combobox sentinel for the "(No character)" entry. The dropdown stores it as
@@ -46,12 +45,12 @@ const DISPLAY_NAME_STORAGE_KEY = "lumiagent.displayName.v1";
 const DEFAULT_DISPLAY_NAME = "LumiAgent";
 const DEFAULT_DISPLAY_SHORT = "Agent";
 
-function resolveDrawerIconUrl(): string {
+function resolveCustomIconUrl(): string | null {
   try {
     const v = typeof localStorage !== "undefined" ? localStorage.getItem(ICON_STORAGE_KEY) : null;
     if (v && v.startsWith("data:image/")) return v;
   } catch { /* localStorage unavailable */ }
-  return DEFAULT_ICON_DATA_URL;
+  return null;
 }
 
 function resolveMouseyImageUrl(): string {
@@ -174,13 +173,14 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   // browser console's text filter ("[lumiagent]").
   const dlog = (...args: unknown[]): void => { console.log("[lumiagent]", ...args); };
   const displayName = resolveDisplayName();
+  const customIconUrl = resolveCustomIconUrl();
   const tab = ctx.ui.registerDrawerTab({
     id: "lumiagent",
     title: displayName.full,
     shortName: displayName.short,
     description: "Agentic editor for character cards",
     keywords: ["agent", "edit", "translate", "lorebook", "regex"],
-    iconUrl: resolveDrawerIconUrl(),
+    ...(customIconUrl ? { iconUrl: customIconUrl } : { iconSvg: ICON_LUMIAGENT }),
   });
 
   const root = tab.root;
@@ -1963,12 +1963,21 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     wrap.appendChild(iconHead);
     wrap.appendChild(el("div", "la-settings-hint", "Replaces the icon shown in the Lumiverse sidebar."));
     const iconPreview = el("div", "la-icon-settings-preview");
-    const iconImg = document.createElement("img");
-    iconImg.src = resolveDrawerIconUrl();
-    iconImg.alt = "current icon";
-    iconImg.className = "la-icon-settings-image";
+    const iconFrame = el("div", "la-icon-settings-frame");
+    const setIconPreview = (customUrl: string | null): void => {
+      if (customUrl) {
+        iconFrame.innerHTML = "";
+        const img = document.createElement("img");
+        img.src = customUrl;
+        img.alt = "current icon";
+        iconFrame.appendChild(img);
+      } else {
+        iconFrame.innerHTML = ICON_LUMIAGENT;
+      }
+    };
+    setIconPreview(resolveCustomIconUrl());
     const iconCaption = el("div", "la-icon-settings-caption", "Current");
-    iconPreview.append(iconCaption, iconImg);
+    iconPreview.append(iconCaption, iconFrame);
     wrap.appendChild(iconPreview);
     const iconActions = el("div", "la-icon-settings-actions");
     const iconPickBtn = el("button", "la-btn la-btn-primary", "Choose image...") as HTMLButtonElement;
@@ -1994,7 +2003,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         }
         const dataUrl = readImageAsDataUrl(file.bytes, file.mimeType || "image/png");
         try { localStorage.setItem(ICON_STORAGE_KEY, dataUrl); } catch { /* localStorage unavailable */ }
-        iconImg.src = dataUrl;
+        setIconPreview(dataUrl);
         iconCaption.textContent = "Selected (reload to apply)";
         status.textContent = "Icon saved. Reload to apply.";
       } catch (err) {
@@ -2004,7 +2013,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     });
     iconResetBtn.addEventListener("click", () => {
       try { localStorage.removeItem(ICON_STORAGE_KEY); } catch { /* localStorage unavailable */ }
-      iconImg.src = DEFAULT_ICON_DATA_URL;
+      setIconPreview(null);
       iconCaption.textContent = "Default (reload to apply)";
       status.textContent = "Icon reset. Reload to apply.";
       status.classList.remove("is-error");

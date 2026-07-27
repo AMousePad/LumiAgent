@@ -31,3 +31,5 @@ export const ICON_WORKSHOP = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/
 export const ICON_EXPAND = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/></svg>`;
 
 export const ICON_COLLAPSE = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="m14 10 7-7"/><path d="m3 21 7-7"/></svg>`;
+
+export const ICON_LUMIAGENT = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"><path d="m8 18-4 4V8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2Z"/><path d="M6.3 6 7 1.9 11 6"/><path d="M17.7 6 17 1.9 13 6"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="M9 11v2"/><path d="M15 11v2"/></svg>`;

@@ -489,6 +489,20 @@ ${LOADERS_CSS}
   border-radius: var(--lumiverse-radius-md);
   background: var(--lumiverse-bg-elevated);
 }
+.la-icon-settings-frame {
+  width: 96px; height: 96px;
+  border-radius: var(--lumiverse-radius-md);
+  background: var(--lumiverse-bg-elevated);
+  display: flex; align-items: center; justify-content: center;
+}
+.la-icon-settings-frame img {
+  width: 100%; height: 100%;
+  object-fit: contain;
+  border-radius: var(--lumiverse-radius-md);
+}
+.la-icon-settings-frame svg {
+  width: 56px; height: 56px;
+}
 .la-icon-settings-image-tall {
   width: 120px;
   height: 180px;
