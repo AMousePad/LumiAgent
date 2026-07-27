@@ -1,1 +1,1 @@
-Summarize a chat's size, role and speaker counts, and time range before reading or searching it.
+Summarize a solo or group chat's size, role and per-speaker counts, and time range before reading or searching it.

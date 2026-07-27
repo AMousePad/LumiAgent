@@ -14,7 +14,7 @@ Path grammar:
   persona/<id>/wb/<entryId>/<content|comment>  persona world-book entry
   persona/<id>/addon/<addonId>/<content|label>  a persona-scoped add-on
   global_addon/<id>/<content|label>     a reusable global add-on (read_persona resolves the ids)
-  chat/<chatId>/msg/<msgId>/content     one chat message
+  chat/<chatId>/msg/<msgId>/content     one solo or group chat message
   preset/<presetId>/block/<blockId>/<content|name>  prompt-preset block
 
 Records the path as 'recently read' so a subsequent `edit` on the same path passes the read-gate.

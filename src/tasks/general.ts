@@ -92,7 +92,9 @@ export function buildContextNote(params: ContextNoteParams): string {
   const focus = params.characterName.trim().length > 0
     ? `focused on "${params.characterName}"${params.characterId ? ` (id \`${params.characterId}\`)` : ""}`
     : "not focused on any character";
-  const pin = params.pinnedChat ? "A chat is pinned." : "No chat is pinned.";
+  const pin = params.pinnedChat
+    ? "A solo or group chat is pinned; both are supported."
+    : "No chat is pinned; solo and group chats are supported.";
   const parts = [fillPrompt(contextNoteTemplate, { FOCUS: focus, PIN: pin })];
   if (params.extensionSystemPrompts.trim().length > 0) parts.push(params.extensionSystemPrompts.trim());
   if (params.externalProviders.length > 0) {

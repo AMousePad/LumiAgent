@@ -1,1 +1,1 @@
-Skim a chat's messages by id, role, speaker, size, and short snippet. Use this to choose messages to read in full.
+Skim a solo or group chat's messages by id, role, speaker, size, and short snippet. Group speakers remain distinct. Use this to choose messages to read in full.

@@ -1,1 +1,1 @@
-Regex search chat messages. Returns matched message ids, speakers, lines, and previews.
+Regex search solo or group chat messages. Returns matched message ids, speakers, lines, and previews.

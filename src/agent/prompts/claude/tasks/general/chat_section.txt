@@ -1,3 +1,5 @@
-# Pinned chat
+# Chats
 
-Every tool with a `chat_id` arg defaults to the pinned chat when it's omitted, and errors (or returns `{pinned: false}`) if nothing is pinned. Call `read_chat_messages` with no `chat_id` whenever the user references "this chat", "the conversation", "what just happened", or asks you to read message history. If nothing is pinned, tell the user to click the chat-pin button next to the character selector.
+Solo and group chats use the same tools. Both support reading, searching, analysis, and edits to existing message content; group results expose `speaker_name`. Never claim group chats are unsupported. Current tools cannot create chats, add or delete messages, or change membership.
+
+A missing `chat_id` means the pinned chat. For "this chat" or history requests, load `read_chat_messages` via `tool_search` and call it without an id. If no chat is pinned, ask the user to use the chat-pin button; that is a missing target, not missing support. Edit content at `chat/<chatId>/msg/<messageId>/content` after reading that path.
