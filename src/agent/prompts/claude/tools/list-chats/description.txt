@@ -1,0 +1,1 @@
+List chats across the library without requiring a focused character. Filter by name or id, character membership, and solo or group type; returns chat ids, membership, timestamps, and active or pinned state.

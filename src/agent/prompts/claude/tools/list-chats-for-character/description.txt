@@ -1,1 +1,1 @@
-List solo and group chats containing a character. Returns chat ids, membership, timestamps, and active or pinned state.
+List solo and group chats containing a character. Returns chat ids, membership, timestamps, and active or pinned state. `list_chats` is the general library-wide alternative.

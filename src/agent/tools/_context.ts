@@ -168,7 +168,7 @@ export function resolveChatTarget(ctx: ToolCtx, explicit?: string | null): strin
   if (typeof explicit === "string" && explicit.length > 0) return explicit;
   if (ctx.pinnedChatId !== null && ctx.pinnedChatId.length > 0) return ctx.pinnedChatId;
   throw new NoTargetError(
-    "no chat target. Pass `chat_id` explicitly, or have the user pin a chat. Use `list_chats_for_character` to enumerate ids.",
+    "no chat target. Pass `chat_id` explicitly, or have the user pin a chat. Use `list_chats` to enumerate ids.",
   );
 }
 

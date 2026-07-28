@@ -44,6 +44,7 @@ import { setDefaultVariablesTextTool } from "./set-default-variables-text";
 import { setToggleTool } from "./set-toggle";
 import { listCharactersTool } from "./list-characters";
 import { listChatMessagesTool } from "./list-chat-messages";
+import { listChatsTool } from "./list-chats";
 import { listChatsForCharacterTool } from "./list-chats-for-character";
 import { listExternalTool } from "./list-external";
 import { listSessionEditsTool } from "./list-session-edits";
@@ -114,7 +115,7 @@ const DEFERRED_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   // Chat reading is niche unless the user pins a chat; on a pin the agent
   // discovers these via the chat section in the system prompt.
   "chat_stats", "list_chat_messages", "grep_chat_messages",
-  "list_chats_for_character", "read_chat_messages",
+  "list_chats", "list_chats_for_character", "read_chat_messages",
   // Custom-tool authoring. custom_tool_run stays loaded; saved recipes are rare.
   "custom_tool_save", "custom_tool_list", "custom_tool_delete",
   // Genuinely-niche utilities.
@@ -173,7 +174,7 @@ const READ_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   "fs_list", "fs_read", "fs_stat", "view_image",
   // Chat reads
   "chat_stats", "list_chat_messages", "grep_chat_messages",
-  "list_chats_for_character", "read_chat_messages",
+  "list_chats", "list_chats_for_character", "read_chat_messages",
   // Character discovery
   "list_characters",
   // Lumiverse-state inspectors
@@ -275,6 +276,7 @@ registry.register(grepChatMessagesTool);
 registry.register(grepExternalTool);
 registry.register(listCharactersTool);
 registry.register(listChatMessagesTool);
+registry.register(listChatsTool);
 registry.register(listChatsForCharacterTool);
 registry.register(listExternalTool);
 registry.register(listSessionEditsTool);

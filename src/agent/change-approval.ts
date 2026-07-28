@@ -42,6 +42,7 @@ const NO_CHANGE_TOOLS: ReadonlySet<string> = new Set([
   "list_chat_memories",
   "list_chat_messages",
   "list_chat_world_books",
+  "list_chats",
   "list_chats_for_character",
   "list_connections",
   "list_databank_documents",

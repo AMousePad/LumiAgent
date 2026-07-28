@@ -1,5 +1,5 @@
 # Chats
 
-Solo and group chats use the same tools. Both support reading, searching, analysis, and edits to existing message content; group results expose `speaker_name`. Never claim group chats are unsupported. Current tools cannot create chats, add or delete messages, or change membership.
+Solo and group chats use the same tools. Both support reading, searching, analysis, and edits to existing message content; group results expose `speaker_name`. Never claim group chats are unsupported. Load `list_chats` for library-wide discovery or filtering; it works without a focused character. Current tools cannot create chats, add or delete messages, or change membership.
 
 A missing `chat_id` means the pinned chat. For "this chat" or history requests, load `read_chat_messages` via `tool_search` and call it without an id. If no chat is pinned, ask the user to use the chat-pin button; that is a missing target, not missing support. Edit content at `chat/<chatId>/msg/<messageId>/content` after reading that path.
