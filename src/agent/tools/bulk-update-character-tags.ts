@@ -1,11 +1,11 @@
 import { z } from "zod";
 import { defineTool, type ValidationResult } from "./_framework";
-import type { ToolCtx } from "./_context";
+import { StageEditPersistenceError, type StagedEdit, type ToolCtx } from "./_context";
 import { spillOrReturn } from "./_io";
 import { normaliseCharacterTags } from "./_surfaces";
 import { listAllCharacters } from "../../state/character-catalog";
 import { sha256 } from "../../state/patch-stack";
-import { characterScope } from "../../types";
+import { characterScope, type EditRecord } from "../../types";
 import description from "../prompts/claude/tools/bulk-update-character-tags/description.txt";
 
 const MAX_UPDATES = 500;
@@ -154,8 +154,8 @@ async function buildPlans(input: BulkTagInput, ctx: ToolCtx): Promise<PlanBuild>
   };
 }
 
-function ledgerTagEdit(ctx: ToolCtx, plan: TagPlan, after: readonly string[]): void {
-  ctx.pushEdit({
+function tagEditRecord(plan: TagPlan, after: readonly string[]): EditRecord {
+  return {
     op: "edit",
     surface: "character_field",
     surfaceId: plan.characterId,
@@ -165,7 +165,7 @@ function ledgerTagEdit(ctx: ToolCtx, plan: TagPlan, after: readonly string[]): v
     after: JSON.stringify(after),
     valueEncoding: "json",
     scope: characterScope(plan.characterId),
-  });
+  };
 }
 
 async function validateApply(input: BulkTagInput, ctx: ToolCtx): Promise<ValidationResult> {
@@ -270,13 +270,30 @@ export const bulkUpdateCharacterTagsTool = defineTool({
         }),
       };
     }
+    if (!ctx.stageEdit) {
+      return {
+        content: "Error: [DURABILITY_UNAVAILABLE] Durable edit staging is unavailable. No changes were made.",
+        isError: true,
+      };
+    }
 
-    const applied: TagPlan[] = [];
+    interface StagedPlan {
+      readonly plan: TagPlan;
+      readonly stage: StagedEdit;
+    }
+    const applied: StagedPlan[] = [];
     let failure: {
       readonly code: string;
       readonly message: string;
       readonly plan: TagPlan | null;
       readonly updateAttempted: boolean;
+      readonly stage: StagedEdit | null;
+      readonly failedStage?: {
+        readonly editId: string;
+        readonly scope: ReturnType<typeof characterScope>;
+        readonly cleanupState: "discarded" | "unresolved";
+        readonly cleanupError?: string;
+      };
     } | null = null;
     for (const plan of changed) {
       if (ctx.signal.aborted) {
@@ -285,6 +302,33 @@ export const bulkUpdateCharacterTagsTool = defineTool({
           message: "operation cancelled",
           plan: null,
           updateAttempted: false,
+          stage: null,
+        };
+        break;
+      }
+
+      // Write the exact before→after intent first, then perform the live-state
+      // read immediately before update. This keeps the original get→update race
+      // narrow while guaranteeing that no card mutation can precede durability.
+      let stage: StagedEdit;
+      try {
+        stage = await ctx.stageEdit(tagEditRecord(plan, plan.after));
+      } catch (err) {
+        const failedStage = err instanceof StageEditPersistenceError
+          ? {
+              editId: err.entry.id,
+              scope: err.entry.scope,
+              cleanupState: err.cleanupState,
+              ...(err.cleanupError !== undefined ? { cleanupError: err.cleanupError } : {}),
+            }
+          : undefined;
+        failure = {
+          code: "LEDGER_STAGE_FAILED",
+          message: (err as Error).message || "could not durably stage the character tag edit",
+          plan,
+          updateAttempted: false,
+          stage: null,
+          ...(failedStage !== undefined ? { failedStage } : {}),
         };
         break;
       }
@@ -298,6 +342,7 @@ export const bulkUpdateCharacterTagsTool = defineTool({
           message: (err as Error).message || "could not verify live character tags",
           plan,
           updateAttempted: false,
+          stage,
         };
         break;
       }
@@ -307,6 +352,7 @@ export const bulkUpdateCharacterTagsTool = defineTool({
           message: `character ${plan.characterId} no longer exists`,
           plan,
           updateAttempted: false,
+          stage,
         };
         break;
       }
@@ -317,60 +363,84 @@ export const bulkUpdateCharacterTagsTool = defineTool({
           message: `character ${plan.characterId} tags changed while the batch was running`,
           plan,
           updateAttempted: false,
+          stage,
         };
         break;
       }
 
       try {
         await ctx.spindle.characters.update(plan.characterId, { tags: plan.after }, ctx.userId);
-        applied.push(plan);
+        applied.push({ plan, stage });
       } catch (err) {
         failure = {
           code: "UPDATE_FAILED",
           message: (err as Error).message || "character update failed",
           plan,
           updateAttempted: true,
+          stage,
         };
         break;
       }
     }
 
     if (failure) {
-      const candidates: Array<{ plan: TagPlan; knownApplied: boolean }> = applied.map((plan) => ({
+      const candidates: Array<StagedPlan & { knownApplied: boolean }> = applied.map(({ plan, stage }) => ({
         plan,
+        stage,
         knownApplied: true,
       }));
-      if (failure.plan && failure.updateAttempted) {
-        candidates.push({ plan: failure.plan, knownApplied: false });
+      if (failure.plan && failure.updateAttempted && failure.stage) {
+        candidates.push({ plan: failure.plan, stage: failure.stage, knownApplied: false });
       }
 
-      const survivors: Array<{ plan: TagPlan; liveTags: string[] | null }> = [];
-      const unattributed: Array<{ plan: TagPlan; liveTags: string[] | null }> = [];
+      const survivors: Array<StagedPlan & { liveTags: string[] | null }> = [];
+      const uncertain: Array<StagedPlan & { liveTags: string[] | null }> = [];
+      const toDiscard: StagedPlan[] = [];
+      const cleanupFailures: Array<{
+        character_id: string;
+        edit_id: string;
+        scope: ReturnType<typeof characterScope>;
+        error: string;
+      }> = [];
+      if (failure.failedStage?.cleanupState === "unresolved" && failure.plan) {
+        cleanupFailures.push({
+          character_id: failure.plan.characterId,
+          edit_id: failure.failedStage.editId,
+          scope: failure.failedStage.scope,
+          error: failure.failedStage.cleanupError ?? "staged ledger cleanup could not be confirmed",
+        });
+      }
+      if (failure.stage && !failure.updateAttempted && failure.plan) {
+        // This row was staged but its post-stage live check failed. No host
+        // update was attempted, so its write-ahead entry must be discarded.
+        toDiscard.push({ plan: failure.plan, stage: failure.stage });
+      }
       const rolledBack: string[] = [];
       for (const candidate of [...candidates].reverse()) {
-        const { plan, knownApplied } = candidate;
+        const { plan, stage, knownApplied } = candidate;
         let liveTags: string[];
         try {
           const live = await ctx.spindle.characters.get(plan.characterId, ctx.userId);
           if (!live) {
-            if (knownApplied) survivors.push({ plan, liveTags: null });
-            else unattributed.push({ plan, liveTags: null });
+            if (knownApplied) survivors.push({ plan, stage, liveTags: null });
+            else uncertain.push({ plan, stage, liveTags: null });
             continue;
           }
           liveTags = Array.isArray(live.tags) ? [...live.tags] : [];
         } catch {
-          if (knownApplied) survivors.push({ plan, liveTags: null });
-          else unattributed.push({ plan, liveTags: null });
+          if (knownApplied) survivors.push({ plan, stage, liveTags: null });
+          else uncertain.push({ plan, stage, liveTags: null });
           continue;
         }
 
         if (sameTags(liveTags, plan.before)) {
           rolledBack.push(plan.characterId);
+          toDiscard.push({ plan, stage });
           continue;
         }
         if (!sameTags(liveTags, plan.after)) {
-          if (knownApplied) survivors.push({ plan, liveTags });
-          else unattributed.push({ plan, liveTags });
+          if (knownApplied) survivors.push({ plan, stage, liveTags });
+          else uncertain.push({ plan, stage, liveTags });
           continue;
         }
 
@@ -379,23 +449,46 @@ export const bulkUpdateCharacterTagsTool = defineTool({
         try {
           await ctx.spindle.characters.update(plan.characterId, { tags: plan.before }, ctx.userId);
           rolledBack.push(plan.characterId);
+          toDiscard.push({ plan, stage });
         } catch {
           // The live value was exactly our output immediately before this
           // failed restore. Record only our exact before→after mutation.
-          survivors.push({ plan, liveTags });
+          survivors.push({ plan, stage, liveTags });
         }
       }
       // A divergent live value may include a later user/external edit. Attribute
-      // only the exact mutation this batch is known to have applied.
-      for (const survivor of survivors) ledgerTagEdit(ctx, survivor.plan, survivor.plan.after);
+      // only the exact mutation this batch is known to have applied. Its stage
+      // is already durable, so committing publishes it without a backend append.
+      for (const survivor of survivors) survivor.stage.commit();
+      // An update call that threw may still have committed before losing its
+      // acknowledgement. If its follow-up state is missing, unreadable, or
+      // divergent, retain the write-ahead entry conservatively: discarding it
+      // could turn a real mutation into unledgered history.
+      for (const item of uncertain) item.stage.commit();
+      // Fully rolled-back rows and stages whose host update was never attempted
+      // must not leave live ledger patches. Attempt every discard even if an
+      // earlier cleanup failed.
+      for (const item of toDiscard) {
+        try {
+          await item.stage.discard();
+        } catch (err) {
+          cleanupFailures.push({
+            character_id: item.plan.characterId,
+            edit_id: item.stage.entry.id,
+            scope: item.stage.entry.scope,
+            error: (err as Error).message || "staged ledger cleanup failed",
+          });
+        }
+      }
 
       return {
         content: JSON.stringify({
           ok: false,
-          partial: survivors.length > 0,
+          partial: survivors.length > 0 || uncertain.length > 0 || cleanupFailures.length > 0,
           error_code: failure.code,
           error: failure.message,
           failed_character_id: failure.plan?.characterId ?? null,
+          failed_stage: failure.failedStage ?? null,
           rolled_back_character_ids: rolledBack,
           surviving_changes: survivors.map(({ plan, liveTags }) => ({
             character_id: plan.characterId,
@@ -403,21 +496,29 @@ export const bulkUpdateCharacterTagsTool = defineTool({
             after: plan.after,
             live_tags: liveTags,
           })),
-          unattributed_divergent_states: unattributed.map(({ plan, liveTags }) => ({
+          uncertain_update_states: uncertain.map(({ plan, stage, liveTags }) => ({
             character_id: plan.characterId,
+            edit_id: stage.entry.id,
             live_tags: liveTags,
+            ledger_retained: true,
           })),
-          note: survivors.length > 0
+          ledger_cleanup_failures: cleanupFailures,
+          note: cleanupFailures.length > 0
+            ? "Rollback completed where the batch still owned the live tags, but one or more staged ledger entries could not be durably discarded. The unresolved ledger cleanup is reported above."
+            : survivors.length > 0
             ? "Rollback was incomplete. Only this batch's exact surviving mutations were recorded; divergent live tags were not attributed to the agent."
-            : unattributed.length > 0
-              ? "Known batch writes were rolled back. Divergent live tags were left untouched and were not attributed to the agent."
+            : uncertain.length > 0
+              ? "An attempted update had an uncertain outcome. Its durable before-to-after ledger entry was retained so a possible real mutation cannot become untracked; divergent live state was left untouched."
               : "The attempted batch was fully rolled back.",
         }, null, 2),
         isError: true,
       };
     }
 
-    for (const plan of applied) ledgerTagEdit(ctx, plan, plan.after);
+    // Every stage was durable before its card mutation. Publish the exact
+    // entries only after the whole batch succeeds so the backend mirrors them
+    // into session state without writing the ledgers a second time.
+    for (const item of applied) item.stage.commit();
     return {
       content: JSON.stringify({
         ok: true,
@@ -425,7 +526,7 @@ export const bulkUpdateCharacterTagsTool = defineTool({
         requested: built.plans.length,
         updated: applied.length,
         unchanged: built.plans.length - applied.length,
-        character_ids: applied.map((plan) => plan.characterId),
+        character_ids: applied.map(({ plan }) => plan.characterId),
       }, null, 2),
     };
   },

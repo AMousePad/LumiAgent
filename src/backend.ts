@@ -1058,7 +1058,9 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
           // runAgent yields edit_logged before the owning tool_finished event.
           // Awaiting here makes the ledger durable before either the UI or the
           // provider can observe that tool as successfully completed.
-          await appendEntries(spindle, ev.entry.scope, [ev.entry], userId);
+          if (ev.already_persisted !== true) {
+            await appendEntries(spindle, ev.entry.scope, [ev.entry], userId);
+          }
           break;
         default: break;
       }
@@ -2637,7 +2639,9 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
           // Keep the generator paused until this edit is durably recorded.
           // The next yielded event is tool_finished, so successful completion
           // can no longer race a fire-and-forget ledger write.
-          await appendEntries(spindle, ev.entry.scope, [ev.entry], userId);
+          if (ev.already_persisted !== true) {
+            await appendEntries(spindle, ev.entry.scope, [ev.entry], userId);
+          }
           break;
         case "revert_logged": {
           // Agent-driven revert (revert_session_edits). Ledger persistence already

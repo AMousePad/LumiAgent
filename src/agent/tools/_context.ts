@@ -1,6 +1,35 @@
 import type { SpindleAPI } from "lumiverse-spindle-types";
-import type { EditRecord, RevertOutcomeWire, ScopeRef } from "../../types";
+import type { EditLogEntry, EditRecord, RevertOutcomeWire, ScopeRef } from "../../types";
 import { ErrorCode, codedError } from "./_error_codes";
+
+export interface StagedEdit {
+  readonly entry: EditLogEntry;
+  // Publish the already-durable entry into this tool call's event buffer.
+  // Idempotent so compensation code can classify rows without double-emitting.
+  commit(): void;
+  // Remove an uncommitted write-ahead entry from its owning ledger.
+  // Rejects when durable cleanup could not be confirmed.
+  discard(): Promise<void>;
+}
+
+export class StageEditPersistenceError extends Error {
+  readonly entry: EditLogEntry;
+  readonly cleanupState: "discarded" | "unresolved";
+  readonly cleanupError?: string;
+
+  constructor(
+    message: string,
+    entry: EditLogEntry,
+    cleanupState: "discarded" | "unresolved",
+    cleanupError?: string,
+  ) {
+    super(message);
+    this.name = "StageEditPersistenceError";
+    this.entry = entry;
+    this.cleanupState = cleanupState;
+    if (cleanupError !== undefined) this.cleanupError = cleanupError;
+  }
+}
 
 export interface ToolCtx {
   readonly spindle: SpindleAPI;
@@ -28,6 +57,10 @@ export interface ToolCtx {
   readonly recentReads: RecentReadsCache;
   setFinished(summary: string): void;
   pushEdit(record: EditRecord): void;
+  // Write-ahead durability hook for tools whose host mutations span multiple
+  // scopes. Optional at the type boundary so synthetic contexts remain small;
+  // a live tool that requires it must fail before its first host mutation.
+  stageEdit?(record: EditRecord): Promise<StagedEdit>;
   // The agent reverted one of its prior edits through a tool. The loop turns
   // these into revert_logged events the backend converts into edit_reverted
   // wire messages (same plumbing as user-driven workshop reverts).

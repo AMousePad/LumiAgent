@@ -16,10 +16,12 @@ import { runLlmStream } from "./llm";
 import { withRollingCacheBreakpoint } from "./cache-control";
 import { LoopDetector } from "./loop-detector";
 import { newEditEntry } from "../state/edit-log";
+import { appendEntries, discardStagedEntry } from "../state/ledger";
 import { dlog } from "../log";
 import { characterScope } from "../types";
 import { writeTmp } from "../state/tmp-store";
 import { isReadOnlyTool, maxResultSizeCharsFor, RecentReadsCache, type ToolCtx, type ToolFn, type QueuedImage } from "./tools";
+import { StageEditPersistenceError } from "./tools/_context";
 import toolCallAsText from "./prompts/claude/agent/loop/tool_call_as_text.txt";
 
 const PARALLEL_TOOL_CONCURRENCY = 5;
@@ -330,6 +332,7 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
 
   interface CallBuffer {
     readonly edits: EditRecord[];
+    readonly durableEdits: EditLogEntry[];
     readonly reverts: Array<{ editId: string; outcome: RevertOutcomeWire; scope?: ScopeRef }>;
     readonly images: QueuedImage[];
     resync: boolean;
@@ -341,7 +344,7 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
     resyncRemap?: Record<string, string>;
   }
 
-  function makeCallCtx(buffer: CallBuffer, rootCallId: string): ToolCtx {
+  function makeCallCtx(buffer: CallBuffer, rootCallId: string, toolName: string, turn: number): ToolCtx {
     return {
       spindle: input.spindle,
       userId: input.userId,
@@ -360,6 +363,69 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
       recentReads,
       setFinished: (s) => { finishedSummary = s; },
       pushEdit: (rec) => { buffer.edits.push(rec); },
+      stageEdit: async (rec) => {
+        if (rec.scope === undefined) {
+          throw new Error("stageEdit requires an explicit record.scope");
+        }
+        const scope = rec.scope;
+        const entry = newEditEntry(
+          input.sessionId,
+          scope,
+          rootCallId,
+          toolName,
+          turn,
+          rec,
+          input.assistantMessageId,
+        );
+        let state: "staged" | "committed" | "discarded" = "staged";
+        const staged = {
+          entry,
+          commit: () => {
+            if (state === "committed") return;
+            if (state === "discarded") throw new Error(`cannot commit discarded staged edit ${entry.id}`);
+            state = "committed";
+            buffer.durableEdits.push(entry);
+          },
+          discard: async () => {
+            if (state === "discarded") return;
+            if (state === "committed") throw new Error(`cannot discard committed staged edit ${entry.id}`);
+            let discardError: unknown;
+            for (let attempt = 0; attempt < 2; attempt++) {
+              try {
+                await discardStagedEntry(input.spindle, entry, input.userId);
+                state = "discarded";
+                return;
+              } catch (err) {
+                discardError = err;
+              }
+            }
+            throw discardError;
+          },
+        };
+        let stageError: unknown;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            await appendEntries(input.spindle, scope, [entry], input.userId);
+            stageError = undefined;
+            break;
+          } catch (err) {
+            stageError = err;
+          }
+        }
+        if (stageError !== undefined) {
+          let cleanupError: string | undefined;
+          let cleanupState: "discarded" | "unresolved" = "discarded";
+          try {
+            await staged.discard();
+          } catch (cleanupErr) {
+            cleanupState = "unresolved";
+            cleanupError = (cleanupErr as Error).message || "staged ledger cleanup failed";
+          }
+          const message = (stageError as Error).message || "ledger staging failed";
+          throw new StageEditPersistenceError(message, entry, cleanupState, cleanupError);
+        }
+        return staged;
+      },
       pushRevert: (editId, outcome, scope) => {
         buffer.reverts.push(scope === undefined ? { editId, outcome } : { editId, outcome, scope });
       },
@@ -632,7 +698,7 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
     }
 
     const executeOne = async (tc: ToolCall): Promise<CallOutcome> => {
-      const buffer: CallBuffer = { edits: [], reverts: [], images: [], resync: false };
+      const buffer: CallBuffer = { edits: [], durableEdits: [], reverts: [], images: [], resync: false };
       if (signal.aborted) {
         return {
           tc,
@@ -656,7 +722,7 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
         isError = true;
       } else {
         try {
-          const r = await fn(tc.args, makeCallCtx(buffer, tc.call_id));
+          const r = await fn(tc.args, makeCallCtx(buffer, tc.call_id, tc.name, turnNum));
           resultText = r.content;
           if (r.isError === true) isError = true;
         } catch (err) {
@@ -722,10 +788,16 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
       const editsForCall: EditLogEntry[] = oc.buffer.edits.map((rec) =>
         newEditEntry(input.sessionId, rec.scope ?? characterScope(input.characterId ?? ""), oc.tc.call_id, oc.tc.name, turnNum, rec, input.assistantMessageId),
       );
+      editsForCall.push(...oc.buffer.durableEdits);
       newEdits.push(...editsForCall);
       queuedImages.push(...oc.buffer.images);
       results.push({ call_id: oc.tc.call_id, name: oc.tc.name, content: oc.resultText, ...(oc.isError ? { is_error: true } : {}) });
-      for (const e of editsForCall) yield { type: "edit_logged", entry: e };
+      const durableIds = new Set(oc.buffer.durableEdits.map((entry) => entry.id));
+      for (const e of editsForCall) {
+        yield durableIds.has(e.id)
+          ? { type: "edit_logged", entry: e, already_persisted: true }
+          : { type: "edit_logged", entry: e };
+      }
       for (const r of oc.buffer.reverts) {
         revertedThisTurn = true;
         yield r.scope === undefined

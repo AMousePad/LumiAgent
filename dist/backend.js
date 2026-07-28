@@ -1470,6 +1470,7 @@ __export(exports_ledger, {
   findEntry: () => findEntry,
   entriesView: () => entriesView,
   dropCache: () => dropCache,
+  discardStagedEntry: () => discardStagedEntry,
   appendEntries: () => appendEntries
 });
 function ledgerPath(scope) {
@@ -1484,13 +1485,44 @@ function cacheKey(userId, scope) {
 function emptyLedger(scope) {
   return { ...emptyLedgerV2(scope), externalEdits: [] };
 }
+async function withScopeMutation(key, fn) {
+  let lock = mutationLocks.get(key);
+  if (!lock) {
+    lock = { tail: Promise.resolve(), pending: 0 };
+    mutationLocks.set(key, lock);
+  }
+  const previous = lock.tail;
+  let release;
+  lock.tail = new Promise((resolve) => {
+    release = resolve;
+  });
+  lock.pending++;
+  await previous.catch(() => {});
+  try {
+    return await fn();
+  } finally {
+    lock.pending--;
+    release();
+    if (lock.pending === 0 && mutationLocks.get(key) === lock)
+      mutationLocks.delete(key);
+  }
+}
+function containsEntryId(ledger, id) {
+  for (const file of ledger.files) {
+    if (file.patches.some((patch) => patch.id === id))
+      return true;
+  }
+  if (ledger.structural.some((patch) => patch.id === id))
+    return true;
+  return ledger.externalEdits.some((entry) => entry.id === id);
+}
 function pruneLedgerCache() {
   if (ledgerCache.size <= LEDGER_CACHE_MAX)
     return;
   for (const key of ledgerCache.keys()) {
     if (ledgerCache.size <= LEDGER_CACHE_MAX)
       break;
-    if (inflightLoads.has(key) || (inflightAppends.get(key) ?? 0) > 0)
+    if (inflightLoads.has(key) || (inflightAppends.get(key) ?? 0) > 0 || (mutationLocks.get(key)?.pending ?? 0) > 0)
       continue;
     ledgerCache.delete(key);
   }
@@ -1588,40 +1620,55 @@ async function appendEntries(spindle2, scope, entries, userId) {
   const ck = cacheKey(userId, scope);
   inflightAppends.set(ck, (inflightAppends.get(ck) ?? 0) + 1);
   try {
-    const ledger = await loadLedger(spindle2, scope, userId);
-    for (const e of entries) {
-      const r = e.record;
-      if (r.op === "edit" && r.surface !== "external") {
-        const key = { surface: r.surface, surfaceId: r.surfaceId, field: r.field };
-        const existing = findFile(ledger, key);
-        const result = recordEdit(existing, {
-          key,
-          surfaceLabel: r.surfaceLabel,
-          live: r.before,
-          next: r.after,
-          author: "agent",
-          sessionId: e.sessionId,
-          toolCallId: e.toolCallId,
-          description: e.toolName,
-          id: e.id,
-          ts: e.ts,
-          toolName: e.toolName,
-          ...e.assistantMessageId !== undefined ? { assistantMessageId: e.assistantMessageId } : {},
-          turn: e.turn,
-          ...r.valueEncoding !== undefined ? { valueEncoding: r.valueEncoding } : {}
-        });
-        if (!existing && result.file.patches.length === 0)
-          continue;
-        upsertFile(ledger, result.file);
-      } else if (r.op === "create" || r.op === "delete") {
-        const sp = structuralFromEntry(e, r);
-        if (sp)
-          ledger.structural.push(sp);
-      } else {
-        ledger.externalEdits.push({ ...e });
+    await withScopeMutation(ck, async () => {
+      const ledger = await loadLedger(spindle2, scope, userId);
+      let changed = false;
+      try {
+        for (const e of entries) {
+          if (containsEntryId(ledger, e.id))
+            continue;
+          const r = e.record;
+          if (r.op === "edit" && r.surface !== "external") {
+            const key = { surface: r.surface, surfaceId: r.surfaceId, field: r.field };
+            const existing = findFile(ledger, key);
+            const result = recordEdit(existing, {
+              key,
+              surfaceLabel: r.surfaceLabel,
+              live: r.before,
+              next: r.after,
+              author: "agent",
+              sessionId: e.sessionId,
+              toolCallId: e.toolCallId,
+              description: e.toolName,
+              id: e.id,
+              ts: e.ts,
+              toolName: e.toolName,
+              ...e.assistantMessageId !== undefined ? { assistantMessageId: e.assistantMessageId } : {},
+              turn: e.turn,
+              ...r.valueEncoding !== undefined ? { valueEncoding: r.valueEncoding } : {}
+            });
+            if (!existing && result.file.patches.length === 0)
+              continue;
+            upsertFile(ledger, result.file);
+            changed = true;
+          } else if (r.op === "create" || r.op === "delete") {
+            const sp = structuralFromEntry(e, r);
+            if (sp) {
+              ledger.structural.push(sp);
+              changed = true;
+            }
+          } else {
+            ledger.externalEdits.push({ ...e });
+            changed = true;
+          }
+        }
+        if (changed)
+          await persistLedger(spindle2, ledger, userId);
+      } catch (err) {
+        ledgerCache.delete(ck);
+        throw err;
       }
-    }
-    await persistLedger(spindle2, ledger, userId);
+    });
   } finally {
     const n = (inflightAppends.get(ck) ?? 1) - 1;
     if (n <= 0)
@@ -1632,6 +1679,71 @@ async function appendEntries(spindle2, scope, entries, userId) {
 }
 async function persistLedgerNow(spindle2, ledger, userId) {
   await persistLedger(spindle2, ledger, userId);
+}
+async function discardStagedEntry(spindle2, entry, userId) {
+  const scope = entry.scope;
+  const ck = cacheKey(userId, scope);
+  return withScopeMutation(ck, async () => {
+    const ledger = await loadLedger(spindle2, scope, userId);
+    const record = entry.record;
+    let changed = false;
+    if (record.op === "edit" && record.surface !== "external") {
+      const key = {
+        surface: record.surface,
+        surfaceId: record.surfaceId,
+        field: record.field
+      };
+      const existing = findFile(ledger, key);
+      if (!existing)
+        return false;
+      const file = structuredClone(existing);
+      const index = file.patches.findIndex((patch) => patch.id === entry.id);
+      if (index < 0)
+        return false;
+      if (index !== file.patches.length - 1) {
+        throw new Error(`staged edit ${entry.id} is no longer the latest patch`);
+      }
+      file.patches.pop();
+      if (file.patches.length === 0) {
+        ledger.files = ledger.files.filter((candidate) => candidate !== existing);
+      } else {
+        const current = currentValue(file);
+        if (current === null) {
+          throw new Error(`could not recompute ledger state after discarding staged edit ${entry.id}`);
+        }
+        file.expectedHash = sha256(current);
+        upsertFile(ledger, file);
+      }
+      changed = true;
+    } else if (record.op === "create" || record.op === "delete") {
+      const index = ledger.structural.findIndex((patch) => patch.id === entry.id);
+      if (index < 0)
+        return false;
+      if (index !== ledger.structural.length - 1) {
+        throw new Error(`staged edit ${entry.id} is no longer the latest structural patch`);
+      }
+      ledger.structural.splice(index, 1);
+      changed = true;
+    } else {
+      const index = ledger.externalEdits.findIndex((candidate) => candidate.id === entry.id);
+      if (index < 0)
+        return false;
+      if (index !== ledger.externalEdits.length - 1) {
+        throw new Error(`staged edit ${entry.id} is no longer the latest external edit`);
+      }
+      ledger.externalEdits.splice(index, 1);
+      changed = true;
+    }
+    if (!changed)
+      return false;
+    try {
+      await persistLedger(spindle2, ledger, userId);
+      return true;
+    } catch (err) {
+      ledgerCache.delete(ck);
+      throw err;
+    }
+  });
 }
 function purgeIdsInMemory(ledger, ids) {
   if (ids.length === 0)
@@ -1961,12 +2073,13 @@ async function listScopeLedgers(spindle2, userId, kinds = LEDGER_SCOPE_KINDS) {
 async function listNonCharacterScopeLedgers(spindle2, userId) {
   return listScopeLedgers(spindle2, userId, LEDGER_SCOPE_KINDS.filter((kind) => kind !== "character"));
 }
-var LEDGER_DIR = "ledgers", ledgerCache, inflightLoads, inflightAppends, LEDGER_CACHE_MAX = 512, STRUCTURAL_SURFACES, LEDGER_SCOPE_KINDS;
+var LEDGER_DIR = "ledgers", ledgerCache, inflightLoads, inflightAppends, mutationLocks, LEDGER_CACHE_MAX = 512, STRUCTURAL_SURFACES, LEDGER_SCOPE_KINDS;
 var init_ledger = __esm(() => {
   init_patch_stack();
   ledgerCache = new Map;
   inflightLoads = new Map;
   inflightAppends = new Map;
+  mutationLocks = new Map;
   STRUCTURAL_SURFACES = new Set([
     "world_book_entry",
     "world_book",
@@ -17776,9 +17889,22 @@ function noTargetResult(err) {
     return { content: codedError(ErrorCode.NO_TARGET, err.message), isError: true };
   return null;
 }
-var NoTargetError;
+var StageEditPersistenceError, NoTargetError;
 var init__context = __esm(() => {
   init__error_codes();
+  StageEditPersistenceError = class StageEditPersistenceError extends Error {
+    entry;
+    cleanupState;
+    cleanupError;
+    constructor(message, entry, cleanupState, cleanupError) {
+      super(message);
+      this.name = "StageEditPersistenceError";
+      this.entry = entry;
+      this.cleanupState = cleanupState;
+      if (cleanupError !== undefined)
+        this.cleanupError = cleanupError;
+    }
+  };
   NoTargetError = class NoTargetError extends Error {
     constructor(message) {
       super(message);
@@ -20369,8 +20495,8 @@ async function buildPlans(input, ctx) {
     previewHash: sha256(JSON.stringify({ version: 1, plans: hashBody }))
   };
 }
-function ledgerTagEdit(ctx, plan, after) {
-  ctx.pushEdit({
+function tagEditRecord(plan, after) {
+  return {
     op: "edit",
     surface: "character_field",
     surfaceId: plan.characterId,
@@ -20380,7 +20506,7 @@ function ledgerTagEdit(ctx, plan, after) {
     after: JSON.stringify(after),
     valueEncoding: "json",
     scope: characterScope(plan.characterId)
-  });
+  };
 }
 async function validateApply(input, ctx) {
   if (input.dry_run !== false)
@@ -20409,6 +20535,7 @@ var MAX_UPDATES = 500, MAX_TAGS_PER_OPERATION = 200, tagsSchema, updateSchema, i
 var init_bulk_update_character_tags = __esm(() => {
   init_zod();
   init__framework();
+  init__context();
   init__surfaces();
   init_patch_stack();
   init_description8();
@@ -20527,6 +20654,12 @@ var init_bulk_update_character_tags = __esm(() => {
           })
         };
       }
+      if (!ctx.stageEdit) {
+        return {
+          content: "Error: [DURABILITY_UNAVAILABLE] Durable edit staging is unavailable. No changes were made.",
+          isError: true
+        };
+      }
       const applied = [];
       let failure = null;
       for (const plan of changed) {
@@ -20535,7 +20668,28 @@ var init_bulk_update_character_tags = __esm(() => {
             code: "CANCELLED",
             message: "operation cancelled",
             plan: null,
-            updateAttempted: false
+            updateAttempted: false,
+            stage: null
+          };
+          break;
+        }
+        let stage;
+        try {
+          stage = await ctx.stageEdit(tagEditRecord(plan, plan.after));
+        } catch (err) {
+          const failedStage = err instanceof StageEditPersistenceError ? {
+            editId: err.entry.id,
+            scope: err.entry.scope,
+            cleanupState: err.cleanupState,
+            ...err.cleanupError !== undefined ? { cleanupError: err.cleanupError } : {}
+          } : undefined;
+          failure = {
+            code: "LEDGER_STAGE_FAILED",
+            message: err.message || "could not durably stage the character tag edit",
+            plan,
+            updateAttempted: false,
+            stage: null,
+            ...failedStage !== undefined ? { failedStage } : {}
           };
           break;
         }
@@ -20547,7 +20701,8 @@ var init_bulk_update_character_tags = __esm(() => {
             code: "LIVE_STATE_READ_FAILED",
             message: err.message || "could not verify live character tags",
             plan,
-            updateAttempted: false
+            updateAttempted: false,
+            stage
           };
           break;
         }
@@ -20556,7 +20711,8 @@ var init_bulk_update_character_tags = __esm(() => {
             code: "CHARACTER_NOT_FOUND",
             message: `character ${plan.characterId} no longer exists`,
             plan,
-            updateAttempted: false
+            updateAttempted: false,
+            stage
           };
           break;
         }
@@ -20566,81 +20722,114 @@ var init_bulk_update_character_tags = __esm(() => {
             code: "STALE_LIVE_STATE",
             message: `character ${plan.characterId} tags changed while the batch was running`,
             plan,
-            updateAttempted: false
+            updateAttempted: false,
+            stage
           };
           break;
         }
         try {
           await ctx.spindle.characters.update(plan.characterId, { tags: plan.after }, ctx.userId);
-          applied.push(plan);
+          applied.push({ plan, stage });
         } catch (err) {
           failure = {
             code: "UPDATE_FAILED",
             message: err.message || "character update failed",
             plan,
-            updateAttempted: true
+            updateAttempted: true,
+            stage
           };
           break;
         }
       }
       if (failure) {
-        const candidates = applied.map((plan) => ({
+        const candidates = applied.map(({ plan, stage }) => ({
           plan,
+          stage,
           knownApplied: true
         }));
-        if (failure.plan && failure.updateAttempted) {
-          candidates.push({ plan: failure.plan, knownApplied: false });
+        if (failure.plan && failure.updateAttempted && failure.stage) {
+          candidates.push({ plan: failure.plan, stage: failure.stage, knownApplied: false });
         }
         const survivors = [];
-        const unattributed = [];
+        const uncertain = [];
+        const toDiscard = [];
+        const cleanupFailures = [];
+        if (failure.failedStage?.cleanupState === "unresolved" && failure.plan) {
+          cleanupFailures.push({
+            character_id: failure.plan.characterId,
+            edit_id: failure.failedStage.editId,
+            scope: failure.failedStage.scope,
+            error: failure.failedStage.cleanupError ?? "staged ledger cleanup could not be confirmed"
+          });
+        }
+        if (failure.stage && !failure.updateAttempted && failure.plan) {
+          toDiscard.push({ plan: failure.plan, stage: failure.stage });
+        }
         const rolledBack = [];
         for (const candidate of [...candidates].reverse()) {
-          const { plan, knownApplied } = candidate;
+          const { plan, stage, knownApplied } = candidate;
           let liveTags;
           try {
             const live = await ctx.spindle.characters.get(plan.characterId, ctx.userId);
             if (!live) {
               if (knownApplied)
-                survivors.push({ plan, liveTags: null });
+                survivors.push({ plan, stage, liveTags: null });
               else
-                unattributed.push({ plan, liveTags: null });
+                uncertain.push({ plan, stage, liveTags: null });
               continue;
             }
             liveTags = Array.isArray(live.tags) ? [...live.tags] : [];
           } catch {
             if (knownApplied)
-              survivors.push({ plan, liveTags: null });
+              survivors.push({ plan, stage, liveTags: null });
             else
-              unattributed.push({ plan, liveTags: null });
+              uncertain.push({ plan, stage, liveTags: null });
             continue;
           }
           if (sameTags(liveTags, plan.before)) {
             rolledBack.push(plan.characterId);
+            toDiscard.push({ plan, stage });
             continue;
           }
           if (!sameTags(liveTags, plan.after)) {
             if (knownApplied)
-              survivors.push({ plan, liveTags });
+              survivors.push({ plan, stage, liveTags });
             else
-              unattributed.push({ plan, liveTags });
+              uncertain.push({ plan, stage, liveTags });
             continue;
           }
           try {
             await ctx.spindle.characters.update(plan.characterId, { tags: plan.before }, ctx.userId);
             rolledBack.push(plan.characterId);
+            toDiscard.push({ plan, stage });
           } catch {
-            survivors.push({ plan, liveTags });
+            survivors.push({ plan, stage, liveTags });
           }
         }
         for (const survivor of survivors)
-          ledgerTagEdit(ctx, survivor.plan, survivor.plan.after);
+          survivor.stage.commit();
+        for (const item of uncertain)
+          item.stage.commit();
+        for (const item of toDiscard) {
+          try {
+            await item.stage.discard();
+          } catch (err) {
+            cleanupFailures.push({
+              character_id: item.plan.characterId,
+              edit_id: item.stage.entry.id,
+              scope: item.stage.entry.scope,
+              error: err.message || "staged ledger cleanup failed"
+            });
+          }
+        }
         return {
           content: JSON.stringify({
             ok: false,
-            partial: survivors.length > 0,
+            partial: survivors.length > 0 || uncertain.length > 0 || cleanupFailures.length > 0,
             error_code: failure.code,
             error: failure.message,
             failed_character_id: failure.plan?.characterId ?? null,
+            failed_stage: failure.failedStage ?? null,
             rolled_back_character_ids: rolledBack,
             surviving_changes: survivors.map(({ plan, liveTags }) => ({
               character_id: plan.characterId,
@@ -20648,17 +20837,20 @@ var init_bulk_update_character_tags = __esm(() => {
               after: plan.after,
               live_tags: liveTags
             })),
-            unattributed_divergent_states: unattributed.map(({ plan, liveTags }) => ({
+            uncertain_update_states: uncertain.map(({ plan, stage, liveTags }) => ({
               character_id: plan.characterId,
-              live_tags: liveTags
+              edit_id: stage.entry.id,
+              live_tags: liveTags,
+              ledger_retained: true
             })),
-            note: survivors.length > 0 ? "Rollback was incomplete. Only this batch's exact surviving mutations were recorded; divergent live tags were not attributed to the agent." : unattributed.length > 0 ? "Known batch writes were rolled back. Divergent live tags were left untouched and were not attributed to the agent." : "The attempted batch was fully rolled back."
+            ledger_cleanup_failures: cleanupFailures,
+            note: cleanupFailures.length > 0 ? "Rollback completed where the batch still owned the live tags, but one or more staged ledger entries could not be durably discarded. The unresolved ledger cleanup is reported above." : survivors.length > 0 ? "Rollback was incomplete. Only this batch's exact surviving mutations were recorded; divergent live tags were not attributed to the agent." : uncertain.length > 0 ? "An attempted update had an uncertain outcome. Its durable before-to-after ledger entry was retained so a possible real mutation cannot become untracked; divergent live state was left untouched." : "The attempted batch was fully rolled back."
           }, null, 2),
           isError: true
         };
       }
-      for (const plan of applied)
-        ledgerTagEdit(ctx, plan, plan.after);
+      for (const item of applied)
+        item.stage.commit();
       return {
         content: JSON.stringify({
           ok: true,
@@ -20666,7 +20858,7 @@ var init_bulk_update_character_tags = __esm(() => {
           requested: built.plans.length,
           updated: applied.length,
           unchanged: built.plans.length - applied.length,
-          character_ids: applied.map((plan) => plan.characterId)
+          character_ids: applied.map(({ plan }) => plan.characterId)
         }, null, 2)
       };
     }
@@ -41609,6 +41801,7 @@ class LoopDetector {
 
 // src/agent/loop.ts
 init_edit_log();
+init_ledger();
 init_tmp_store();
 
 // src/agent/tools.ts
@@ -41976,6 +42169,9 @@ ${formatZodError(parsed.error)}`, isError: true };
   return dispatch;
 }
 
+// src/agent/loop.ts
+init__context();
+
 // src/agent/prompts/claude/agent/loop/tool_call_as_text.txt
 var tool_call_as_text_default = "[SYSTEM: Your previous reply contained tool-call syntax as text (e.g. <invoke>, <tool_use>, <function_call>, <tool_call> tags). Text-encoded tool calls are NOT executed in their text form, they only run through the provider's native tool-use channel. Re-issue the same call(s) properly now.]";
 
@@ -42191,7 +42387,7 @@ async function* runAgent(input) {
   const discoveredToolNames = seedDiscoveredFromHistory(input.conversation, deferredSchemas);
   const recentReads = input.recentReads ?? new RecentReadsCache;
   const imageHydrationCache = new Map;
-  function makeCallCtx(buffer, rootCallId) {
+  function makeCallCtx(buffer, rootCallId, toolName, turn) {
     return {
       spindle: input.spindle,
       userId: input.userId,
@@ -42210,6 +42406,65 @@ async function* runAgent(input) {
       },
       pushEdit: (rec) => {
         buffer.edits.push(rec);
+      },
+      stageEdit: async (rec) => {
+        if (rec.scope === undefined) {
+          throw new Error("stageEdit requires an explicit record.scope");
+        }
+        const scope = rec.scope;
+        const entry = newEditEntry(input.sessionId, scope, rootCallId, toolName, turn, rec, input.assistantMessageId);
+        let state = "staged";
+        const staged = {
+          entry,
+          commit: () => {
+            if (state === "committed")
+              return;
+            if (state === "discarded")
+              throw new Error(`cannot commit discarded staged edit ${entry.id}`);
+            state = "committed";
+            buffer.durableEdits.push(entry);
+          },
+          discard: async () => {
+            if (state === "discarded")
+              return;
+            if (state === "committed")
+              throw new Error(`cannot discard committed staged edit ${entry.id}`);
+            let discardError;
+            for (let attempt = 0;attempt < 2; attempt++) {
+              try {
+                await discardStagedEntry(input.spindle, entry, input.userId);
+                state = "discarded";
+                return;
+              } catch (err) {
+                discardError = err;
+              }
+            }
+            throw discardError;
+          }
+        };
+        let stageError;
+        for (let attempt = 0;attempt < 2; attempt++) {
+          try {
+            await appendEntries(input.spindle, scope, [entry], input.userId);
+            stageError = undefined;
+            break;
+          } catch (err) {
+            stageError = err;
+          }
+        }
+        if (stageError !== undefined) {
+          let cleanupError;
+          let cleanupState = "discarded";
+          try {
+            await staged.discard();
+          } catch (cleanupErr) {
+            cleanupState = "unresolved";
+            cleanupError = cleanupErr.message || "staged ledger cleanup failed";
+          }
+          const message = stageError.message || "ledger staging failed";
+          throw new StageEditPersistenceError(message, entry, cleanupState, cleanupError);
+        }
+        return staged;
       },
       pushRevert: (editId, outcome, scope) => {
         buffer.reverts.push(scope === undefined ? { editId, outcome } : { editId, outcome, scope });
@@ -42414,7 +42669,7 @@ Diagnostics (also in the Lumiverse server logs):
     const queuedImages = [];
     let revertedThisTurn = false;
     const executeOne = async (tc) => {
-      const buffer = { edits: [], reverts: [], images: [], resync: false };
+      const buffer = { edits: [], durableEdits: [], reverts: [], images: [], resync: false };
       if (signal.aborted) {
         return {
           tc,
@@ -42438,7 +42693,7 @@ Diagnostics (also in the Lumiverse server logs):
         isError = true;
       } else {
         try {
-          const r = await fn(tc.args, makeCallCtx(buffer, tc.call_id));
+          const r = await fn(tc.args, makeCallCtx(buffer, tc.call_id, tc.name, turnNum));
           resultText = r.content;
           if (r.isError === true)
             isError = true;
@@ -42487,11 +42742,14 @@ Diagnostics (also in the Lumiverse server logs):
     }
     const drainOutcome = function* (oc) {
       const editsForCall = oc.buffer.edits.map((rec) => newEditEntry(input.sessionId, rec.scope ?? characterScope(input.characterId ?? ""), oc.tc.call_id, oc.tc.name, turnNum, rec, input.assistantMessageId));
+      editsForCall.push(...oc.buffer.durableEdits);
       newEdits.push(...editsForCall);
       queuedImages.push(...oc.buffer.images);
       results.push({ call_id: oc.tc.call_id, name: oc.tc.name, content: oc.resultText, ...oc.isError ? { is_error: true } : {} });
-      for (const e of editsForCall)
-        yield { type: "edit_logged", entry: e };
+      const durableIds = new Set(oc.buffer.durableEdits.map((entry) => entry.id));
+      for (const e of editsForCall) {
+        yield durableIds.has(e.id) ? { type: "edit_logged", entry: e, already_persisted: true } : { type: "edit_logged", entry: e };
+      }
       for (const r of oc.buffer.reverts) {
         revertedThisTurn = true;
         yield r.scope === undefined ? { type: "revert_logged", editId: r.editId, outcome: r.outcome } : { type: "revert_logged", editId: r.editId, outcome: r.outcome, scope: r.scope };
@@ -43808,7 +44066,9 @@ async function compactSession(sessionId, userId, trigger) {
           break;
         case "edit_logged":
           s.edits.push(ev.entry);
-          await appendEntries(spindle, ev.entry.scope, [ev.entry], userId);
+          if (ev.already_persisted !== true) {
+            await appendEntries(spindle, ev.entry.scope, [ev.entry], userId);
+          }
           break;
         default:
           break;
@@ -45238,7 +45498,9 @@ async function handleSendMessageInternal(s, userId, connectionIdOverride) {
         }
         case "edit_logged":
           s.edits.push(ev.entry);
-          await appendEntries(spindle, ev.entry.scope, [ev.entry], userId);
+          if (ev.already_persisted !== true) {
+            await appendEntries(spindle, ev.entry.scope, [ev.entry], userId);
+          }
           break;
         case "revert_logged": {
           if (ev.outcome.kind === "clean" || ev.outcome.kind === "noop_already_reverted") {

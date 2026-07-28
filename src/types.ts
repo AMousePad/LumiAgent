@@ -348,7 +348,7 @@ export type AgentEvent =
   | { type: "llm_reasoning"; token: string }
   | { type: "tool_started"; call_id: string; name: string; args: Record<string, unknown> }
   | { type: "tool_finished"; call_id: string; result: string; is_error: boolean; edit_ids: readonly string[] }
-  | { type: "edit_logged"; entry: EditLogEntry }
+  | { type: "edit_logged"; entry: EditLogEntry; already_persisted?: true }
   | { type: "revert_logged"; editId: string; outcome: RevertOutcomeWire; scope?: ScopeRef }
   | { type: "edits_resynced"; absorbedToMerged?: Readonly<Record<string, string>> }
   | { type: "turn_completed"; turn: number; finish_reason: string; usage?: { prompt: number; completion: number; total: number; estimated?: boolean } | undefined; cleanedContent?: string | undefined }

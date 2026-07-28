@@ -19,8 +19,10 @@ import {
   type StructuralPatch,
   type SquashGroupResult,
   emptyLedgerV2,
+  currentValue,
   purgeRevertedPatches,
   recordEdit,
+  sha256,
   sliceForPatch,
   fileKeyString,
   squashByMessage,
@@ -73,7 +75,40 @@ function emptyLedger(scope: ScopeRef): ScopedLedger {
 
 const inflightLoads = new Map<string, Promise<ScopedLedger>>();
 const inflightAppends = new Map<string, number>();
+interface MutationLock {
+  tail: Promise<void>;
+  pending: number;
+}
+const mutationLocks = new Map<string, MutationLock>();
 const LEDGER_CACHE_MAX = 512;
+
+async function withScopeMutation<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  let lock = mutationLocks.get(key);
+  if (!lock) {
+    lock = { tail: Promise.resolve(), pending: 0 };
+    mutationLocks.set(key, lock);
+  }
+  const previous = lock.tail;
+  let release!: () => void;
+  lock.tail = new Promise<void>((resolve) => { release = resolve; });
+  lock.pending++;
+  await previous.catch(() => { /* an earlier mutation already reported its own failure */ });
+  try {
+    return await fn();
+  } finally {
+    lock.pending--;
+    release();
+    if (lock.pending === 0 && mutationLocks.get(key) === lock) mutationLocks.delete(key);
+  }
+}
+
+function containsEntryId(ledger: ScopedLedger, id: string): boolean {
+  for (const file of ledger.files) {
+    if (file.patches.some((patch) => patch.id === id)) return true;
+  }
+  if (ledger.structural.some((patch) => patch.id === id)) return true;
+  return ledger.externalEdits.some((entry) => entry.id === id);
+}
 
 // Bound the read-through cache over a long-lived (possibly multi-user shared)
 // worker. Never evict an entry with an in-flight load or append (forking a
@@ -83,7 +118,11 @@ function pruneLedgerCache(): void {
   if (ledgerCache.size <= LEDGER_CACHE_MAX) return;
   for (const key of ledgerCache.keys()) {
     if (ledgerCache.size <= LEDGER_CACHE_MAX) break;
-    if (inflightLoads.has(key) || (inflightAppends.get(key) ?? 0) > 0) continue;
+    if (
+      inflightLoads.has(key)
+      || (inflightAppends.get(key) ?? 0) > 0
+      || (mutationLocks.get(key)?.pending ?? 0) > 0
+    ) continue;
     ledgerCache.delete(key);
   }
 }
@@ -208,40 +247,60 @@ export async function appendEntries(
   const ck = cacheKey(userId, scope);
   inflightAppends.set(ck, (inflightAppends.get(ck) ?? 0) + 1);
   try {
-  const ledger = await loadLedger(spindle, scope, userId);
-  for (const e of entries) {
-    const r = e.record;
-    if (r.op === "edit" && r.surface !== "external") {
-      const key: FileKey = { surface: r.surface, surfaceId: r.surfaceId, field: r.field };
-      const existing = findFile(ledger, key);
-      const result = recordEdit(existing, {
-        key,
-        surfaceLabel: r.surfaceLabel,
-        live: r.before,
-        next: r.after,
-        author: "agent",
-        sessionId: e.sessionId,
-        toolCallId: e.toolCallId,
-        description: e.toolName,
-        id: e.id,
-        ts: e.ts,
-        toolName: e.toolName,
-        ...(e.assistantMessageId !== undefined ? { assistantMessageId: e.assistantMessageId } : {}),
-        turn: e.turn,
-        ...(r.valueEncoding !== undefined ? { valueEncoding: r.valueEncoding } : {}),
-      });
-      // Skip a brand-new file that a no-op edit left empty: nothing to track.
-      if (!existing && result.file.patches.length === 0) continue;
-      upsertFile(ledger, result.file);
-    } else if (r.op === "create" || r.op === "delete") {
-      const sp = structuralFromEntry(e, r);
-      if (sp) ledger.structural.push(sp);
-    } else {
-      // External edit: keep the raw entry; bridge owns concurrency.
-      ledger.externalEdits.push({ ...e });
-    }
-  }
-  await persistLedger(spindle, ledger, userId);
+    await withScopeMutation(ck, async () => {
+      const ledger = await loadLedger(spindle, scope, userId);
+      let changed = false;
+      try {
+        for (const e of entries) {
+          // Stable ids make an ambiguous write retry safe: if the first write
+          // reached disk but its acknowledgement was lost, the retry is a no-op.
+          if (containsEntryId(ledger, e.id)) continue;
+          const r = e.record;
+          if (r.op === "edit" && r.surface !== "external") {
+            const key: FileKey = { surface: r.surface, surfaceId: r.surfaceId, field: r.field };
+            const existing = findFile(ledger, key);
+            const result = recordEdit(existing, {
+              key,
+              surfaceLabel: r.surfaceLabel,
+              live: r.before,
+              next: r.after,
+              author: "agent",
+              sessionId: e.sessionId,
+              toolCallId: e.toolCallId,
+              description: e.toolName,
+              id: e.id,
+              ts: e.ts,
+              toolName: e.toolName,
+              ...(e.assistantMessageId !== undefined ? { assistantMessageId: e.assistantMessageId } : {}),
+              turn: e.turn,
+              ...(r.valueEncoding !== undefined ? { valueEncoding: r.valueEncoding } : {}),
+            });
+            // Skip a brand-new file that a no-op edit left empty: nothing to track.
+            if (!existing && result.file.patches.length === 0) continue;
+            upsertFile(ledger, result.file);
+            changed = true;
+          } else if (r.op === "create" || r.op === "delete") {
+            const sp = structuralFromEntry(e, r);
+            if (sp) {
+              ledger.structural.push(sp);
+              changed = true;
+            }
+          } else {
+            // External edit: keep the raw entry; bridge owns concurrency.
+            ledger.externalEdits.push({ ...e });
+            changed = true;
+          }
+        }
+        if (changed) await persistLedger(spindle, ledger, userId);
+      } catch (err) {
+        // userStorage.write may have committed and then lost its acknowledgement.
+        // Evict so a stable-id retry reloads disk and reconciles whichever
+        // outcome won. Do not restore a stale snapshot over concurrent callers
+        // that still hold and may have mutated this shared ledger object.
+        ledgerCache.delete(ck);
+        throw err;
+      }
+    });
   } finally {
     const n = (inflightAppends.get(ck) ?? 1) - 1;
     if (n <= 0) inflightAppends.delete(ck); else inflightAppends.set(ck, n);
@@ -250,6 +309,84 @@ export async function appendEntries(
 
 export async function persistLedgerNow(spindle: SpindleAPI, ledger: ScopedLedger, userId: string): Promise<void> {
   await persistLedger(spindle, ledger, userId);
+}
+
+// Remove a write-ahead entry that was staged but whose host mutation did not
+// survive. Unlike generic id purging, this repairs the FileState invariant:
+// expectedHash must describe base + remaining patches, and a first-touch file
+// must disappear when its only staged patch is discarded.
+//
+// Only the latest patch in a field may be discarded. A later patch means
+// another writer built on this stage; silently removing its ancestor would
+// corrupt replay, so leave it intact and surface a cleanup failure instead.
+export async function discardStagedEntry(
+  spindle: SpindleAPI,
+  entry: EditLogEntry,
+  userId: string,
+): Promise<boolean> {
+  const scope = entry.scope;
+  const ck = cacheKey(userId, scope);
+  return withScopeMutation(ck, async () => {
+    const ledger = await loadLedger(spindle, scope, userId);
+    const record = entry.record;
+    let changed = false;
+
+    if (record.op === "edit" && record.surface !== "external") {
+      const key: FileKey = {
+        surface: record.surface,
+        surfaceId: record.surfaceId,
+        field: record.field,
+      };
+      const existing = findFile(ledger, key);
+      if (!existing) return false;
+      // Compute the repaired FileState synchronously off to the side, then
+      // replace/remove it in the shared ledger before persistence. Completion
+      // never swaps an older whole-ledger snapshot over outside-lock work.
+      const file = structuredClone(existing);
+      const index = file.patches.findIndex((patch) => patch.id === entry.id);
+      if (index < 0) return false;
+      if (index !== file.patches.length - 1) {
+        throw new Error(`staged edit ${entry.id} is no longer the latest patch`);
+      }
+      file.patches.pop();
+      if (file.patches.length === 0) {
+        ledger.files = ledger.files.filter((candidate) => candidate !== existing);
+      } else {
+        const current = currentValue(file);
+        if (current === null) {
+          throw new Error(`could not recompute ledger state after discarding staged edit ${entry.id}`);
+        }
+        file.expectedHash = sha256(current);
+        upsertFile(ledger, file);
+      }
+      changed = true;
+    } else if (record.op === "create" || record.op === "delete") {
+      const index = ledger.structural.findIndex((patch) => patch.id === entry.id);
+      if (index < 0) return false;
+      if (index !== ledger.structural.length - 1) {
+        throw new Error(`staged edit ${entry.id} is no longer the latest structural patch`);
+      }
+      ledger.structural.splice(index, 1);
+      changed = true;
+    } else {
+      const index = ledger.externalEdits.findIndex((candidate) => candidate.id === entry.id);
+      if (index < 0) return false;
+      if (index !== ledger.externalEdits.length - 1) {
+        throw new Error(`staged edit ${entry.id} is no longer the latest external edit`);
+      }
+      ledger.externalEdits.splice(index, 1);
+      changed = true;
+    }
+
+    if (!changed) return false;
+    try {
+      await persistLedger(spindle, ledger, userId);
+      return true;
+    } catch (err) {
+      ledgerCache.delete(ck);
+      throw err;
+    }
+  });
 }
 
 // Permanently drop the listed entries from the ledger. Used after revert
