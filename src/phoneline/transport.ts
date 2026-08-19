@@ -35,7 +35,11 @@ async function dial<T>(spindle: SpindleAPI, extId: string, request: PhoneLineReq
   // the chain on the underlying read settling, NOT the timeout-raced result.
   let readSettled: Promise<unknown> = Promise.resolve();
   const run = async (): Promise<T> => {
-    spindle.rpcPool.sync(PHONELINE_REQUEST_CHANNEL, enriched);
+    // Without an explicit policy the host requires the responder to inherit
+    // our ENTIRE granted permission set, so every permission we add would
+    // break the bridge until the responder declared it too. Pin the gate to
+    // what reading a request envelope actually warrants.
+    spindle.rpcPool.sync(PHONELINE_REQUEST_CHANNEL, enriched, { requires: ["characters"] });
     const readP = spindle.rpcPool.read<T>(PHONELINE_ENDPOINT(extId));
     readSettled = readP.then(() => undefined, () => undefined);
     let timer: ReturnType<typeof setTimeout> | null = null;

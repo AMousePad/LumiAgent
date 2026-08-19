@@ -2134,7 +2134,7 @@ async function dial(spindle2, extId, request) {
   const enriched = { ...request, callId: existing ?? makeCallId() };
   let readSettled = Promise.resolve();
   const run = async () => {
-    spindle2.rpcPool.sync(PHONELINE_REQUEST_CHANNEL, enriched);
+    spindle2.rpcPool.sync(PHONELINE_REQUEST_CHANNEL, enriched, { requires: ["characters"] });
     const readP = spindle2.rpcPool.read(PHONELINE_ENDPOINT(extId));
     readSettled = readP.then(() => {
       return;
