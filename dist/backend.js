@@ -22748,7 +22748,7 @@ var init_settings = __esm(() => {
 });
 
 // src/generated/lumiverse-docs.ts
-var LUMIVERSE_DOCS_VERSION = "05d90029ee30bb04", LUMIVERSE_DOCS;
+var LUMIVERSE_DOCS_VERSION = "f3a696a6db973145", LUMIVERSE_DOCS;
 var init_lumiverse_docs = __esm(() => {
   LUMIVERSE_DOCS = {
     "characters/alternate-fields.md": `---\r
@@ -22807,12 +22807,24 @@ Give your character multiple avatar options \u2014 different outfits, different 
 \r
 The selected avatar is stored per-chat, so different conversations can show different looks for the same character.\r
 \r
+### Linking Avatars to Character State\r
+\r
+An avatar can optionally remember a description, personality, scenario, and greeting selection:\r
+\r
+1. Open the character editor and go to the avatar section\r
+2. Use the link button on an avatar\r
+3. Choose a variant for each field you want the avatar to control\r
+4. Leave a field on **Keep current** when switching the avatar should not change it\r
+\r
+Selecting a linked avatar applies all of its configured fields together. Selecting a field or greeting that is uniquely linked to an avatar also switches to that avatar. Unlinked selections leave the current avatar unchanged.\r
+\r
 ---\r
 \r
 ## How It Works Behind the Scenes\r
 \r
 - Alternate fields are stored in the character's extensions data \u2014 no extra database tables needed\r
 - Per-chat selections are stored in the chat's metadata\r
+- Avatar bindings are stored in the character's extensions and reference stable avatar and field variant IDs\r
 - During prompt assembly, selected variants override the base fields before macros are resolved\r
 - When exporting as CHARX, all alternate fields and avatars are included in the \`lumiverse_modules.json\` bundle\r
 `,
@@ -23394,6 +23406,8 @@ A chat sees all currently-attached databanks at once \u2014 global + character-b
 3. Pick the databank you want from the list, or click **Attach** to bind an existing global databank into the active character or chat\r
 \r
 Chat documents auto-create a chat-scoped databank the first time you upload a file in that chat \u2014 no manual setup required.\r
+\r
+Character- and chat-scoped databanks are active automatically when their matching character or chat is open. The attachment areas show both these automatic bindings and any additional banks you attached manually. Use the **Enabled** switch on a selected databank to exclude it from retrieval and \`#\` mentions everywhere without deleting its documents.\r
 \r
 ---\r
 \r
@@ -26465,7 +26479,7 @@ A few things to verify:\r
 |-----|-------|\r
 | Maximum compressed archive size | 5 GB |\r
 | Maximum decompressed size during import | 20 GB |\r
-| Maximum NDJSON row size | 4 MB |\r
+| Maximum NDJSON record size | 64 MiB |\r
 | Maximum entries in the archive | 500 000 |\r
 \r
 These caps protect against zip bombs and malformed archives. Real archives, including 1.9 GB galleries with vectors, comfortably fit.\r
@@ -27398,6 +27412,7 @@ If you'd rather throw away the cache entirely (slower, but belt-and-braces), pas
 | \`TRUST_ANY_ORIGIN\` | \`true\` | Accept requests from any origin |\r
 | \`LUMIVERSE_SAFE_THEME\` | \`false\` | Temporarily suppress custom CSS and component overrides for emergency recovery |\r
 | \`TRUSTED_ORIGINS\` | \u2014 | Comma-separated allowed origins (for production) |\r
+| \`TRUSTED_PROXIES\` | \u2014 | Reverse proxies trusted to supply client IPs (\`X-Forwarded-For\`/\`Forwarded\`/\`X-Real-IP\`), as IPs or CIDRs. Unset = trust only private-range peers; when set, only listed proxies are trusted (use this for cloud proxies with public addresses) |\r
 | \`AUTH_SECRET\` | auto-derived | Explicit auth signing secret; usually leave unset |\r
 | \`ENCRYPTION_KEY\` | auto-generated | Legacy/manual encryption key override; usually leave unset |\r
 | \`SPINDLE_EPHEMERAL_GLOBAL_MAX_BYTES\` | \`524288000\` | Total extension storage limit in bytes |\r
@@ -27457,6 +27472,7 @@ Lumiverse uses a \`.env\` file for runtime configuration (created by the setup w
 | \`PORT\` | \`7860\` | Server port |\r
 | \`DATA_DIR\` | \`./data\` | Override the data directory location |\r
 | \`TRUSTED_ORIGINS\` | \u2014 | CORS origins (comma-separated) |\r
+| \`TRUSTED_PROXIES\` | \u2014 | Reverse proxies trusted to supply client IPs (\`X-Forwarded-For\`/\`Forwarded\`/\`X-Real-IP\`), as IPs or CIDRs. Unset = trust only private-range peers; when set, only listed proxies are trusted (use this for cloud proxies with public addresses) |\r
 | \`TRUST_ANY_ORIGIN\` | \`false\` | Accept requests from any origin |\r
 | \`LUMIVERSE_SAFE_THEME\` | \`false\` | Temporarily suppress custom CSS and component overrides for emergency recovery |\r
 | \`FRONTEND_DIR\` | \u2014 | Custom path to frontend dist folder |\r
@@ -29937,7 +29953,7 @@ Macros for current time information.\r
 | \`{{isotime}}\` | \u2014 | ISO 8601 date and time | \u2014 |\r
 | \`{{isodate}}\` | \u2014 | ISO date (\`YYYY-MM-DD\`) | \u2014 |\r
 | \`{{datetimeformat::...}}\` | \u2014 | Custom formatted date/time | Intl.DateTimeFormat options as \`key=value\` |\r
-| \`{{idleDuration}}\` | \`{{idle_duration}}\` | Human-readable time since last message | \u2014 |\r
+| \`{{idleDuration}}\` | \`{{idle_duration}}\` | Human-readable time since the last assistant message | \u2014 |\r
 | \`{{timeDiff::date1::date2}}\` | \`{{time_diff}}\` | Human-readable difference between two dates | Two ISO date strings (second defaults to now) |\r
 \r
 **Examples:**\r
@@ -30648,7 +30664,7 @@ title: Preset Profiles\r
 \r
 # Preset Profiles\r
 \r
-Preset profiles let you save and restore a **preset selection plus its block enabled/disabled states**. You can bind these snapshots to specific personas, characters, or chats so Lumiverse switches to the right preset and block configuration automatically.\r
+Preset profiles let you save and restore a **preset selection, block enabled/disabled states, and prompt-variable selections**. You can bind these snapshots to specific personas, characters, or chats so Lumiverse switches to the right preset and configuration automatically.\r
 \r
 ---\r
 \r
@@ -30656,7 +30672,7 @@ Preset profiles let you save and restore a **preset selection plus its block ena
 \r
 Imagine you have a preset with 15 blocks. For one character, you want blocks 1-10 enabled. For another, you want blocks 3, 7, and 11-15 enabled. Without profiles, you'd have to manually toggle blocks every time you switch characters.\r
 \r
-Profiles automate this. Each profile remembers which preset to use and the on/off state of every block inside it, then restores both when you switch context.\r
+Profiles automate this. Each profile remembers which preset to use, the on/off state of every block inside it, and the configured prompt-variable values, then restores all three when you switch context.\r
 \r
 ---\r
 \r
@@ -30704,7 +30720,7 @@ Chat, persona, and character profiles are authoritative: they choose the preset 
     - **Character** \u2014 Bound to the current character\r
     - **Chat** \u2014 Bound to the current chat\r
 \r
-The snapshot records the current preset and the enabled/disabled state of every block.\r
+The snapshot records the current preset, the enabled/disabled state of every block, and the current prompt-variable selections.\r
 \r
 ---\r
 \r
@@ -32676,7 +32692,7 @@ title: Web Search\r
 \r
 # Web Search\r
 \r
-Lumiverse can plug a self-hosted **SearXNG** meta-search instance into the [Council](../council/index.md) so members can look up current, factual, or source-backed information mid-deliberation. Results are scraped, condensed into a context block, and handed back to the calling tool.\r
+Lumiverse can connect **SearXNG**, **Exa**, or **Tavily** to the [Council](../council/index.md) so members can look up current, factual, or source-backed information mid-deliberation. Results are condensed into a context block and handed back to the calling tool.\r
 \r
 This is a host-level feature \u2014 once configured, any council member you assign the **Web Search** tool to can use it.\r
 \r
@@ -32685,12 +32701,12 @@ This is a host-level feature \u2014 once configured, any council member you assi
 ## How It Works\r
 \r
 1. A council member calls the **Web Search** tool with a search-engine-style query.\r
-2. Lumiverse forwards the query to your configured SearXNG instance.\r
-3. The top results (up to your configured limit) are fetched and converted to clean text using the same scraper that powers [Databanks](../chatting/memory-cortex.md).\r
+2. Lumiverse forwards the query to your configured provider.\r
+3. SearXNG results are fetched and converted to clean text using the same scraper that powers [Databanks](../chatting/memory-cortex.md). Exa and Tavily return extracted content directly, so no follow-up page fetch is needed.\r
 4. The combined snippets and page content are packaged into a single context block.\r
 5. That context block is stored under the variable \`web_search_context\` and exposed to the rest of the deliberation.\r
 \r
-The whole flow stays on infrastructure you control \u2014 the only outbound call is to your SearXNG host. No third-party search API is contacted by Lumiverse directly.\r
+With SearXNG, the search request goes only to your own instance. Exa and Tavily are hosted APIs and receive the search query plus their provider-specific request options.\r
 \r
 ---\r
 \r
@@ -32714,6 +32730,12 @@ Web Search needs a reachable SearXNG instance that returns JSON.\r
 \r
 ---\r
 \r
+## Setting Up Exa or Tavily\r
+\r
+Both hosted providers need an API key, available from their respective dashboards. In **Settings \u2192 Web Search**, select **Exa** or **Tavily** and paste the key. Lumiverse uses their fixed HTTPS endpoints automatically and stores each provider's key separately.\r
+\r
+Tavily searches use its documented \`POST https://api.tavily.com/search\` endpoint with \`Authorization: Bearer <key>\`. Lumiverse requests Tavily's basic search depth and native plain-text extraction when page content is needed.\r
+\r
 ## Configuring Lumiverse\r
 \r
 Open **Settings \u2192 Web Search**.\r
@@ -32723,9 +32745,9 @@ Open **Settings \u2192 Web Search**.\r
 | Field | What it does |\r
 |-------|--------------|\r
 | **Enable web search** | Master switch. While off, the Council \`web_search\` tool is hidden and the test button is the only thing that runs. |\r
-| **Provider** | \`SearXNG\` is currently the only supported provider. |\r
-| **API URL** | Your SearXNG base URL. Lumiverse automatically appends \`/search\` if you only give a host. |\r
-| **API Key** | Optional. Sent as \`Authorization: Bearer <key>\` if set \u2014 useful when your instance sits behind an auth proxy. The label shows **(configured)** once a key is saved. |\r
+| **Provider** | Choose \`SearXNG\`, \`Exa\`, or \`Tavily\`. |\r
+| **API URL** | For SearXNG, your instance base URL; Lumiverse appends \`/search\` if you only give a host. Exa and Tavily use their fixed API URLs. |\r
+| **API Key** | Optional for SearXNG and sent as \`Authorization: Bearer <key>\` if set. Required for Exa and Tavily. The label shows **(configured)** once a key is saved. |\r
 \r
 ### Search Tuning\r
 \r
@@ -32737,8 +32759,8 @@ Open **Settings \u2192 Web Search**.\r
 | **Timeout (ms)** | 15,000 | 5,000 \u2013 120,000 | How long Lumiverse waits for both the search request and each page fetch before giving up. |\r
 | **Default Results** | 3 | 1 \u2013 10 | Result count used when the council member doesn't specify one. |\r
 | **Max Results** | 5 | 1 \u2013 20 | Hard cap on results, even if a tool asks for more. Must be \u2265 Default Results. |\r
-| **Pages to Scrape** | 3 | 1 \u2013 10 | Of the search results, how many to actually fetch and extract text from. Smaller is faster; larger gives the model more material to work with. |\r
-| **Chars per Page** | 3,000 | 500 \u2013 20,000 | Per-page text cap applied after scraping. Keeps the context block from blowing past the chat context. |\r
+| **Pages to Scrape** | 3 | 1 \u2013 10 | Of the search results, how many to extract text from. SearXNG fetches those pages; Exa and Tavily use their native extraction. Smaller is faster; larger gives the model more material to work with. |\r
+| **Chars per Page** | 3,000 | 500 \u2013 20,000 | Per-page text cap applied after extraction. Keeps the context block from blowing past the chat context. |\r
 \r
 ### Saving & Testing\r
 \r
@@ -32752,7 +32774,7 @@ The test uses **whatever is currently in the form**, including any unsaved API k
 \r
 ## Using Web Search in the Council\r
 \r
-Once Web Search is **enabled** and an **API URL** is configured, a new **Web Search** tool appears under the Context category in the [Council Tools](../council/council-tools.md) picker.\r
+Once Web Search is **enabled** and the provider is configured (including an API key for Exa or Tavily), a new **Web Search** tool appears under the Context category in the [Council Tools](../council/council-tools.md) picker.\r
 \r
 To use it:\r
 \r
@@ -32778,7 +32800,7 @@ The tool stores its output in the deliberation under the variable \`web_search_c
 \r
 OpenRouter connections have their own **Web Search** plugin that runs on the provider side \u2014 it asks OpenRouter to augment the LLM response with web results before returning. You'll find it under **Connections \u2192 (OpenRouter connection) \u2192 Plugins \u2192 Web Search**.\r
 \r
-This plugin is independent of Lumiverse's SearXNG Web Search:\r
+This plugin is independent of Lumiverse's configured Web Search provider:\r
 \r
 - **Lumiverse Web Search** runs on _your_ infrastructure and is used by Council members as a tool.\r
 - **OpenRouter Web** is a provider-side feature that affects responses from that OpenRouter connection regardless of whether you've configured SearXNG.\r
@@ -32793,6 +32815,7 @@ You can use neither, either, or both.\r
 |---------|--------------|\r
 | "SearXNG returned HTTP 403" on test | Your instance has JSON output disabled, or a fronting proxy is blocking unauthenticated requests. Set an **API Key** or relax the proxy rule. |\r
 | "SearXNG returned HTTP 429" | Rate-limited. If you're testing against a public instance, switch to a self-hosted one. |\r
+| "Tavily returned HTTP 401" | The API key is missing, invalid, or was entered under another provider. Select Tavily and save the correct key. |\r
 | Tool never gets called by the Council | The member needs the tool explicitly checked. The model also won't call it for questions it can answer from the current chat \u2014 that's by design. |\r
 | Empty results despite a working query in your browser | Your engine allowlist is too narrow, or your SearXNG instance has those engines disabled. Clear the **Engines** field and retest. |\r
 | Pages return as \`Fetch note: \u2026\` instead of content | The page blocks scraping (bot protection, login walls, JS-only rendering). The snippet from SearXNG is still included. |\r
@@ -43072,6 +43095,7 @@ var REQUIRED_PERMISSIONS = [
   "characters",
   "world_books",
   "regex_scripts",
+  "regex_scripts_unrestricted",
   "chats",
   "chat_mutation",
   "ui_panels",
@@ -43083,6 +43107,7 @@ var PERMISSION_PURPOSE = {
   characters: "read and edit character cards",
   world_books: "read and edit lorebooks",
   regex_scripts: "read and edit regex scripts",
+  regex_scripts_unrestricted: "edit regex scripts owned by another extension or bound to a preset",
   chats: "read chats and message history",
   chat_mutation: "edit pinned chat messages when the agent acts on them",
   ui_panels: "mount the LumiAgent drawer",
@@ -43162,7 +43187,7 @@ function subscribeToMissingChanges(handler) {
 }
 // spindle.json
 var spindle_default = {
-  version: "0.6.0",
+  version: "0.6.1",
   name: "LumiAgent",
   identifier: "lumiagent",
   author: "amousepad",
@@ -43185,6 +43210,7 @@ var spindle_default = {
     "chats",
     "world_books",
     "regex_scripts",
+    "regex_scripts_unrestricted",
     "databanks",
     "personas",
     "presets",
@@ -43201,7 +43227,7 @@ var spindle_default = {
   ],
   entry_backend: "dist/backend.js",
   entry_frontend: "dist/frontend.js",
-  minimum_lumiverse_version: "1.1.2"
+  minimum_lumiverse_version: "1.1.6"
 };
 
 // src/state/version-check.ts
