@@ -1,0 +1,1 @@
+Max rows returned. Default 200. A `char/extensions` walk, or `wb` with include_unattached on a large library, will overflow the output cap and spill at that default: scope the path or lower this instead.

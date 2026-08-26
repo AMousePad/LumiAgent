@@ -1,13 +1,15 @@
 Wholesale write of any JSON value at a path. Use for structural changes the read/edit/rewrite trio can't make:
 
-- Toggling a boolean (regex.disabled, world_book_entry.constant)
-- Changing a number (priority, position, sort_order, depth)
+- Lorebook entry metadata: `set({path:"wb/<entryId>/constant", value:true})`. Also disabled, priority, position, depth, role, and the rest; entry field names ARE whitelisted, so a typo errors with the valid list. `key` / `keysecondary` are the exception, they are coerced into a string array, so a scalar or comma-string is silently reshaped.
+- Book-level fields: `wb/<bookId>/<name|description|metadata>`, resolved by lookup against the same grammar.
+- Regex script metadata: `set({path:"rx/<scriptId>/disabled", value:true})`, and likewise sort_order / target / placement / flags / name.
+- Field names are NOT validated on the `rx/<id>/` and `wb/<bookId>/` branches: a misspelled field reports success and records a ledger entry while writing nothing. Confirm with `inspect` after, or spell from `update_regex_script` / `list`.
 - Replacing an array / object value (e.g. extensions.lumirealm.payload.scriptstate_defaults)
-- Replacing character tags: `set({path:"char/tags", value:["tag one","tag two"]})`
+- Replacing character tags: `set({path:"char/tags", value:["tag one","tag two"]})`. Across MANY characters use `bulk_update_character_tags` instead: one dry-run diff, one approval, one reversible edit per card, rather than N separate `set` calls.
 - Setting a typed value at an extension path that isn't a string
-- Attaching / changing a persona's world book: `set({path:"persona/<personaId>/attached_world_book_id", value:"<worldBookId>"})`; `value:null` detaches
+- Attaching / changing a persona's world book: `set({path:"persona/<personaId>/attached_world_book_id", value:"<worldBookId>"})`; `value:null` detaches. Character / chat / global world-book bindings go through `attach_world_book`, not `set`.
 
-Path grammar matches `read` / `edit` / `rewrite`. The value field accepts any JSON-encodable type. For string-leaf paths, set is a wholesale alternative to `rewrite` (no read-gate, so use only when you don't need to anchor against current content).
+Path grammar matches `read` / `edit` / `rewrite`, including `char/<id>/<field>` to address a character other than the focus. There is no `character_id` argument. `char/tags` is normalised before storage: each tag is trimmed, and empty or duplicate tags are dropped. Check `after_peek` rather than assuming what you sent was stored verbatim. The value field accepts any JSON-encodable type. For string-leaf paths, set is a wholesale alternative to `rewrite` (no read-gate, so use only when you don't need to anchor against current content).
 
 Records before/after in the ledger like every other edit — fully revertable.
 

@@ -3,6 +3,14 @@ Run multiple built-in tool calls in one turn (worked examples in the system prom
 - Fan-out: each step `save_as`s; the runtime returns all bindings as one object.
 Use whenever you'd call tool A then feed its value into tool B, or call several tools whose results you all want — the intermediates stay in the interpreter, never round-trip through your tool_result stream.
 
+Step shape: `call`, `args`, `save_as` are SIBLINGS. `save_as` never goes inside `args`, and every arg the target tool needs (including `character_id`) goes inside `args`. Unknown keys at step level are silently dropped with no error. A `character_id` misplaced there does NOT fail loudly: the step falls back to the focused character and writes to the wrong card.
+
+Each step's `args` are validated against THAT tool's own schema, at the moment the step runs, not up front. So a bad arg in step 40 is only found after steps 0-39 have already written.
+
+Not atomic: steps run in order, the first failure aborts the rest, and nothing is rolled back. Completed writes stay committed. On `step[N] failed`, fix step N and resume from there, do not blindly re-run the whole pipe.
+
+Every step executes whether or not it has `save_as`. Mutations land regardless of what comes back. But only the returned value reaches you: without `save_as`/`return` you see the LAST step's result only. Put `save_as` on every write you need to confirm, or verify after with `list_session_edits` rather than re-reading each path.
+
 Ref syntax in step args / optional `return`: `{{$body}}` (raw value), `prefix {{$body}} end` (coerced string), `{{$pick.picks[0].id}}` (dotted path + index).
 Returns: explicit `return` → that; else any `save_as` → object of all bindings; else the final step's result.
-Budget: 400 steps / depth 4 / 60s. The `name` form runs a saved recipe; default to inline `steps`.
+Budget: 400 steps / depth 4 / 60s, shared with any nested pipe. The `name` form runs a saved recipe; default to inline `steps`.

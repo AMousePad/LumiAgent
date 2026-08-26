@@ -6,7 +6,7 @@ import { resolveCharacterTarget, noTargetResult } from "./_context";
 import description from "../prompts/claude/tools/squash-session-edits/description.txt";
 
 const inputSchema = z.object({
-  phase_label: z.string().max(120).optional().describe("Optional label for what this phase represented (e.g. 'translation pass', 'tone refactor'). Stored on the merged patch's description."),
+  phase_label: z.string().max(120).optional().describe("Optional label for what this phase represented (e.g. 'translation pass', 'tone refactor'). Echoed back in the result only; it is not persisted onto the merged patch."),
 }).strict();
 
 export const squashSessionEditsTool = defineTool({

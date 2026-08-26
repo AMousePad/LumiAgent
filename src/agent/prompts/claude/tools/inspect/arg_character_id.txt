@@ -1,1 +1,1 @@
-rx/wb containers: defaults to focus. 'wb' lists the whole library even with none.
+Only affects the rx/wb container forms; defaults to focus. 'wb' lists the whole library even with none. For a leaf path, put the id in the path instead: `char/<id>/<field>`.

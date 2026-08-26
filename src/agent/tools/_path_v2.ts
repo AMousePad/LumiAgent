@@ -734,8 +734,9 @@ export async function* iterateAllLeaves(ctx: ToolCtx, characterId: string, opts?
     }
   }
   // alternate_fields variants surface as their friendly by-id paths so audit /
-  // grep filter on `char/alternate_fields/` matches them. The legacy extension
-  // walker would also reach these leaves at `char/extensions/alternate_fields.<f>[<i>].<leaf>`,
+  // grep filter on `char/<id>/alternate_fields/` matches them (keys carry the id,
+  // so an unqualified prefix matches nothing). The legacy extension walker would
+  // also reach these leaves at `char/extensions/alternate_fields.<f>[<i>].<leaf>`,
   // so the skip predicate below masks that subtree to avoid double-yielding.
   for (const field of ALTERNATE_FIELD_NAMES) {
     const variants = readAltFieldArray(c.extensions, field);

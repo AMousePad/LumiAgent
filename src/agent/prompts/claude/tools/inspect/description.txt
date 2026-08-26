@@ -1,5 +1,7 @@
 Cheap orientation for any path. Dispatches by the path shape:
 
+Leaf paths must resolve to a STRING. `char/extensions/<dotted>` pointing at an object or array errors: use `list` on that path to walk it, or `set` to write the subtree whole. `inspect` is the way to disambiguate a `list` that came back `count: 0` on an extensions path, since that reads the same for an empty container and for a non-string scalar.
+
 Leaf (string-valued) paths return char/line/CJK/peek plus a `diagnostics` block:
   char/<field>, char/alternate_greetings/<idx>, char/alternate_fields/<field>/<variantId>/<content|label>, char/extensions/<dotted>,
   rx/<id>/find_regex, rx/<id>/replace_string, wb/<id>/content, wb/<id>/comment,

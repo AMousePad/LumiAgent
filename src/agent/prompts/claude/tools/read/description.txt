@@ -1,7 +1,10 @@
 Reads any string-valued surface on the character by path.
 
+There is NO `character_id` argument on `read` / `edit` / `rewrite` / `set`; passing one is rejected as an unrecognized key. To reach a character other than the session focus, put its id in the path: `char/<id>/<field>` works everywhere `char/<field>` does (`list_characters` enumerates ids). With no focus, unqualified `char/<field>` fails `[PATH_NOT_FOUND] ... [NO_TARGET]`; read the trailing code, the leading one just says the path did not resolve.
+
 Path grammar:
   char/<field>                          top-level character string (description, first_mes, scenario, personality, mes_example, system_prompt, post_history_instructions, creator_notes, creator, name)
+  char/<id>/<field>                     the same, on an explicit character by id. The `<id>/` segment is accepted before every char/ form below.
   char/tags                             tags as a compact JSON string array
   char/alternate_greetings/<idx>        one greeting by 0-based index
   char/alternate_fields/<field>/<variantId>/<content|label>  one variant of description / personality / scenario. Discover ids via list({path:"char/alternate_fields/<field>"}).

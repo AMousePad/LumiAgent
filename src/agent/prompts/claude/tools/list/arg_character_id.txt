@@ -1,1 +1,1 @@
-For char/rx/wb paths.
+Which character, for char/rx/wb paths. Defaults to the focused character. This is where the id goes: `list` does not accept `char/<id>/...` in the path.

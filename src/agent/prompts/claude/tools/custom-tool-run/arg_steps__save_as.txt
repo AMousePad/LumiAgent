@@ -1,1 +1,1 @@
-Variable name for downstream steps.
+Variable name binding this step's result for downstream steps. Sits beside `call` and `args`, never inside `args`. Only the final step's result comes back on its own, so any earlier step whose result you need must carry this.

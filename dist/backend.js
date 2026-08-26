@@ -18123,11 +18123,17 @@ function* walkStringLeaves(obj, prefix = "", skip, depth = 0) {
 var MAX_WALK_DEPTH = 256;
 
 // src/agent/prompts/claude/tools/apply-glossary/description.txt
-var description_default = "Apply a phrase-to-translation map across the union of surfaces in one call, sorted longest-first to avoid shorter-key-clobbers-longer-key. Each surface's hits batch into one edit (one diff card). Scopes default to character + world_books + regex_scripts.replace_string + extensions string leaves; `find_regex` is never touched.\n\nSafety: refuses single-character CJK keys by default (substring collisions: '\uBE44'\u2192'Rain' corrupts '\uBE44\uBA85'\u2192'Rain\uBA85'); pass allow_short_cjk=true only after auditing. Run dry_run=true first to see hit counts.\n\nReturns `{dry_run, entries_in_glossary, total_replacements, surfaces_affected, per_entry_hits, per_surface:[{surface,surfaceId,field,hits}], note}` \u2014 check per_surface to confirm what actually changed.";
+var description_default = `Apply a literal find/replace map across the union of surfaces in one call. Translation is the common case, but any many-keys-one-sweep rewrite qualifies (renames, stat bumps, terminology fixes) and beats fanning out dozens of \`edit\` calls. Each surface's hits batch into one edit (one diff card). Scopes default to character + world_books + regex_scripts.replace_string + extensions string leaves; \`find_regex\` is never touched.
+
+Semantics: ONE left-to-right pass over the source, taking the longest matching key at each position and advancing past it. Output is never re-scanned, so entry A's replacement can never be re-matched by entry B. \`{"Age: 11": "Age: 18", "Age: 18": "Age: 25"}\` does NOT cascade, each source occurrence maps once.
+
+Safety: refuses single-character CJK keys by default (substring collisions: '\uBE44'\u2192'Rain' corrupts '\uBE44\uBA85'\u2192'Rain\uBA85'); pass allow_short_cjk=true only after auditing. Run dry_run=true first to see hit counts.
+
+Returns \`{dry_run, entries_in_glossary, total_replacements, surfaces_affected, per_entry_hits, per_surface:[{surface,surfaceId,field,hits}], note}\` \u2014 check per_surface to confirm what actually changed.`;
 var init_description = () => {};
 
 // src/agent/prompts/claude/tools/apply-glossary/arg_entries.txt
-var arg_entries_default = 'object mapping source phrase to translation. Example: {"\uC548\uB155": "Hello", "\uAC10\uC0AC\uD569\uB2C8\uB2E4": "Thank you"}';
+var arg_entries_default = 'object mapping source phrase to its literal replacement. Keys are literals, not regex. Example: {"\uC548\uB155": "Hello", "\uAC10\uC0AC\uD569\uB2C8\uB2E4": "Thank you"}';
 var init_arg_entries = () => {};
 
 // src/agent/prompts/claude/tools/apply-glossary/arg_dry_run.txt
@@ -21839,7 +21845,7 @@ var init_custom_tool_list = __esm(() => {
 });
 
 // src/agent/prompts/claude/tools/custom-tool-run/description.txt
-var description_default15 = "Run multiple built-in tool calls in one turn (worked examples in the system prompt's \"Piping tool calls\" section).\n- Chain: step N saves with `save_as`, step N+1 references via `{{$var}}`.\n- Fan-out: each step `save_as`s; the runtime returns all bindings as one object.\nUse whenever you'd call tool A then feed its value into tool B, or call several tools whose results you all want \u2014 the intermediates stay in the interpreter, never round-trip through your tool_result stream.\n\nRef syntax in step args / optional `return`: `{{$body}}` (raw value), `prefix {{$body}} end` (coerced string), `{{$pick.picks[0].id}}` (dotted path + index).\nReturns: explicit `return` \u2192 that; else any `save_as` \u2192 object of all bindings; else the final step's result.\nBudget: 400 steps / depth 4 / 60s. The `name` form runs a saved recipe; default to inline `steps`.";
+var description_default15 = "Run multiple built-in tool calls in one turn (worked examples in the system prompt's \"Piping tool calls\" section).\n- Chain: step N saves with `save_as`, step N+1 references via `{{$var}}`.\n- Fan-out: each step `save_as`s; the runtime returns all bindings as one object.\nUse whenever you'd call tool A then feed its value into tool B, or call several tools whose results you all want \u2014 the intermediates stay in the interpreter, never round-trip through your tool_result stream.\n\nStep shape: `call`, `args`, `save_as` are SIBLINGS. `save_as` never goes inside `args`, and every arg the target tool needs (including `character_id`) goes inside `args`. Unknown keys at step level are silently dropped with no error. A `character_id` misplaced there does NOT fail loudly: the step falls back to the focused character and writes to the wrong card.\n\nEach step's `args` are validated against THAT tool's own schema, at the moment the step runs, not up front. So a bad arg in step 40 is only found after steps 0-39 have already written.\n\nNot atomic: steps run in order, the first failure aborts the rest, and nothing is rolled back. Completed writes stay committed. On `step[N] failed`, fix step N and resume from there, do not blindly re-run the whole pipe.\n\nEvery step executes whether or not it has `save_as`. Mutations land regardless of what comes back. But only the returned value reaches you: without `save_as`/`return` you see the LAST step's result only. Put `save_as` on every write you need to confirm, or verify after with `list_session_edits` rather than re-reading each path.\n\nRef syntax in step args / optional `return`: `{{$body}}` (raw value), `prefix {{$body}} end` (coerced string), `{{$pick.picks[0].id}}` (dotted path + index).\nReturns: explicit `return` \u2192 that; else any `save_as` \u2192 object of all bindings; else the final step's result.\nBudget: 400 steps / depth 4 / 60s, shared with any nested pipe. The `name` form runs a saved recipe; default to inline `steps`.";
 var init_description15 = () => {};
 
 // src/agent/prompts/claude/tools/custom-tool-run/arg_name.txt
@@ -21855,11 +21861,11 @@ var arg_steps__call_default = "Built-in tool name to invoke.";
 var init_arg_steps__call = () => {};
 
 // src/agent/prompts/claude/tools/custom-tool-run/arg_steps__args.txt
-var arg_steps__args_default = "Args for that tool; values may contain {{$var}} refs.";
+var arg_steps__args_default = "Args for that tool, validated against its own schema when the step runs. Every arg it needs goes here, including `character_id`. Values may contain {{$var}} refs.\n";
 var init_arg_steps__args = () => {};
 
 // src/agent/prompts/claude/tools/custom-tool-run/arg_steps__save_as.txt
-var arg_steps__save_as_default = "Variable name for downstream steps.";
+var arg_steps__save_as_default = "Variable name binding this step's result for downstream steps. Sits beside `call` and `args`, never inside `args`. Only the final step's result comes back on its own, so any earlier step whose result you need must carry this.\n";
 var init_arg_steps__save_as = () => {};
 
 // src/agent/prompts/claude/tools/custom-tool-run/arg_return.txt
@@ -22393,7 +22399,7 @@ ${draftReuseNote(h, replace.length, "replace")}`, isError: true };
 });
 
 // src/agent/prompts/claude/tools/edit/description.txt
-var description_default18 = "Find/replace within a string-valued surface, by path.\n\nRules:\n1. Recent-read gate: `read` must have run on the same path in this turn. Surface keys match byte-for-byte. If you read 'char/description' the gate fails for 'char/extensions/...'.\n2. Unique-find: `find` must appear exactly once, unless replace_all=true.\n3. Automatic recovery: when byte-exact match fails, ONE fallback is tried \u2014 quote-asciify (curly / corner / fullwidth quotes normalized to ASCII on both sides). Result includes `recovered_via` on success. NFC/NFD Hangul, NBSPs, BOMs, line endings, and whitespace drift are NOT auto-recovered: copy bytes verbatim from a recent `read`, or run `inspect` first to see the encoding diagnostics that explain why your find string didn't match.\n4. Failure stashes the replacement payload as a draft handle the next call can pass via `replace_handle`.\n\nPath grammar: same as `read`. Examples: 'char/first_mes', 'rx/<id>/replace_string', 'wb/<id>/comment', 'char/extensions/lumirealm.payload.background_html_source'.\n\nReturns:\n- `path`         \u2014 canonical leaf path that was written.\n- `replacements` \u2014 how many occurrences were replaced (1 unless replace_all).\n- `snippet`      \u2014 short context window around the first hit, post-replace.\n- `patch`        \u2014 `{additions, deletions, hunks}` jsdiff-structured for the UI.\n- `recovered_via` (only on fallback) \u2014 name of the recovery strategy that matched. Leading warning line precedes the JSON.";
+var description_default18 = "Find/replace within a string-valued surface, by path.\n\nRules:\n1. Recent-read gate: `read` must have run on the same path. Surface keys match byte-for-byte, so reading 'char/description' does not open 'char/extensions/...'. The read holds for 60 minutes and persists across messages in this session, counts when issued as a `custom_tool_run` step, and survives writes: ONE read opens N consecutive edits on that path. Re-read only after something else changed the leaf, which surfaces as `[STALE_READ]`.\n2. Unique-find: `find` must appear exactly once, unless replace_all=true. `find` is a LITERAL, never a regex, and there are no capture groups. Widen it only as far as uniqueness needs, and keep `replace` byte-identical outside the span you mean to change: the usual damage here is silently \"tidying\" a typo that got swallowed into a widened `find`.\n3. Automatic recovery: when byte-exact match fails, ONE fallback is tried \u2014 quote-asciify (curly / corner / fullwidth quotes normalized to ASCII on both sides). Result includes `recovered_via` on success. NFC/NFD Hangul, NBSPs, BOMs, line endings, and whitespace drift are NOT auto-recovered: copy bytes verbatim from a recent `read`, or run `inspect` first to see the encoding diagnostics that explain why your find string didn't match.\n4. Failure stashes the replacement payload as a draft handle the next call can pass via `replace_handle`.\n\nPath grammar: same as `read`. Examples: 'char/first_mes', 'rx/<id>/replace_string', 'wb/<id>/comment', 'char/extensions/lumirealm.payload.background_html_source'.\n\nReturns:\n- `path`         \u2014 canonical leaf path that was written.\n- `replacements` \u2014 how many occurrences were replaced (1 unless replace_all).\n- `snippet`      \u2014 short context window around the first hit, post-replace.\n- `patch`        \u2014 `{additions, deletions, hunks}` jsdiff-structured for the UI.\n- `recovered_via` (only on fallback) \u2014 name of the recovery strategy that matched. Leading warning line precedes the JSON.";
 var init_description18 = () => {};
 
 // src/agent/prompts/claude/tools/edit/arg_path.txt
@@ -22748,7 +22754,7 @@ var init_settings = __esm(() => {
 });
 
 // src/generated/lumiverse-docs.ts
-var LUMIVERSE_DOCS_VERSION = "f3a696a6db973145", LUMIVERSE_DOCS;
+var LUMIVERSE_DOCS_VERSION = "88a1f771ade0aba4", LUMIVERSE_DOCS;
 var init_lumiverse_docs = __esm(() => {
   LUMIVERSE_DOCS = {
     "characters/alternate-fields.md": `---\r
@@ -24017,9 +24023,12 @@ For maximum accuracy, you can assign a secondary LLM connection to assist the co
 \r
 1. In **Memory Cortex settings**, select a **Connection Profile** under the Sidecar section\r
 2. Choose a **Model** (smaller, faster models work well here \u2014 the sidecar doesn't need to be creative)\r
-3. Adjust **Temperature** (0.1 recommended for factual extraction)\r
-4. Set **Parallel Requests** to control how many concurrent LLM calls run during a rebuild\r
-5. Set **Requests Per Minute** to throttle the sidecar against your provider's rate limits (0 = unlimited)\r
+3. Optionally add separate fallback connections for extraction and memory summaries\r
+4. Adjust **Temperature** (0.1 recommended for factual extraction)\r
+5. Set **Parallel Requests** to control how many concurrent LLM calls run during a rebuild\r
+6. Set **Requests Per Minute** to throttle the sidecar against your provider's rate limits (0 = unlimited)\r
+\r
+The connection picker includes both built-in connections and sidecar providers contributed by enabled [Spindle extensions](../extensions/index.md#extension-provided-ai-providers).\r
 \r
 !!! note "Sidecar Costs"\r
     The sidecar makes one LLM call per chunk during live chat, and one per chunk during rebuilds. A chat with 200 chunks would make 200 API calls on rebuild. Choose an inexpensive model for the sidecar to keep costs reasonable.\r
@@ -24034,6 +24043,17 @@ The sidecar is wrapped in a small reliability layer you can tune:\r
 | **Max Retries** | Additional attempts after the first failed call (exponential backoff). |\r
 | **Sidecar Timeout** | Per-call timeout in milliseconds before the call is abandoned. |\r
 \r
+### Connection Failover\r
+\r
+Memory Cortex keeps two independent ordered chains because extraction and summarization have different workloads:\r
+\r
+- **Extraction secondary / fallbacks** handle query generation, entity extraction, relationships, and related analysis.\r
+- **Summary secondary / fallbacks** handle scene and story-arc consolidation.\r
+\r
+The primary connection is attempted first, including its configured retries. If it remains unavailable or times out, Lumiverse tries the corresponding secondary connection and then each additional fallback in order. Only after that chain is exhausted does the **Fallback** reliability setting decide whether to use heuristics or leave the work for a later pass.\r
+\r
+Fallback connections keep their own models and credentials. Removing a fallback from one chain does not remove it from the other.\r
+\r
 ### Arbitration\r
 \r
 When the sidecar is enabled, two optional behaviors give it authority over heuristic data:\r
@@ -24041,7 +24061,7 @@ When the sidecar is enabled, two optional behaviors give it authority over heuri
 - **Arbitrates Heuristics** \u2014 the sidecar reviews each heuristic entity before it is persisted and can reject or rename misidentifications (e.g. discarding common words mistakenly extracted as characters).\r
 - **Grades Existing Records** \u2014 periodically re-evaluates already-saved entities and removes ones that have become noise. Useful after a long chat has accumulated mistakes.\r
 \r
-If the sidecar call fails and **Fallback** is set to \`heuristic\`, the heuristic result is used as a safe default.\r
+If every configured sidecar connection fails and **Fallback** is set to \`heuristic\`, the heuristic result is used as a safe default.\r
 \r
 ---\r
 \r
@@ -24335,7 +24355,16 @@ Type your message in the input area and press **Enter** to send (or click the se
 \r
 ## Editing Messages\r
 \r
-Click on any message to edit its text. Both your messages and the character's messages can be edited. Edits are saved immediately.\r
+Click on any message to edit its text. Both your messages and the character's messages can be edited.\r
+\r
+The editor gives user-authored messages two ways to finish:\r
+\r
+| Action | Result |\r
+|--------|--------|\r
+| **Save** | Saves the revised text without asking the AI for another response. |\r
+| **Edit and Send** | Creates and opens a new branch, preserving the original conversation. Lumiverse applies the edit there and immediately asks the AI to respond again. If an assistant reply already follows that turn, the branch receives a new swipe on its copy of that reply; at the end of a chat, it receives the next assistant message. |\r
+\r
+**Edit and Send** is unavailable while another response is streaming. You can hide this optional action under **Settings \u2192 Productivity \u2192 Optional surfaces & navigation**.\r
 \r
 Editing a character's message also updates the current swipe \u2014 so the content stays consistent.\r
 \r
@@ -24545,8 +24574,9 @@ When you regenerate a response, Lumiverse can prompt you for feedback \u2014 a b
 1. Open **Settings > Chat**\r
 2. Toggle **Regen Feedback** on\r
 3. Choose an **injection position**:\r
-    - **User Message** \u2014 Feedback is appended to the last user message as \`[OOC: your feedback]\`\r
-    - **System Prompt** \u2014 Feedback is appended to the system prompt as \`[OOC: your feedback]\`\r
+    - **User Message** \u2014 The formatted feedback prompt is appended to the last user message\r
+    - **System Prompt** \u2014 The formatted feedback prompt is appended to the system prompt\r
+4. Optionally customize **Feedback prompt format**. This is a freeform, expandable prompt field. Place \`{{$regenInput}}\` wherever the submitted feedback should appear; the rest of the field supports normal macros. The default is \`[OOC: {{$regenInput}}]\`.\r
 \r
 ---\r
 \r
@@ -24589,6 +24619,7 @@ Open **Settings \u2192 Voice & Speech \u2192 Speech-to-Text** and choose a provi
 |----------|----------|-------|\r
 | **Web Speech API** | Fast browser-native dictation | Availability depends on your browser. Chrome and Edge usually work best. The option is greyed out (with "Unavailable") when your browser doesn't support it. |\r
 | **STT Connection** | Whisper and OpenAI-compatible transcription models | Requires an STT connection with an API key and transcription model. |\r
+| **Spindle extension provider** | Extension-specific transcription services | Appears when an enabled extension registers an STT provider and its privileged provider permission has been approved. |\r
 \r
 For an STT connection:\r
 \r
@@ -24600,6 +24631,8 @@ For an STT connection:\r
 \r
 !!! tip "OpenAI-compatible endpoints"\r
     STT connections use OpenAI-compatible \`/audio/transcriptions\` APIs. Leave **API URL** empty for OpenAI, or enter your proxy/self-hosted endpoint if it implements that route.\r
+\r
+Extension-provided STT options may expose different models or requirements. See the extension's own instructions and [Extension-Provided AI Providers](../extensions/index.md#extension-provided-ai-providers).\r
 \r
 ---\r
 \r
@@ -24807,6 +24840,8 @@ Once a connection exists, open **Settings \u2192 Voice & Speech**, turn on **Ena
 \r
 ## Providers\r
 \r
+The built-in providers are listed below. Enabled [Spindle extensions](../extensions/index.md#extension-provided-ai-providers) can also register TTS providers; those appear in Lumiverse's voice provider and connection selectors after an operator approves the extension's privileged provider permission.\r
+\r
 ### OpenAI TTS\r
 \r
 - **API key:** Required.\r
@@ -24926,7 +24961,9 @@ title: Connections\r
 \r
 # Connections\r
 \r
-A **connection** links Lumiverse to an AI provider. It specifies which provider, model, and API key to use for generation. You need at least one connection to chat.\r
+A **connection** links Lumiverse to an AI provider. The Connections drawer groups profiles by purpose: chat/LLM, embedding models, image generation, speech-to-text, and text-to-speech. Each profile specifies the provider, model, endpoint, and encrypted API key for that purpose.\r
+\r
+Embedding profiles live under **Embedding Models** and are only offered in **Settings > Embeddings**. Keeping them separate prevents a chat model endpoint from being selected accidentally for vectorization. Existing direct embedding configurations and embedding profiles created from OpenAI-compatible chat connections are migrated automatically.\r
 \r
 ---\r
 \r
@@ -25632,6 +25669,125 @@ Current time: 14:30 on Wednesday.\r
 | **Council & Lumia** | \`{{lumiaCouncilDeliberation}}\`, \`{{loomStyle}}\` | [Council macros](../presets/macros-reference.md#lumia-council) |\r
 \r
 Lumiverse ships **180+ built-in macros** across roughly 20 categories. See the [full reference](../presets/macros-reference.md) for the complete list.\r
+`,
+    "customization/productivity.md": `---\r
+title: Productivity & Quick Toolbar\r
+---\r
+\r
+# Productivity & Quick Toolbar\r
+\r
+The **Lumiverse Suite** extension adds a Productivity settings workspace for arranging common actions and tailoring several interface surfaces. When the suite is enabled, open **Settings \u2192 Productivity**. By default, this tab appears immediately after **Display & Layout**.\r
+\r
+---\r
+\r
+## Optional Surfaces & Navigation\r
+\r
+The first settings card controls where the Productivity tab appears and whether several advanced controls are shown:\r
+\r
+| Setting | What It Does |\r
+|---------|--------------|\r
+| **Productivity tab location** | Moves the Productivity tab to the top, bottom, or after another settings section. |\r
+| **Embedding fallback profiles** | Shows primary and ordered fallback connections under [Embeddings](../settings/embeddings.md). |\r
+| **Cortex secondary connections** | Shows independent extraction and summary fallback pickers in [Memory Cortex](../chatting/memory-cortex.md). |\r
+| **Edit and Send** | Shows **Edit and Send** while editing a user-authored message. |\r
+| **Drag to reorder toolbar icons** | Allows press-and-drag reordering directly on the live Quick Toolbar. |\r
+| **Customize composer gear** | Shows the gear beside the composer action bar. |\r
+\r
+Turning off one of these options hides its controls; it does not delete your saved connections or other underlying configuration.\r
+\r
+---\r
+\r
+## Quick Toolbar\r
+\r
+The Quick Toolbar puts frequently used chat and navigation actions into a movable or docked strip. Use its master toggle in **Settings \u2192 Productivity \u2192 Quick Toolbar Settings** to show or hide it.\r
+\r
+### Variants\r
+\r
+| Variant | Behavior |\r
+|---------|----------|\r
+| **V1 Free** | A free-form toolbar that can float, rotate, resize, snap to an edge, and use horizontal or vertical orientation. |\r
+| **V2 Adjacent** | A card-based toolbar designed for the chat dock. It uses fixed icon and label sizes rather than scaling the whole toolbar. |\r
+\r
+### Placement\r
+\r
+- **Floating** places the toolbar over the workspace. You can optionally keep the chat-top dock available for other controls.\r
+- **Chat top dock** anchors it above the message list and gives it the remaining width beside native chat controls.\r
+\r
+When docked, you can keep or hide the native **Select messages**, **Go to oldest message**, and **Browse messages** buttons. **Fill chat top bar width** stretches the toolbar through the available dock space.\r
+\r
+### Appearance and Fit\r
+\r
+The shared controls adjust icon size, label size, opacity, card dimensions, gaps, and backdrop color. Useful options include:\r
+\r
+- **Opaque toolbar backdrop** prevents chat text from showing through the toolbar.\r
+- **Auto-fit toolbar bounds to content** keeps its frame snug around the enabled actions.\r
+- **Hide when overlaid** gets the toolbar out of the way when a full-screen surface opens.\r
+- **Restore tab over full-screen dialogs** leaves a small edge handle that can bring the toolbar back.\r
+\r
+V1 also exposes rotation, edge snapping, resize handles, orientation, and scale. V2 instead offers comfortable or compact card density, labels, and icon-only mode.\r
+\r
+### Choosing and Reordering Actions\r
+\r
+Under **Visible icons and order**:\r
+\r
+1. Search for an action by name.\r
+2. Toggle actions on or off.\r
+3. Drag enabled actions into the desired order, or reorder them directly on the live toolbar when live reordering is enabled.\r
+4. Use **Reset all toolbar settings** to restore the defaults.\r
+\r
+The catalog includes native Lumiverse actions and compatible actions supplied by enabled extensions. If an extension is disabled or removed, its unavailable actions disappear without affecting the remaining order.\r
+\r
+---\r
+\r
+## Customizing the Composer\r
+\r
+The action bar around the message composer can use the same action catalog as the Quick Toolbar.\r
+\r
+1. Make sure **Customize composer gear** is enabled under **Optional surfaces & navigation**.\r
+2. Open a chat and click the gear beside the composer actions.\r
+3. Toggle icons to show or hide them.\r
+4. Drag enabled icons into the order you want.\r
+5. Click **Done**. Changes apply immediately.\r
+\r
+Use **Reset icons** to restore the default composer layout. Composer layout is stored in the current browser, so another browser or device can have a different arrangement.\r
+\r
+---\r
+\r
+## Selecting Multiple Messages\r
+\r
+The **Select messages** action enables bulk operations in the current chat. It is hidden from the composer by default, but you can add it through **Customize composer** or keep it in the chat-top dock.\r
+\r
+While selection mode is active:\r
+\r
+- Click or tap messages to select them.\r
+- Use the selection bar to select or clear all messages.\r
+- Hide or unhide the selected messages together.\r
+- Delete the selected messages after confirmation.\r
+- Click **Cancel** to leave selection mode.\r
+\r
+!!! warning "Bulk deletion is permanent"\r
+    Review the selection count before confirming. Deleted messages cannot be restored.\r
+\r
+---\r
+\r
+## Connections Picker\r
+\r
+The Productivity workspace also configures the Lumiverse Suite connection picker. You can choose its visual variant, grid or list model layout, menu dimensions, density, favorites and recent sections, profile tags, and whether its chat launcher is visible.\r
+\r
+Changing a picker layout does not change the active connection by itself. Your selected profile remains active until you choose another one.\r
+\r
+---\r
+\r
+## Troubleshooting\r
+\r
+| Problem | What to Try |\r
+|---------|-------------|\r
+| The Productivity tab is missing | Enable **Lumiverse Suite** in the Extensions panel, then reload the frontend. |\r
+| The composer gear is missing | Enable **Customize composer gear** in Productivity settings. |\r
+| An action is missing from the toolbar | Search **Visible icons and order**, make sure it is enabled, and confirm that its contributing extension is running. |\r
+| The toolbar covers chat text | Enable an opaque backdrop, use the chat-top dock, or turn on **Hide when overlaid**. |\r
+| Embedding or Cortex fallback controls are missing | Re-enable the corresponding option under **Optional surfaces & navigation**. |\r
+\r
 `,
     "customization/regex-scripts.md": `---\r
 title: Regex Scripts\r
@@ -26599,6 +26755,7 @@ Lumiverse supports extensions through **Spindle**, an isolated extension runtime
 - Listen to events (messages, generation lifecycle, tool invocations, generation parameters)\r
 - Read and write persistent and ephemeral storage (with per-extension quotas)\r
 - Access the LLM generation pipeline (raw, batch, streaming, dry-run, observe)\r
+- Register embedding, text-to-speech, speech-to-text, and sidecar providers that appear in Lumiverse's native settings\r
 - Register **council tools** that show up in the Lumia Council\r
 - Register **command palette** entries scoped to global, chat, character, or landing contexts\r
 - Open **modal dialogs** (confirm, text input, custom) using Lumiverse's shared component library\r
@@ -26694,9 +26851,41 @@ These can read sensitive data, modify pipeline behavior, or reach outside the sa
 | \`regex_scripts\` | Read and write regex scripts |\r
 | \`databanks\` | Read and write databank documents |\r
 | \`personas\` | Read and write user personas |\r
+| \`providers.embedding.register\` | Register an embedding provider for the extension's installation scope |\r
+| \`providers.tts.register\` | Register a text-to-speech provider for the extension's installation scope |\r
+| \`providers.stt.register\` | Register a speech-to-text provider for the extension's installation scope |\r
+| \`providers.sidecar.register\` | Register a sidecar provider for the extension's installation scope |\r
 \r
 !!! tip "Why two tiers?"\r
     Auto-granted permissions cover surface area an extension needs just to *exist* (UI mounts, ephemeral storage, event tracking). Privileged permissions touch user data, the network, or the prompt pipeline \u2014 Lumiverse keeps them off by default so a misbehaving or compromised extension can't silently exfiltrate or rewrite content.\r
+\r
+## Extension-Provided AI Providers\r
+\r
+An extension can contribute providers to four native Lumiverse systems:\r
+\r
+| Provider Kind | Where It Appears |\r
+|---------------|------------------|\r
+| **Embedding** | **Settings \u2192 Embeddings** |\r
+| **Text-to-Speech** | **Settings \u2192 Voice & Speech** and TTS connection selectors |\r
+| **Speech-to-Text** | **Settings \u2192 Voice & Speech** and STT connection selectors |\r
+| **Sidecar** | Memory Cortex and other sidecar connection selectors |\r
+\r
+These providers follow their effective registration scope. A user-scoped provider is visible only to that user, while a system-scoped provider can be offered instance-wide. Each registration permission is privileged and must be explicitly approved after installation. Updating an older provider extension may therefore require granting its new \`providers.*.register\` permission before its provider appears again.\r
+\r
+### Broker URLs and Credentials\r
+\r
+Some provider extensions declare a **broker URL**: a fixed external HTTP endpoint that Lumiverse calls on the extension's behalf. Lumiverse can attach an extension-scoped credential at request time without exposing that secret to the extension worker.\r
+\r
+Owners control which destinations are permitted under **Settings \u2192 Operator Panel \u2192 Approved Broker Origins**:\r
+\r
+- Enter a complete origin such as \`https://broker.example.com\` or \`https://broker.example.com:8443\`.\r
+- The scheme, host, and port must match. URL paths are not entered in this list.\r
+- An empty list permits broker registration for any public HTTP or HTTPS origin.\r
+- Private, loopback, link-local, and metadata-network destinations remain blocked by Lumiverse's request protections.\r
+- Adding an origin only permits it. It does not install an extension, create a provider, or contact that service by itself.\r
+\r
+!!! warning "Prefer a narrow allowlist"\r
+    If you use broker-backed provider extensions, list only the origins you trust. An empty allowlist is intentionally permissive for compatibility.\r
 \r
 ---\r
 \r
@@ -26776,7 +26965,7 @@ You also need the following build tools:\r
 | Windows | [Rust](https://rustup.rs/) stable, the Microsoft C++ Build Tools, and WebView2 (included with most Windows 11 installations) |\r
 | Linux | [Rust](https://rustup.rs/) stable plus the GTK/WebKitGTK and AppIndicator packages listed below |\r
 \r
-The tray app uses the same Bun version as Lumiverse: Bun 1.3.13 or later.\r
+The tray app uses the same Bun version as Lumiverse: Bun 1.4.0 or later.\r
 \r
 ### Linux dependencies\r
 \r
@@ -27147,7 +27336,7 @@ Lumiverse runs on your own machine. It needs **Bun** (a fast JavaScript runtime)
 \r
 ## Requirements\r
 \r
-- **Bun** v1.3.13 or later \u2014 [Install Bun](https://bun.sh) (the start scripts auto-install Bun if missing and auto-upgrade older versions to latest stable)\r
+- **Bun** v1.4.0 or later \u2014 [Install Bun](https://bun.sh) (the start scripts auto-install Bun if missing and auto-upgrade older versions to latest stable)\r
 - A modern web browser (Chrome, Firefox, Edge, Safari)\r
 - An API key from at least one AI provider (OpenAI, Anthropic, Google, etc.)\r
 \r
@@ -27206,7 +27395,7 @@ After the shell opens, continue with the normal startup command below.\r
     ./start.sh\r
     \`\`\`\r
 \r
-    The script auto-detects Termux and installs required packages (\`glibc-repo\`, \`glibc-runner\`, \`proot\`). It uses a three-tier execution strategy to find the best way to run Bun on your device, then validates the exact \`proot\`-wrapped path it will later use for \`bun install\`. If Bun is older than 1.3.13, startup uses the \`bun-termux\` manager to atomically update both the Bun runtime and its wrapper before continuing.\r
+    The script auto-detects Termux and installs required packages (\`glibc-repo\`, \`glibc-runner\`, \`proot\`). It uses a three-tier execution strategy to find the best way to run Bun on your device, then validates the exact \`proot\`-wrapped path it will later use for \`bun install\`. If Bun is older than 1.4.0, startup uses the \`bun-termux\` manager to atomically update both the Bun runtime and its wrapper before continuing.\r
 \r
     If \`grun bun --version\` works but the native Termux install path is still broken, \`start.sh\` now attempts a \`bun-termux\` rebuild before it lets first-run setup continue.\r
 \r
@@ -27259,7 +27448,7 @@ The start scripts accept flags to control behavior:\r
 \r
     | Flag | Description |\r
     |------|-------------|\r
-    | *(no flags)* | Start normally; auto-upgrade Bun to latest stable when below 1.3.13 |\r
+    | *(no flags)* | Start normally; auto-upgrade Bun to latest stable when below 1.4.0 |\r
     | \`-b\`, \`--build\` | Rebuild frontend before starting |\r
     | \`--build-only\` | Rebuild frontend only, don't start |\r
     | \`--backend-only\` | Start backend only, skip frontend |\r
@@ -27282,7 +27471,7 @@ The start scripts accept flags to control behavior:\r
 \r
     | Flag | Description |\r
     |------|-------------|\r
-    | *(no flags)* | Start normally; auto-upgrade Bun to latest stable when below 1.3.13 |\r
+    | *(no flags)* | Start normally; auto-upgrade Bun to latest stable when below 1.4.0 |\r
     | \`-Build\` or \`-b\` | Rebuild frontend before starting |\r
     | \`-Mode build-only\` | Rebuild frontend only |\r
     | \`-Mode backend-only\` | Start backend only |\r
@@ -27321,6 +27510,11 @@ Switching between tags is just a matter of editing the \`image:\` line in \`dock
 docker-compose up -d\r
 \`\`\`\r
 \r
+To use a different backend port, set \`PORT\` in the \`.env\` file beside\r
+\`docker-compose.yml\` before starting the container (for example, \`PORT=8080\`).\r
+Compose uses that value for both the backend listener and the published host\r
+port; when it is unset, both default to \`7860\`.\r
+\r
 Edit \`docker-compose.yml\` to set your owner password and any other configuration. Any supported application \`.env\` value can also be passed here through Docker \`environment:\` entries:\r
 \r
 \`\`\`yaml\r
@@ -27329,11 +27523,11 @@ services:\r
     image: ghcr.io/prolix-oc/lumiverse:latest\r
     container_name: lumiverse\r
     ports:\r
-      - "7860:7860"\r
+      - "\${PORT:-7860}:\${PORT:-7860}"\r
     environment:\r
       - OWNER_PASSWORD=changeme123    # Required \u2014 minimum 8 characters\r
       - OWNER_USERNAME=admin          # Optional\r
-      - PORT=7860\r
+      - PORT=\${PORT:-7860}            # Set PORT in .env to customize\r
       - TRUST_ANY_ORIGIN=true\r
 \r
       # Optional app-level env values\r
@@ -27772,6 +27966,7 @@ Lumiverse's interface is built around a central chat view with a tabbed drawer t
 - **Input Area** \u2014 Where you type messages. Includes action buttons for attachments, persona switching, quick replies, add-on toggles, and dry runs.\r
 - **Drawer** \u2014 A single docked drawer that hosts every panel as a tab. Pinned tabs appear on the visible edge so you can switch with one click; the rest live behind an overflow menu.\r
 - **Chat Heads (optional)** \u2014 Floating circular avatars that follow the screen edge and act as quick-switchers between recent chats.\r
+- **Quick Toolbar (optional)** \u2014 A floating or chat-top action strip supplied by Lumiverse Suite. Its placement, appearance, and actions are configurable under [Productivity settings](../customization/productivity.md).\r
 \r
 Drawer panels can be docked to the opposite edge using the [Spindle](../extensions/index.md) **dockPanels** system, and on mobile the drawer slides in as a sheet.\r
 \r
@@ -27799,7 +27994,7 @@ The drawer hosts every workspace panel as a tab. You can reorder them with drag-
 | **Reasoning** | Configure chain-of-thought, reasoning effort, prompt prefix/suffix, and start-reply-with |\r
 | **Loom** | Configure narrative structure, story beats, pacing, Sovereign Hand, and director cues |\r
 | **Composition** | Pick which Lumia/Loom content is active, set context filters, and tune prompt assembly |\r
-| **Connections** | Manage LLM, Image, Speech-to-Text, and Text-to-Speech API connections |\r
+| **Connections** | Manage LLM, Embedding Model, Image, Speech-to-Text, and Text-to-Speech API connections |\r
 | **Council** | Configure the Lumia Council, tool functions, and sidecar agents |\r
 | **Summary** | Configure context summarization and truncation |\r
 \r
@@ -27844,6 +28039,7 @@ Inside an active chat, each message exposes:\r
 - **Edit** \u2014 Click on any message to edit its content in place\r
 - **Branch** \u2014 Fork the conversation at any message into a separate timeline\r
 - **Author's Note** \u2014 Inject a system-level instruction at a configurable depth\r
+- **Select messages** \u2014 Enter bulk-selection mode to hide, unhide, or delete several messages together\r
 \r
 ---\r
 \r
@@ -27858,6 +28054,7 @@ The input area exposes several actions beyond just sending messages:\r
 - **Add-ons (Puzzle icon)** \u2014 Toggle [persona add-on](../personas/bindings-and-addons.md#persona-add-ons) blocks on and off, including global add-ons attached to the active persona\r
 - **Dry Run** \u2014 Preview the exact prompt the AI will see without sending a real request\r
 - **Voice input** \u2014 Dictate via the configured Speech-to-Text connection\r
+- **Customize composer** \u2014 Reorder or hide composer icons and add compatible Quick Toolbar actions when Lumiverse Suite is enabled\r
 \r
 Per-chat toggle state for add-ons is remembered, so flipping a block off in one chat doesn't affect another.\r
 \r
@@ -27891,6 +28088,7 @@ Click the gear icon (or open the Command Palette and search "Settings") to open 
 |---------|---------------|\r
 | **Account** | Username, password, avatar |\r
 | **Display** | Modal sizing, pagination, toast positions, landing layout, chat heads |\r
+| **Productivity** | (Lumiverse Suite) Quick Toolbar, composer actions, connection picker, and optional advanced surfaces |\r
 | **Chat** | Message-per-page, enter-to-send, draft saving, message render options |\r
 | **Notifications** | Push notification preferences |\r
 \r
@@ -32060,36 +32258,61 @@ An embedding is a numerical representation of text \u2014 a list of numbers that
 \r
 ## Setting Up\r
 \r
-Open **Settings > Embeddings** and follow the setup checklist:\r
+First open the **Connections** drawer. Under **Embedding Models**, create a connection for each embedding endpoint you want to use. Then open **Settings > Embeddings** and follow the setup checklist:\r
 \r
 ### 1. Enable Embeddings\r
 \r
 Toggle the master switch on.\r
 \r
-### 2. Select a Provider\r
+### 2. Select a Connection\r
+\r
+Choose one of your saved **embedding connections** as the primary connection. Chat/LLM connections are intentionally not offered here, even when they use an OpenAI-compatible endpoint.\r
+\r
+Existing embedding setups are migrated automatically. If you selected an OpenAI-compatible chat connection during the previous shared-profile workflow, Lumiverse preserves its embedding endpoint and copies its key into the dedicated embedding connection without removing the key from the chat connection.\r
+\r
+The available providers include Lumiverse's built-ins and any embedding providers contributed by enabled [Spindle extensions](../extensions/index.md#extension-provided-ai-providers).\r
+\r
+### 3. Choose a Provider and Model\r
 \r
 | Provider | Notes |\r
 |----------|-------|\r
 | **OpenAI** | Official OpenAI API (\`text-embedding-3-small\` recommended) |\r
 | **OpenAI Compatible** | Any service implementing the OpenAI embeddings API (local models, self-hosted) |\r
+| **Mistral** | Native Mistral embeddings API. Defaults to \`mistral-embed\`; model browsing uses Mistral's model catalogue. |\r
+| **Cohere** | Native Cohere v2 Embed API. Defaults to \`embed-v4.0\`; Lumiverse automatically sends document/query input types. |\r
 | **OpenRouter** | Aggregation service |\r
 | **ElectronHub** | Model aggregator |\r
 | **BananaBread** | Lumiverse's local embedding server. Defaults to \`http://localhost:8008/v1/embeddings\` and pulls its model list from \`/v1/models\`. |\r
 | **Nano-GPT** | Pay-per-token aggregator |\r
+| **Spindle extension** | An enabled extension may contribute an embedding provider. Availability and model options depend on that extension. |\r
 \r
-### 3. Configure the Connection\r
+### 4. Configure the Connection\r
 \r
 | Field | Description |\r
 |-------|-------------|\r
+| **Connection** | Dedicated embedding connection selected from **Connections > Embedding Models**. |\r
 | **API URL** | Base URL for the provider. Auto-appends \`/v1/embeddings\` if no path is specified. |\r
 | **Embedding Model** | Model name (e.g., \`text-embedding-3-small\`) |\r
 | **API Key** | Your provider's authentication key |\r
 | **Dimensions** | Vector size \u2014 auto-detected when you run a test |\r
 | **Send Dimensions** | Whether to include the dimension value in API requests (some providers require it, others reject it) |\r
 \r
-### 4. Test the API\r
+For Mistral and Cohere, Lumiverse translates **Send Dimensions** to each native API's \`output_dimension\` field. Cohere requests are also split automatically when a batch exceeds its 96-text API limit.\r
+\r
+### 5. Add Fallback Connections (Optional)\r
+\r
+Under **Primary and fallback connections**, add backup embedding connections in the order Lumiverse should try them. If the primary request fails or times out, Lumiverse advances through this chain without sharing one profile's API key with another profile.\r
+\r
+Every endpoint in a fallback chain must produce vectors with the same dimensions as the primary endpoint. Set a fallback's **Dimensions** when Lumiverse cannot determine it automatically. A known dimension mismatch is skipped instead of mixing incompatible vectors in the same index.\r
+\r
+!!! warning "Changing dimensions requires reindexing"\r
+    Existing vectors cannot be compared with vectors of another size. If you intentionally move to a provider or model with different dimensions, rebuild the affected embeddings after saving the new configuration.\r
+\r
+### 6. Test the API\r
 \r
 Click **Test API** to verify your setup. A successful test auto-detects the model's native dimensions and applies them.\r
+\r
+Test the primary and every fallback before relying on the chain. The displayed **Fallback chain** shows the order Lumiverse will use.\r
 \r
 ---\r
 \r
@@ -32178,6 +32401,68 @@ Controls the balance between traditional keyword matching and semantic vector se
 \r
 !!! tip "Test after setup"\r
     Always click Test API after configuration. This verifies your credentials work and auto-detects the correct dimensions \u2014 getting dimensions wrong produces garbage results.\r
+\r
+!!! tip "Use genuinely independent fallbacks"\r
+    A second profile pointing to the same upstream may fail during the same outage. For resilience, choose another provider or independently hosted endpoint with a dimension-compatible model.\r
+`,
+    "settings/illarin.md": `---\r
+title: Illarin\r
+---\r
+\r
+# Illarin\r
+\r
+Illarin is an asset platform that links to your Lumiverse instance and delivers characters, world books, presets, themes, and packs directly into your library \u2014 no manual downloads.\r
+\r
+---\r
+\r
+## Linking Your Instance\r
+\r
+1. Open **Settings > Illarin**\r
+2. Confirm the **Illarin URL** (default: \`https://illarin.xyz\`) and give your instance a name (e.g. "Home PC")\r
+3. Click **Link**\r
+\r
+How the link completes depends on where you're browsing from:\r
+\r
+- **Same machine** (you opened Lumiverse on \`localhost\`): Lumiverse opens the Illarin approval screen in a new browser tab. Approve it there, and linking finishes on its own.\r
+- **Another device** (phone, tablet, or another computer on your network): Lumiverse shows a **device code** instead. Open the verification URL shown in the panel, sign in, and type the code.\r
+\r
+!!! warning "Only trust codes you requested"\r
+    Never enter a linking code you did not start yourself. The approval page must show the exact same code as your settings panel. If it doesn't, decline.\r
+\r
+### Scopes\r
+\r
+Linking currently requests one permission, chosen at link time:\r
+\r
+- **asset:receive** \u2014 lets the assets you send from Illarin arrive in this instance.\r
+\r
+Library mirroring is not requested until the local sync feature is implemented.\r
+Adding scopes later requires unlinking and linking again.\r
+\r
+---\r
+\r
+## Connection Status\r
+\r
+The Illarin settings panel shows:\r
+\r
+- The instance name and server-assigned instance ID\r
+- Your granted scopes\r
+- The declared application version\r
+\r
+Access credentials rotate automatically; nothing to maintain.\r
+\r
+---\r
+\r
+## Unlinking\r
+\r
+Click **Unlink from Illarin** to remove this instance's credentials locally.\r
+\r
+Unlinking is local-only: also open your Illarin account settings and revoke the matching instance (matched by name and instance ID) so the platform stops holding a place for it.\r
+\r
+---\r
+\r
+## Privacy\r
+\r
+Credentials are encrypted at rest and never leave this machine except to talk to Illarin itself. They are excluded from exports and backups. No chat data, messages, or personal content is shared through this integration.\r
 `,
     "settings/lumihub.md": `---\r
 title: LumiHub\r
@@ -32829,15 +33114,22 @@ title: Imports\r
 \r
 # Imports\r
 \r
-The Import door brings existing material into the studio: a character card you downloaded, or a worldbook you've built up elsewhere. An import isn't a separate pipeline \u2014 it pre-fills the Bible from your file and then runs the **same** stages as any build, so everything in [Studio Workflow](studio-workflow.md) applies. The difference is where the material comes from: instead of a dream, the Weaver reads your file.\r
+The Import door brings existing material into the studio: a character already in your Lumiverse gallery, a character card you downloaded, or a worldbook you've built up elsewhere. An import isn't a separate pipeline \u2014 it pre-fills the Bible from that source and then runs the **same** stages as any build, so everything in [Studio Workflow](studio-workflow.md) applies. The difference is where the material comes from: instead of a dream, the Weaver reads the existing character or file.\r
 \r
 The headline use case: **rebuild a card to studio quality.** Most downloaded cards are thin in exactly the ways the Weaver exists to fix \u2014 vague descriptions, no real tension, a voice that could belong to anyone. Importing one reverses it into a structured Bible, shows you what's actually there and what's missing, interviews you about _only the gaps_, and re-renders studio-grade fields \u2014 while the original stays untouched in your library as a fallback.\r
 \r
 ---\r
 \r
-## Bringing a File In\r
+## Choosing the Source\r
 \r
-**New \u2192 Import** opens the import pane. Drop a file on the zone or **Browse files**. Supported:\r
+**New \u2192 Import** opens with two choices:\r
+\r
+- **Your characters** lists the characters already in your gallery. Search, select one, and the Weaver reads it directly \u2014 no export and re-import required.\r
+- **Upload a file** accepts a dropped file or **Browse files** selection.\r
+\r
+The selected gallery character always remains untouched. The Weaver uses it as source material and creates a separate rebuilt card.\r
+\r
+Supported upload formats:\r
 \r
 | File | Reads as |\r
 |------|----------|\r
@@ -32859,7 +33151,7 @@ For cards, it also _reads_ the card and **suggests a treatment** with a one-line
 | **Rebuild as a Character** | The card is reversed into the loom, its gaps are interviewed, and it's rewoven to studio quality. |\r
 | **Build as a World** | Its places and people become a narrator card with a lore book behind it \u2014 the [world treatment](worlds.md). |\r
 \r
-Either way, **the original card lands in your library first, untouched** \u2014 portrait intact, and if it carried an embedded lorebook, that book is stored standalone and bound to it. You can chat with the original immediately and compare it against the rebuild later.\r
+Either way, the original stays untouched. A gallery source is already there and is used directly. An uploaded card **lands in your library first** \u2014 portrait intact, and if it carried an embedded lorebook, that book is stored standalone and bound to it. You can chat with the original immediately and compare it against the rebuild later.\r
 \r
 Then the import session starts, and it behaves like any build:\r
 \r
@@ -32899,7 +33191,7 @@ Every enriched entry is checked before it's written: it must stay grounded in wh
 ## Things Worth Knowing\r
 \r
 - **Import sessions resume like any other.** They live on the loom, autosave, and pick up where you left off.\r
-- **The original is the fallback, always.** No treatment modifies the file you imported or the original-card copy in your library.\r
+- **The original is the fallback, always.** No treatment modifies the gallery character you selected, the file you uploaded, or the original-card copy created from that file.\r
 - **CHARX extras:** the fallback copy takes the card, avatar, and embedded book. Expression packs and galleries inside a CHARX are skipped here \u2014 use the library's import button when you want full-fidelity CHARX import instead of a rebuild.\r
 - **A PNG with only a lorebook in it** reads as a card, because that's what it is \u2014 export the book to worldbook JSON if you want the book treatments.\r
 `,
@@ -35505,11 +35797,12 @@ function fillPrompt(template, vars) {
 }
 
 // src/agent/prompts/claude/tools/grep/description.txt
-var description_default33 = 'Regex over every editable string surface of the active character (fields, `char/extensions/*`, character-scoped regex, attached world books). It searches string values, not object-key names or non-string values. Does NOT walk `persona/`/`chat/`/`preset/` (use `read`/`list`/`grep_chat_messages` there). The primary verification tool: confirm cross-references or settle a structural claim ("does `lang::1` actually appear in this script?") before reading or editing. One grep beats a dozen partial reads.\n\nReturns `hits[]` of `{path, surface, surface_label, line, match, preview}` \u2014 `path` is a leaf you can pass straight to `read`/`inspect`/`edit` \u2014 plus coverage counters and, when capped, `truncated_at: {path, line, total_lines, leaves_unscanned}` to resume.\n\n- max_matches caps total hits (default {{GREP_DEFAULT_MAX}}, max {{GREP_MAX_CAP}}); max_hits_per_line caps per-line (default {{GREP_DEFAULT_HITS_PER_LINE}}). Keep per-line at 1 for dense single-char patterns (`[\uAC00-\uD7A3]`, `[\u4E00-\u9FFF]`); raise it for distinct multi-char tokens.\n- include_paths/exclude_paths filter the walk by prefix (`char/`, `rx/`, `wb/`, `char/extensions/...`).\n';
+var description_default33 = 'Regex over every editable string surface of the active character (fields, `char/extensions/*`, character-scoped regex, attached world books). It searches string values, not object-key names or non-string values. Does NOT walk `persona/`/`chat/`/`preset/` (use `read`/`list`/`grep_chat_messages` there). The primary verification tool: confirm cross-references or settle a structural claim ("does `lang::1` actually appear in this script?") before reading or editing. One grep beats a dozen partial reads.\n\nReturns `hits[]` of `{path, surface, surface_label, line, match, preview}` \u2014 `path` is a leaf you can pass straight to `read`/`inspect`/`edit` \u2014 plus coverage counters and, when capped, `truncated_at: {path, line, total_lines, leaves_unscanned}` to resume.\n\n- `pattern` is JavaScript RegExp source. Inline flag groups (`(?i)`, `(?m)`, `(?s)`) are a syntax error here; use `case_insensitive` or `flags`.\n- max_matches caps total hits (default {{GREP_DEFAULT_MAX}}, max {{GREP_MAX_CAP}}); max_hits_per_line caps per-line (default {{GREP_DEFAULT_HITS_PER_LINE}}). Keep per-line at 1 for dense single-char patterns (`[\uAC00-\uD7A3]`, `[\u4E00-\u9FFF]`); raise it for distinct multi-char tokens.\n- include_paths/exclude_paths filter by prefix against the FULL leaf key, and character leaf keys carry the id: `char/<id>/description`, `char/<id>/extensions/<dotted>`. So `char/`, `rx/`, `wb/` work, but `char/extensions` matches NOTHING. Scope extensions with `char/<id>/extensions` (the context note gives the focused id).\n- The counters tell you which kind of empty you got: `leaves_scanned` is every leaf walked BEFORE filtering, `leaves_skipped` is how many the path filters dropped. `leaves_skipped == leaves_scanned` means your filter selected nothing, not that the pattern found nothing. Eligible leaves are `scanned - skipped`.\n- Path filters apply AFTER `world_scope`, so `include_paths: ["wb/"]` under the default still sees only this character\'s attached books. Pass `world_scope: "all"` to reach unattached and Always-Active books.\n';
 var init_description33 = () => {};
 
 // src/agent/prompts/claude/tools/grep/arg_flags.txt
-var arg_flags_default = "extra regex flags (i/m/s/u). g is implied.";
+var arg_flags_default = `Extra JavaScript regex flags (i/m/s/u). g is implied. Inline flag groups like (?i) are not valid JS regex, use this or case_insensitive.
+`;
 var init_arg_flags = () => {};
 
 // src/agent/prompts/claude/tools/grep/arg_max_matches.txt
@@ -35907,30 +36200,7 @@ var init_grep_external = __esm(() => {
 });
 
 // src/agent/prompts/claude/tools/inspect/description.txt
-var description_default36 = `Cheap orientation for any path. Dispatches by the path shape:
-
-Leaf (string-valued) paths return char/line/CJK/peek plus a \`diagnostics\` block:
-  char/<field>, char/alternate_greetings/<idx>, char/alternate_fields/<field>/<variantId>/<content|label>, char/extensions/<dotted>,
-  rx/<id>/find_regex, rx/<id>/replace_string, wb/<id>/content, wb/<id>/comment,
-  persona/<id>/<name|title|description>, persona/<id>/wb/<entryId>/<content|comment>,
-  chat/<chatId>/msg/<msgId>/content, preset/<presetId>/block/<blockId>/<content|name>
-
-  diagnostics covers the encoding state that causes silent find/replace failures:
-    hangul: { nfc_runs, nfd_runs }            NFD Hangul (jamo) doesn't match NFC find strings byte-exact
-    invisibles: { bom, zwj, zwnj, zw_space, nbsp }   common look-alike chars that break byte-match
-    line_endings: { lf, crlf, cr }             CRLF sources from Windows charx exports
-    smart_quotes: { single_curly, double_curly, cjk_corner_brackets }   triggers edit's typography-preserving recovery
-    dual_store (character canonical fields only): { mirror_path, drift, note }   warns if LumiRealm payload mirror diverges
-
-  \`inspect\` a leaf before editing if you don't know its provenance. The diagnostics tell you whether to copy bytes verbatim or expect typography drift.
-
-Container paths return aggregate / metadata:
-  rx                    overview of every character-scoped regex script (names, sizes, disabled, target)
-  rx/<id>               full regex script metadata (name, target, placement, flags, disabled, \u2026) + field sizes + CJK counts + peeks
-  wb                    all world books (attached and unattached) with entry counts
-  wb/<id>               book aggregate (entries, disabled, constant, total chars, top-10 by size)
-
-One tool, one path argument.`;
+var description_default36 = "Cheap orientation for any path. Dispatches by the path shape:\n\nLeaf paths must resolve to a STRING. `char/extensions/<dotted>` pointing at an object or array errors: use `list` on that path to walk it, or `set` to write the subtree whole. `inspect` is the way to disambiguate a `list` that came back `count: 0` on an extensions path, since that reads the same for an empty container and for a non-string scalar.\n\nLeaf (string-valued) paths return char/line/CJK/peek plus a `diagnostics` block:\n  char/<field>, char/alternate_greetings/<idx>, char/alternate_fields/<field>/<variantId>/<content|label>, char/extensions/<dotted>,\n  rx/<id>/find_regex, rx/<id>/replace_string, wb/<id>/content, wb/<id>/comment,\n  persona/<id>/<name|title|description>, persona/<id>/wb/<entryId>/<content|comment>,\n  chat/<chatId>/msg/<msgId>/content, preset/<presetId>/block/<blockId>/<content|name>\n\n  diagnostics covers the encoding state that causes silent find/replace failures:\n    hangul: { nfc_runs, nfd_runs }            NFD Hangul (jamo) doesn't match NFC find strings byte-exact\n    invisibles: { bom, zwj, zwnj, zw_space, nbsp }   common look-alike chars that break byte-match\n    line_endings: { lf, crlf, cr }             CRLF sources from Windows charx exports\n    smart_quotes: { single_curly, double_curly, cjk_corner_brackets }   triggers edit's typography-preserving recovery\n    dual_store (character canonical fields only): { mirror_path, drift, note }   warns if LumiRealm payload mirror diverges\n\n  `inspect` a leaf before editing if you don't know its provenance. The diagnostics tell you whether to copy bytes verbatim or expect typography drift.\n\nContainer paths return aggregate / metadata:\n  rx                    overview of every character-scoped regex script (names, sizes, disabled, target)\n  rx/<id>               full regex script metadata (name, target, placement, flags, disabled, \u2026) + field sizes + CJK counts + peeks\n  wb                    all world books (attached and unattached) with entry counts\n  wb/<id>               book aggregate (entries, disabled, constant, total chars, top-10 by size)\n\nOne tool, one path argument.";
 var init_description36 = () => {};
 
 // src/agent/prompts/claude/tools/inspect/arg_path.txt
@@ -35938,7 +36208,7 @@ var arg_path_default6 = "Surface path. See description for leaf vs container for
 var init_arg_path6 = () => {};
 
 // src/agent/prompts/claude/tools/inspect/arg_character_id.txt
-var arg_character_id_default2 = "rx/wb containers: defaults to focus. 'wb' lists the whole library even with none.";
+var arg_character_id_default2 = "Only affects the rx/wb container forms; defaults to focus. 'wb' lists the whole library even with none. For a leaf path, put the id in the path instead: `char/<id>/<field>`.";
 var init_arg_character_id2 = () => {};
 
 // src/agent/tools/inspect.ts
@@ -36233,14 +36503,22 @@ Path forms:
 
 \`char/\`, \`rx\`, \`wb\` need an active character; \`persona\` / \`preset\` do not.
 
+Targeting: \`list\` takes the character as the \`character_id\` ARGUMENT and does not parse an id inside the path. \`char/<id>/extensions\` is not a list path: it fails \`[NO_TARGET]\` with no focus, and with a focus it silently ignores the id and then errors as an unknown path. Write \`{path: "char/extensions", character_id: "<id>"}\`. (\`read\` / \`edit\` / \`rewrite\` / \`set\` are the opposite: id in the path, no argument.)
+
+Rows come back UNQUALIFIED: \`char/description\`, not \`char/<id>/description\`. If you listed with a \`character_id\` other than the focus, re-add \`char/<id>/\` before passing a \`char/\` row to \`read\` / \`edit\`, or you will silently address the focused character instead. \`rx/\` \`wb/\` \`persona/\` \`preset/\` rows carry their own ids and round-trip as-is.
+
+On a \`char/extensions/<dotted>\` path, \`count: 0\` means there is nothing to walk: an empty container, a non-container value (string / number / boolean / null), or children an extension hides from reads. A missing key errors instead. Use \`inspect\` on the path to tell a string leaf apart from an empty container.
+
 Each returned row carries:
-- \`path\`     \u2014 pass straight to \`read\` / \`inspect\` / \`edit\`.
-- \`type\`     \u2014 one of: \`string\`, \`array\`, \`object\`, \`regex_script\`, \`world_book\`, \`wb_entry\`, etc.
+- \`path\`     \u2014 directly readable only for \`type: "string"\` rows and \`char/tags\`. Every other row is a container: append a field or index first (\`wb/<entryId>/content\`, \`char/alternate_greetings/0\`, \`preset/<id>/block/<bid>/content\`, \`char/alternate_fields/<field>/<variantId>/content\`). See the paragraph after this list.
+- \`type\`     \u2014 \`string\`, \`array\`, \`object\`, \`number\`, \`boolean\`, \`null\`, or a named kind (\`regex_script\`, \`world_book\`, \`wb_entry\`, \`persona\`, \`preset\`, \`preset_block\`, \`alternate_fields\`, \`alt_field_group\`, \`alt_field_variant\`).
 - \`label\`    \u2014 human name when there is one (regex script name, world book name, entry comment).
 - \`size\`     \u2014 for string leaves: character count. For arrays/objects: child count. For \`wb_entry\`: content character count.
 - \`entries\`  \u2014 only on \`world_book\` rows: total entry count in the book. Read this, not \`size\`, to gauge book volume.
 
-Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole via \`inspect\`; to \`read\` / \`edit\` a string leaf, append the field name (\`rx/<scriptId>/find_regex\` or \`/replace_string\`; \`wb/<entryId>/content\` or \`/comment\`). Leaf paths (\`char/<field>\`, \`char/alternate_greetings/<idx>\`, \`char/extensions/<dotted>\`) are directly read/editable.
+Container paths (\`rx/<scriptId>\`, \`wb/<entryId>\`) are inspectable as a whole via \`inspect\`; to \`read\` / \`edit\` a string leaf, append the field name (\`rx/<scriptId>/find_regex\` or \`/replace_string\`; \`wb/<entryId>/content\` or \`/comment\`). A \`wb_entry\` row's \`size\` is its content length, so \`wb/<entryId>\` looks readable but is not. \`set\` reaches an entry's non-string metadata the same way (\`wb/<entryId>/constant\`). Leaf paths (\`char/<field>\`, \`char/alternate_greetings/<idx>\`, \`char/extensions/<dotted>\`) are directly read/editable.
+
+\`char/extensions\` at depth > 1 is the usual cause of an oversized spill on a LumiRealm card (asset maps and trigger arrays run to thousands of leaves). Pass \`max_entries\` and scope to a subtree rather than paging a tmp handle.
 `;
 var init_description37 = () => {};
 
@@ -36249,12 +36527,20 @@ var arg_path_default7 = "Container path. See description for forms.";
 var init_arg_path7 = () => {};
 
 // src/agent/prompts/claude/tools/list/arg_character_id.txt
-var arg_character_id_default3 = "For char/rx/wb paths.";
+var arg_character_id_default3 = "Which character, for char/rx/wb paths. Defaults to the focused character. This is where the id goes: `list` does not accept `char/<id>/...` in the path.\n";
 var init_arg_character_id3 = () => {};
 
 // src/agent/prompts/claude/tools/list/arg_include_unattached.txt
 var arg_include_unattached_default = "path='wb' only: list all owned world books (not just attached). Works with no focused character; with one, rows carry `attached`.";
 var init_arg_include_unattached = () => {};
+
+// src/agent/prompts/claude/tools/list/arg_max_entries.txt
+var arg_max_entries_default = "Max rows returned. Default 200. A `char/extensions` walk, or `wb` with include_unattached on a large library, will overflow the output cap and spill at that default: scope the path or lower this instead.\n";
+var init_arg_max_entries = () => {};
+
+// src/agent/prompts/claude/tools/list/arg_max_depth.txt
+var arg_max_depth_default = "Extensions recursion depth. Default 4, or 1 at the `char/extensions` root. Depth is exponential over asset maps and trigger arrays: raise it on a named subtree, not on the root.\n";
+var init_arg_max_depth = () => {};
 
 // src/agent/tools/list.ts
 function classifyNode(v) {
@@ -36501,6 +36787,8 @@ var init_list = __esm(() => {
   init_arg_path7();
   init_arg_character_id3();
   init_arg_include_unattached();
+  init_arg_max_entries();
+  init_arg_max_depth();
   inputSchema37 = exports_external.object({
     path: exports_external.string().describe("Container path. Empty / 'char' for the character overview. 'rx' for regex scripts. 'wb' for world books. 'wb/<bookId>' for entries in a book. 'char/alternate_greetings' for all greetings. 'char/extensions[/dotted]' for an extensions subtree. 'persona' for all personas. 'preset' for all presets. 'preset/<presetId>' for a preset's blocks."),
     max_entries: exports_external.number().int().positive().max(2000).optional().describe("Max items returned. Default 200."),
@@ -36516,8 +36804,8 @@ var init_list = __esm(() => {
       type: "object",
       properties: {
         path: { type: "string", description: arg_path_default7 },
-        max_entries: { type: "integer", minimum: 1, maximum: 2000 },
-        max_depth: { type: "integer", minimum: 1, maximum: 10 },
+        max_entries: { type: "integer", minimum: 1, maximum: 2000, description: arg_max_entries_default },
+        max_depth: { type: "integer", minimum: 1, maximum: 10, description: arg_max_depth_default },
         character_id: { type: "string", description: arg_character_id_default3 },
         include_unattached: { type: "boolean", description: arg_include_unattached_default }
       },
@@ -36597,7 +36885,7 @@ var init_list = __esm(() => {
 });
 
 // src/agent/prompts/claude/tools/rewrite/description.txt
-var description_default38 = "Wholesale-overwrite any string-valued surface by path. Use instead of `edit` when:\n- The whole field changes (full translation, tone refactor, schema migration).\n- Find/replace keeps failing on stylized text (zalgo, hand-tuned diacritics, NFC drift).\n- The replacement is structurally different enough that finding a stable anchor is futile.\n\nRequires a recent `read` on the same path. Pass `new_content` for a literal payload, or `new_content_handle` to reuse a draft a prior failed call stashed for you.\n\nReturns:\n- `path`         \u2014 canonical leaf path that was written.\n- `before_chars`, `after_chars` \u2014 body size before vs after.\n- `patch`        \u2014 `{additions, deletions, hunks}` jsdiff-structured for the UI.";
+var description_default38 = "Wholesale-overwrite any string-valued surface by path. Use instead of `edit` when:\n- The whole field changes (full translation, tone refactor, schema migration).\n- Find/replace keeps failing on stylized text (zalgo, hand-tuned diacritics, NFC drift).\n- The replacement is structurally different enough that finding a stable anchor is futile.\n\nRequires a recent `read` on the same path (same gate as `edit`: 60 minutes, persists across messages in this session, and a read issued as a `custom_tool_run` step counts). Pass `new_content` for a literal payload, or `new_content_handle` to reuse a draft a prior failed call stashed for you.\n\nReturns:\n- `path`         \u2014 canonical leaf path that was written.\n- `before_chars`, `after_chars` \u2014 body size before vs after.\n- `patch`        \u2014 `{additions, deletions, hunks}` jsdiff-structured for the UI.";
 var init_description38 = () => {};
 
 // src/agent/prompts/claude/tools/rewrite/arg_path.txt
@@ -36704,26 +36992,7 @@ ${draftReuseNote(h, next.length, "new_content")}`, isError: true };
 });
 
 // src/agent/prompts/claude/tools/set/description.txt
-var description_default39 = `Wholesale write of any JSON value at a path. Use for structural changes the read/edit/rewrite trio can't make:
-
-- Toggling a boolean (regex.disabled, world_book_entry.constant)
-- Changing a number (priority, position, sort_order, depth)
-- Replacing an array / object value (e.g. extensions.lumirealm.payload.scriptstate_defaults)
-- Replacing character tags: \`set({path:"char/tags", value:["tag one","tag two"]})\`
-- Setting a typed value at an extension path that isn't a string
-- Attaching / changing a persona's world book: \`set({path:"persona/<personaId>/attached_world_book_id", value:"<worldBookId>"})\`; \`value:null\` detaches
-
-Path grammar matches \`read\` / \`edit\` / \`rewrite\`. The value field accepts any JSON-encodable type. For string-leaf paths, set is a wholesale alternative to \`rewrite\` (no read-gate, so use only when you don't need to anchor against current content).
-
-Records before/after in the ledger like every other edit \u2014 fully revertable.
-
-For multi-field atomic character updates use \`update_character({patch})\`.
-
-Returns:
-- \`path\` \u2014 path written.
-- \`before_chars\`, \`after_chars\` \u2014 string length before vs after (non-string values are JSON-stringified for measurement).
-- \`before_peek\`, \`after_peek\` \u2014 first 120 chars of each side, for verification.
-`;
+var description_default39 = 'Wholesale write of any JSON value at a path. Use for structural changes the read/edit/rewrite trio can\'t make:\n\n- Lorebook entry metadata: `set({path:"wb/<entryId>/constant", value:true})`. Also disabled, priority, position, depth, role, and the rest; entry field names ARE whitelisted, so a typo errors with the valid list. `key` / `keysecondary` are the exception, they are coerced into a string array, so a scalar or comma-string is silently reshaped.\n- Book-level fields: `wb/<bookId>/<name|description|metadata>`, resolved by lookup against the same grammar.\n- Regex script metadata: `set({path:"rx/<scriptId>/disabled", value:true})`, and likewise sort_order / target / placement / flags / name.\n- Field names are NOT validated on the `rx/<id>/` and `wb/<bookId>/` branches: a misspelled field reports success and records a ledger entry while writing nothing. Confirm with `inspect` after, or spell from `update_regex_script` / `list`.\n- Replacing an array / object value (e.g. extensions.lumirealm.payload.scriptstate_defaults)\n- Replacing character tags: `set({path:"char/tags", value:["tag one","tag two"]})`. Across MANY characters use `bulk_update_character_tags` instead: one dry-run diff, one approval, one reversible edit per card, rather than N separate `set` calls.\n- Setting a typed value at an extension path that isn\'t a string\n- Attaching / changing a persona\'s world book: `set({path:"persona/<personaId>/attached_world_book_id", value:"<worldBookId>"})`; `value:null` detaches. Character / chat / global world-book bindings go through `attach_world_book`, not `set`.\n\nPath grammar matches `read` / `edit` / `rewrite`, including `char/<id>/<field>` to address a character other than the focus. There is no `character_id` argument. `char/tags` is normalised before storage: each tag is trimmed, and empty or duplicate tags are dropped. Check `after_peek` rather than assuming what you sent was stored verbatim. The value field accepts any JSON-encodable type. For string-leaf paths, set is a wholesale alternative to `rewrite` (no read-gate, so use only when you don\'t need to anchor against current content).\n\nRecords before/after in the ledger like every other edit \u2014 fully revertable.\n\nFor multi-field atomic character updates use `update_character({patch})`.\n\nReturns:\n- `path` \u2014 path written.\n- `before_chars`, `after_chars` \u2014 string length before vs after (non-string values are JSON-stringified for measurement).\n- `before_peek`, `after_peek` \u2014 first 120 chars of each side, for verification.\n';
 var init_description39 = () => {};
 
 // src/agent/prompts/claude/tools/set/arg_path.txt
@@ -37947,29 +38216,7 @@ var init_random_pick = __esm(() => {
 });
 
 // src/agent/prompts/claude/tools/read/description.txt
-var description_default52 = `Reads any string-valued surface on the character by path.
-
-Path grammar:
-  char/<field>                          top-level character string (description, first_mes, scenario, personality, mes_example, system_prompt, post_history_instructions, creator_notes, creator, name)
-  char/tags                             tags as a compact JSON string array
-  char/alternate_greetings/<idx>        one greeting by 0-based index
-  char/alternate_fields/<field>/<variantId>/<content|label>  one variant of description / personality / scenario. Discover ids via list({path:"char/alternate_fields/<field>"}).
-  char/extensions/<dotted-extension>    a string leaf under character.extensions (dotted-with-brackets, e.g. lumirealm.payload.triggers[0].effect[0].value)
-  rx/<scriptId>/find_regex              regex script pattern
-  rx/<scriptId>/replace_string          regex script body
-  wb/<entryId>/content                  lorebook entry body
-  wb/<entryId>/comment                  lorebook entry label
-  persona/<id>/<name|title|description>  a user persona field
-  persona/<id>/wb/<entryId>/<content|comment>  persona world-book entry
-  persona/<id>/addon/<addonId>/<content|label>  a persona-scoped add-on
-  global_addon/<id>/<content|label>     a reusable global add-on (read_persona resolves the ids)
-  chat/<chatId>/msg/<msgId>/content     one solo or group chat message
-  preset/<presetId>/block/<blockId>/<content|name>  prompt-preset block
-
-Records the path as 'recently read' so a subsequent \`edit\` on the same path passes the read-gate.
-
-Returns: a plain string body. Most of the time that's line-numbered text (\`   1\\tcontent line\\n   2\\t...\`). If the body would exceed the per-call budget it spills, and you get JSON of the form \`{spilled: true, tmp_handle: "tmp_...", peek, total_chars, total_lines, hint}\` \u2014 pass \`tmp_handle\` to \`tmp_grep\` / \`tmp_read\` / \`tmp_stat\` from there.
-`;
+var description_default52 = "Reads any string-valued surface on the character by path.\n\nThere is NO `character_id` argument on `read` / `edit` / `rewrite` / `set`; passing one is rejected as an unrecognized key. To reach a character other than the session focus, put its id in the path: `char/<id>/<field>` works everywhere `char/<field>` does (`list_characters` enumerates ids). With no focus, unqualified `char/<field>` fails `[PATH_NOT_FOUND] ... [NO_TARGET]`; read the trailing code, the leading one just says the path did not resolve.\n\nPath grammar:\n  char/<field>                          top-level character string (description, first_mes, scenario, personality, mes_example, system_prompt, post_history_instructions, creator_notes, creator, name)\n  char/<id>/<field>                     the same, on an explicit character by id. The `<id>/` segment is accepted before every char/ form below.\n  char/tags                             tags as a compact JSON string array\n  char/alternate_greetings/<idx>        one greeting by 0-based index\n  char/alternate_fields/<field>/<variantId>/<content|label>  one variant of description / personality / scenario. Discover ids via list({path:\"char/alternate_fields/<field>\"}).\n  char/extensions/<dotted-extension>    a string leaf under character.extensions (dotted-with-brackets, e.g. lumirealm.payload.triggers[0].effect[0].value)\n  rx/<scriptId>/find_regex              regex script pattern\n  rx/<scriptId>/replace_string          regex script body\n  wb/<entryId>/content                  lorebook entry body\n  wb/<entryId>/comment                  lorebook entry label\n  persona/<id>/<name|title|description>  a user persona field\n  persona/<id>/wb/<entryId>/<content|comment>  persona world-book entry\n  persona/<id>/addon/<addonId>/<content|label>  a persona-scoped add-on\n  global_addon/<id>/<content|label>     a reusable global add-on (read_persona resolves the ids)\n  chat/<chatId>/msg/<msgId>/content     one solo or group chat message\n  preset/<presetId>/block/<blockId>/<content|name>  prompt-preset block\n\nRecords the path as 'recently read' so a subsequent `edit` on the same path passes the read-gate.\n\nReturns: a plain string body. Most of the time that's line-numbered text (`   1\\tcontent line\\n   2\\t...`). If the body would exceed the per-call budget it spills, and you get JSON of the form `{spilled: true, tmp_handle: \"tmp_...\", peek, total_chars, total_lines, hint}` \u2014 pass `tmp_handle` to `tmp_grep` / `tmp_read` / `tmp_stat` from there.\n";
 var init_description52 = () => {};
 
 // src/agent/prompts/claude/tools/read/arg_path.txt
@@ -38537,7 +38784,7 @@ var init_squash_session_edits = __esm(() => {
   init__context();
   init_description57();
   inputSchema57 = exports_external.object({
-    phase_label: exports_external.string().max(120).optional().describe("Optional label for what this phase represented (e.g. 'translation pass', 'tone refactor'). Stored on the merged patch's description.")
+    phase_label: exports_external.string().max(120).optional().describe("Optional label for what this phase represented (e.g. 'translation pass', 'tone refactor'). Echoed back in the result only; it is not persisted onto the merged patch.")
   }).strict();
   squashSessionEditsTool = defineTool({
     name: "squash_session_edits",
@@ -41019,7 +41266,7 @@ var init_todo_write = __esm(() => {
 // src/agent/prompts/claude/tools/tool-search/description.txt
 var description_default90 = `Fetches full schema definitions for deferred tools so they can be called.
 
-Deferred tools appear by name only in the system prompt under "Deferred tools available via tool_search". Their input schemas are not loaded, so calling them directly will fail. Use this tool with query "select:<name>[,<name>...]" to load the full schema, then invoke the tool normally on the next turn.
+Deferred tools appear by name only in the system prompt under "Deferred tools available via tool_search". Their input schemas are not loaded, so calling them directly will fail. Use this tool with query "select:<name>[,<name>...]" to load the full schema, then invoke the tool normally on your next step. That step is in this same response, not after the user's next message, so a search costs one step, not a round-trip.
 
 Result format: each matched tool appears as one <function>{"description":"...","name":"...","parameters":{...}}</function> line inside a <functions> block. Once a tool's schema appears in that result, it becomes callable like any tool defined at the top of the prompt.
 
@@ -41148,7 +41395,7 @@ var init_tool_search = __esm(() => {
       ctx.discoverTools?.(pickedNames);
       const stillDeferred = pickedNames.filter((n) => isDeferredTool(n));
       const alreadyLoaded = pickedNames.filter((n) => !isDeferredTool(n));
-      const header = `Loaded ${schemas3.length} tool schema${schemas3.length === 1 ? "" : "s"}. They are now callable on the next turn.`;
+      const header = `Loaded ${schemas3.length} tool schema${schemas3.length === 1 ? "" : "s"}. Call them on your very next step in this same response. Don't wait for the user, and don't route around them.`;
       const noteLines = [];
       if (alreadyLoaded.length > 0) {
         noteLines.push(`Note: ${alreadyLoaded.join(", ")} ${alreadyLoaded.length === 1 ? "was" : "were"} already loaded. Selecting an already-loaded tool is a harmless no-op.`);

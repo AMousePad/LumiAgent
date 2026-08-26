@@ -1,0 +1,1 @@
+Extensions recursion depth. Default 4, or 1 at the `char/extensions` root. Depth is exponential over asset maps and trigger arrays: raise it on a named subtree, not on the root.

@@ -1,1 +1,1 @@
-Args for that tool; values may contain {{$var}} refs.
+Args for that tool, validated against its own schema when the step runs. Every arg it needs goes here, including `character_id`. Values may contain {{$var}} refs.

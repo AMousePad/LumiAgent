@@ -16,11 +16,19 @@ Path forms:
 
 `char/`, `rx`, `wb` need an active character; `persona` / `preset` do not.
 
+Targeting: `list` takes the character as the `character_id` ARGUMENT and does not parse an id inside the path. `char/<id>/extensions` is not a list path: it fails `[NO_TARGET]` with no focus, and with a focus it silently ignores the id and then errors as an unknown path. Write `{path: "char/extensions", character_id: "<id>"}`. (`read` / `edit` / `rewrite` / `set` are the opposite: id in the path, no argument.)
+
+Rows come back UNQUALIFIED: `char/description`, not `char/<id>/description`. If you listed with a `character_id` other than the focus, re-add `char/<id>/` before passing a `char/` row to `read` / `edit`, or you will silently address the focused character instead. `rx/` `wb/` `persona/` `preset/` rows carry their own ids and round-trip as-is.
+
+On a `char/extensions/<dotted>` path, `count: 0` means there is nothing to walk: an empty container, a non-container value (string / number / boolean / null), or children an extension hides from reads. A missing key errors instead. Use `inspect` on the path to tell a string leaf apart from an empty container.
+
 Each returned row carries:
-- `path`     — pass straight to `read` / `inspect` / `edit`.
-- `type`     — one of: `string`, `array`, `object`, `regex_script`, `world_book`, `wb_entry`, etc.
+- `path`     — directly readable only for `type: "string"` rows and `char/tags`. Every other row is a container: append a field or index first (`wb/<entryId>/content`, `char/alternate_greetings/0`, `preset/<id>/block/<bid>/content`, `char/alternate_fields/<field>/<variantId>/content`). See the paragraph after this list.
+- `type`     — `string`, `array`, `object`, `number`, `boolean`, `null`, or a named kind (`regex_script`, `world_book`, `wb_entry`, `persona`, `preset`, `preset_block`, `alternate_fields`, `alt_field_group`, `alt_field_variant`).
 - `label`    — human name when there is one (regex script name, world book name, entry comment).
 - `size`     — for string leaves: character count. For arrays/objects: child count. For `wb_entry`: content character count.
 - `entries`  — only on `world_book` rows: total entry count in the book. Read this, not `size`, to gauge book volume.
 
-Container paths (`rx/<scriptId>`, `wb/<entryId>`) are inspectable as a whole via `inspect`; to `read` / `edit` a string leaf, append the field name (`rx/<scriptId>/find_regex` or `/replace_string`; `wb/<entryId>/content` or `/comment`). Leaf paths (`char/<field>`, `char/alternate_greetings/<idx>`, `char/extensions/<dotted>`) are directly read/editable.
+Container paths (`rx/<scriptId>`, `wb/<entryId>`) are inspectable as a whole via `inspect`; to `read` / `edit` a string leaf, append the field name (`rx/<scriptId>/find_regex` or `/replace_string`; `wb/<entryId>/content` or `/comment`). A `wb_entry` row's `size` is its content length, so `wb/<entryId>` looks readable but is not. `set` reaches an entry's non-string metadata the same way (`wb/<entryId>/constant`). Leaf paths (`char/<field>`, `char/alternate_greetings/<idx>`, `char/extensions/<dotted>`) are directly read/editable.
+
+`char/extensions` at depth > 1 is the usual cause of an oversized spill on a LumiRealm card (asset maps and trigger arrays run to thousands of leaves). Pass `max_entries` and scope to a subtree rather than paging a tmp handle.

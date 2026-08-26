@@ -1,4 +1,6 @@
-Apply a phrase-to-translation map across the union of surfaces in one call, sorted longest-first to avoid shorter-key-clobbers-longer-key. Each surface's hits batch into one edit (one diff card). Scopes default to character + world_books + regex_scripts.replace_string + extensions string leaves; `find_regex` is never touched.
+Apply a literal find/replace map across the union of surfaces in one call. Translation is the common case, but any many-keys-one-sweep rewrite qualifies (renames, stat bumps, terminology fixes) and beats fanning out dozens of `edit` calls. Each surface's hits batch into one edit (one diff card). Scopes default to character + world_books + regex_scripts.replace_string + extensions string leaves; `find_regex` is never touched.
+
+Semantics: ONE left-to-right pass over the source, taking the longest matching key at each position and advancing past it. Output is never re-scanned, so entry A's replacement can never be re-matched by entry B. `{"Age: 11": "Age: 18", "Age: 18": "Age: 25"}` does NOT cascade, each source occurrence maps once.
 
 Safety: refuses single-character CJK keys by default (substring collisions: '비'→'Rain' corrupts '비명'→'Rain명'); pass allow_short_cjk=true only after auditing. Run dry_run=true first to see hit counts.
 

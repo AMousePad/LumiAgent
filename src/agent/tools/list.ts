@@ -8,6 +8,8 @@ import description from "../prompts/claude/tools/list/description.txt";
 import argPath from "../prompts/claude/tools/list/arg_path.txt";
 import argCharacterId from "../prompts/claude/tools/list/arg_character_id.txt";
 import argIncludeUnattached from "../prompts/claude/tools/list/arg_include_unattached.txt";
+import argMaxEntries from "../prompts/claude/tools/list/arg_max_entries.txt";
+import argMaxDepth from "../prompts/claude/tools/list/arg_max_depth.txt";
 
 const inputSchema = z.object({
   path: z.string().describe("Container path. Empty / 'char' for the character overview. 'rx' for regex scripts. 'wb' for world books. 'wb/<bookId>' for entries in a book. 'char/alternate_greetings' for all greetings. 'char/extensions[/dotted]' for an extensions subtree. 'persona' for all personas. 'preset' for all presets. 'preset/<presetId>' for a preset's blocks."),
@@ -261,8 +263,8 @@ export const listTool = defineTool({
     type: "object",
     properties: {
       path: { type: "string", description: argPath },
-      max_entries: { type: "integer", minimum: 1, maximum: 2000 },
-      max_depth: { type: "integer", minimum: 1, maximum: 10 },
+      max_entries: { type: "integer", minimum: 1, maximum: 2000, description: argMaxEntries },
+      max_depth: { type: "integer", minimum: 1, maximum: 10, description: argMaxDepth },
       character_id: { type: "string", description: argCharacterId },
       include_unattached: { type: "boolean", description: argIncludeUnattached },
     },

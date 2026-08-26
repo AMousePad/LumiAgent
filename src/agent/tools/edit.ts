@@ -74,7 +74,7 @@ export const editTool = defineTool({
       return { content: `${gateError}\n\n${draftReuseNote(h, replace.length, "replace")}`, isError: true };
     }
 
-    // Freshness gate: even within the 10-minute window, the spindle value
+    // Freshness gate: even within the recent-read window, the spindle value
     // may have shifted (external write, prior edit in this turn). Hash
     // mismatch fails LOUD so the agent re-reads instead of overwriting
     // someone else's edit.

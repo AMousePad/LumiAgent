@@ -1,1 +1,1 @@
-object mapping source phrase to translation. Example: {"안녕": "Hello", "감사합니다": "Thank you"}
+object mapping source phrase to its literal replacement. Keys are literals, not regex. Example: {"안녕": "Hello", "감사합니다": "Thank you"}

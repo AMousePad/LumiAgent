@@ -130,7 +130,7 @@ export const toolSearchTool = defineTool<Input>({
     const stillDeferred = pickedNames.filter((n) => isDeferredTool(n));
     const alreadyLoaded = pickedNames.filter((n) => !isDeferredTool(n));
 
-    const header = `Loaded ${schemas.length} tool schema${schemas.length === 1 ? "" : "s"}. They are now callable on the next turn.`;
+    const header = `Loaded ${schemas.length} tool schema${schemas.length === 1 ? "" : "s"}. Call them on your very next step in this same response. Don't wait for the user, and don't route around them.`;
     const noteLines: string[] = [];
     if (alreadyLoaded.length > 0) {
       noteLines.push(`Note: ${alreadyLoaded.join(", ")} ${alreadyLoaded.length === 1 ? "was" : "were"} already loaded. Selecting an already-loaded tool is a harmless no-op.`);
