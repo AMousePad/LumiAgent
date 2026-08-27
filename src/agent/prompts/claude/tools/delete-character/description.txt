@@ -1,5 +1,0 @@
-Permanently delete a character card from the user's library.
-
-This is unrecoverable and NOT in the edit ledger: revert cannot restore a deleted character, and its chats, edit history, and ledger become orphaned. Confirm with the user by name before deleting anything they did not explicitly ask to remove in this conversation. The `confirm_name` argument must match the card's current name exactly, as a guard against deleting the wrong id.
-
-Attached world books are not deleted; they stay in the library unattached.

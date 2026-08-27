@@ -64,7 +64,7 @@ export const createCharacterTool = defineTool({
         content: JSON.stringify({
           created: { id: c.id, name: c.name },
           address_as: `char/${c.id}/<field>`,
-          note: "Not in the edit ledger; delete_character is the undo.",
+          note: "Not in the edit ledger. Removal is user-side, in the Lumiverse character manager.",
         }, null, 2),
       };
     } catch (err) { return { content: `Error: [SPINDLE_ERROR] ${(err as Error).message}`, isError: true }; }
