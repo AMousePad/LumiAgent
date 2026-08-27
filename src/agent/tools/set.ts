@@ -188,7 +188,10 @@ async function setPresetField(ctx: ToolCtx, presetId: string, field: string, val
   const p = await ctx.spindle.presets.get(presetId, ctx.userId);
   if (!p) return `preset ${presetId} not found`;
   const before = (p as unknown as Record<string, unknown>)[field];
-  await ctx.spindle.presets.update(presetId, { [field]: value } as UserPresetUpdateDTO, ctx.userId);
+  // Optimistic concurrency: the host compares expected_cache_revision and throws
+  // on mismatch, so a preset the user edited between our get and update fails
+  // loud instead of silently clobbering their change.
+  await ctx.spindle.presets.update(presetId, { [field]: value, expected_cache_revision: p.cache_revision ?? 0 } as UserPresetUpdateDTO, ctx.userId);
   return { before: stringify(before), after: stringify(value), label: p.name, surface: "preset", surfaceId: presetId, field };
 }
 

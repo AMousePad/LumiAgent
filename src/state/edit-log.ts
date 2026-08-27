@@ -18,7 +18,7 @@ import type {
   UserPresetDTO,
   UserPresetCreateDTO,
   UserPresetUpdateDTO,
-  PromptBlockDTO,
+  PromptBlockSnapshotDTO,
   PromptBlockCreateDTO,
 } from "lumiverse-spindle-types";
 import type { WorldBookSnapshot, PresetSnapshot, AlternateFieldVariantSnapshot } from "../types";
@@ -224,12 +224,18 @@ function presetCreateFromDTO(p: UserPresetDTO): UserPresetCreateDTO {
   return out;
 }
 
-function blockCreateFromDTO(b: PromptBlockDTO): PromptBlockCreateDTO {
+function blockCreateFromDTO(b: PromptBlockSnapshotDTO): PromptBlockCreateDTO {
   // Keep the id: the host's create honors a supplied id (like regex script_id),
   // so delete-revert restores the SAME block id. Dropping it minted a fresh
   // UUID, orphaning the preset_block edit/read gate (keyed presetId:blockId) and
   // any prior field-edit ledger entries on the old id.
-  return { ...b } as PromptBlockCreateDTO;
+  // placementBinding and the sealed/* provenance fields are host-owned snapshot
+  // semantics, typed `never` on the editable DTO. Feeding them back would forge
+  // LumiHub ownership on a block we recreated, so drop them.
+  const { placementBinding, sealed, sealedKey, sealedSource, sealedOriginPresetId, sealedOriginVersion, sealedSha256, ...editable } = b;
+  void placementBinding; void sealed; void sealedKey; void sealedSource;
+  void sealedOriginPresetId; void sealedOriginVersion; void sealedSha256;
+  return { ...editable } as PromptBlockCreateDTO;
 }
 
 type PathSegment = { kind: "key"; value: string } | { kind: "index"; value: number };
@@ -462,7 +468,7 @@ export async function revertEdit(
         return { success: true };
       }
       if (r.surface === "preset_block") {
-        const snap = r.snapshot as PromptBlockDTO & { __presetId: string; __index: number };
+        const snap = r.snapshot as PromptBlockSnapshotDTO & { __presetId: string; __index: number };
         await spindle.presets.blocks.create(snap.__presetId, blockCreateFromDTO(snap), { index: snap.__index, userId });
         return { success: true };
       }
@@ -767,7 +773,11 @@ export async function writeFieldValue(
       return;
     }
     case "preset": {
-      await spindle.presets.update(surfaceId, { [field]: decodeScalar(field, value) } as UserPresetUpdateDTO, userId);
+      // Revert reads the live revision first so the write carries optimistic
+      // concurrency. A preset the user changed since the edit fails loud rather
+      // than the revert silently overwriting their newer state.
+      const live = await spindle.presets.get(surfaceId, userId);
+      await spindle.presets.update(surfaceId, { [field]: decodeScalar(field, value), expected_cache_revision: live?.cache_revision ?? 0 } as UserPresetUpdateDTO, userId);
       return;
     }
     case "persona": {
