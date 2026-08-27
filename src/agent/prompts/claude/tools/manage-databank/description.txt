@@ -1,0 +1,14 @@
+Write side of the databank (RAG document collection) surface. One tool, action-dispatched; the read side is `list_databanks` / `read_databank` / `list_databank_documents` / `read_databank_document`.
+
+Actions:
+- `create_bank`: value {name (required), description?, scope: global|character|chat (required), scope_id? (the character/chat id for scoped banks)}
+- `update_bank`: databank_id + value {name?, description?, enabled?}
+- `delete_bank`: databank_id. Destroys its documents too.
+- `add_document`: databank_id + value {name (required), content (required, text)}. The host chunks and embeds it; check `list_databank_documents` for status "processed" before expecting retrieval hits.
+- `rename_document`: document_id + value {name}
+- `delete_document`: document_id
+- `reprocess_document`: document_id. Re-chunk and re-embed, e.g. after an embedding-model change.
+
+Typical loop: `web_search({save_to})` or research produces text, `add_document` makes it retrievable in generations for the bank's scope. Documents go in as text; binary uploads are not supported through this tool.
+
+Databank writes are NOT in the edit ledger; deletes are unrecoverable.

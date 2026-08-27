@@ -140,6 +140,7 @@ const TOOL_LABELS: Readonly<Record<string, string>> = {
   revert_session_edits: "Revert prior agent changes",
   rewrite: "Rewrite card content",
   set: "Set card content",
+  manage_databank: "Change a databank",
   set_chat_variable: "Set a chat variable",
   set_variable: "Set a Lumiverse variable",
   remember_fact: "Write a long-term memory fact",

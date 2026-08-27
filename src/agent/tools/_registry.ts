@@ -48,6 +48,7 @@ import { listMemoryEntitiesTool } from "./list-memory-entities";
 import { rememberFactTool } from "./remember-fact";
 import { updateMemoryEntityTool } from "./update-memory-entity";
 import { setVariableTool } from "./set-variable";
+import { manageDatabankTool } from "./manage-databank";
 import { grepTool } from "./grep";
 import { grepChatMessagesTool } from "./grep-chat-messages";
 import { grepExternalTool } from "./grep-external";
@@ -126,6 +127,7 @@ const DEFERRED_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   "list_chat_world_books", "attach_world_book",
   "list_personas", "read_persona", "read_persona_world_book",
   "list_databanks", "read_databank", "list_databank_documents", "read_databank_document",
+  "manage_databank",
   "list_connections", "read_connection",
   "get_active_chat", "get_user_info", "get_lumiverse_version",
   // Chat reading is niche unless the user pins a chat; on a pin the agent
@@ -214,6 +216,7 @@ const READ_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   "list_chat_world_books",
   "list_personas", "read_persona", "read_persona_world_book",
   "list_databanks", "read_databank", "list_databank_documents", "read_databank_document",
+  "manage_databank",
   "list_connections", "read_connection",
   "get_active_chat", "get_user_info", "get_lumiverse_version",
   // Ledger reads
@@ -321,6 +324,7 @@ registry.register(listMemoryEntitiesTool);
 registry.register(rememberFactTool);
 registry.register(updateMemoryEntityTool);
 registry.register(setVariableTool);
+registry.register(manageDatabankTool);
 registry.register(grepChatMessagesTool);
 registry.register(grepExternalTool);
 registry.register(listCharactersTool);
