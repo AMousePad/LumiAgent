@@ -92,7 +92,7 @@ interface UiState {
   scopeLedgers: Map<string, readonly EditLogEntry[]>;
   chatsForCharacter: ChatSummary[];
   pinnedChatId: string | null;
-  settings: { persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody?: string; samplers?: Readonly<Record<string, number | null>>; jailbreak?: string; jailbreakPlacement?: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes?: number | null; workspaceCapDefaultBytes?: number; workspaceFileCapBytes?: number; toolOutputCapTokens?: number | null; toolOutputCapDefaultTokens?: number; cacheMode?: "off" | "system_only" | "full"; parallelToolCalls?: boolean; tpmLimit?: number | null; debugLogging?: boolean; requireChangeApproval?: boolean; reasoningEffort?: "inherit" | "off" | "minimal" | "low" | "medium" | "high" | "max" } | null;
+  settings: { persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody?: string; samplers?: Readonly<Record<string, number | null>>; jailbreak?: string; jailbreakPlacement?: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes?: number | null; workspaceCapDefaultBytes?: number; workspaceFileCapBytes?: number; toolOutputCapTokens?: number | null; toolOutputCapDefaultTokens?: number; cacheMode?: "off" | "system_only" | "full"; parallelToolCalls?: boolean; tpmLimit?: number | null; rpmLimit?: number | null; debugLogging?: boolean; requireChangeApproval?: boolean; reasoningEffort?: "inherit" | "off" | "minimal" | "low" | "medium" | "high" | "max" } | null;
   pendingPinChatId: string | null;
   // Single-shot, reset after consume so a later list_chats won't re-pin after the user explicitly unpinned.
   autoPinNeeded: boolean;
@@ -1585,6 +1585,18 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     wrap.appendChild(tpmRow);
     wrap.appendChild(el("div", "la-settings-hint", "Pauses requests when prompt+completion tokens in the last 60s would exceed this. Set to your provider's tokens-per-minute quota (e.g. 250000 for Gemini free tier). Empty = no throttle."));
 
+    const rpmRow = el("div", "la-settings-row");
+    rpmRow.append(el("label", "la-settings-row-label", "RPM limit (req/min)"));
+    const rpmInput = document.createElement("input");
+    rpmInput.type = "number";
+    rpmInput.className = "la-slider-input";
+    rpmInput.min = "1";
+    rpmInput.step = "1";
+    rpmInput.placeholder = "off";
+    rpmRow.appendChild(rpmInput);
+    wrap.appendChild(rpmRow);
+    wrap.appendChild(el("div", "la-settings-hint", "Caps agent LLM requests per rolling 60s, for providers whose quota is request count rather than tokens. Empty = no throttle."));
+
     wrap.appendChild(el("hr", "la-settings-divider"));
 
     wrap.appendChild(el("label", "la-settings-label", "Change approval"));
@@ -1734,7 +1746,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       // round-trip. Skip the rewrite while one of the form's text fields is focused.
       const active = document.activeElement;
       if (active === personaArea || active === promptArea || active === jbArea
-        || active === wsCapInput || active === toolCapInput || active === tpmInput) return;
+        || active === wsCapInput || active === toolCapInput || active === tpmInput || active === rpmInput) return;
       personaArea.value = s.persona;
       personaArea.placeholder = "(empty: agent has no persona)";
       // Show the default body when override is null so the user can see what's
@@ -1756,6 +1768,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       debugLogInput.checked = s.debugLogging ?? false;
       changeApprovalInput.checked = s.requireChangeApproval ?? false;
       tpmInput.value = s.tpmLimit ? String(s.tpmLimit) : "";
+      rpmInput.value = s.rpmLimit ? String(s.rpmLimit) : "";
       renderSamplers();
     };
 
@@ -1898,6 +1911,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         parallelToolCalls: parallelToolsInput.checked,
         reasoningEffort: reasoningSelect.value as "inherit" | "off" | "minimal" | "low" | "medium" | "high" | "max",
         tpmLimit: parsePosInt(tpmInput.value),
+        rpmLimit: parsePosInt(rpmInput.value),
         debugLogging: debugLogInput.checked,
         requireChangeApproval: changeApprovalInput.checked,
       };
@@ -3119,6 +3133,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
           cacheMode: msg.cacheMode,
           parallelToolCalls: msg.parallelToolCalls,
           tpmLimit: msg.tpmLimit,
+          rpmLimit: msg.rpmLimit,
           debugLogging: msg.debugLogging,
           requireChangeApproval: msg.requireChangeApproval,
           ...(msg.reasoningEffort !== undefined ? { reasoningEffort: msg.reasoningEffort } : {}),

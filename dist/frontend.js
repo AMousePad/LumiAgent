@@ -9089,6 +9089,17 @@ Revert those edits to the character now, or leave them applied?`;
     tpmRow.appendChild(tpmInput);
     wrap.appendChild(tpmRow);
     wrap.appendChild(el8("div", "la-settings-hint", "Pauses requests when prompt+completion tokens in the last 60s would exceed this. Set to your provider's tokens-per-minute quota (e.g. 250000 for Gemini free tier). Empty = no throttle."));
+    const rpmRow = el8("div", "la-settings-row");
+    rpmRow.append(el8("label", "la-settings-row-label", "RPM limit (req/min)"));
+    const rpmInput = document.createElement("input");
+    rpmInput.type = "number";
+    rpmInput.className = "la-slider-input";
+    rpmInput.min = "1";
+    rpmInput.step = "1";
+    rpmInput.placeholder = "off";
+    rpmRow.appendChild(rpmInput);
+    wrap.appendChild(rpmRow);
+    wrap.appendChild(el8("div", "la-settings-hint", "Caps agent LLM requests per rolling 60s, for providers whose quota is request count rather than tokens. Empty = no throttle."));
     wrap.appendChild(el8("hr", "la-settings-divider"));
     wrap.appendChild(el8("label", "la-settings-label", "Change approval"));
     wrap.appendChild(el8("div", "la-settings-hint", "Pause before each card, chat, lorebook, regex, external-provider, or workspace write so you can approve or reject it."));
@@ -9226,7 +9237,7 @@ Revert those edits to the character now, or leave them applied?`;
         return;
       }
       const active = document.activeElement;
-      if (active === personaArea || active === promptArea || active === jbArea || active === wsCapInput || active === toolCapInput || active === tpmInput)
+      if (active === personaArea || active === promptArea || active === jbArea || active === wsCapInput || active === toolCapInput || active === tpmInput || active === rpmInput)
         return;
       personaArea.value = s.persona;
       personaArea.placeholder = "(empty: agent has no persona)";
@@ -9247,6 +9258,7 @@ Revert those edits to the character now, or leave them applied?`;
       debugLogInput.checked = s.debugLogging ?? false;
       changeApprovalInput.checked = s.requireChangeApproval ?? false;
       tpmInput.value = s.tpmLimit ? String(s.tpmLimit) : "";
+      rpmInput.value = s.rpmLimit ? String(s.rpmLimit) : "";
       renderSamplers();
     };
     const resetAllSamplers = () => {
@@ -9409,6 +9421,7 @@ Revert those edits to the character now, or leave them applied?`;
         parallelToolCalls: parallelToolsInput.checked,
         reasoningEffort: reasoningSelect.value,
         tpmLimit: parsePosInt(tpmInput.value),
+        rpmLimit: parsePosInt(rpmInput.value),
         debugLogging: debugLogInput.checked,
         requireChangeApproval: changeApprovalInput.checked
       };
@@ -10560,6 +10573,7 @@ ${t}` : t;
           cacheMode: msg.cacheMode,
           parallelToolCalls: msg.parallelToolCalls,
           tpmLimit: msg.tpmLimit,
+          rpmLimit: msg.rpmLimit,
           debugLogging: msg.debugLogging,
           requireChangeApproval: msg.requireChangeApproval,
           ...msg.reasoningEffort !== undefined ? { reasoningEffort: msg.reasoningEffort } : {}

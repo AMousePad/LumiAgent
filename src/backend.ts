@@ -582,6 +582,7 @@ async function handleGetSettings(userId: string): Promise<void> {
     cacheMode: settings.cacheMode,
     parallelToolCalls: settings.parallelToolCalls,
     tpmLimit: settings.tpmLimit,
+    rpmLimit: settings.rpmLimit,
     debugLogging: settings.debugLogging,
     requireChangeApproval: settings.requireChangeApproval,
     reasoningEffort: settings.reasoningEffort,
@@ -690,6 +691,7 @@ async function handleUpdateSettings(
   cacheMode: "off" | "system_only" | "full",
   parallelToolCalls: boolean,
   tpmLimit: number | null,
+  rpmLimit: number | null,
   debugLogging: boolean,
   requireChangeApproval: boolean | undefined,
   reasoningEffort: AgentSettings["reasoningEffort"] | undefined,
@@ -709,6 +711,7 @@ async function handleUpdateSettings(
     cacheMode,
     parallelToolCalls,
     tpmLimit,
+    rpmLimit,
     debugLogging,
     requireChangeApproval: persistedApproval,
     reasoningEffort: reasoningEffort ?? prior.reasoningEffort,
@@ -1034,7 +1037,7 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
       ...(settings.samplers.contextSize !== null ? { contextTokens: settings.samplers.contextSize } : {}),
       toolOutputCapTokens: resolveToolOutputCapTokens(settings),
       tokenizerModelId: await resolveModelForConnection(s.connectionId, userId),
-      maxTurns: 8, startingTurn: 0, cacheMode: settings.cacheMode, tpmLimit: settings.tpmLimit, signal: ac.signal,
+      maxTurns: 8, startingTurn: 0, cacheMode: settings.cacheMode, tpmLimit: settings.tpmLimit, rpmLimit: settings.rpmLimit, signal: ac.signal,
       recentReads: recentReadsFor(userId, sessionId),
     })) {
       send({ type: "chat_event", sessionId, event: ev }, userId);
@@ -2609,7 +2612,7 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
       toolOutputCapTokens: resolveToolOutputCapTokens(settings),
       tokenizerModelId: await resolveModelForConnection(s.connectionId, userId),
       maxTurns: DEFAULT_MAX_TURNS_PER_MESSAGE, startingTurn: lastTurn,
-      cacheMode: settings.cacheMode, tpmLimit: settings.tpmLimit, signal: ac.signal,
+      cacheMode: settings.cacheMode, tpmLimit: settings.tpmLimit, rpmLimit: settings.rpmLimit, signal: ac.signal,
       recentReads: recentReadsFor(userId, s.sessionId),
       callFrontend: (op, args, timeoutMs) => callFrontend(userId, op, args, timeoutMs, ac.signal),
     })) {
@@ -3043,7 +3046,7 @@ spindle.onFrontendMessage(async (raw: unknown, userId: string) => {
       case "set_pinned_chat": await handleSetPinnedChat(msg.sessionId, msg.chatId, userId); return;
       case "set_focus": await handleSetFocus(msg.sessionId, msg.characterId, userId); return;
       case "get_settings": await handleGetSettings(userId); return;
-      case "update_settings": await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.cacheMode ?? "full", msg.parallelToolCalls ?? true, msg.tpmLimit ?? null, msg.debugLogging ?? false, msg.requireChangeApproval, msg.reasoningEffort, userId); return;
+      case "update_settings": await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.cacheMode ?? "full", msg.parallelToolCalls ?? true, msg.tpmLimit ?? null, msg.rpmLimit ?? null, msg.debugLogging ?? false, msg.requireChangeApproval, msg.reasoningEffort, userId); return;
       case "get_ui_prefs": await handleGetUiPrefs(userId); return;
       case "update_ui_prefs": await handleUpdateUiPrefs(msg.connectionId, msg.lastSessionId, userId); return;
       case "compact_session": void compactSession(msg.sessionId, userId, "manual"); return;

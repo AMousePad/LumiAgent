@@ -44,6 +44,8 @@ export interface AgentSettings {
   // loop may consume per rolling 60s before it pauses requests. Guards a
   // provider's tokens-per-minute quota (e.g. Gemini free tier 250k TPM).
   readonly tpmLimit: number | null;
+  // Same, but request count per rolling 60s.
+  readonly rpmLimit: number | null;
   // Off by default. When on, diagnostic info logs (send_message, loop.turn,
   // llm.stream, phoneline.discover) go to spindle.log.info. Warn/error always log.
   readonly debugLogging: boolean;
@@ -100,6 +102,7 @@ export function defaultSettings(): AgentSettings {
     cacheMode: "full",
     parallelToolCalls: true,
     tpmLimit: null,
+    rpmLimit: null,
     debugLogging: false,
     requireChangeApproval: false,
     reasoningEffort: "inherit",
@@ -148,6 +151,7 @@ export async function loadSettings(spindle: SpindleAPI, userId: string): Promise
     cacheMode: coerceCacheMode(s["cacheMode"]),
     parallelToolCalls: typeof s["parallelToolCalls"] === "boolean" ? (s["parallelToolCalls"] as boolean) : true,
     tpmLimit: coercePositiveInt(s["tpmLimit"]),
+    rpmLimit: coercePositiveInt(s["rpmLimit"]),
     debugLogging: s["debugLogging"] === true,
     requireChangeApproval: s["requireChangeApproval"] === true,
     reasoningEffort: coerceReasoningEffort(s["reasoningEffort"]),

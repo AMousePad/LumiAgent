@@ -136,6 +136,9 @@ export interface RunAgentInput {
   // Max tokens (prompt + completion) per rolling 60s before the loop pauses
   // requests. null/0 = no throttle. Resolved from AgentSettings.tpmLimit.
   readonly tpmLimit?: number | null | undefined;
+  // Max LLM requests per rolling 60s. Same shape as tpmLimit; guards providers
+  // whose quota is request-count, not tokens (e.g. Gemini free tier RPD/RPM).
+  readonly rpmLimit?: number | null | undefined;
   // Optional backend->frontend RPC. Backend wires this so tools running in
   // the sandbox can request browser-only work (e.g. Chrome Translator API).
   readonly callFrontend?: (op: string, args: unknown, timeoutMs?: number) => Promise<unknown>;
@@ -193,6 +196,16 @@ function pruneTpm(userId: string): { ts: number; tokens: number }[] {
   while (arr.length > 0 && arr[0]!.ts < cutoff) arr.shift();
   tpmWindows.set(userId, arr);
   return arr;
+}
+
+const rpmWindows = new Map<string, number[]>();
+
+function pruneRpm(userId: string): number[] {
+  const arr = rpmWindows.get(userId) ?? [];
+  const cutoff = Date.now() - TPM_WINDOW_MS;
+  const kept = arr.filter((ts) => ts > cutoff);
+  rpmWindows.set(userId, kept);
+  return kept;
 }
 
 function recordTpm(userId: string, tokens: number): void {
@@ -471,6 +484,23 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
       }
       if (signal.aborted) return;
     }
+
+    const rpmLimit = input.rpmLimit ?? null;
+    if (rpmLimit !== null && rpmLimit > 0) {
+      while (!signal.aborted) {
+        const win = pruneRpm(input.userId);
+        if (win.length < rpmLimit) break;
+        const oldest = win[0]!;
+        const waitMs = Math.min(TPM_WINDOW_MS, Math.max(1_000, oldest + TPM_WINDOW_MS - Date.now()));
+        yield {
+          type: "warning",
+          message: `RPM limit reached: ${win.length} requests in the last minute (limit ${rpmLimit}). Pausing ${Math.ceil(waitMs / 1000)}s.`,
+        };
+        await sleep(waitMs, signal);
+      }
+      if (signal.aborted) return;
+    }
+    pruneRpm(input.userId).push(Date.now());
 
     yield { type: "turn_started", turn: turnNum, assistantMessageId: input.assistantMessageId };
 

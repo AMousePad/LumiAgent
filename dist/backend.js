@@ -22680,6 +22680,7 @@ function defaultSettings() {
     cacheMode: "full",
     parallelToolCalls: true,
     tpmLimit: null,
+    rpmLimit: null,
     debugLogging: false,
     requireChangeApproval: false,
     reasoningEffort: "inherit"
@@ -22722,6 +22723,7 @@ async function loadSettings(spindle2, userId) {
     cacheMode: coerceCacheMode(s["cacheMode"]),
     parallelToolCalls: typeof s["parallelToolCalls"] === "boolean" ? s["parallelToolCalls"] : true,
     tpmLimit: coercePositiveInt(s["tpmLimit"]),
+    rpmLimit: coercePositiveInt(s["rpmLimit"]),
     debugLogging: s["debugLogging"] === true,
     requireChangeApproval: s["requireChangeApproval"] === true,
     reasoningEffort: coerceReasoningEffort(s["reasoningEffort"])
@@ -44418,6 +44420,14 @@ function pruneTpm(userId) {
   tpmWindows.set(userId, arr);
   return arr;
 }
+var rpmWindows = new Map;
+function pruneRpm(userId) {
+  const arr = rpmWindows.get(userId) ?? [];
+  const cutoff = Date.now() - TPM_WINDOW_MS;
+  const kept = arr.filter((ts) => ts > cutoff);
+  rpmWindows.set(userId, kept);
+  return kept;
+}
 function recordTpm(userId, tokens) {
   if (tokens <= 0)
     return;
@@ -44663,6 +44673,24 @@ async function* runAgent(input) {
       if (signal.aborted)
         return;
     }
+    const rpmLimit = input.rpmLimit ?? null;
+    if (rpmLimit !== null && rpmLimit > 0) {
+      while (!signal.aborted) {
+        const win = pruneRpm(input.userId);
+        if (win.length < rpmLimit)
+          break;
+        const oldest = win[0];
+        const waitMs = Math.min(TPM_WINDOW_MS, Math.max(1000, oldest + TPM_WINDOW_MS - Date.now()));
+        yield {
+          type: "warning",
+          message: `RPM limit reached: ${win.length} requests in the last minute (limit ${rpmLimit}). Pausing ${Math.ceil(waitMs / 1000)}s.`
+        };
+        await sleep(waitMs, signal);
+      }
+      if (signal.aborted)
+        return;
+    }
+    pruneRpm(input.userId).push(Date.now());
     yield { type: "turn_started", turn: turnNum, assistantMessageId: input.assistantMessageId };
     let content = "";
     let toolCalls = [];
@@ -45784,6 +45812,7 @@ async function handleGetSettings(userId) {
     cacheMode: settings.cacheMode,
     parallelToolCalls: settings.parallelToolCalls,
     tpmLimit: settings.tpmLimit,
+    rpmLimit: settings.rpmLimit,
     debugLogging: settings.debugLogging,
     requireChangeApproval: settings.requireChangeApproval,
     reasoningEffort: settings.reasoningEffort
@@ -45859,7 +45888,7 @@ function buildSamplerParams(samplers, parallelToolCalls, provider) {
   base["parallel_tool_calls"] = parallelToolCalls;
   return base;
 }
-async function handleUpdateSettings(persona, systemPromptOverride, samplers, jailbreak, jailbreakPlacement, workspaceCapBytes, toolOutputCapTokens, cacheMode, parallelToolCalls, tpmLimit, debugLogging, requireChangeApproval, reasoningEffort, userId) {
+async function handleUpdateSettings(persona, systemPromptOverride, samplers, jailbreak, jailbreakPlacement, workspaceCapBytes, toolOutputCapTokens, cacheMode, parallelToolCalls, tpmLimit, rpmLimit, debugLogging, requireChangeApproval, reasoningEffort, userId) {
   const prior = await loadSettings(spindle, userId);
   const persistedApproval = requireChangeApproval ?? prior.requireChangeApproval;
   await saveSettings(spindle, {
@@ -45874,6 +45903,7 @@ async function handleUpdateSettings(persona, systemPromptOverride, samplers, jai
     cacheMode,
     parallelToolCalls,
     tpmLimit,
+    rpmLimit,
     debugLogging,
     requireChangeApproval: persistedApproval,
     reasoningEffort: reasoningEffort ?? prior.reasoningEffort
@@ -46190,6 +46220,7 @@ async function compactSession(sessionId, userId, trigger) {
       startingTurn: 0,
       cacheMode: settings.cacheMode,
       tpmLimit: settings.tpmLimit,
+      rpmLimit: settings.rpmLimit,
       signal: ac.signal,
       recentReads: recentReadsFor(userId, sessionId)
     })) {
@@ -47619,6 +47650,7 @@ async function handleSendMessageInternal(s, userId, connectionIdOverride) {
       startingTurn: lastTurn,
       cacheMode: settings.cacheMode,
       tpmLimit: settings.tpmLimit,
+      rpmLimit: settings.rpmLimit,
       signal: ac.signal,
       recentReads: recentReadsFor(userId, s.sessionId),
       callFrontend: (op, args, timeoutMs) => callFrontend(userId, op, args, timeoutMs, ac.signal)
@@ -48057,7 +48089,7 @@ spindle.onFrontendMessage(async (raw, userId) => {
         await handleGetSettings(userId);
         return;
       case "update_settings":
-        await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.cacheMode ?? "full", msg.parallelToolCalls ?? true, msg.tpmLimit ?? null, msg.debugLogging ?? false, msg.requireChangeApproval, msg.reasoningEffort, userId);
+        await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.cacheMode ?? "full", msg.parallelToolCalls ?? true, msg.tpmLimit ?? null, msg.rpmLimit ?? null, msg.debugLogging ?? false, msg.requireChangeApproval, msg.reasoningEffort, userId);
         return;
       case "get_ui_prefs":
         await handleGetUiPrefs(userId);
