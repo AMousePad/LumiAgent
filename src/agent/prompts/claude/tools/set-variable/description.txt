@@ -1,0 +1,10 @@
+Set or delete a Lumiverse variable. The write half of `list_variables` / `read_variable`.
+
+Scopes:
+- `chat`: persisted on `chat.metadata.chat_variables`, read by `{{getchatvar}}`. Survives forever with the chat. Needs a chat.
+- `local`: chat-bound runtime variables, the store Risu / LumiRealm triggers write via `setvar`. Trigger effects can overwrite your value when they fire. Needs a chat.
+- `global`: user-level, read by `{{getglobalvar}}`. Applies across every chat.
+
+Values are strings; numbers/booleans should be sent as their string form since that is what the macro engine compares. `clear: true` deletes the key. `chat` and `local` default to the pinned chat.
+
+For the LumiRealm macro-state store (`macro_variables`) use `set_chat_variable` / `set_toggle` instead; for card-side defaults edit `scriptstate_defaults`.

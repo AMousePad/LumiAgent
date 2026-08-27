@@ -47,6 +47,7 @@ import { memoryStatsTool } from "./memory-stats";
 import { listMemoryEntitiesTool } from "./list-memory-entities";
 import { rememberFactTool } from "./remember-fact";
 import { updateMemoryEntityTool } from "./update-memory-entity";
+import { setVariableTool } from "./set-variable";
 import { grepTool } from "./grep";
 import { grepChatMessagesTool } from "./grep-chat-messages";
 import { grepExternalTool } from "./grep-external";
@@ -120,7 +121,7 @@ export const registry = new ToolRegistry();
 const DEFERRED_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   // Lumiverse-state inspectors. Mostly diagnostic; dry_run_prompt stays the anchor.
   "count_tokens", "resolve_macros",
-  "list_variables", "read_variable",
+  "list_variables", "read_variable", "set_variable",
   "list_activated_world_info", "list_active_regex_scripts", "list_chat_memories",
   "list_chat_world_books", "attach_world_book",
   "list_personas", "read_persona", "read_persona_world_book",
@@ -208,7 +209,7 @@ const READ_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   "dry_run_prompt", "resolve_macros", "count_tokens",
   "list_image_models", "list_images", "list_global_addons", "get_theme",
   "memory_stats", "list_memory_entities",
-  "list_variables", "read_variable",
+  "list_variables", "read_variable", "set_variable",
   "list_activated_world_info", "list_active_regex_scripts", "list_chat_memories",
   "list_chat_world_books",
   "list_personas", "read_persona", "read_persona_world_book",
@@ -319,6 +320,7 @@ registry.register(memoryStatsTool);
 registry.register(listMemoryEntitiesTool);
 registry.register(rememberFactTool);
 registry.register(updateMemoryEntityTool);
+registry.register(setVariableTool);
 registry.register(grepChatMessagesTool);
 registry.register(grepExternalTool);
 registry.register(listCharactersTool);
