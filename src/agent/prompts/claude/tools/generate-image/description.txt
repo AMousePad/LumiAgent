@@ -1,0 +1,9 @@
+Generate an image with the user's configured Lumiverse image generation provider (permission `image_gen`).
+
+The base64 payload is NOT returned by default, only `image_id` and `image_url`, because the bytes would swamp your context. Pass `save_to` to also write the file into the workspace, or `set_as_avatar: true` to install it as the character's card avatar. Use `view_image` on the saved path if you need to actually look at the result.
+
+Ownership tags matter: `character_id` (defaults to the focused character) and `chat_id` tag the persisted image so it appears in that card's or chat's gallery. Pass `character_id: "none"` to leave it untagged.
+
+Run `list_image_models` first if you don't know what providers, connections, or models the user has, or if a `model` / `parameters` value is rejected. `parameters` is provider-specific and is merged over the connection's defaults.
+
+This writes to the user's image library and is NOT in the edit ledger, so `revert_session_edits` will not undo it. Delete the image explicitly if it isn't wanted.

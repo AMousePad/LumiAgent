@@ -1,0 +1,1 @@
+Also fetch the live model list for this connection. Omit to skip the upstream call.

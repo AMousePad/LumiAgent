@@ -1,0 +1,1 @@
+Image-gen connection to use. Omit for the user's default connection.

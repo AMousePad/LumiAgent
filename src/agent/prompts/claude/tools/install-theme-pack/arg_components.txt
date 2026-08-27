@@ -1,0 +1,1 @@
+Map of catalog component id to {css, [enabled]}. Ids come from get_theme's catalog; unknown ids fail the install.

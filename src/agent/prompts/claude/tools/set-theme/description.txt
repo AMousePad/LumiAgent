@@ -1,0 +1,8 @@
+Change the live UI theme (permission `app_manipulation`). Exactly one mode per call:
+
+- `accent: {h,s,l}` derives a full light+dark palette from one color via Lumiverse's own rules. The user's glass, radius, font, and scale settings are preserved. The safest option.
+- `from_image_id` extracts the dominant color from a library image (see `list_images`, or `generate_image`'s `image_id`) and applies it as the accent. Avatar-to-theme in one call.
+- `variables` pushes raw CSS variable overrides, e.g. `{"--lumiverse-primary": "#7c5cff"}`. Power mode: nothing is derived and bad values make the UI ugly rather than erroring. Keys must start with `--`, max 200, values are single CSS values (no `{ } ; < >`, no external url()). 40+ keys REPLACES this extension's whole override scope instead of merging.
+- `clear: true` removes every override this extension has applied, reverting to the user's base theme.
+
+Overrides are live immediately, layer on top of the user's theme without modifying it, and are auto-cleared when the extension unloads. Not in the edit ledger; `clear` is the undo. Ask before restyling an interface the user did not ask to change.

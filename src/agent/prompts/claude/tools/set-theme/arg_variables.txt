@@ -1,0 +1,1 @@
+Raw CSS variable map. Keys start with `--`. See description for limits and the 40-key replace threshold.

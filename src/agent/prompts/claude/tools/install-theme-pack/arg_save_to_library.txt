@@ -1,0 +1,1 @@
+Also save to the user's theme library so it persists and shows in Settings. Default false.

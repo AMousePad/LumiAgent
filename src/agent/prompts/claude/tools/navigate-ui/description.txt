@@ -1,0 +1,5 @@
+Navigate the user's Lumiverse UI: open a drawer tab or a settings view in their browser.
+
+Use it to take the user to the result of finished work: `drawer_tab` after editing something that tab shows, `settings_view: "connections"` when a connection is broken, and so on. `list: true` returns the available tab and view ids first; ids vary by installed extensions, so list before guessing an id you have not seen this session.
+
+This moves the user's actual UI. Navigate when the user asked for something whose result lives there, at most once per task, never mid-task while they may be reading.

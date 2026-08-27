@@ -1,0 +1,1 @@
+Also fetch the component + variable catalog from the user's browser tab. Slower, and requires an open tab.

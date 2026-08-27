@@ -1,0 +1,1 @@
+Model override. Omit to use the connection's own model. `list_image_models` enumerates valid ids.

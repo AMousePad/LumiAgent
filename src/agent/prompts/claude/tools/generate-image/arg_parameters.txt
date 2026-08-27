@@ -1,0 +1,1 @@
+Provider-specific parameters (steps, cfg, width, height, ...), merged over the connection defaults. `list_image_models` returns each provider's parameter schema with types and ranges.

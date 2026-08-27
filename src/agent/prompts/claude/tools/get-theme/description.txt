@@ -1,0 +1,9 @@
+Read the user's current theme, and optionally the styleable-component / CSS-variable catalog.
+
+`theme` is always returned: preset id, name, resolved light/dark mode, accent HSL, glass / radius / font / UI scale. Use it to generate CSS or card HTML that matches the user's UI instead of guessing colors.
+
+`include_catalog: true` additionally returns, via the user's open browser tab:
+- `components`: every styleable Lumiverse component with its id, label, category, and selector. These ids are what `install_theme_pack`'s `components` map keys on.
+- `variables`: every theme CSS variable with its default and CURRENT computed value.
+
+Call this with the catalog before writing any theme CSS. Authoring against the catalog is reliable; authoring against guessed selectors is not. The catalog needs the LumiAgent drawer open in a browser tab; if no tab responds, the tool returns the theme with a note instead of failing.

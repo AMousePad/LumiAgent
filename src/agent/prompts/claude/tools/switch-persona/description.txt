@@ -1,0 +1,5 @@
+Switch the user's active persona, i.e. who `{{user}}` is in every subsequent generation. Pass `persona_id: "none"` to deactivate.
+
+`create({path:"persona"})` only adds a persona to the list; without this the user has to activate it by hand. Use the two together when building a scenario-specific persona.
+
+`list_personas` enumerates ids, `read_persona` reads one. This takes effect immediately and applies to the user's real chats, not just this agent session, so confirm before switching a persona the user did not ask you to change. It is a user setting, not a card edit, so it is NOT in the edit ledger and `revert_session_edits` will not undo it.

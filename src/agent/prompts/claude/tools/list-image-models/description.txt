@@ -1,0 +1,5 @@
+Orientation for image generation: the user's image-gen connections, the providers behind them, and each provider's parameter schema.
+
+Call this before `generate_image` when you don't know what is configured, or after a generation fails on an unknown model or a rejected parameter. Returns per connection: id, name, provider, model, whether it is the default, and whether it holds an API key. Returns per provider: the `parameters` schema (type, min, max, step, options) so you can build a valid `parameters` object instead of guessing, plus whether it supports live preview streaming.
+
+Pass `connection_id` to also fetch that connection's live model list. For dynamic providers this hits the upstream API, so omit it when you only need the parameter schemas.

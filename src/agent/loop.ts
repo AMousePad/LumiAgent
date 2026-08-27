@@ -116,6 +116,7 @@ export interface RunAgentInput {
   readonly dispatch: Record<string, ToolFn>;
   readonly connectionId?: string | undefined;
   readonly parameters?: Record<string, unknown> | undefined;
+  readonly reasoning?: import("lumiverse-spindle-types").GenerationReasoningOverrideDTO | undefined;
   readonly maxTurns?: number | undefined;
   readonly startingTurn?: number | undefined;
   readonly signal?: AbortSignal | undefined;
@@ -508,6 +509,7 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
         tools: effectiveTools,
         ...(input.connectionId !== undefined ? { connectionId: input.connectionId } : {}),
         ...(input.parameters !== undefined ? { parameters: input.parameters } : {}),
+        ...(input.reasoning !== undefined ? { reasoning: input.reasoning } : {}),
         userId: input.userId,
         signal,
       })) {

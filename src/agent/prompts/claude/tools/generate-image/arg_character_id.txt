@@ -1,0 +1,1 @@
+Tag the persisted image to this character. Defaults to the focused character. Pass "none" to leave it untagged.

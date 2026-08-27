@@ -1,0 +1,1 @@
+Workspace path to also write the image bytes to, e.g. 'images/portrait.png'. Required if you intend to `view_image` the result.

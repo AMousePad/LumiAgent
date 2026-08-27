@@ -1,0 +1,1 @@
+The pack's global stylesheet. Sanitized and parse-validated; see description.

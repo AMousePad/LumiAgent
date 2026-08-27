@@ -1,0 +1,1 @@
+Accent color as {h: 0-360, s: 0-100, l: 0-100}. Full palette is derived.

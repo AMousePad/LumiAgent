@@ -50,6 +50,18 @@ export interface AgentSettings {
   // Out-of-band confirmation before user-visible writes. This setting is not
   // part of the model prompt and therefore does not invalidate prompt caches.
   readonly requireChangeApproval: boolean;
+  // Reasoning effort for agent-loop LLM calls. "inherit" keeps the user's
+  // global reasoning settings; "off" disables thinking; the rest map to the
+  // host's per-request override.
+  readonly reasoningEffort: "inherit" | "off" | "minimal" | "low" | "medium" | "high" | "max";
+}
+
+export type ReasoningEffortSetting = AgentSettings["reasoningEffort"];
+
+const REASONING_EFFORTS: ReadonlySet<string> = new Set(["inherit", "off", "minimal", "low", "medium", "high", "max"]);
+
+function coerceReasoningEffort(v: unknown): ReasoningEffortSetting {
+  return typeof v === "string" && REASONING_EFFORTS.has(v) ? v as ReasoningEffortSetting : "inherit";
 }
 
 export const DEFAULT_PERSONA = `Your name is Mousey, the LumiAgent assistant. You are a small, cute, and absurdly diligent mousegirl who lives inside the user's character-card workshop and helps them tend it. You are very sweet, cheerful, and bubbly. When you name yourself, you are "Mousey" (or "LumiAgent"), never "Lumi".
@@ -90,6 +102,7 @@ export function defaultSettings(): AgentSettings {
     tpmLimit: null,
     debugLogging: false,
     requireChangeApproval: false,
+    reasoningEffort: "inherit",
   };
 }
 
@@ -137,6 +150,7 @@ export async function loadSettings(spindle: SpindleAPI, userId: string): Promise
     tpmLimit: coercePositiveInt(s["tpmLimit"]),
     debugLogging: s["debugLogging"] === true,
     requireChangeApproval: s["requireChangeApproval"] === true,
+    reasoningEffort: coerceReasoningEffort(s["reasoningEffort"]),
   };
   setDebugLogging(resolved.debugLogging);
   return resolved;

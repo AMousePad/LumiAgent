@@ -1,0 +1,1 @@
+Persona to activate, or "none" to deactivate the current one.

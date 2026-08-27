@@ -1,0 +1,5 @@
+Send the user an OS push notification (permission `push_notification`).
+
+Only for work that finished or is blocked while the user is elsewhere: a long agent run completing, a change waiting on approval. Lumiverse delivers it only when the app is not focused, so it will not double up on an in-app message, but it is still an interruption. One per task at most, never for progress updates.
+
+The title is automatically prefixed with the extension name. Body is truncated near 4KB. Returns `sent: 0` when the user has no push subscription, which is not an error.

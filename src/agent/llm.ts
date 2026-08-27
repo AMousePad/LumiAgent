@@ -1,4 +1,4 @@
-import type { SpindleAPI, StreamChunkDTO } from "lumiverse-spindle-types";
+import type { GenerationReasoningOverrideDTO, SpindleAPI, StreamChunkDTO } from "lumiverse-spindle-types";
 import type { LlmMessage, ToolCall, ToolSchema } from "../types";
 import { dlog } from "../log";
 
@@ -9,6 +9,7 @@ export interface LlmCallInput {
   readonly parameters?: Record<string, unknown> | undefined;
   readonly userId: string;
   readonly signal?: AbortSignal | undefined;
+  readonly reasoning?: GenerationReasoningOverrideDTO | undefined;
 }
 
 export interface LlmFinalResponse {
@@ -37,6 +38,7 @@ export async function* runLlmStream(
   if (input.connectionId !== undefined) req.connection_id = input.connectionId;
   if (input.parameters !== undefined) req.parameters = input.parameters;
   if (input.signal !== undefined) req.signal = input.signal;
+  if (input.reasoning !== undefined) req.reasoning = input.reasoning;
   const stream = spindle.generate.quietStream(req);
 
   // Stream-shape diagnostics. The reasoning-only-no-action failure can't be

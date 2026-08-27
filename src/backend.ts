@@ -554,6 +554,14 @@ function applyJailbreakNonSystem(conv: LlmMessage[], settings: AgentSettings): v
   }
 }
 
+// "inherit" omits the field entirely so the user's global reasoning settings
+// apply untouched.
+function reasoningOverrideFor(effort: AgentSettings["reasoningEffort"]): import("lumiverse-spindle-types").GenerationReasoningOverrideDTO | undefined {
+  if (effort === "inherit") return undefined;
+  if (effort === "off") return { source: "off" };
+  return { source: "custom", effort };
+}
+
 async function handleGetSettings(userId: string): Promise<void> {
   const settings = await loadSettings(spindle, userId);
   const { DEFAULT_WORKSPACE_CAP_BYTES } = await import("./state/settings");
@@ -576,6 +584,7 @@ async function handleGetSettings(userId: string): Promise<void> {
     tpmLimit: settings.tpmLimit,
     debugLogging: settings.debugLogging,
     requireChangeApproval: settings.requireChangeApproval,
+    reasoningEffort: settings.reasoningEffort,
   }, userId);
 }
 
@@ -683,9 +692,11 @@ async function handleUpdateSettings(
   tpmLimit: number | null,
   debugLogging: boolean,
   requireChangeApproval: boolean | undefined,
+  reasoningEffort: AgentSettings["reasoningEffort"] | undefined,
   userId: string,
 ): Promise<void> {
-  const persistedApproval = requireChangeApproval ?? (await loadSettings(spindle, userId)).requireChangeApproval;
+  const prior = await loadSettings(spindle, userId);
+  const persistedApproval = requireChangeApproval ?? prior.requireChangeApproval;
   await saveSettings(spindle, {
     version: 4,
     persona: persona.length > 0 ? persona : DEFAULT_PERSONA,
@@ -700,6 +711,7 @@ async function handleUpdateSettings(
     tpmLimit,
     debugLogging,
     requireChangeApproval: persistedApproval,
+    reasoningEffort: reasoningEffort ?? prior.reasoningEffort,
   }, userId);
   await handleGetSettings(userId);
 }
@@ -1018,6 +1030,7 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
       conversation: conv, tools, deferredToolSchemas, dispatch,
       ...(s.connectionId ? { connectionId: s.connectionId } : {}),
       parameters: samplerParams,
+      ...(reasoningOverrideFor(settings.reasoningEffort) !== undefined ? { reasoning: reasoningOverrideFor(settings.reasoningEffort) } : {}),
       ...(settings.samplers.contextSize !== null ? { contextTokens: settings.samplers.contextSize } : {}),
       toolOutputCapTokens: resolveToolOutputCapTokens(settings),
       tokenizerModelId: await resolveModelForConnection(s.connectionId, userId),
@@ -2591,6 +2604,7 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
       conversation: conv, tools, deferredToolSchemas, dispatch,
       ...(s.connectionId ? { connectionId: s.connectionId } : {}),
       parameters: samplerParams,
+      ...(reasoningOverrideFor(settings.reasoningEffort) !== undefined ? { reasoning: reasoningOverrideFor(settings.reasoningEffort) } : {}),
       ...(settings.samplers.contextSize !== null ? { contextTokens: settings.samplers.contextSize } : {}),
       toolOutputCapTokens: resolveToolOutputCapTokens(settings),
       tokenizerModelId: await resolveModelForConnection(s.connectionId, userId),
@@ -3029,7 +3043,7 @@ spindle.onFrontendMessage(async (raw: unknown, userId: string) => {
       case "set_pinned_chat": await handleSetPinnedChat(msg.sessionId, msg.chatId, userId); return;
       case "set_focus": await handleSetFocus(msg.sessionId, msg.characterId, userId); return;
       case "get_settings": await handleGetSettings(userId); return;
-      case "update_settings": await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.cacheMode ?? "full", msg.parallelToolCalls ?? true, msg.tpmLimit ?? null, msg.debugLogging ?? false, msg.requireChangeApproval, userId); return;
+      case "update_settings": await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.cacheMode ?? "full", msg.parallelToolCalls ?? true, msg.tpmLimit ?? null, msg.debugLogging ?? false, msg.requireChangeApproval, msg.reasoningEffort, userId); return;
       case "get_ui_prefs": await handleGetUiPrefs(userId); return;
       case "update_ui_prefs": await handleUpdateUiPrefs(msg.connectionId, msg.lastSessionId, userId); return;
       case "compact_session": void compactSession(msg.sessionId, userId, "manual"); return;
@@ -3061,5 +3075,12 @@ spindle.onFrontendMessage(async (raw: unknown, userId: string) => {
     log("error", `frontend handler error: ${(err as Error).message}`);
   }
 });
+
+try {
+  const { registerAgentMacro } = await import("./state/agent-macros");
+  registerAgentMacro(spindle);
+} catch (err) {
+  log("warn", `agent macro registration failed: ${(err as Error).message}`);
+}
 
 log("info", "lumiagent backend ready (v2.0.1 chat/diff/edit-log)");

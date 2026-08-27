@@ -1,0 +1,1 @@
+Image id from `list_images` / `generate_image`. Its dominant color becomes the accent.

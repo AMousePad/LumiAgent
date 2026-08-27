@@ -519,6 +519,34 @@ function showAskUserQuestion(input) {
 }
 var OTHER_LABEL = "Other";
 
+// src/ui/theme-bridge.ts
+var exports_theme_bridge = {};
+__export(exports_theme_bridge, {
+  handleThemeInstallPack: () => handleThemeInstallPack,
+  handleThemeCatalog: () => handleThemeCatalog
+});
+function requireCapability(ctx, key) {
+  const caps = ctx.host?.capabilities ?? {};
+  if (!caps[key])
+    throw new Error(`host does not support ${key}; update Lumiverse to use theme authoring`);
+}
+function handleThemeCatalog(ctx) {
+  requireCapability(ctx, "theme-catalog-v1");
+  return {
+    components: ctx.theme.catalog.listComponents(),
+    variables: ctx.theme.catalog.listVariables()
+  };
+}
+async function handleThemeInstallPack(ctx, args) {
+  requireCapability(ctx, "theme-packs-v1");
+  const a = args;
+  const result = await ctx.theme.packs.installDraft(a.draft, {
+    apply: a.apply !== false,
+    saveToLibrary: a.save_to_library === true
+  });
+  return result;
+}
+
 // src/types.ts
 function characterScope(id) {
   return { kind: "character", id };
@@ -9044,6 +9072,19 @@ Revert those edits to the character now, or leave them applied?`;
     }
     cacheModeRow.appendChild(cacheModeSelect);
     wrap.appendChild(cacheModeRow);
+    const reasoningRow = el8("div", "la-settings-row");
+    reasoningRow.append(el8("label", "la-settings-row-label", "Reasoning effort"));
+    const reasoningSelect = document.createElement("select");
+    reasoningSelect.className = "la-select";
+    for (const [val, label] of [["inherit", "Inherit connection"], ["off", "Off"], ["minimal", "Minimal"], ["low", "Low"], ["medium", "Medium"], ["high", "High"], ["max", "Max"]]) {
+      const o = document.createElement("option");
+      o.value = val;
+      o.textContent = label;
+      reasoningSelect.appendChild(o);
+    }
+    reasoningRow.appendChild(reasoningSelect);
+    wrap.appendChild(reasoningRow);
+    wrap.appendChild(el8("div", "la-settings-hint", "Thinking budget for agent turns only. Inherit keeps the connection's own reasoning settings; Off disables thinking on models that allow it."));
     const parallelToolsRow = el8("div", "la-settings-row");
     parallelToolsRow.append(el8("label", "la-settings-row-label", "Parallel tool calls"));
     const parallelToolsInput = document.createElement("input");
@@ -9159,6 +9200,7 @@ Revert those edits to the character now, or leave them applied?`;
       toolCapInput.placeholder = `${toolDefault}`;
       toolCapInput.value = s.toolOutputCapTokens ? String(s.toolOutputCapTokens) : "";
       cacheModeSelect.value = s.cacheMode ?? "full";
+      reasoningSelect.value = s.reasoningEffort ?? "inherit";
       parallelToolsInput.checked = s.parallelToolCalls ?? true;
       debugLogInput.checked = s.debugLogging ?? false;
       changeApprovalInput.checked = s.requireChangeApproval ?? false;
@@ -9323,6 +9365,7 @@ Revert those edits to the character now, or leave them applied?`;
         toolOutputCapTokens: parsePosInt(toolCapInput.value),
         cacheMode: newCacheMode,
         parallelToolCalls: parallelToolsInput.checked,
+        reasoningEffort: reasoningSelect.value,
         tpmLimit: parsePosInt(tpmInput.value),
         debugLogging: debugLogInput.checked,
         requireChangeApproval: changeApprovalInput.checked
@@ -10386,7 +10429,8 @@ Revert those edits to the character now, or leave them applied?`;
           parallelToolCalls: msg.parallelToolCalls,
           tpmLimit: msg.tpmLimit,
           debugLogging: msg.debugLogging,
-          requireChangeApproval: msg.requireChangeApproval
+          requireChangeApproval: msg.requireChangeApproval,
+          ...msg.reasoningEffort !== undefined ? { reasoningEffort: msg.reasoningEffort } : {}
         };
         for (const h of settingsListeners.handlers)
           h();
@@ -10480,6 +10524,12 @@ Revert those edits to the character now, or leave them applied?`;
               result = await resizeBase642(a.data, a.mime_type);
             } else if (msg.op === "approve_change") {
               result = await changeApprovals.show(msg.rpcId, msg.args);
+            } else if (msg.op === "theme_catalog") {
+              const { handleThemeCatalog: handleThemeCatalog2 } = await Promise.resolve().then(() => exports_theme_bridge);
+              result = handleThemeCatalog2(ctx);
+            } else if (msg.op === "theme_install_pack") {
+              const { handleThemeInstallPack: handleThemeInstallPack2 } = await Promise.resolve().then(() => exports_theme_bridge);
+              result = await handleThemeInstallPack2(ctx, msg.args);
             } else {
               sendBackend({ type: "frontend_rpc_response", rpcId: msg.rpcId, error: `unknown rpc op '${msg.op}'` });
               return;

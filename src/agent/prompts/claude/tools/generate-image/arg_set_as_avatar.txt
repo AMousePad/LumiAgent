@@ -1,0 +1,1 @@
+Install the result as the target character's card avatar. Replaces the existing avatar and is not revertable through the edit ledger.

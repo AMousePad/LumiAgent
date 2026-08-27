@@ -92,7 +92,7 @@ interface UiState {
   scopeLedgers: Map<string, readonly EditLogEntry[]>;
   chatsForCharacter: ChatSummary[];
   pinnedChatId: string | null;
-  settings: { persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody?: string; samplers?: Readonly<Record<string, number | null>>; jailbreak?: string; jailbreakPlacement?: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes?: number | null; workspaceCapDefaultBytes?: number; workspaceFileCapBytes?: number; toolOutputCapTokens?: number | null; toolOutputCapDefaultTokens?: number; cacheMode?: "off" | "system_only" | "full"; parallelToolCalls?: boolean; tpmLimit?: number | null; debugLogging?: boolean; requireChangeApproval?: boolean } | null;
+  settings: { persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody?: string; samplers?: Readonly<Record<string, number | null>>; jailbreak?: string; jailbreakPlacement?: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes?: number | null; workspaceCapDefaultBytes?: number; workspaceFileCapBytes?: number; toolOutputCapTokens?: number | null; toolOutputCapDefaultTokens?: number; cacheMode?: "off" | "system_only" | "full"; parallelToolCalls?: boolean; tpmLimit?: number | null; debugLogging?: boolean; requireChangeApproval?: boolean; reasoningEffort?: "inherit" | "off" | "minimal" | "low" | "medium" | "high" | "max" } | null;
   pendingPinChatId: string | null;
   // Single-shot, reset after consume so a later list_chats won't re-pin after the user explicitly unpinned.
   autoPinNeeded: boolean;
@@ -1609,6 +1609,20 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     cacheModeRow.appendChild(cacheModeSelect);
     wrap.appendChild(cacheModeRow);
 
+    const reasoningRow = el("div", "la-settings-row");
+    reasoningRow.append(el("label", "la-settings-row-label", "Reasoning effort"));
+    const reasoningSelect = document.createElement("select");
+    reasoningSelect.className = "la-select";
+    for (const [val, label] of [["inherit", "Inherit connection"], ["off", "Off"], ["minimal", "Minimal"], ["low", "Low"], ["medium", "Medium"], ["high", "High"], ["max", "Max"]] as const) {
+      const o = document.createElement("option");
+      o.value = val;
+      o.textContent = label;
+      reasoningSelect.appendChild(o);
+    }
+    reasoningRow.appendChild(reasoningSelect);
+    wrap.appendChild(reasoningRow);
+    wrap.appendChild(el("div", "la-settings-hint", "Thinking budget for agent turns only. Inherit keeps the connection's own reasoning settings; Off disables thinking on models that allow it."));
+
     const parallelToolsRow = el("div", "la-settings-row");
     parallelToolsRow.append(el("label", "la-settings-row-label", "Parallel tool calls"));
     const parallelToolsInput = document.createElement("input");
@@ -1732,6 +1746,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       toolCapInput.placeholder = `${toolDefault}`;
       toolCapInput.value = s.toolOutputCapTokens ? String(s.toolOutputCapTokens) : "";
       cacheModeSelect.value = s.cacheMode ?? "full";
+      reasoningSelect.value = s.reasoningEffort ?? "inherit";
       parallelToolsInput.checked = s.parallelToolCalls ?? true;
       debugLogInput.checked = s.debugLogging ?? false;
       changeApprovalInput.checked = s.requireChangeApproval ?? false;
@@ -1876,6 +1891,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         toolOutputCapTokens: parsePosInt(toolCapInput.value),
         cacheMode: newCacheMode,
         parallelToolCalls: parallelToolsInput.checked,
+        reasoningEffort: reasoningSelect.value as "inherit" | "off" | "minimal" | "low" | "medium" | "high" | "max",
         tpmLimit: parsePosInt(tpmInput.value),
         debugLogging: debugLogInput.checked,
         requireChangeApproval: changeApprovalInput.checked,
@@ -3001,6 +3017,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
           tpmLimit: msg.tpmLimit,
           debugLogging: msg.debugLogging,
           requireChangeApproval: msg.requireChangeApproval,
+          ...(msg.reasoningEffort !== undefined ? { reasoningEffort: msg.reasoningEffort } : {}),
         };
         for (const h of settingsListeners.handlers) h();
         break;
@@ -3105,6 +3122,12 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
               result = await resizeBase64(a.data, a.mime_type);
             } else if (msg.op === "approve_change") {
               result = await changeApprovals.show(msg.rpcId, msg.args as ChangeApprovalRequestWire);
+            } else if (msg.op === "theme_catalog") {
+              const { handleThemeCatalog } = await import("./theme-bridge");
+              result = handleThemeCatalog(ctx);
+            } else if (msg.op === "theme_install_pack") {
+              const { handleThemeInstallPack } = await import("./theme-bridge");
+              result = await handleThemeInstallPack(ctx, msg.args);
             } else {
               sendBackend({ type: "frontend_rpc_response", rpcId: msg.rpcId, error: `unknown rpc op '${msg.op}'` });
               return;

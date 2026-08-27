@@ -1,0 +1,1 @@
+Only images created by LumiAgent itself. Default false.

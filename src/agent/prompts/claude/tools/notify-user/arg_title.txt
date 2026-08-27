@@ -1,0 +1,1 @@
+Short headline. The extension name is prefixed automatically.

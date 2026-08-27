@@ -1,0 +1,1 @@
+Restrict to images tagged to this character. Defaults to the focused character. Pass "all" for the whole library.

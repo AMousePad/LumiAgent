@@ -32,6 +32,17 @@ import { viewImageTool } from "./view-image";
 import { webSearchTool } from "./web-search";
 import { webFetchTool } from "./web-fetch";
 import { fsZipTool } from "./fs-zip";
+import { generateImageTool } from "./generate-image";
+import { getThemeTool } from "./get-theme";
+import { setThemeTool } from "./set-theme";
+import { installThemePackTool } from "./install-theme-pack";
+import { listImageModelsTool } from "./list-image-models";
+import { listImagesTool } from "./list-images";
+import { listGlobalAddonsTool } from "./list-global-addons";
+import { notifyUserTool } from "./notify-user";
+import { switchPersonaTool } from "./switch-persona";
+import { setMacroTool } from "./set-macro";
+import { navigateUiTool } from "./navigate-ui";
 import { grepTool } from "./grep";
 import { grepChatMessagesTool } from "./grep-chat-messages";
 import { grepExternalTool } from "./grep-external";
@@ -128,6 +139,16 @@ const DEFERRED_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   "web_search", "web_fetch",
   // Vision: fetched when the user has an image in the workspace to view.
   "view_image",
+  // Image generation + library. Only on an explicitly visual task.
+  "generate_image", "list_image_models", "list_images",
+  // Persona / add-on long tail.
+  "switch_persona", "list_global_addons",
+  // Out-of-band nudge, at most once per task.
+  "notify_user",
+  // Theming. Only on an explicit restyle request.
+  "get_theme", "set_theme", "install_theme_pack",
+  // Prompt-macro store + UI deep links.
+  "set_macro", "navigate_ui",
   // Bulk translation surface. Fetched once a translation/CJK task is underway;
   // the prompt body still names them as the completion gate so the agent knows
   // to tool_search them.
@@ -179,6 +200,7 @@ const READ_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   "list_characters",
   // Lumiverse-state inspectors
   "dry_run_prompt", "resolve_macros", "count_tokens",
+  "list_image_models", "list_images", "list_global_addons", "get_theme",
   "list_variables", "read_variable",
   "list_activated_world_info", "list_active_regex_scripts", "list_chat_memories",
   "list_chat_world_books",
@@ -220,6 +242,9 @@ const PER_TOOL_RESULT_CAP_CHARS: Readonly<Record<string, number>> = {
   grep: 30_000,
   grep_external: 30_000,
   survey_cjk: 25_000,
+  // Provider parameter schemas are verbose.
+  list_image_models: 25_000,
+  list_images: 20_000,
   apply_glossary: 30_000,
   // Edit / rewrite / set return small structured patches. JSON can grow on
   // big hunks but 20k is plenty for diff payloads.
@@ -272,6 +297,17 @@ registry.register(fsStatTool);
 registry.register(fsUnzipTool);
 registry.register(fsWriteTool);
 registry.register(fsZipTool);
+registry.register(generateImageTool);
+registry.register(getThemeTool);
+registry.register(setThemeTool);
+registry.register(installThemePackTool);
+registry.register(listImageModelsTool);
+registry.register(listImagesTool);
+registry.register(listGlobalAddonsTool);
+registry.register(notifyUserTool);
+registry.register(switchPersonaTool);
+registry.register(setMacroTool);
+registry.register(navigateUiTool);
 registry.register(grepChatMessagesTool);
 registry.register(grepExternalTool);
 registry.register(listCharactersTool);

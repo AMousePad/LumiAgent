@@ -1,0 +1,1 @@
+Text prompt for the image. Describe the subject and style, not the file format.

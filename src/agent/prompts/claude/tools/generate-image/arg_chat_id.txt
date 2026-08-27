@@ -1,0 +1,1 @@
+Tag the persisted image to this chat. Defaults to untagged.

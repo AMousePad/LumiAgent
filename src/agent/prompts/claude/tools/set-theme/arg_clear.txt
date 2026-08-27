@@ -1,0 +1,1 @@
+Remove all overrides this extension has applied.
