@@ -1329,6 +1329,45 @@ ${LOADERS_CSS}
 }
 .la-attach-btn:hover { background: var(--lumiverse-bg-hover); color: var(--lumiverse-text); }
 .la-attach-btn svg { width: 18px; height: 18px; }
+.la-queued {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 6px 0;
+}
+.la-queued-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--lumiverse-border);
+  border-radius: 8px;
+  background: var(--lumiverse-bg-elevated);
+  font-size: 12px;
+}
+.la-queued-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--lumiverse-text-muted);
+}
+.la-queued-btn {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border: 1px solid var(--lumiverse-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--lumiverse-text-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+.la-queued-btn:hover {
+  color: var(--lumiverse-text);
+  border-color: var(--lumiverse-border-hover);
+}
+
 .la-attachments {
   display: flex; flex-wrap: wrap; gap: 8px;
   padding: 4px 2px 8px;

@@ -402,10 +402,12 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
 
   composerActions.append(compactBtn, attachBtn, sendBtn, cancelBtn);
   composerArea.append(textarea, composerActions);
+  const queuedWrap = el("div", "la-queued");
+  queuedWrap.style.display = "none";
   const composerAttachments = el("div", "la-attachments");
   composerAttachments.style.display = "none";
   const composerStatus = el("div", "la-composer-status");
-  composerInner.append(composerAttachments, composerArea, composerStatus);
+  composerInner.append(queuedWrap, composerAttachments, composerArea, composerStatus);
   composer.appendChild(composerInner);
   composer.appendChild(fileInput);
 
@@ -731,7 +733,8 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   const updateComposer = () => {
     const busy = state.isGenerating || state.startingSession || state.compacting;
     if (busy) {
-      sendBtn.style.display = "none";
+      // Send stays visible while generating: it queues instead of sending.
+      sendBtn.style.display = state.isGenerating ? "" : "none";
       cancelBtn.style.display = "";
       // Can't abort before the backend has acknowledged the session.
       cancelBtn.disabled = state.startingSession;
@@ -739,7 +742,8 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       setComposerStatus(
         state.startingSession ? "starting session..."
         : state.compacting ? "compacting context..."
-        : "agent is working...",
+        : queuedMessages.length > 0 ? `agent is working... ${queuedMessages.length} message${queuedMessages.length === 1 ? "" : "s"} queued`
+        : "agent is working... new sends queue",
       );
       sendMode = "disabled";
     } else {
@@ -1196,6 +1200,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       return;
     }
     composerStatus.classList.remove("is-error");
+    clearQueue();
     state.sessionId = makeId("sess");
     state.messages = [];
     state.edits = [];
@@ -2321,9 +2326,21 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   };
 
   let sending = false;
+  const queuedMessages: string[] = [];
+  let steerText: string | null = null;
   const doSend = async (): Promise<void> => {
     const text = textarea.value.trim();
-    if (sending || state.isGenerating || state.startingSession || state.compacting) return;
+    if (sending || state.isGenerating || state.startingSession || state.compacting) {
+      // Busy: divert to the queue instead of dropping the send. Flushed on
+      // natural completion; cancel keeps it queued.
+      if (text.length > 0 && !sending) {
+        queuedMessages.push(text);
+        textarea.value = "";
+        renderQueue();
+        updateComposer();
+      }
+      return;
+    }
 
     const hasImages = state.attachments.length > 0;
     const hasFiles = state.fileAttachments.length > 0;
@@ -2441,6 +2458,85 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       updateComposer();
     }, 8000);
   };
+
+  // Message queue: sends issued while a run is live wait here. Function
+  // declarations so doSend (above) can call them despite lexical order.
+  function renderQueue(): void {
+    queuedWrap.replaceChildren();
+    queuedWrap.style.display = queuedMessages.length > 0 ? "" : "none";
+    queuedMessages.forEach((text, i) => {
+      const chip = el("div", "la-queued-chip");
+      const label = el("span", "la-queued-text", text.length > 120 ? `${text.slice(0, 117)}...` : text);
+      label.title = text;
+      const steerBtn = el("button", "la-queued-btn", "Steer") as HTMLButtonElement;
+      steerBtn.title = "Stop the current run and send this now";
+      steerBtn.addEventListener("click", () => requestSteer(i));
+      const editBtn = el("button", "la-queued-btn", "Edit") as HTMLButtonElement;
+      editBtn.addEventListener("click", () => {
+        const [t] = queuedMessages.splice(i, 1);
+        textarea.value = textarea.value.trim().length > 0 ? `${textarea.value}\n${t}` : t!;
+        renderQueue();
+        updateComposer();
+        textarea.focus();
+      });
+      const delBtn = el("button", "la-queued-btn", "×") as HTMLButtonElement;
+      delBtn.setAttribute("aria-label", "Discard queued message");
+      delBtn.addEventListener("click", () => {
+        queuedMessages.splice(i, 1);
+        renderQueue();
+        updateComposer();
+      });
+      chip.append(label, steerBtn, editBtn, delBtn);
+      queuedWrap.appendChild(chip);
+    });
+  }
+
+  function clearQueue(): void {
+    queuedMessages.length = 0;
+    steerText = null;
+    renderQueue();
+  }
+
+  async function sendQueuedText(text: string): Promise<void> {
+    if (sending || state.isGenerating || state.startingSession || state.compacting) {
+      queuedMessages.unshift(text);
+      renderQueue();
+      return;
+    }
+    const draft = textarea.value;
+    textarea.value = text;
+    await doSend();
+    if (textarea.value === text) {
+      // Send didn't consume it (attachment failure etc). Put it back rather
+      // than leaving it stranded in the composer over the user's draft.
+      queuedMessages.unshift(text);
+      textarea.value = draft;
+      renderQueue();
+    } else if (textarea.value.trim() === "" && draft.trim() !== "") {
+      textarea.value = draft;
+    }
+    updateComposer();
+  }
+
+  // Natural completion only. Cancel deliberately does not flush.
+  function flushQueue(): void {
+    const next = queuedMessages.shift();
+    if (next === undefined) return;
+    renderQueue();
+    void sendQueuedText(next);
+  }
+
+  function requestSteer(index: number): void {
+    const [text] = queuedMessages.splice(index, 1);
+    if (text === undefined) return;
+    renderQueue();
+    if (!state.isGenerating || !state.sessionId) {
+      void sendQueuedText(text);
+      return;
+    }
+    steerText = text;
+    sendBackend({ type: "cancel_generation", sessionId: state.sessionId });
+  }
 
   // Route attachments: images to the vision path, everything else to file upload.
   const intake = (files: readonly File[]): void => {
@@ -2690,6 +2786,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         break;
       case "session_loaded":
         clearErrorBanners();
+        if (msg.sessionId !== state.sessionId) clearQueue();
         // Loading a session is a clean boundary. A sticky composer error from
         // a prior failed start would otherwise suppress setComposerStatus for
         // the freshly loaded session (the is-error guard never lifts on its
@@ -2761,6 +2858,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
           state.streamingAssistant = null;
           state.currentAssistantMessage = null;
           clearStartTimeout();
+          clearQueue();
           state.sessionId = null;
           state.messages = [];
           state.edits = [];
@@ -2819,6 +2917,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         finalizeAssistantTurn("complete");
         rerenderThread();
         updateComposer();
+        flushQueue();
         // No-character turn may have produced Lumiverse-scope edits; refresh
         // the scope storage so the header badge reflects them.
         if (state.characterId === null) sendBackend({ type: "list_characters_storage" });
@@ -2835,6 +2934,11 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         finalizeAssistantTurn("cancelled");
         rerenderThread();
         updateComposer();
+        if (steerText !== null) {
+          const t = steerText;
+          steerText = null;
+          void sendQueuedText(t);
+        }
         break;
       case "generation_error":
         if (msg.sessionId !== state.sessionId) break;

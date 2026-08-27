@@ -2276,6 +2276,45 @@ ${LOADERS_CSS}
 }
 .la-attach-btn:hover { background: var(--lumiverse-bg-hover); color: var(--lumiverse-text); }
 .la-attach-btn svg { width: 18px; height: 18px; }
+.la-queued {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 6px 0;
+}
+.la-queued-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--lumiverse-border);
+  border-radius: 8px;
+  background: var(--lumiverse-bg-elevated);
+  font-size: 12px;
+}
+.la-queued-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--lumiverse-text-muted);
+}
+.la-queued-btn {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border: 1px solid var(--lumiverse-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--lumiverse-text-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+.la-queued-btn:hover {
+  color: var(--lumiverse-text);
+  border-color: var(--lumiverse-border-hover);
+}
+
 .la-attachments {
   display: flex; flex-wrap: wrap; gap: 8px;
   padding: 4px 2px 8px;
@@ -8068,10 +8107,12 @@ function mountDrawer(ctx) {
   compactBtn.appendChild(compactTip);
   composerActions.append(compactBtn, attachBtn, sendBtn, cancelBtn);
   composerArea.append(textarea, composerActions);
+  const queuedWrap = el8("div", "la-queued");
+  queuedWrap.style.display = "none";
   const composerAttachments = el8("div", "la-attachments");
   composerAttachments.style.display = "none";
   const composerStatus = el8("div", "la-composer-status");
-  composerInner.append(composerAttachments, composerArea, composerStatus);
+  composerInner.append(queuedWrap, composerAttachments, composerArea, composerStatus);
   composer.appendChild(composerInner);
   composer.appendChild(fileInput);
   const dumpGeometry = () => {
@@ -8314,11 +8355,11 @@ function mountDrawer(ctx) {
   const updateComposer = () => {
     const busy = state.isGenerating || state.startingSession || state.compacting;
     if (busy) {
-      sendBtn.style.display = "none";
+      sendBtn.style.display = state.isGenerating ? "" : "none";
       cancelBtn.style.display = "";
       cancelBtn.disabled = state.startingSession;
       textarea.disabled = false;
-      setComposerStatus(state.startingSession ? "starting session..." : state.compacting ? "compacting context..." : "agent is working...");
+      setComposerStatus(state.startingSession ? "starting session..." : state.compacting ? "compacting context..." : queuedMessages.length > 0 ? `agent is working... ${queuedMessages.length} message${queuedMessages.length === 1 ? "" : "s"} queued` : "agent is working... new sends queue");
       sendMode = "disabled";
     } else {
       sendBtn.style.display = "";
@@ -8701,6 +8742,7 @@ Revert those edits to the character now, or leave them applied?`;
       return;
     }
     composerStatus.classList.remove("is-error");
+    clearQueue();
     state.sessionId = makeId("sess");
     state.messages = [];
     state.edits = [];
@@ -9805,10 +9847,19 @@ Revert those edits to the character now, or leave them applied?`;
     }
   };
   let sending = false;
+  const queuedMessages = [];
+  let steerText = null;
   const doSend = async () => {
     const text = textarea.value.trim();
-    if (sending || state.isGenerating || state.startingSession || state.compacting)
+    if (sending || state.isGenerating || state.startingSession || state.compacting) {
+      if (text.length > 0 && !sending) {
+        queuedMessages.push(text);
+        textarea.value = "";
+        renderQueue();
+        updateComposer();
+      }
       return;
+    }
     const hasImages = state.attachments.length > 0;
     const hasFiles = state.fileAttachments.length > 0;
     if (text.length === 0 && !hasImages && !hasFiles) {
@@ -9913,6 +9964,78 @@ Revert those edits to the character now, or leave them applied?`;
       updateComposer();
     }, 8000);
   };
+  function renderQueue() {
+    queuedWrap.replaceChildren();
+    queuedWrap.style.display = queuedMessages.length > 0 ? "" : "none";
+    queuedMessages.forEach((text, i) => {
+      const chip = el8("div", "la-queued-chip");
+      const label = el8("span", "la-queued-text", text.length > 120 ? `${text.slice(0, 117)}...` : text);
+      label.title = text;
+      const steerBtn = el8("button", "la-queued-btn", "Steer");
+      steerBtn.title = "Stop the current run and send this now";
+      steerBtn.addEventListener("click", () => requestSteer(i));
+      const editBtn = el8("button", "la-queued-btn", "Edit");
+      editBtn.addEventListener("click", () => {
+        const [t] = queuedMessages.splice(i, 1);
+        textarea.value = textarea.value.trim().length > 0 ? `${textarea.value}
+${t}` : t;
+        renderQueue();
+        updateComposer();
+        textarea.focus();
+      });
+      const delBtn = el8("button", "la-queued-btn", "×");
+      delBtn.setAttribute("aria-label", "Discard queued message");
+      delBtn.addEventListener("click", () => {
+        queuedMessages.splice(i, 1);
+        renderQueue();
+        updateComposer();
+      });
+      chip.append(label, steerBtn, editBtn, delBtn);
+      queuedWrap.appendChild(chip);
+    });
+  }
+  function clearQueue() {
+    queuedMessages.length = 0;
+    steerText = null;
+    renderQueue();
+  }
+  async function sendQueuedText(text) {
+    if (sending || state.isGenerating || state.startingSession || state.compacting) {
+      queuedMessages.unshift(text);
+      renderQueue();
+      return;
+    }
+    const draft = textarea.value;
+    textarea.value = text;
+    await doSend();
+    if (textarea.value === text) {
+      queuedMessages.unshift(text);
+      textarea.value = draft;
+      renderQueue();
+    } else if (textarea.value.trim() === "" && draft.trim() !== "") {
+      textarea.value = draft;
+    }
+    updateComposer();
+  }
+  function flushQueue() {
+    const next = queuedMessages.shift();
+    if (next === undefined)
+      return;
+    renderQueue();
+    sendQueuedText(next);
+  }
+  function requestSteer(index) {
+    const [text] = queuedMessages.splice(index, 1);
+    if (text === undefined)
+      return;
+    renderQueue();
+    if (!state.isGenerating || !state.sessionId) {
+      sendQueuedText(text);
+      return;
+    }
+    steerText = text;
+    sendBackend({ type: "cancel_generation", sessionId: state.sessionId });
+  }
   const intake = (files) => {
     const imgs = files.filter((f) => f.type.startsWith("image/"));
     const rest = files.filter((f) => !f.type.startsWith("image/"));
@@ -10140,6 +10263,8 @@ Revert those edits to the character now, or leave them applied?`;
         break;
       case "session_loaded":
         clearErrorBanners();
+        if (msg.sessionId !== state.sessionId)
+          clearQueue();
         composerStatus.classList.remove("is-error");
         composerStatus.textContent = "";
         state.streamingAssistant = null;
@@ -10189,6 +10314,7 @@ Revert those edits to the character now, or leave them applied?`;
           state.streamingAssistant = null;
           state.currentAssistantMessage = null;
           clearStartTimeout();
+          clearQueue();
           state.sessionId = null;
           state.messages = [];
           state.edits = [];
@@ -10242,6 +10368,7 @@ Revert those edits to the character now, or leave them applied?`;
         finalizeAssistantTurn("complete");
         rerenderThread();
         updateComposer();
+        flushQueue();
         if (state.characterId === null)
           sendBackend({ type: "list_characters_storage" });
         break;
@@ -10258,6 +10385,11 @@ Revert those edits to the character now, or leave them applied?`;
         finalizeAssistantTurn("cancelled");
         rerenderThread();
         updateComposer();
+        if (steerText !== null) {
+          const t = steerText;
+          steerText = null;
+          sendQueuedText(t);
+        }
         break;
       case "generation_error":
         if (msg.sessionId !== state.sessionId)
