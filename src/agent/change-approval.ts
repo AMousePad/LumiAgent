@@ -84,6 +84,7 @@ const NO_CHANGE_TOOLS: ReadonlySet<string> = new Set([
 
 const DELETE_TOOLS: ReadonlySet<string> = new Set([
   "asset_delete",
+  "delete_character",
   "custom_tool_delete",
   "delete",
   "fs_delete",
@@ -93,6 +94,7 @@ const DELETE_TOOLS: ReadonlySet<string> = new Set([
 
 const CREATE_TOOLS: ReadonlySet<string> = new Set([
   "create",
+  "create_character",
   "generate_image",
   "install_theme_pack",
   "fs_mkdir",
@@ -119,9 +121,11 @@ const TOOL_LABELS: Readonly<Record<string, string>> = {
   asset_delete: "Delete an asset",
   asset_rename: "Rename an asset",
   create: "Create card content",
+  create_character: "Create a character",
   custom_tool_delete: "Delete a custom tool",
   custom_tool_save: "Save a custom tool",
   delete: "Delete card content",
+  delete_character: "Permanently delete a character",
   edit: "Edit card content",
   edit_external: "Edit external-provider content",
   fs_delete: "Delete a workspace item",

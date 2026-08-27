@@ -1,0 +1,5 @@
+Create a new character card from a full spec: name (required) plus any of description, personality, scenario, first_mes, mes_example, creator_notes, system_prompt, post_history_instructions, creator, tags, alternate_greetings, world_book_ids, extensions.
+
+Use for "spin up a character from this idea / this chat / this summary". Write real content into the fields at creation rather than creating an empty shell and editing it after; each post-creation edit is a separate call and a separate ledger entry.
+
+The new card appears in the user's library immediately. Creation is NOT in the edit ledger: `delete_character` is the undo. After creating, address it with `char/<id>/<field>` paths or tell the user to focus it in the picker.

@@ -49,6 +49,8 @@ import { rememberFactTool } from "./remember-fact";
 import { updateMemoryEntityTool } from "./update-memory-entity";
 import { setVariableTool } from "./set-variable";
 import { manageDatabankTool } from "./manage-databank";
+import { createCharacterTool } from "./create-character";
+import { deleteCharacterTool } from "./delete-character";
 import { grepTool } from "./grep";
 import { grepChatMessagesTool } from "./grep-chat-messages";
 import { grepExternalTool } from "./grep-external";
@@ -168,6 +170,7 @@ const DEFERRED_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   // Metadata mutators. Path-based set/edit cover the common cases; these are
   // for the long-tail non-string fields.
   "update_character", "update_regex_script", "update_world_book_entry",
+  "create_character", "delete_character",
   "bulk_update_character_tags",
   // Session edit-ledger management. Niche; the workshop UI is the usual path.
   "list_session_edits", "revert_session_edits", "squash_session_edits",
@@ -325,6 +328,8 @@ registry.register(rememberFactTool);
 registry.register(updateMemoryEntityTool);
 registry.register(setVariableTool);
 registry.register(manageDatabankTool);
+registry.register(createCharacterTool);
+registry.register(deleteCharacterTool);
 registry.register(grepChatMessagesTool);
 registry.register(grepExternalTool);
 registry.register(listCharactersTool);
