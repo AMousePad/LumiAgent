@@ -48,6 +48,7 @@ async function loadIndex(spindle: SpindleAPI, userId: string): Promise<SessionIn
   const raw = await spindle.userStorage.getJson<SessionIndex | null>(INDEX_PATH, { fallback: null, userId });
   if (!raw || typeof raw !== "object") return null;
   if ((raw as SessionIndex).version !== INDEX_SCHEMA_VERSION) return null;
+  if (!Array.isArray((raw as SessionIndex).entries)) return null;
   return raw as SessionIndex;
 }
 
@@ -58,11 +59,10 @@ async function writeIndex(spindle: SpindleAPI, entries: readonly SessionIndexEnt
 
 async function upsertIndex(spindle: SpindleAPI, entry: SessionIndexEntry, userId: string): Promise<void> {
   const cur = await loadIndex(spindle, userId);
-  // No (or stale-version) index: rebuild from the session files on disk first.
-  // Seeding a fresh single-entry index here would make a valid index.json exist,
-  // so listSessionSummaries' rebuild-on-null migration never fires and every
-  // pre-existing session stays hidden from the picker until re-saved.
-  const base = cur ? cur.entries : await rebuildIndex(spindle, userId);
+  // Missing or empty index: rebuild from the session files on disk first.
+  // Seeding from this entry alone would persist a valid-looking index that
+  // hides every older session until it is re-saved.
+  const base = cur && cur.entries.length > 0 ? cur.entries : await rebuildIndex(spindle, userId);
   const next = [entry, ...base.filter((e) => e.sessionId !== entry.sessionId)];
   await writeIndex(spindle, next, userId);
 }
@@ -234,6 +234,7 @@ async function rebuildIndex(spindle: SpindleAPI, userId: string): Promise<Sessio
   let names: string[];
   try { names = await spindle.userStorage.list(`${SESSION_DIR}/`, userId); }
   catch { return []; }
+  if (!Array.isArray(names)) return [];
   const out: SessionIndexEntry[] = [];
   for (const rel of names) {
     if (!rel.endsWith(".json")) continue;
@@ -255,7 +256,9 @@ export async function listSessionSummaries(
   filterCharacterId?: string | null,
 ): Promise<SessionSummaryWire[]> {
   const cur = await loadIndex(spindle, userId);
-  const entries = cur ? cur.entries : await rebuildIndex(spindle, userId);
+  // A valid-but-empty index is treated as missing. A transient storage failure
+  // once persisted an empty rebuild, which hid every existing session forever.
+  const entries = cur && cur.entries.length > 0 ? cur.entries : await rebuildIndex(spindle, userId);
   const out: SessionSummaryWire[] = [];
   for (const e of entries) {
     if (filterCharacterId !== undefined && e.characterId !== filterCharacterId) continue;
