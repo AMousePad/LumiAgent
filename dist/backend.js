@@ -22754,7 +22754,7 @@ var init_settings = __esm(() => {
 });
 
 // src/generated/lumiverse-docs.ts
-var LUMIVERSE_DOCS_VERSION = "88a1f771ade0aba4", LUMIVERSE_DOCS;
+var LUMIVERSE_DOCS_VERSION = "5e110b02fd4f0345", LUMIVERSE_DOCS;
 var init_lumiverse_docs = __esm(() => {
   LUMIVERSE_DOCS = {
     "characters/alternate-fields.md": `---\r
@@ -25117,7 +25117,7 @@ Z.AI ships two API URLs that share the same authentication but route to differen
 \r
 On a Z.AI connection, toggle **Use Coding Plan Endpoint** to route through \`/api/coding/paas/v4\`. Leave it off for normal API keys. Lumiverse rewrites the base URL accordingly \u2014 you don't have to edit the API URL field by hand.\r
 \r
-Z.AI does not expose an OpenAI-compatible \`/models\` endpoint, so Lumiverse ships a built-in model list (\`glm-5.2\`, \`glm-5.1\`, \`glm-5-turbo\`, \`glm-5\`, \`glm-4.7\` family, \`glm-4.6\`, \`glm-4.5\` family, \`glm-4-32b-0414-128k\`) and validates your key by sending a minimal \`chat/completions\` request rather than a model list call. This is what keeps Coding Plan keys working \u2014 they 404 the model list endpoint but accept chat requests fine.\r
+Z.AI does not expose an OpenAI-compatible \`/models\` endpoint, so Lumiverse ships a built-in model list (\`glm-5.3-flash\`, \`glm-5.3\`, \`glm-5.2\`, \`glm-5.1\`, \`glm-5-turbo\`, \`glm-5\`, \`glm-4.7\` family, \`glm-4.6\`, \`glm-4.5\` family, \`glm-4-32b-0414-128k\`) and validates your key by sending a minimal \`chat/completions\` request rather than a model list call. This is what keeps Coding Plan keys working \u2014 they 404 the model list endpoint but accept chat requests fine.\r
 \r
 !!! tip "Coding Plan keys reject /models"\r
     If you see "model list failed" errors on a freshly-saved Z.AI connection, you probably forgot to enable **Use Coding Plan Endpoint** \u2014 Lumiverse's chat-completion validation already handles this, but third-party tools that hit \`/models\` directly will fail.\r
@@ -34458,16 +34458,33 @@ async function ensureDir(spindle2, userId, relPath) {
     await spindle2.userStorage.mkdir(absPath(relPath), userId);
   } catch {}
 }
+async function pruneOrphanedDocs(spindle2, userId, keep) {
+  let entries;
+  try {
+    entries = await spindle2.userStorage.list(`${absPath(LUMIVERSE_DOCS_ROOT)}/`, userId);
+  } catch {
+    return;
+  }
+  for (const raw of entries) {
+    const rel = raw.replace(/\\/g, "/").replace(/^\/+/, "");
+    if (rel === "" || rel === ".version" || keep.has(rel))
+      continue;
+    try {
+      await spindle2.userStorage.delete(absPath(`${LUMIVERSE_DOCS_ROOT}/${rel}`), userId);
+    } catch {}
+  }
+}
 async function seedLumiverseDocsIfNeeded(spindle2, userId) {
-  if (Object.keys(LUMIVERSE_DOCS).length === 0)
+  const paths = Object.keys(LUMIVERSE_DOCS);
+  if (paths.length === 0)
     return;
   const existing = await readFromStorage(spindle2, userId, LUMIVERSE_DOCS_MARKER);
   if (existing !== null && existing.trim() === LUMIVERSE_DOCS_VERSION)
     return;
-  for (const rel of Object.keys(LUMIVERSE_DOCS)) {
-    const full = `${LUMIVERSE_DOCS_ROOT}/${rel}`;
-    await writeIfMissing(spindle2, userId, full, LUMIVERSE_DOCS[rel]);
+  for (const rel of paths) {
+    await spindle2.userStorage.write(absPath(`${LUMIVERSE_DOCS_ROOT}/${rel}`), LUMIVERSE_DOCS[rel], userId);
   }
+  await pruneOrphanedDocs(spindle2, userId, new Set(paths));
   await spindle2.userStorage.write(absPath(LUMIVERSE_DOCS_MARKER), LUMIVERSE_DOCS_VERSION, userId);
 }
 async function ensureSystemFiles(spindle2, userId) {

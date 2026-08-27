@@ -117,23 +117,40 @@ async function ensureDir(spindle: SpindleAPI, userId: string, relPath: string): 
   try { await spindle.userStorage.mkdir(absPath(relPath), userId); } catch { /* already exists is fine */ }
 }
 
-// Lumiverse user-docs are bundled at build time and seeded under
-// docs/lumiverse/ on first run (and when LUMIVERSE_DOCS_VERSION changes).
-// A version marker at docs/lumiverse/.version gates the seed so we don't
-// re-stat 70+ files every session start, and so user-deleted docs stay
-// deleted between session starts. To pick up updated bundled docs, the
-// user can delete the marker (or the whole folder) and re-open a session.
+// Lumiverse user-docs are bundled at build time and mirrored under
+// docs/lumiverse/. Upstream owns this tree: a version bump rewrites every file
+// and deletes anything no longer in the bundle, so a renamed section can't
+// linger describing a removed feature. Local edits and deletions under this
+// root do not survive a bump, by design.
+// The marker at docs/lumiverse/.version gates the whole pass so an unchanged
+// bundle costs one stat per session instead of one write per file.
 const LUMIVERSE_DOCS_ROOT = "docs/lumiverse";
 const LUMIVERSE_DOCS_MARKER = `${LUMIVERSE_DOCS_ROOT}/.version`;
 
+// Host list() returns descendants relative to the prefix, backslash-separated
+// on Windows.
+async function pruneOrphanedDocs(spindle: SpindleAPI, userId: string, keep: ReadonlySet<string>): Promise<void> {
+  let entries: string[];
+  try { entries = await spindle.userStorage.list(`${absPath(LUMIVERSE_DOCS_ROOT)}/`, userId); }
+  catch { return; }
+  for (const raw of entries) {
+    const rel = raw.replace(/\\/g, "/").replace(/^\/+/, "");
+    if (rel === "" || rel === ".version" || keep.has(rel)) continue;
+    try { await spindle.userStorage.delete(absPath(`${LUMIVERSE_DOCS_ROOT}/${rel}`), userId); }
+    catch { /* already gone */ }
+  }
+}
+
 async function seedLumiverseDocsIfNeeded(spindle: SpindleAPI, userId: string): Promise<void> {
-  if (Object.keys(LUMIVERSE_DOCS).length === 0) return;
+  const paths = Object.keys(LUMIVERSE_DOCS);
+  if (paths.length === 0) return;
   const existing = await readFromStorage<string>(spindle, userId, LUMIVERSE_DOCS_MARKER);
   if (existing !== null && existing.trim() === LUMIVERSE_DOCS_VERSION) return;
-  for (const rel of Object.keys(LUMIVERSE_DOCS)) {
-    const full = `${LUMIVERSE_DOCS_ROOT}/${rel}`;
-    await writeIfMissing(spindle, userId, full, LUMIVERSE_DOCS[rel]!);
+  for (const rel of paths) {
+    await spindle.userStorage.write(absPath(`${LUMIVERSE_DOCS_ROOT}/${rel}`), LUMIVERSE_DOCS[rel]!, userId);
   }
+  await pruneOrphanedDocs(spindle, userId, new Set(paths));
+  // Marker last: a crash mid-write leaves it stale so the next start retries.
   await spindle.userStorage.write(absPath(LUMIVERSE_DOCS_MARKER), LUMIVERSE_DOCS_VERSION, userId);
 }
 
