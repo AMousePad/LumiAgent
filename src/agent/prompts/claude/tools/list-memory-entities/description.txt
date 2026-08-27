@@ -1,0 +1,5 @@
+List what the Memory Cortex knows about a chat's entities: characters, locations, items, factions, concepts, events.
+
+Each row: id, name, type, aliases, status, mention count, description. Pass `name` to fetch ONE entity with its full fact list (facts are what actually renders into the prompt: the LAST 6 appear in the entity-context block). Default excludes inactive entities; `include_inactive: true` shows retired ones.
+
+Defaults to the pinned chat. The read half of every curation loop: list first, then `remember_fact` / `update_memory_entity`.

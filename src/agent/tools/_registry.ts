@@ -43,6 +43,10 @@ import { notifyUserTool } from "./notify-user";
 import { switchPersonaTool } from "./switch-persona";
 import { setMacroTool } from "./set-macro";
 import { navigateUiTool } from "./navigate-ui";
+import { memoryStatsTool } from "./memory-stats";
+import { listMemoryEntitiesTool } from "./list-memory-entities";
+import { rememberFactTool } from "./remember-fact";
+import { updateMemoryEntityTool } from "./update-memory-entity";
 import { grepTool } from "./grep";
 import { grepChatMessagesTool } from "./grep-chat-messages";
 import { grepExternalTool } from "./grep-external";
@@ -149,6 +153,8 @@ const DEFERRED_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   "get_theme", "set_theme", "install_theme_pack",
   // Prompt-macro store + UI deep links.
   "set_macro", "navigate_ui",
+  // Memory Cortex curation. Only when the user asks about long-term memory.
+  "memory_stats", "list_memory_entities", "remember_fact", "update_memory_entity",
   // Bulk translation surface. Fetched once a translation/CJK task is underway;
   // the prompt body still names them as the completion gate so the agent knows
   // to tool_search them.
@@ -201,6 +207,7 @@ const READ_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   // Lumiverse-state inspectors
   "dry_run_prompt", "resolve_macros", "count_tokens",
   "list_image_models", "list_images", "list_global_addons", "get_theme",
+  "memory_stats", "list_memory_entities",
   "list_variables", "read_variable",
   "list_activated_world_info", "list_active_regex_scripts", "list_chat_memories",
   "list_chat_world_books",
@@ -308,6 +315,10 @@ registry.register(notifyUserTool);
 registry.register(switchPersonaTool);
 registry.register(setMacroTool);
 registry.register(navigateUiTool);
+registry.register(memoryStatsTool);
+registry.register(listMemoryEntitiesTool);
+registry.register(rememberFactTool);
+registry.register(updateMemoryEntityTool);
 registry.register(grepChatMessagesTool);
 registry.register(grepExternalTool);
 registry.register(listCharactersTool);

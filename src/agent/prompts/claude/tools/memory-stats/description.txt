@@ -1,0 +1,3 @@
+Health snapshot of a chat's Memory Cortex: chunk / entity / relation / consolidation counts, ingestion phase, and the latest arc summary if one exists.
+
+Run before curating memory. `active_entities` far below `entities` means many retired; a `queued` or `sidecar` ingestion phase means recent messages have not landed in memory yet, so a curation pass would race it. Defaults to the pinned chat.
