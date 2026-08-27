@@ -2,4 +2,4 @@ Create a new character card from a full spec: name (required) plus any of descri
 
 Use for "spin up a character from this idea / this chat / this summary". Write real content into the fields at creation rather than creating an empty shell and editing it after; each post-creation edit is a separate call and a separate ledger entry.
 
-The new card appears in the user's library immediately. Creation is NOT in the edit ledger, and there is deliberately no delete tool: an unwanted card is removed by the user in the Lumiverse character manager. After creating, address it with `char/<id>/<field>` paths or tell the user to focus it in the picker.
+Returns `created.id`, the id for `char/<id>/<field>` addressing. The new card appears in the user's library immediately. Creation is NOT in the edit ledger, and there is deliberately no delete tool: an unwanted card is removed by the user in the Lumiverse character manager. After creating, address it with `char/<id>/<field>` paths or tell the user to focus it in the picker.

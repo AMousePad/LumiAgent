@@ -7,4 +7,4 @@ Scopes:
 
 Values are strings; numbers/booleans should be sent as their string form since that is what the macro engine compares. `clear: true` deletes the key. `chat` and `local` default to the pinned chat.
 
-For the LumiRealm macro-state store (`macro_variables`) use `set_chat_variable` / `set_toggle` instead; for card-side defaults edit `scriptstate_defaults`.
+For the LumiRealm macro-state store (`macro_variables`) use `set_chat_variable` / `set_toggle` instead; for card-side defaults edit `scriptstate_defaults`. For agent-maintained prompt text the user pastes a reference to (summaries, directives), prefer `set_macro`'s `{{lumiagent::name}}` over a global variable: it is namespaced to the agent and cannot collide with card macros.

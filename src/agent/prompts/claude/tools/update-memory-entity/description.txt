@@ -1,7 +1,9 @@
 Curate a memory entity: retire it from retrieval, mark it dead/destroyed in-fiction, revive it, merge duplicate names via aliases, or pin it against automatic drift.
 
-- `status`: `inactive` removes it from retrieval and the prompt (the prune primitive; there is no hard delete). `deceased` / `destroyed` model in-fiction fate. `active` revives.
-- `add_aliases`: alternate names that should resolve to THIS entity. The dedupe path for "Kae" / "the Ashen One" duplicates: alias the canonical entity, then retire the duplicate row.
+- `status`: `inactive` removes it from retrieval and the prompt (the prune primitive; there is no hard delete). `deceased` / `destroyed` record in-fiction fate; the entity STAYS in retrieval, so pair them with a `remember_fact` stating the death for the prompt to see. `active` revives.
+- `add_aliases`: alternate names that should resolve to THIS entity.
 - `pin: true` locks the entity: automatic extraction can no longer overwrite its name / type / aliases, and garbage collection can never delete it. Pin after curating so the sidecar does not drift your work. Pinning is permanent.
 
-Resolved by `name` (aliases count) or `entity_id`. Defaults to the pinned chat. Cache is invalidated afterward.
+Merging duplicates ("Kae" and "the Ashen One" are one person), in THIS order: list both rows to get ids and facts, `remember_fact` any facts worth keeping onto the canonical entity (facts do not migrate on their own), retire the duplicate by `entity_id` with `status: inactive`, THEN alias the canonical. Aliasing first makes the duplicate's name resolve to the canonical row, so a later retire-by-name would retire the wrong entity.
+
+Resolved by `name` (aliases count) or `entity_id`. Never creates an entity; a miss is `[PATH_NOT_FOUND]` (use `remember_fact` to create). Defaults to the pinned chat. Cache is invalidated afterward.

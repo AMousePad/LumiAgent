@@ -1,7 +1,7 @@
 Write side of the databank (RAG document collection) surface. One tool, action-dispatched; the read side is `list_databanks` / `read_databank` / `list_databank_documents` / `read_databank_document`.
 
-Actions:
-- `create_bank`: value {name (required), description?, scope: global|character|chat (required), scope_id? (the character/chat id for scoped banks)}
+Actions (each returns the affected row under a key named for the action: `created.id`, `updated`, `added.id`, `renamed`, `deleted`):
+- `create_bank`: value {name (required), description?, scope: global|character|chat (required), scope_id (REQUIRED for character/chat scope, the character/chat id; there is no pinned-chat or focus default here, unlike most tools)}
 - `update_bank`: databank_id + value {name?, description?, enabled?}
 - `delete_bank`: databank_id. Destroys its documents too.
 - `add_document`: databank_id + value {name (required), content (required, text)}. The host chunks and embeds it; check `list_databank_documents` for status "processed" before expecting retrieval hits.

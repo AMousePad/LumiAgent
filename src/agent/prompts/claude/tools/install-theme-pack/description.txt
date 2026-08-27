@@ -1,7 +1,9 @@
 Install a native Lumiverse theme pack: a global stylesheet plus optional per-component CSS overrides (permission `app_manipulation`). This is persistent theme AUTHORING, unlike `set_theme`'s live overrides.
 
-Workflow: `get_theme({include_catalog: true})` FIRST. `components` keys must be catalog component ids, and each value's CSS applies to that component's selector. Write against the catalog's real selectors and variables, never guessed class names.
+Workflow: `get_theme({include_catalog: true})` FIRST. `components` keys must be catalog component ids. Each component's `css` is FULL rules including selectors (the host concatenates it verbatim, nothing is auto-scoped): target the catalog entry's `selector`, never guessed class names. Bare declarations without a selector fail parse validation.
 
 CSS is sanitized then parsed by a real CSS engine: `@import`, external `http(s)` `url()`, and `javascript:` urls are stripped; anything that fails to parse rejects the whole install with `INVALID_THEME_CSS`. Name and author max 200 chars, description max 5000.
 
-`apply` defaults true (the pack becomes the active theme immediately). `save_to_library: true` also saves it to the user's theme library so it survives and is switchable in Settings. Runs in the user's browser tab, so the LumiAgent drawer must be open. Installing replaces the current applied theme: confirm with the user before applying a restyle they did not request.
+`apply` defaults true (the pack becomes the active theme immediately). `save_to_library: true` also saves it to the user's theme library so it survives and is switchable in Settings. Runs in the user's browser tab, so the LumiAgent drawer must be open.
+
+There is NO programmatic revert: `set_theme({clear})` does not touch an installed pack, and the user gets their old look back by switching themes in Settings. Applying replaces the current theme, so confirm before a restyle the user did not request, and prefer `save_to_library` so the change survives as a named, switchable thing.

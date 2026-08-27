@@ -1,5 +1,5 @@
 List the user's reusable global add-on text blocks: id, label, sort order, and content size.
 
-This is the discovery step for `global_addon/<id>/<content|label>` paths. Without it you can only reach an add-on whose id you already have. `read_persona` resolves which add-ons a given persona pulls in; this returns the whole library.
+This is the discovery step for `global_addon/<id>/<content|label>` paths. `read_persona` resolves which add-ons one persona pulls in; this returns the whole library.
 
 Edit the bodies with `read` / `edit` / `rewrite` on `global_addon/<id>/content`. Reordering is a `set` on the add-on's `sort_order`.

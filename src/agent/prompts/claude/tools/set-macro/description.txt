@@ -4,4 +4,4 @@ The reference is `{{lumiagent::<name>}}`. Bare `{{lumiagent}}` resolves to the l
 
 Use it to push living agent state into the user's prompts: a plot-thread summary the agent maintains, a rotating scene directive, a glossary block. Tell the user the exact `{{lumiagent::name}}` string to paste, since storing a value alone changes nothing until something references it.
 
-Names: lowercase, `a-z0-9_`, max 64 chars, max 100 stored. Values: max 8000 chars, plain text (macros inside the value are NOT re-expanded). `clear: true` deletes the name; an unreferenced stored value is harmless.
+Names: lowercase, `a-z0-9_`, max 64 chars, max 100 stored. Values: max 8000 chars, plain text (macros inside the value are NOT re-expanded). `clear: true` deletes the name; an unreferenced stored value is harmless. Values are per-user, not per-chat: one reference resolves the same everywhere, so flag that when a user runs multiple stories. For per-chat state that card macros read, use `set_variable` instead.

@@ -1,1 +1,1 @@
-Install the result as the target character's card avatar. Replaces the existing avatar and is not revertable through the edit ledger.
+Install the result as the avatar of the same character the image is tagged to (character_id, defaulting to the focus). Replaces the existing avatar, which is not backed up, and is not revertable through the edit ledger.

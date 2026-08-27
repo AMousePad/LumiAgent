@@ -35860,7 +35860,7 @@ var arg_save_to_default3 = "Workspace path to also write the image bytes to, e.g
 var init_arg_save_to3 = () => {};
 
 // src/agent/prompts/claude/tools/generate-image/arg_set_as_avatar.txt
-var arg_set_as_avatar_default = `Install the result as the target character's card avatar. Replaces the existing avatar and is not revertable through the edit ledger.
+var arg_set_as_avatar_default = `Install the result as the avatar of the same character the image is tagged to (character_id, defaulting to the focus). Replaces the existing avatar, which is not backed up, and is not revertable through the edit ledger.\r
 `;
 var init_arg_set_as_avatar = () => {};
 
@@ -36060,7 +36060,7 @@ var init_get_theme = __esm(() => {
 });
 
 // src/agent/prompts/claude/tools/set-theme/description.txt
-var description_default35 = "Change the live UI theme (permission `app_manipulation`). Exactly one mode per call:\n\n- `accent: {h,s,l}` derives a full light+dark palette from one color via Lumiverse's own rules. The user's glass, radius, font, and scale settings are preserved. The safest option.\n- `from_image_id` extracts the dominant color from a library image (see `list_images`, or `generate_image`'s `image_id`) and applies it as the accent. Avatar-to-theme in one call.\n- `variables` pushes raw CSS variable overrides, e.g. `{\"--lumiverse-primary\": \"#7c5cff\"}`. Power mode: nothing is derived and bad values make the UI ugly rather than erroring. Keys must start with `--`, max 200, values are single CSS values (no `{ } ; < >`, no external url()). 40+ keys REPLACES this extension's whole override scope instead of merging.\n- `clear: true` removes every override this extension has applied, reverting to the user's base theme.\n\nOverrides are live immediately, layer on top of the user's theme without modifying it, and are auto-cleared when the extension unloads. Not in the edit ledger; `clear` is the undo. Ask before restyling an interface the user did not ask to change.\n";
+var description_default35 = "Change the live UI theme (permission `app_manipulation`). Exactly one mode per call:\r\n\r\n- `accent: {h,s,l}` derives a full light+dark palette from one color via Lumiverse's own rules. The user's glass, radius, font, and scale settings are preserved. The safest option.\r\n- `from_image_id` extracts the dominant color from a library image (see `list_images`, or `generate_image`'s `image_id`) and applies it as the accent. Avatar-to-theme in one call.\r\n- `variables` pushes raw CSS variable overrides, e.g. `{\"--lumiverse-primary\": \"#7c5cff\"}`. Power mode: nothing is derived and bad values make the UI ugly rather than erroring. Keys must start with `--`, max 200, values are single CSS values (no `{ } ; < >`, no external url()). 40+ keys REPLACES this extension's whole override scope instead of merging.\r\n- `clear: true` removes every override this extension has applied, reverting to whatever theme is active. It does NOT uninstall a theme pack applied via `install_theme_pack`; that is user-side, in Settings.\r\n\r\nOverrides are live immediately, layer on top of the user's theme without modifying it, and are auto-cleared when the extension unloads. Not in the edit ledger; `clear` is the undo. Ask before restyling an interface the user did not ask to change.\r\n";
 var init_description35 = () => {};
 
 // src/agent/prompts/claude/tools/set-theme/arg_accent.txt
@@ -36172,7 +36172,7 @@ var init_set_theme = __esm(() => {
 });
 
 // src/agent/prompts/claude/tools/install-theme-pack/description.txt
-var description_default36 = "Install a native Lumiverse theme pack: a global stylesheet plus optional per-component CSS overrides (permission `app_manipulation`). This is persistent theme AUTHORING, unlike `set_theme`'s live overrides.\n\nWorkflow: `get_theme({include_catalog: true})` FIRST. `components` keys must be catalog component ids, and each value's CSS applies to that component's selector. Write against the catalog's real selectors and variables, never guessed class names.\n\nCSS is sanitized then parsed by a real CSS engine: `@import`, external `http(s)` `url()`, and `javascript:` urls are stripped; anything that fails to parse rejects the whole install with `INVALID_THEME_CSS`. Name and author max 200 chars, description max 5000.\n\n`apply` defaults true (the pack becomes the active theme immediately). `save_to_library: true` also saves it to the user's theme library so it survives and is switchable in Settings. Runs in the user's browser tab, so the LumiAgent drawer must be open. Installing replaces the current applied theme: confirm with the user before applying a restyle they did not request.\n";
+var description_default36 = "Install a native Lumiverse theme pack: a global stylesheet plus optional per-component CSS overrides (permission `app_manipulation`). This is persistent theme AUTHORING, unlike `set_theme`'s live overrides.\r\n\r\nWorkflow: `get_theme({include_catalog: true})` FIRST. `components` keys must be catalog component ids. Each component's `css` is FULL rules including selectors (the host concatenates it verbatim, nothing is auto-scoped): target the catalog entry's `selector`, never guessed class names. Bare declarations without a selector fail parse validation.\r\n\r\nCSS is sanitized then parsed by a real CSS engine: `@import`, external `http(s)` `url()`, and `javascript:` urls are stripped; anything that fails to parse rejects the whole install with `INVALID_THEME_CSS`. Name and author max 200 chars, description max 5000.\r\n\r\n`apply` defaults true (the pack becomes the active theme immediately). `save_to_library: true` also saves it to the user's theme library so it survives and is switchable in Settings. Runs in the user's browser tab, so the LumiAgent drawer must be open.\r\n\r\nThere is NO programmatic revert: `set_theme({clear})` does not touch an installed pack, and the user gets their old look back by switching themes in Settings. Applying replaces the current theme, so confirm before a restyle the user did not request, and prefer `save_to_library` so the change survives as a named, switchable thing.\r\n";
 var init_description36 = () => {};
 
 // src/agent/prompts/claude/tools/install-theme-pack/arg_name.txt
@@ -36186,8 +36186,7 @@ var arg_global_css_default = `The pack's global stylesheet. Sanitized and parse-
 var init_arg_global_css = () => {};
 
 // src/agent/prompts/claude/tools/install-theme-pack/arg_components.txt
-var arg_components_default = `Map of catalog component id to {css, [enabled]}. Ids come from get_theme's catalog; unknown ids fail the install.
-`;
+var arg_components_default = "Map of catalog component id to {css, [enabled]}. Ids come from get_theme's catalog. `css` is full rules targeting that entry's selector, not bare declarations.\r\n";
 var init_arg_components = () => {};
 
 // src/agent/prompts/claude/tools/install-theme-pack/arg_apply.txt
@@ -36351,7 +36350,7 @@ var init_list_image_models = __esm(() => {
 });
 
 // src/agent/prompts/claude/tools/list-images/description.txt
-var description_default38 = "List images in the user's Lumiverse library (permission `images`).\n\nUse it to see a character's existing art before generating more, to find expression sprites, or to locate an image id. Filter with `character_id` (defaults to the focused character; pass \"all\" for the whole library) and `chat_id`. `only_owned: true` narrows to images LumiAgent itself created.\n\nEach row: id, filename, mime type, dimensions, the owning character / chat, and a relative `url`. That url is authenticated and host-relative, so it is NOT fetchable via `web_fetch`; to actually look at an image, generate or download it into the workspace and use `view_image`.\n";
+var description_default38 = "List images in the user's Lumiverse library (permission `images`).\r\n\r\nUse it to see a character's existing art before generating more, to find expression sprites, or to locate an image id. Filter with `character_id` (defaults to the focused character; pass \"all\" for the whole library) and `chat_id`. `only_owned: true` narrows to images LumiAgent itself created.\r\n\r\nEach row: id, filename, mime type, dimensions, the owning character / chat, and a relative `url`. The card's current avatar is character data, not a library row, so no row here is marked as the avatar. That url is authenticated and host-relative, so it is NOT fetchable via `web_fetch`; to actually look at an image, generate or download it into the workspace and use `view_image`.\r\n";
 var init_description38 = () => {};
 
 // src/agent/prompts/claude/tools/list-images/arg_character_id.txt
@@ -36445,7 +36444,7 @@ var init_list_images = __esm(() => {
 });
 
 // src/agent/prompts/claude/tools/list-global-addons/description.txt
-var description_default39 = "List the user's reusable global add-on text blocks: id, label, sort order, and content size.\n\nThis is the discovery step for `global_addon/<id>/<content|label>` paths. Without it you can only reach an add-on whose id you already have. `read_persona` resolves which add-ons a given persona pulls in; this returns the whole library.\n\nEdit the bodies with `read` / `edit` / `rewrite` on `global_addon/<id>/content`. Reordering is a `set` on the add-on's `sort_order`.\n";
+var description_default39 = "List the user's reusable global add-on text blocks: id, label, sort order, and content size.\r\n\r\nThis is the discovery step for `global_addon/<id>/<content|label>` paths. `read_persona` resolves which add-ons one persona pulls in; this returns the whole library.\r\n\r\nEdit the bodies with `read` / `edit` / `rewrite` on `global_addon/<id>/content`. Reordering is a `set` on the add-on's `sort_order`.\r\n";
 var init_description39 = () => {};
 
 // src/agent/tools/list-global-addons.ts
@@ -36503,11 +36502,11 @@ var init_list_global_addons = __esm(() => {
 });
 
 // src/agent/prompts/claude/tools/notify-user/description.txt
-var description_default40 = `Send the user an OS push notification (permission \`push_notification\`).
-
-Only for work that finished or is blocked while the user is elsewhere: a long agent run completing, a change waiting on approval. Lumiverse delivers it only when the app is not focused, so it will not double up on an in-app message, but it is still an interruption. One per task at most, never for progress updates.
-
-The title is automatically prefixed with the extension name. Body is truncated near 4KB. Returns \`sent: 0\` when the user has no push subscription, which is not an error.
+var description_default40 = `Send the user an OS push notification (permission \`push_notification\`).\r
+\r
+Only for work that finished or is blocked while the user is elsewhere: a long agent run completing, a change waiting on approval. Lumiverse delivers it only when the app is not focused, so it never doubles an in-app message. One per task at most, never for progress updates.\r
+\r
+The title is automatically prefixed with the extension name. Body is truncated near 4KB. Returns \`sent: 0\` when the user has no push subscription, which is not an error.\r
 `;
 var init_description40 = () => {};
 
@@ -36568,7 +36567,7 @@ var init_notify_user = __esm(() => {
 });
 
 // src/agent/prompts/claude/tools/switch-persona/description.txt
-var description_default41 = 'Switch the user\'s active persona, i.e. who `{{user}}` is in every subsequent generation. Pass `persona_id: "none"` to deactivate.\n\n`create({path:"persona"})` only adds a persona to the list; without this the user has to activate it by hand. Use the two together when building a scenario-specific persona.\n\n`list_personas` enumerates ids, `read_persona` reads one. This takes effect immediately and applies to the user\'s real chats, not just this agent session, so confirm before switching a persona the user did not ask you to change. It is a user setting, not a card edit, so it is NOT in the edit ledger and `revert_session_edits` will not undo it.\n';
+var description_default41 = 'Switch the user\'s active persona, i.e. who `{{user}}` is in every subsequent generation. Pass `persona_id: "none"` to deactivate.\r\n\r\n`create({path:"persona"})` only adds a persona to the list; without this the user has to activate it by hand. Use the two together when building a scenario-specific persona.\r\n\r\nReturns `{previous, active}`, each `{id, name}` or null, where `active` re-reads the LIVE state after the write: if `active` does not name the persona you passed, the switch did not land, so re-check the id via `list_personas` and never report success. `list_personas` enumerates ids, `read_persona` reads one. This takes effect immediately and applies to the user\'s real chats, not just this agent session, so confirm before switching a persona the user did not ask you to change. It is a user setting, not a card edit, so it is NOT in the edit ledger and `revert_session_edits` will not undo it.\r\n';
 var init_description41 = () => {};
 
 // src/agent/prompts/claude/tools/switch-persona/arg_persona_id.txt
@@ -36711,7 +36710,7 @@ var init_agent_macros = __esm(() => {
 });
 
 // src/agent/prompts/claude/tools/set-macro/description.txt
-var description_default42 = "Store or clear a value the user can reference anywhere Lumiverse resolves macros: presets, world book entries, author's notes, greetings.\n\nThe reference is `{{lumiagent::<name>}}`. Bare `{{lumiagent}}` resolves to the list of stored names. Values persist across sessions and worker restarts (stored at `agent/macros.json` in the workspace) and resolve per-user.\n\nUse it to push living agent state into the user's prompts: a plot-thread summary the agent maintains, a rotating scene directive, a glossary block. Tell the user the exact `{{lumiagent::name}}` string to paste, since storing a value alone changes nothing until something references it.\n\nNames: lowercase, `a-z0-9_`, max 64 chars, max 100 stored. Values: max 8000 chars, plain text (macros inside the value are NOT re-expanded). `clear: true` deletes the name; an unreferenced stored value is harmless.\n";
+var description_default42 = "Store or clear a value the user can reference anywhere Lumiverse resolves macros: presets, world book entries, author's notes, greetings.\r\n\r\nThe reference is `{{lumiagent::<name>}}`. Bare `{{lumiagent}}` resolves to the list of stored names. Values persist across sessions and worker restarts (stored at `agent/macros.json` in the workspace) and resolve per-user.\r\n\r\nUse it to push living agent state into the user's prompts: a plot-thread summary the agent maintains, a rotating scene directive, a glossary block. Tell the user the exact `{{lumiagent::name}}` string to paste, since storing a value alone changes nothing until something references it.\r\n\r\nNames: lowercase, `a-z0-9_`, max 64 chars, max 100 stored. Values: max 8000 chars, plain text (macros inside the value are NOT re-expanded). `clear: true` deletes the name; an unreferenced stored value is harmless. Values are per-user, not per-chat: one reference resolves the same everywhere, so flag that when a user runs multiple stories. For per-chat state that card macros read, use `set_variable` instead.\r\n";
 var init_description42 = () => {};
 
 // src/agent/prompts/claude/tools/set-macro/arg_name.txt
@@ -36786,11 +36785,11 @@ var init_set_macro = __esm(() => {
 });
 
 // src/agent/prompts/claude/tools/navigate-ui/description.txt
-var description_default43 = `Navigate the user's Lumiverse UI: open a drawer tab or a settings view in their browser.
-
-Use it to take the user to the result of finished work: \`drawer_tab\` after editing something that tab shows, \`settings_view: "connections"\` when a connection is broken, and so on. \`list: true\` returns the available tab and view ids first; ids vary by installed extensions, so list before guessing an id you have not seen this session.
-
-This moves the user's actual UI. Navigate when the user asked for something whose result lives there, at most once per task, never mid-task while they may be reading.
+var description_default43 = `Navigate the user's Lumiverse UI: open a drawer tab or a settings view in their browser.\r
+\r
+Use it to take the user to the result of finished work: \`drawer_tab\` after editing something that tab shows, \`settings_view: "connections"\` when a connection is broken. Navigation bottoms out at the tab / view level; there is no deep link to a specific character or item, so pair it with telling the user what to click there. \`list: true\` returns the available tab and view ids first; ids vary by installed extensions, so list before guessing an id you have not seen this session.\r
+\r
+This moves the user's actual UI. Navigate when the user asked for something whose result lives there, at most once per task, never mid-task while they may be reading.\r
 `;
 var init_description43 = () => {};
 
@@ -36896,7 +36895,7 @@ function entityRow(e) {
 var NO_CHAT_ERROR = "Error: [NO_TARGET] no chat. Pass chat_id, or have the user pin a chat. Memory is per-chat.";
 
 // src/agent/prompts/claude/tools/memory-stats/description.txt
-var description_default44 = "Health snapshot of a chat's Memory Cortex: chunk / entity / relation / consolidation counts, ingestion phase, and the latest arc summary if one exists.\n\nRun before curating memory. `active_entities` far below `entities` means many retired; a `queued` or `sidecar` ingestion phase means recent messages have not landed in memory yet, so a curation pass would race it. Defaults to the pinned chat.\n";
+var description_default44 = 'Health snapshot of a chat\'s Memory Cortex: chunk / entity / relation / consolidation counts, ingestion phase, and the latest arc summary if one exists.\r\n\r\nReturns `usage` (counts), `ingestion` (phase, or "idle"), and `latest_arc.summary` when one exists. Run before curating memory: an entity count far above the active count means many retired rows, and a `queued` or `sidecar` ingestion phase means recent messages have not landed in memory yet, so a curation pass would race it. Defaults to the pinned chat.\r\n';
 var init_description44 = () => {};
 
 // src/agent/tools/memory-stats.ts
@@ -37024,7 +37023,7 @@ var init_list_memory_entities = __esm(() => {
 });
 
 // src/agent/prompts/claude/tools/remember-fact/description.txt
-var description_default46 = 'Write a durable fact onto a memory entity. Facts append to the entity\'s fact list, and the last 6 render into the entity-context block of every subsequent generation, so a written fact reaches the model verbatim on the next message.\n\nThe entity is resolved by name (aliases count); if it does not exist it is created with the given `entity_type` (default `character`). `importance` 1-10 (default 5) survives trimming: the fact list caps at 30 and evicts lowest-importance first, so use 8-10 for facts that must never fall out.\n\nDeduplication is case-insensitive on the fact text. Keep facts short, one clause each, present tense ("Kael never forgave his brother"). Defaults to the pinned chat. The cortex cache is invalidated so the next generation sees the change.\n';
+var description_default46 = 'Write a durable fact onto a memory entity. Facts append to the entity\'s fact list, and the last 6 render into the entity-context block of every subsequent generation, so a written fact reaches the model verbatim on the next message.\r\n\r\nThe entity is resolved by name (aliases count); if it does not exist it is created with the given `entity_type` (default `character`). `importance` 1-10 (default 5) survives trimming: the fact list caps at 30, evicting lowest-importance first (ties keep the newer fact), so use 8-10 for facts that must never fall out.\r\n\r\nDeduplication is case-insensitive on the fact text. Keep facts short, one clause each, present tense ("Kael never forgave his brother"). Defaults to the pinned chat. The cortex cache is invalidated so the next generation sees the change.\r\n';
 var init_description46 = () => {};
 
 // src/agent/tools/remember-fact.ts
@@ -37093,7 +37092,7 @@ var init_remember_fact = __esm(() => {
 });
 
 // src/agent/prompts/claude/tools/update-memory-entity/description.txt
-var description_default47 = 'Curate a memory entity: retire it from retrieval, mark it dead/destroyed in-fiction, revive it, merge duplicate names via aliases, or pin it against automatic drift.\n\n- `status`: `inactive` removes it from retrieval and the prompt (the prune primitive; there is no hard delete). `deceased` / `destroyed` model in-fiction fate. `active` revives.\n- `add_aliases`: alternate names that should resolve to THIS entity. The dedupe path for "Kae" / "the Ashen One" duplicates: alias the canonical entity, then retire the duplicate row.\n- `pin: true` locks the entity: automatic extraction can no longer overwrite its name / type / aliases, and garbage collection can never delete it. Pin after curating so the sidecar does not drift your work. Pinning is permanent.\n\nResolved by `name` (aliases count) or `entity_id`. Defaults to the pinned chat. Cache is invalidated afterward.\n';
+var description_default47 = 'Curate a memory entity: retire it from retrieval, mark it dead/destroyed in-fiction, revive it, merge duplicate names via aliases, or pin it against automatic drift.\r\n\r\n- `status`: `inactive` removes it from retrieval and the prompt (the prune primitive; there is no hard delete). `deceased` / `destroyed` record in-fiction fate; the entity STAYS in retrieval, so pair them with a `remember_fact` stating the death for the prompt to see. `active` revives.\r\n- `add_aliases`: alternate names that should resolve to THIS entity.\r\n- `pin: true` locks the entity: automatic extraction can no longer overwrite its name / type / aliases, and garbage collection can never delete it. Pin after curating so the sidecar does not drift your work. Pinning is permanent.\r\n\r\nMerging duplicates ("Kae" and "the Ashen One" are one person), in THIS order: list both rows to get ids and facts, `remember_fact` any facts worth keeping onto the canonical entity (facts do not migrate on their own), retire the duplicate by `entity_id` with `status: inactive`, THEN alias the canonical. Aliasing first makes the duplicate\'s name resolve to the canonical row, so a later retire-by-name would retire the wrong entity.\r\n\r\nResolved by `name` (aliases count) or `entity_id`. Never creates an entity; a miss is `[PATH_NOT_FOUND]` (use `remember_fact` to create). Defaults to the pinned chat. Cache is invalidated afterward.\r\n';
 var init_description47 = () => {};
 
 // src/agent/tools/update-memory-entity.ts
@@ -37166,7 +37165,7 @@ var init_update_memory_entity = __esm(() => {
 });
 
 // src/agent/prompts/claude/tools/set-variable/description.txt
-var description_default48 = "Set or delete a Lumiverse variable. The write half of `list_variables` / `read_variable`.\n\nScopes:\n- `chat`: persisted on `chat.metadata.chat_variables`, read by `{{getchatvar}}`. Survives forever with the chat. Needs a chat.\n- `local`: chat-bound runtime variables, the store Risu / LumiRealm triggers write via `setvar`. Trigger effects can overwrite your value when they fire. Needs a chat.\n- `global`: user-level, read by `{{getglobalvar}}`. Applies across every chat.\n\nValues are strings; numbers/booleans should be sent as their string form since that is what the macro engine compares. `clear: true` deletes the key. `chat` and `local` default to the pinned chat.\n\nFor the LumiRealm macro-state store (`macro_variables`) use `set_chat_variable` / `set_toggle` instead; for card-side defaults edit `scriptstate_defaults`.\n";
+var description_default48 = "Set or delete a Lumiverse variable. The write half of `list_variables` / `read_variable`.\r\n\r\nScopes:\r\n- `chat`: persisted on `chat.metadata.chat_variables`, read by `{{getchatvar}}`. Survives forever with the chat. Needs a chat.\r\n- `local`: chat-bound runtime variables, the store Risu / LumiRealm triggers write via `setvar`. Trigger effects can overwrite your value when they fire. Needs a chat.\r\n- `global`: user-level, read by `{{getglobalvar}}`. Applies across every chat.\r\n\r\nValues are strings; numbers/booleans should be sent as their string form since that is what the macro engine compares. `clear: true` deletes the key. `chat` and `local` default to the pinned chat.\r\n\r\nFor the LumiRealm macro-state store (`macro_variables`) use `set_chat_variable` / `set_toggle` instead; for card-side defaults edit `scriptstate_defaults`. For agent-maintained prompt text the user pastes a reference to (summaries, directives), prefer `set_macro`'s `{{lumiagent::name}}` over a global variable: it is namespaced to the agent and cannot collide with card macros.\r\n";
 var init_description48 = () => {};
 
 // src/agent/tools/set-variable.ts
@@ -37236,7 +37235,7 @@ var init_set_variable = __esm(() => {
 });
 
 // src/agent/prompts/claude/tools/manage-databank/description.txt
-var description_default49 = 'Write side of the databank (RAG document collection) surface. One tool, action-dispatched; the read side is `list_databanks` / `read_databank` / `list_databank_documents` / `read_databank_document`.\n\nActions:\n- `create_bank`: value {name (required), description?, scope: global|character|chat (required), scope_id? (the character/chat id for scoped banks)}\n- `update_bank`: databank_id + value {name?, description?, enabled?}\n- `delete_bank`: databank_id. Destroys its documents too.\n- `add_document`: databank_id + value {name (required), content (required, text)}. The host chunks and embeds it; check `list_databank_documents` for status "processed" before expecting retrieval hits.\n- `rename_document`: document_id + value {name}\n- `delete_document`: document_id\n- `reprocess_document`: document_id. Re-chunk and re-embed, e.g. after an embedding-model change.\n\nTypical loop: `web_search({save_to})` or research produces text, `add_document` makes it retrievable in generations for the bank\'s scope. Documents go in as text; binary uploads are not supported through this tool.\n\nDatabank writes are NOT in the edit ledger; deletes are unrecoverable.\n';
+var description_default49 = 'Write side of the databank (RAG document collection) surface. One tool, action-dispatched; the read side is `list_databanks` / `read_databank` / `list_databank_documents` / `read_databank_document`.\r\n\r\nActions (each returns the affected row under a key named for the action: `created.id`, `updated`, `added.id`, `renamed`, `deleted`):\r\n- `create_bank`: value {name (required), description?, scope: global|character|chat (required), scope_id (REQUIRED for character/chat scope, the character/chat id; there is no pinned-chat or focus default here, unlike most tools)}\r\n- `update_bank`: databank_id + value {name?, description?, enabled?}\r\n- `delete_bank`: databank_id. Destroys its documents too.\r\n- `add_document`: databank_id + value {name (required), content (required, text)}. The host chunks and embeds it; check `list_databank_documents` for status "processed" before expecting retrieval hits.\r\n- `rename_document`: document_id + value {name}\r\n- `delete_document`: document_id\r\n- `reprocess_document`: document_id. Re-chunk and re-embed, e.g. after an embedding-model change.\r\n\r\nTypical loop: `web_search({save_to})` or research produces text, `add_document` makes it retrievable in generations for the bank\'s scope. Documents go in as text; binary uploads are not supported through this tool.\r\n\r\nDatabank writes are NOT in the edit ledger; deletes are unrecoverable.\r\n';
 var init_description49 = () => {};
 
 // src/agent/tools/manage-databank.ts
@@ -37356,12 +37355,7 @@ var init_manage_databank = __esm(() => {
 });
 
 // src/agent/prompts/claude/tools/create-character/description.txt
-var description_default50 = `Create a new character card from a full spec: name (required) plus any of description, personality, scenario, first_mes, mes_example, creator_notes, system_prompt, post_history_instructions, creator, tags, alternate_greetings, world_book_ids, extensions.\r
-\r
-Use for "spin up a character from this idea / this chat / this summary". Write real content into the fields at creation rather than creating an empty shell and editing it after; each post-creation edit is a separate call and a separate ledger entry.\r
-\r
-The new card appears in the user's library immediately. Creation is NOT in the edit ledger, and there is deliberately no delete tool: an unwanted card is removed by the user in the Lumiverse character manager. After creating, address it with \`char/<id>/<field>\` paths or tell the user to focus it in the picker.\r
-`;
+var description_default50 = 'Create a new character card from a full spec: name (required) plus any of description, personality, scenario, first_mes, mes_example, creator_notes, system_prompt, post_history_instructions, creator, tags, alternate_greetings, world_book_ids, extensions.\r\n\r\nUse for "spin up a character from this idea / this chat / this summary". Write real content into the fields at creation rather than creating an empty shell and editing it after; each post-creation edit is a separate call and a separate ledger entry.\r\n\r\nReturns `created.id`, the id for `char/<id>/<field>` addressing. The new card appears in the user\'s library immediately. Creation is NOT in the edit ledger, and there is deliberately no delete tool: an unwanted card is removed by the user in the Lumiverse character manager. After creating, address it with `char/<id>/<field>` paths or tell the user to focus it in the picker.\r\n';
 var init_description50 = () => {};
 
 // src/agent/tools/create-character.ts

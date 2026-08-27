@@ -2,4 +2,4 @@ List images in the user's Lumiverse library (permission `images`).
 
 Use it to see a character's existing art before generating more, to find expression sprites, or to locate an image id. Filter with `character_id` (defaults to the focused character; pass "all" for the whole library) and `chat_id`. `only_owned: true` narrows to images LumiAgent itself created.
 
-Each row: id, filename, mime type, dimensions, the owning character / chat, and a relative `url`. That url is authenticated and host-relative, so it is NOT fetchable via `web_fetch`; to actually look at an image, generate or download it into the workspace and use `view_image`.
+Each row: id, filename, mime type, dimensions, the owning character / chat, and a relative `url`. The card's current avatar is character data, not a library row, so no row here is marked as the avatar. That url is authenticated and host-relative, so it is NOT fetchable via `web_fetch`; to actually look at an image, generate or download it into the workspace and use `view_image`.
