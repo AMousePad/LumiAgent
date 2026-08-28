@@ -1281,7 +1281,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   const openChatPickerModal = (): void => {
     sendBackend({ type: "list_chats", characterId: state.characterId, ...(state.sessionId ? { sessionId: state.sessionId } : {}) });
     const handle: SpindleModalHandle = ctx.ui.showModal({ title: "Pin a chat", width: 520, maxHeight: 560 });
-    const note = el("p", "la-modal-note", "Pick a chat to give the agent read access to its message history. The agent uses the pinned chat when you reference 'this chat', 'the conversation', etc. Pin nothing to keep the agent isolated from your chat data.");
+    const note = el("p", "la-modal-note", "Pin a chat to avoid the agent having to search your chats to find the right one.");
     const list = el("div", "la-sessions-modal-list");
     const render = (): void => {
       list.innerHTML = "";
