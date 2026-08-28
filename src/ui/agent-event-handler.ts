@@ -36,6 +36,12 @@ export interface AgentEventCtx {
 // one active session are processed sequentially (chat_event is session-gated).
 let turnStartBlocks = 0;
 
+// Reattach rehydration seeds the boundary because the in-flight turn's
+// turn_started was consumed before the refresh.
+export function setTurnStartBlocks(n: number): void {
+  turnStartBlocks = n;
+}
+
 // One handler per AgentEvent variant. Streaming events mutate the live bubble
 // and currentAssistantMessage directly. Terminal events (paused_for_input)
 // flush back to a static-rendered bubble so action buttons appear.

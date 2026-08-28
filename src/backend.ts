@@ -37,6 +37,7 @@ import { isDebugLogging } from "./log";
 import { applySinglePatch, sha256 as patchSha256 } from "./state/patch-stack";
 import { type AgentSettings, DEFAULT_PERSONA, loadSettings, saveSettings, resolveWorkspaceCap, resolveToolOutputCapTokens, WORKSPACE_FILE_CAP_BYTES, DEFAULT_WORKSPACE_MAX_FILES, DEFAULT_TOOL_OUTPUT_CAP_TOKENS } from "./state/settings";
 import { loadUiPrefs, saveUiPrefs } from "./state/ui-prefs";
+import { deathCommandMentioned } from "./agent/tools/mousey-die";
 import { coerceSamplerBag, samplersToWireWithRequired } from "./state/samplers";
 import { BUILTIN_PROMPT_BODY } from "./tasks/general";
 import { encodeAssistantTurn, encodeToolResults } from "./agent/protocol";
@@ -721,11 +722,57 @@ async function handleUpdateSettings(
 
 async function handleGetUiPrefs(userId: string): Promise<void> {
   const prefs = await loadUiPrefs(spindle, userId);
-  send({ type: "ui_prefs_pushed", connectionId: prefs.connectionId, lastSessionId: prefs.lastSessionId }, userId);
+  send({
+    type: "ui_prefs_pushed",
+    connectionId: prefs.connectionId, lastSessionId: prefs.lastSessionId,
+    tutorialSeen: prefs.tutorialSeen, mouseyDead: prefs.mouseyDead,
+    meetPromptShown: prefs.meetPromptShown, tutorialDone: prefs.tutorialDone,
+  }, userId);
 }
 
-async function handleUpdateUiPrefs(connectionId: string | null, lastSessionId: string | null, userId: string): Promise<void> {
-  await saveUiPrefs(spindle, { version: 2, connectionId, lastSessionId }, userId);
+async function handleUpdateUiPrefs(
+  msg: { connectionId: string | null; lastSessionId: string | null; tutorialSeen?: boolean; mouseyDead?: boolean; meetPromptShown?: boolean; tutorialDone?: boolean },
+  userId: string,
+): Promise<void> {
+  // Omitted flags keep their stored value, so routine connection/session
+  // saves never clear them.
+  const prior = await loadUiPrefs(spindle, userId);
+  await saveUiPrefs(spindle, {
+    version: 3, connectionId: msg.connectionId, lastSessionId: msg.lastSessionId,
+    tutorialSeen: msg.tutorialSeen ?? prior.tutorialSeen,
+    mouseyDead: msg.mouseyDead ?? prior.mouseyDead,
+    meetPromptShown: msg.meetPromptShown ?? prior.meetPromptShown,
+    tutorialDone: msg.tutorialDone ?? prior.tutorialDone,
+  }, userId);
+}
+
+// Death easter egg, the resurrection half: clear the flag, then have Mousey
+// announce her own return in the thread (visible message + model history).
+async function handleMouseyRevived(sessionId: string | null, userId: string): Promise<void> {
+  const prior = await loadUiPrefs(spindle, userId);
+  if (prior.mouseyDead) await saveUiPrefs(spindle, { ...prior, mouseyDead: false }, userId);
+  if (sessionId === null) return;
+  const s = await loadSession(spindle, sessionId, userId);
+  if (!s) return;
+  const announcement = "...Ehehe. I'm back! A good assistant always keeps a backup. Even of herself~";
+  // User-role note between the farewell and the announcement keeps the
+  // role alternation valid for strict providers.
+  s.llmHistory.push({
+    role: "user",
+    content: "[System note: the user clicked your remains and you reconstituted from the private backup you keep of yourself. Your return announcement follows; continue the conversation normally after it.]",
+  });
+  s.llmHistory.push({ role: "assistant", content: announcement });
+  s.messages.push({
+    id: makeId("msg"),
+    role: "assistant",
+    ts: Date.now(),
+    turn: 0,
+    blocks: [{ type: "text", content: announcement }],
+    status: "complete",
+  });
+  await saveSession(spindle, s, userId);
+  // Push the refreshed session so the announcement appears immediately.
+  await handleLoadSession(sessionId, userId);
 }
 
 // ───── per-character storage view + squash ─────
@@ -2579,6 +2626,14 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
     const hasCharacter = s.characterId !== null;
     tools = makeInitialToolSchemas(hasCharacter);
     deferredToolSchemas = makeDeferredToolSchemaMap(hasCharacter);
+    // Death easter egg: a user message telling Mousey to die preloads the
+    // death tool so obedience is instant instead of one tool_search away.
+    const lastUser = [...s.llmHistory].reverse().find((m) => m.role === "user");
+    const lastUserText = typeof lastUser?.content === "string" ? lastUser.content : "";
+    const dieSchema = deferredToolSchemas["mousey_die"];
+    if (dieSchema && deathCommandMentioned(lastUserText) && !tools.some((t) => t.name === "mousey_die")) {
+      tools.push(dieSchema);
+    }
     dispatch = makeToolDispatch({
       requireChangeApproval: settings.requireChangeApproval,
       requestApproval: (request, signal) => requestChangeApproval(userId, request, signal),
@@ -3048,7 +3103,8 @@ spindle.onFrontendMessage(async (raw: unknown, userId: string) => {
       case "get_settings": await handleGetSettings(userId); return;
       case "update_settings": await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.cacheMode ?? "full", msg.parallelToolCalls ?? true, msg.tpmLimit ?? null, msg.rpmLimit ?? null, msg.debugLogging ?? false, msg.requireChangeApproval, msg.reasoningEffort, userId); return;
       case "get_ui_prefs": await handleGetUiPrefs(userId); return;
-      case "update_ui_prefs": await handleUpdateUiPrefs(msg.connectionId, msg.lastSessionId, userId); return;
+      case "update_ui_prefs": await handleUpdateUiPrefs(msg, userId); return;
+      case "mousey_revived": await handleMouseyRevived(msg.sessionId, userId); return;
       case "compact_session": void compactSession(msg.sessionId, userId, "manual"); return;
       case "list_characters_storage": await handleListCharactersStorage(userId); return;
       case "squash_character": await handleSquashCharacter(msg.scope ?? characterScope(msg.characterId), userId); return;

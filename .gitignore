@@ -6,3 +6,6 @@ local/
 tmp/
 CLAUDE.md
 src/generated/
+
+# Expression source masters (generated art, 300+ MB); processed copies live in assets/branding/expressions
+assets/expressions/

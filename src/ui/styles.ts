@@ -7,6 +7,7 @@ export const STYLES = `
 ${LOADERS_CSS}
 
 .la-drawer {
+  position: relative;
   display: flex; flex-direction: column; height: 100%;
   font-family: var(--lumiverse-font-family);
   color: var(--lumiverse-text);
@@ -50,6 +51,7 @@ ${LOADERS_CSS}
   min-width: 0;
 }
 .la-header-row-char { gap: 6px; flex-wrap: wrap; row-gap: 6px; }
+.la-session-btns { display: inline-flex; gap: 6px; }
 .la-header-row-char .la-combo-host-char { flex: 1 1 160px; min-width: 0; }
 .la-header-row-char .la-combo-host-char .la-combo-trigger { width: 100%; max-width: none; }
 .la-header-row-meta { gap: 6px; flex-wrap: wrap; row-gap: 6px; }
@@ -1194,7 +1196,8 @@ ${LOADERS_CSS}
   bottom: 100%;
   height: min(140px, 22cqw);
   width: auto;
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: pointer;
   user-select: none;
   transform: translateY(33%);
   z-index: 1;
@@ -1481,6 +1484,12 @@ ${LOADERS_CSS}
   transition: background var(--lumiverse-transition-fast), border-color var(--lumiverse-transition-fast);
 }
 .la-empty-suggestion:hover { background: var(--lumiverse-bg-hover); border-color: var(--lumiverse-border-hover); color: var(--lumiverse-text); }
+.la-tour-chip {
+  color: var(--lumiverse-primary);
+  border-color: var(--lumiverse-primary-muted);
+  background: var(--lumiverse-primary-015);
+}
+.la-tour-chip:hover { color: var(--lumiverse-primary); border-color: var(--lumiverse-primary); }
 
 /* ─── Workshop modal tabs ─── */
 .la-workshop-tabs {
@@ -2009,6 +2018,505 @@ ${LOADERS_CSS}
 }
 .la-approval-note { margin: 0; color: var(--lumiverse-text-muted); font-size: 12px; }
 .la-approval-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+
+/* ─── Meet Mousey ─── */
+.la-meet-banner {
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  flex-shrink: 0;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  border-bottom: 1px solid var(--lumiverse-primary-muted);
+  background: linear-gradient(90deg, var(--lumiverse-primary-015), transparent 30%, var(--lumiverse-primary-015) 50%, transparent 70%, var(--lumiverse-primary-015));
+  color: var(--lumiverse-primary);
+  cursor: pointer;
+  transition: filter var(--lumiverse-transition-fast);
+}
+.la-meet-banner:hover { filter: brightness(1.25); }
+.la-meet-banner-main { font-size: 13px; font-weight: 800; letter-spacing: 0.03em; }
+.la-meet-banner-please { font-size: 11px; font-style: italic; color: var(--lumiverse-text-muted); animation: la-meet-please 2.2s ease-in-out infinite; }
+@keyframes la-meet-please {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+.la-meet { position: relative; display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 6px 4px 10px; }
+.la-meet-img {
+  height: 280px; width: auto; max-width: 100%;
+  object-fit: contain; object-position: bottom center;
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.35));
+}
+.la-meet-question { font-size: 15px; font-weight: 700; color: var(--lumiverse-text); text-align: center; }
+.la-congrats-img {
+  max-width: 100%;
+  max-height: calc(94vh - 170px);
+  width: auto; height: auto;
+  border-radius: var(--lumiverse-radius-md);
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.35));
+}
+/* Deadpan head rolling laps just inside the frame. Sized by the drawer code
+   to a sixth of the rendered artwork's height (--la-roller). Segment
+   percentages roughly match side lengths so the wheel speed stays plausible. */
+.la-congrats-roller {
+  position: absolute;
+  width: var(--la-roller, 72px); height: var(--la-roller, 72px);
+  top: 0; left: 0;
+  z-index: 1;
+  pointer-events: none; user-select: none;
+  animation: la-congrats-roll 11s linear infinite;
+}
+@keyframes la-congrats-roll {
+  0% { top: 0; left: 0; transform: rotate(0turn); }
+  30% { top: 0; left: calc(100% - var(--la-roller, 72px)); transform: rotate(1.3turn); }
+  50% { top: calc(100% - var(--la-roller, 72px)); left: calc(100% - var(--la-roller, 72px)); transform: rotate(2.2turn); }
+  80% { top: calc(100% - var(--la-roller, 72px)); left: 0; transform: rotate(3.5turn); }
+  100% { top: 0; left: 0; transform: rotate(4.4turn); }
+}
+.la-meet-actions { display: flex; gap: 10px; }
+.la-meet-yes {
+  background: var(--lumiverse-primary);
+  border-color: var(--lumiverse-primary);
+  color: var(--lumiverse-text);
+  font-weight: 700;
+  padding: 6px 22px;
+}
+
+.la-mousey-poof {
+  position: absolute;
+  z-index: 2;
+  pointer-events: none; user-select: none;
+}
+
+/* Click toy: a quick squash-and-stretch nudge on the alive portrait. */
+.la-mousey.la-mousey-nudge { animation: la-mousey-nudge 0.4s ease-out; }
+@keyframes la-mousey-nudge {
+  0% { transform: translateY(33%) scale(1); }
+  30% { transform: translateY(30%) scale(1.07, 1.04) rotate(-1.5deg); }
+  60% { transform: translateY(34%) scale(0.96, 1.02) rotate(1deg); }
+  100% { transform: translateY(33%) scale(1); }
+}
+
+/* ─── Death easter egg ─── */
+.la-mousey-exploding {
+  animation: la-mousey-explode 0.48s ease-in forwards;
+}
+@keyframes la-mousey-explode {
+  0% { transform: translateY(33%) scale(1); filter: none; }
+  55% { transform: translateY(30%) scale(1.18) rotate(-4deg); filter: brightness(3) saturate(2) drop-shadow(0 0 18px var(--lumiverse-danger)); }
+  100% { transform: translateY(36%) scale(1.5); filter: brightness(6) saturate(0) blur(6px); opacity: 0; }
+}
+/* The remains: clickable, glowing pulsing halo, swells slightly on hover.
+   Overrides the decorative portrait's pointer-events: none. */
+.la-mousey.la-mousey-blood {
+  pointer-events: auto;
+  cursor: pointer;
+  height: min(90px, 15cqw);
+  transform: translateY(20%);
+  opacity: 1;
+  transition: transform 0.25s ease;
+  animation: la-blood-in 0.35s ease-out, la-blood-halo 1.8s ease-in-out 0.35s infinite;
+  /* Any mask clips the halo to the image box; the remains are never masked. */
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+.la-mousey.la-mousey-blood:hover { transform: translateY(20%) scale(1.08); }
+/* Dead composer: input reads as off-limits. */
+.la-composer-dead .la-textarea,
+.la-composer-dead .la-textarea:disabled,
+.la-composer-dead .la-send-btn:disabled { cursor: not-allowed; }
+@keyframes la-blood-in {
+  from { transform: translateY(20%) scale(1.4); opacity: 0; filter: brightness(3); }
+  to { transform: translateY(20%) scale(1); opacity: 1; filter: none; }
+}
+@keyframes la-blood-halo {
+  0%, 100% { filter: drop-shadow(0 0 4px var(--lumiverse-danger)); }
+  50% { filter: drop-shadow(0 0 16px var(--lumiverse-danger)) brightness(1.25); }
+}
+.la-mousey-reviving {
+  animation: la-mousey-revive 0.7s ease-out;
+}
+@keyframes la-mousey-revive {
+  0% { transform: translateY(33%) scale(0.6); opacity: 0; filter: brightness(4) blur(4px); }
+  60% { transform: translateY(30%) scale(1.06); opacity: 1; filter: brightness(1.6); }
+  100% { transform: translateY(33%) scale(1); filter: none; }
+}
+
+/* ─── Tutorial tour ─── */
+.la-tut-overlay {
+  position: absolute; inset: 0; z-index: 60;
+  overflow: hidden;
+  outline: none;
+}
+/* Soft VN vignette over the dimmed app, under the dialogue box. */
+.la-tut-overlay::before {
+  content: "";
+  position: absolute; inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 38%, transparent 55%, rgba(0, 0, 0, 0.28));
+  z-index: 1;
+}
+/* Dim via a huge shadow around the spotlight hole; the hole itself stays
+   bright over the anchored control. The ring glows, twinkles at two corners,
+   and wanders a pixel or two so it reads alive. */
+.la-tut-spot {
+  position: absolute;
+  border-radius: var(--lumiverse-radius);
+  box-shadow: 0 0 0 200vmax rgba(0, 0, 0, 0.55);
+  border: 3px solid var(--lumiverse-primary);
+  transition: top 0.25s ease, left 0.25s ease, width 0.25s ease, height 0.25s ease;
+  pointer-events: none;
+  animation: la-spot-wander 4.5s ease-in-out infinite, la-spot-glow 1.9s ease-in-out infinite;
+}
+@keyframes la-spot-wander {
+  0%, 100% { transform: translate(0, 0); }
+  25% { transform: translate(1.5px, -1px); }
+  50% { transform: translate(-1px, 1.5px); }
+  75% { transform: translate(1px, 1px); }
+}
+@keyframes la-spot-glow {
+  0%, 100% { box-shadow: 0 0 0 200vmax rgba(0, 0, 0, 0.55), 0 0 4px 1px var(--lumiverse-primary-015); }
+  50% { box-shadow: 0 0 0 200vmax rgba(0, 0, 0, 0.55), 0 0 12px 3px var(--lumiverse-primary-015), 0 0 4px 0 var(--lumiverse-primary); }
+}
+.la-tut-spot::before, .la-tut-spot::after {
+  content: "✧";
+  position: absolute;
+  color: var(--lumiverse-primary);
+  font-size: 14px; line-height: 1;
+  text-shadow: 0 0 6px var(--lumiverse-primary);
+  animation: la-spot-twinkle 1.6s ease-in-out infinite;
+}
+.la-tut-spot::before { top: -11px; right: -7px; }
+.la-tut-spot::after { bottom: -11px; left: -7px; animation-delay: 0.8s; }
+@keyframes la-spot-twinkle {
+  0%, 100% { opacity: 0.15; transform: scale(0.75) rotate(0deg); }
+  50% { opacity: 1; transform: scale(1.2) rotate(20deg); }
+}
+.la-tut-spot.is-hidden { border-color: transparent; animation: none; }
+.la-tut-spot.is-hidden::before, .la-tut-spot.is-hidden::after { display: none; }
+/* VN dialogue box, DDLC-style double frame: sprite peeking over the
+   top-right, name tag chip on the top-left, script lines fading in one by
+   one. */
+.la-tut-card {
+  position: absolute;
+  left: 50%; transform: translateX(-50%);
+  bottom: 16px;
+  z-index: 2;
+  width: min(560px, calc(100% - 20px));
+  background: var(--lumiverse-bg-elevated);
+  border: 2px solid var(--lumiverse-primary-muted);
+  border-radius: 14px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  padding: 18px 16px 14px;
+  transition: bottom 0.45s cubic-bezier(0.25, 0.9, 0.3, 1);
+}
+.la-tut-card::after {
+  content: "";
+  position: absolute; inset: 3px;
+  border: 1px solid var(--lumiverse-primary-015);
+  border-radius: 10px;
+  pointer-events: none;
+}
+.la-tut-card.is-bonk { animation: la-vn-bonk 0.4s ease-out; }
+@keyframes la-vn-bonk {
+  0%, 100% { transform: translateX(-50%); }
+  25% { transform: translateX(calc(-50% - 5px)); }
+  50% { transform: translateX(calc(-50% + 4px)); }
+  75% { transform: translateX(calc(-50% - 2px)); }
+}
+/* Full-height VN sprite: lives in the overlay UNDER the dialogue box
+   (card z-index 2, sprite 1), bottom-anchored and centered so her legs
+   underlap the box. object-fit keeps the bitmap's aspect ratio even if a
+   host img rule squishes the element box; margin-auto centering avoids
+   transforms that would fight the bob / swap animations. */
+.la-vn-sprite {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  margin-left: auto; margin-right: auto;
+  height: min(91%, 1030px);
+  width: auto;
+  max-width: 96%;
+  object-fit: contain;
+  object-position: bottom center;
+  z-index: 1;
+  pointer-events: none; user-select: none;
+  filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.4));
+  animation: la-vn-bob 3.2s ease-in-out infinite;
+  transition: bottom 0.45s cubic-bezier(0.25, 0.9, 0.3, 1);
+}
+@keyframes la-vn-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+/* Intro props: the cardboard box rattles until she poofs out of it. The
+   shake replaces the idle bob while active; the poof cloud paints above the
+   sprite but below the dialogue box. */
+.la-vn-sprite.is-shaking { animation: la-vn-shake 0.45s ease-in-out infinite; }
+@keyframes la-vn-shake {
+  0%, 100% { transform: translateX(0) rotate(0deg); }
+  20% { transform: translateX(-3px) rotate(-1.2deg); }
+  40% { transform: translateX(3px) rotate(1.2deg); }
+  60% { transform: translateX(-2px) rotate(-0.8deg); }
+  80% { transform: translateX(2px) rotate(0.8deg); }
+}
+.la-vn-poof {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none; user-select: none;
+}
+/* The wobble stunt: teeter, timber sideways, small bounce, and STAY down.
+   fill-mode holds the fallen pose until the next step render clears the
+   class (she stands back up when the conversation moves on). */
+.la-vn-sprite.is-falling {
+  transform-origin: 50% 92%;
+  animation: la-vn-fall 1.6s ease-in-out forwards;
+}
+/* The timber slides her toward screen center and up a touch: rotated about
+   her feet, the head would otherwise swing past the drawer edge or behind
+   the dialogue box. Percentages are of her own box (width for X, height for
+   Y), so the correction scales with the sprite. */
+@keyframes la-vn-fall {
+  0% { transform: rotate(0deg); }
+  18% { transform: rotate(-5deg); }
+  36% { transform: rotate(6deg); }
+  52% { transform: rotate(-9deg); }
+  78% { transform: translate(-40%, -9%) rotate(84deg); }
+  88% { transform: translate(-58%, -14%) rotate(91deg); }
+  94% { transform: translate(-60%, -14%) rotate(86deg); }
+  100% { transform: translate(-60%, -14%) rotate(89deg); }
+}
+
+/* Expression swap, the VN still-image move-fade: slide-fade out right, swap
+   the source, slide back in with a small settle. Overrides the idle bob for
+   the swap's duration. */
+.la-vn-sprite.la-vn-swap-out { animation: la-vn-swap-out 0.15s ease-in forwards; }
+.la-vn-sprite.la-vn-swap-in { animation: la-vn-swap-in 0.24s cubic-bezier(0.2, 0.9, 0.3, 1.15) both; }
+@keyframes la-vn-swap-out {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(10px); }
+}
+@keyframes la-vn-swap-in {
+  0% { opacity: 0; transform: translateX(14px); }
+  70% { opacity: 1; transform: translateX(-3px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+.la-vn-nametag {
+  position: absolute; top: -13px; left: 12px;
+  background: var(--lumiverse-primary);
+  color: var(--lumiverse-text);
+  border-radius: 7px;
+  padding: 2px 14px 3px;
+  font-size: 11px; font-weight: 800; letter-spacing: 0.09em; text-transform: uppercase;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+.la-tut-close {
+  position: absolute; top: 6px; right: 8px;
+  background: transparent; border: none;
+  color: var(--lumiverse-text-muted);
+  font-size: 13px; cursor: pointer; padding: 4px;
+  z-index: 1;
+}
+.la-tut-close:hover { color: var(--lumiverse-text); }
+.la-tut-content { display: flex; flex-direction: column; gap: 8px; margin-top: 2px; }
+.la-tut-qlabel {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--lumiverse-primary);
+}
+/* Accumulated beats cap at roughly four text rows; older lines scroll away
+   behind a top fade (shown only once actually scrolled). Typing keeps the
+   newest line pinned into view. */
+.la-vn-lines {
+  display: flex; flex-direction: column; gap: 8px;
+  max-height: 112px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+}
+.la-vn-lines::-webkit-scrollbar { display: none; }
+.la-vn-lines.is-scrolled {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 26px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 26px);
+}
+.la-vn-line {
+  font-size: 15px; line-height: 1.6; color: var(--lumiverse-text);
+  animation: la-vn-in 0.3s ease-out both;
+}
+@keyframes la-vn-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+/* Earlier beats of the same step stay visible but recede so the fresh beat
+   reads as the active line. */
+.la-vn-line.is-settled { animation: none; opacity: 0.6; }
+.la-vn-prose { color: var(--lumiverse-text-muted); font-style: italic; font-size: 14px; }
+.la-vn-thought { color: var(--lumiverse-text-muted); font-style: italic; font-size: 13.5px; opacity: 0.9; }
+.la-vn-sfx {
+  color: var(--lumiverse-primary); font-weight: 800; font-size: 14px;
+  letter-spacing: 0.09em;
+  transform: rotate(-1.5deg);
+  animation: la-vn-in 0.3s ease-out both, la-vn-sfx-pop 0.45s ease-out;
+}
+@keyframes la-vn-sfx-pop {
+  0% { scale: 0.85; }
+  60% { scale: 1.08; }
+  100% { scale: 1; }
+}
+/* Per-glyph shaky text. inline-block so transforms apply; pre so space
+   glyphs keep their width inside their own spans. */
+.la-vn-wiggle {
+  display: inline-block;
+  white-space: pre;
+  animation: la-vn-wiggle 0.6s ease-in-out infinite;
+}
+@keyframes la-vn-wiggle {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  25% { transform: translateY(-2px) rotate(-3deg); }
+  75% { transform: translateY(1.5px) rotate(3deg); }
+}
+.la-vn-reaction {
+  display: flex; flex-direction: column; gap: 6px;
+  border-top: 1px dashed var(--lumiverse-border-light);
+  padding-top: 8px;
+}
+/* Lives at the right end of the nav row, level with the answer dots. */
+.la-vn-adv {
+  margin-left: auto;
+  color: var(--lumiverse-primary);
+  font-size: 10px;
+  animation: la-vn-adv-bounce 1.1s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes la-vn-adv-bounce {
+  0%, 100% { transform: translateY(0); opacity: 0.5; }
+  50% { transform: translateY(3px); opacity: 1; }
+}
+.la-tut-options { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.la-tut-option {
+  text-align: left;
+  background: var(--lumiverse-bg);
+  border: 1px solid var(--lumiverse-border-light);
+  border-radius: var(--lumiverse-radius);
+  color: var(--lumiverse-text);
+  padding: 8px 11px; font-size: 13.5px; line-height: 1.45;
+  cursor: pointer;
+  transition: background var(--lumiverse-transition-fast), border-color var(--lumiverse-transition-fast);
+}
+.la-tut-option:hover:not(:disabled) { background: var(--lumiverse-bg-hover); border-color: var(--lumiverse-border-hover); }
+.la-tut-option:disabled { cursor: default; opacity: 0.75; }
+.la-tut-option.is-correct { border-color: var(--lumiverse-success); opacity: 1; }
+.la-tut-option.is-wrong { border-color: var(--lumiverse-danger); opacity: 1; }
+.la-tut-overlay.is-advance { cursor: pointer; }
+.la-tut-nav { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin-top: 2px; }
+.la-tut-nav .la-tut-next {
+  margin-left: auto;
+  background: var(--lumiverse-primary);
+  border-color: var(--lumiverse-primary);
+  color: var(--lumiverse-text);
+}
+.la-tut-waiting { margin-left: auto; font-size: 11px; color: var(--lumiverse-text-muted); font-style: italic; }
+.la-tut-dots { display: flex; gap: 5px; align-items: center; margin: 0 auto; }
+.la-tut-nav .la-tut-dots { margin: 0 auto; }
+.la-tut-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--lumiverse-border);
+}
+.la-tut-dot.is-right { background: var(--lumiverse-success); }
+.la-tut-dot.is-wrong { background: var(--lumiverse-danger); }
+.la-tut-caps {
+  flex: 0 0 auto;
+  background: transparent;
+  border: 1px dashed var(--lumiverse-primary-muted);
+  border-radius: 999px;
+  color: var(--lumiverse-primary);
+  padding: 3px 10px; font-size: 11px;
+  cursor: pointer;
+  transition: background var(--lumiverse-transition-fast), border-color var(--lumiverse-transition-fast);
+}
+.la-tut-caps:hover { background: var(--lumiverse-primary-015); border-color: var(--lumiverse-primary); }
+.la-tut-caps.is-big {
+  align-self: center;
+  border-style: solid;
+  font-size: 12.5px;
+  padding: 7px 18px;
+  background: var(--lumiverse-primary-015);
+  animation: la-caps-pulse 1.8s ease-in-out infinite;
+}
+@keyframes la-caps-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--lumiverse-primary-015); transform: scale(1); }
+  50% { box-shadow: 0 0 14px 2px var(--lumiverse-primary-015); transform: scale(1.04); }
+}
+
+/* ─── Capabilities modal ─── */
+.la-caps { display: flex; flex-direction: column; gap: 14px; padding: 2px 2px 6px; }
+.la-caps-hero {
+  display: flex; gap: 14px; align-items: center;
+  border: 1px solid var(--lumiverse-primary-muted);
+  border-radius: var(--lumiverse-radius-md);
+  background: linear-gradient(135deg, var(--lumiverse-primary-015), transparent 60%);
+  padding: 14px;
+  position: relative; overflow: hidden;
+}
+.la-caps-hero::after {
+  content: "✧";
+  position: absolute; top: 6px; right: 12px;
+  color: var(--lumiverse-primary);
+  animation: la-caps-twinkle 2.4s ease-in-out infinite;
+}
+@keyframes la-caps-twinkle {
+  0%, 100% { opacity: 0.25; transform: scale(0.9) rotate(0deg); }
+  50% { opacity: 1; transform: scale(1.15) rotate(18deg); }
+}
+.la-caps-avatar {
+  width: 64px; height: 64px; flex: 0 0 auto;
+  object-fit: contain; object-position: bottom;
+  border-radius: var(--lumiverse-radius);
+  background: var(--lumiverse-bg);
+  border: 1px solid var(--lumiverse-border-light);
+}
+.la-caps-hero-text { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.la-caps-hero-title { font-size: 15px; font-weight: 700; color: var(--lumiverse-text); }
+.la-caps-hero-sub { font-size: 12.5px; color: var(--lumiverse-text-muted); line-height: 1.5; }
+.la-caps-legend { display: flex; align-items: center; gap: 6px; margin-top: 2px; flex-wrap: wrap; }
+.la-caps-legend-label { font-size: 11px; color: var(--lumiverse-text-muted); margin-right: 8px; }
+.la-caps-chip {
+  flex: 0 0 auto;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 18px;
+  border-radius: 5px;
+  font-size: 10px; font-weight: 800;
+}
+.la-caps-chip.is-r { color: var(--lumiverse-text-muted); background: var(--lumiverse-bg-hover); border: 1px solid var(--lumiverse-border); }
+.la-caps-chip.is-w { color: var(--lumiverse-success); background: var(--lumiverse-success-015); border: 1px solid var(--lumiverse-success); }
+.la-caps-section {
+  border: 1px solid var(--lumiverse-border-light);
+  border-radius: var(--lumiverse-radius-md);
+  background: var(--lumiverse-bg-elevated);
+  padding: 12px 14px;
+}
+.la-caps-section-title {
+  font-size: 12px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--lumiverse-primary);
+  margin-bottom: 9px;
+}
+.la-caps-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.la-caps-item { display: flex; gap: 9px; align-items: flex-start; }
+.la-caps-item .la-caps-chip { margin-top: 1px; }
+.la-caps-item-text { font-size: 12.5px; line-height: 1.5; color: var(--lumiverse-text); }
+.la-caps-powahh-sub { font-size: 12px; color: var(--lumiverse-text-muted); margin-bottom: 7px; }
+.la-caps-examples { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 5px; }
+.la-caps-example { font-size: 12.5px; line-height: 1.5; color: var(--lumiverse-text); }
+.la-caps-example::marker { color: var(--lumiverse-primary); font-weight: 700; }
+.la-caps-wip {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 6px 2px 0;
+}
+.la-caps-wip-label { font-size: 11px; color: var(--lumiverse-text-muted); }
+.la-caps-wip-chip {
+  border: 1px dashed var(--lumiverse-border-hover);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 11px;
+  color: var(--lumiverse-text-muted);
+  background: repeating-linear-gradient(-45deg, var(--lumiverse-bg-hover) 0 4px, transparent 4px 10px);
+}
 
 @media (max-width: 640px) {
   .la-header { padding: 8px 10px; }

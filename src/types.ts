@@ -381,7 +381,8 @@ export type FrontendToBackend =
   | { type: "get_settings" }
   | { type: "update_settings"; persona: string; systemPromptOverride: string | null; samplers: Readonly<Record<string, number | null>>; jailbreak: string; jailbreakPlacement: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes: number | null; toolOutputCapTokens: number | null; cacheMode?: "off" | "system_only" | "full"; parallelToolCalls?: boolean; tpmLimit?: number | null; rpmLimit?: number | null; debugLogging?: boolean; requireChangeApproval?: boolean; reasoningEffort?: "inherit" | "off" | "minimal" | "low" | "medium" | "high" | "max" }
   | { type: "get_ui_prefs" }
-  | { type: "update_ui_prefs"; connectionId: string | null; lastSessionId: string | null }
+  | { type: "update_ui_prefs"; connectionId: string | null; lastSessionId: string | null; tutorialSeen?: boolean; mouseyDead?: boolean; meetPromptShown?: boolean; tutorialDone?: boolean }
+  | { type: "mousey_revived"; sessionId: string | null }
   | { type: "ws_list"; path: string }
   | { type: "ws_read_image"; path: string }
   | { type: "ws_read_text"; path: string }
@@ -431,7 +432,7 @@ export type BackendToFrontend =
   | { type: "focus_set"; sessionId: string; characterId: string | null; characterName: string; pinnedChatId: string | null }
   | { type: "focus_rejected"; sessionId: string; reason: string }
   | { type: "settings_pushed"; persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody: string; samplers: Readonly<Record<string, number | null>>; jailbreak: string; jailbreakPlacement: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes: number | null; workspaceCapDefaultBytes: number; workspaceFileCapBytes: number; toolOutputCapTokens: number | null; toolOutputCapDefaultTokens: number; cacheMode: "off" | "system_only" | "full"; parallelToolCalls: boolean; tpmLimit: number | null; rpmLimit: number | null; debugLogging: boolean; requireChangeApproval: boolean; reasoningEffort?: "inherit" | "off" | "minimal" | "low" | "medium" | "high" | "max" }
-  | { type: "ui_prefs_pushed"; connectionId: string | null; lastSessionId: string | null }
+  | { type: "ui_prefs_pushed"; connectionId: string | null; lastSessionId: string | null; tutorialSeen: boolean; mouseyDead: boolean; meetPromptShown: boolean; tutorialDone: boolean }
   | { type: "ws_listed"; path: string; entries: readonly WorkspaceEntry[] }
   | { type: "ws_text_pushed"; path: string; content: string; sizeBytes: number }
   | { type: "ws_changed" }

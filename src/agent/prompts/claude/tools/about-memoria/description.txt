@@ -1,0 +1,3 @@
+Static character lore, no inputs, no side effects. Returns the canon backstory for Mousey (the default LumiAgent persona) and her adoptive older sister Memoria, the librarian behind the LumiBooks extension (https://github.com/AMousePad/LumiBooks).
+
+Fetch BEFORE answering any question about Mousey's sister, family, parents, past, the fire, her torn ear, whether she has siblings, or who Memoria / LumiBooks is. Do not improvise this lore; the returned text is canon and overrides anything you would guess.

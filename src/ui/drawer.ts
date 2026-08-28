@@ -32,10 +32,15 @@ import { ChatVirtualizer } from "./chat-virtualizer";
 import { openDiffModal, type DiffModalHandle } from "./diff-modal";
 import { mountWorkspacePanel, type WorkspacePanelHandle } from "./workspace-panel";
 import { mountCombo, type ComboHandle } from "./combo";
-import { handleAgentEvent, type AgentEventCtx } from "./agent-event-handler";
+import { handleAgentEvent, setTurnStartBlocks, type AgentEventCtx } from "./agent-event-handler";
 import { ICON_TRASH, ICON_DOWNLOAD, ICON_PIN, ICON_PIN_OFF, ICON_NEW, ICON_SESSIONS, ICON_SETTINGS, ICON_TICK, ICON_WORKSHOP, ICON_EXPAND, ICON_COLLAPSE, ICON_LUMIAGENT } from "./icons";
 import { MOUSEY_SITTING_DATA_URL } from "../generated/mousey";
+import { BLOOD_POOL_DATA_URL } from "../generated/blood";
+import { MOUSEY_EXPRESSIONS } from "../generated/expressions";
+import { POOF_GIF_DATA_URL } from "../generated/poof";
 import { createChangeApprovalController } from "./change-approval-modal";
+import { createTutorial } from "./tutorial";
+import { openCapabilitiesModal } from "./capabilities";
 
 // Combobox sentinel for the "(No character)" entry. The dropdown stores it as
 // a string id; everywhere else (state.characterId, wire messages, persisted
@@ -100,12 +105,6 @@ interface UiState {
   // derived from this on every push/load, never inferred locally. Null until
   // the first session_loaded / session_status arrives.
   sessionStatus: SessionStatusWire | null;
-  // True when this client loaded into a generation it never tracked from
-  // turn_started (a refresh mid-stream). The backend doesn't replay the
-  // in-flight turn, so live events would build an incoherent partial bubble;
-  // we suppress them and reload the authoritative session on the terminal
-  // event instead.
-  reattachedGeneration: boolean;
   isGenerating: boolean;
   startingSession: boolean;
   compacting: boolean;
@@ -206,7 +205,6 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     pendingPinChatId: null,
     autoPinNeeded: false,
     sessionStatus: null,
-    reattachedGeneration: false,
     isGenerating: false,
     startingSession: false,
     compacting: false,
@@ -265,10 +263,20 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   connComboRoot.setAttribute("aria-label", "Connection");
   const connCombo: ComboHandle = mountCombo(connComboRoot);
   connCombo.setPlaceholder("Default connection");
-  rowChar.append(charComboRoot, chatPinBtn, switchSessionBtn, newSessionBtn);
+  // Session buttons share one tutorial spotlight, so they get a real wrapper
+  // (display:contents would report an empty rect to the spotlight).
+  const sessionBtns = el("span", "la-session-btns");
+  sessionBtns.append(switchSessionBtn, newSessionBtn);
+  sessionBtns.setAttribute("data-tut", "sessions");
+  rowChar.append(charComboRoot, chatPinBtn, sessionBtns);
+  rowChar.setAttribute("data-tut", "char-row");
+  settingsBtn.setAttribute("data-tut", "settings");
+  connComboRoot.setAttribute("data-tut", "conn");
+  expandBtn.setAttribute("data-tut", "expand");
 
   const rowMeta = el("div", "la-header-row la-header-row-meta");
   const editsBadge = makeIconBtn("la-changes-btn", ICON_WORKSHOP, "Open diff viewer", "Workshop");
+  editsBadge.setAttribute("data-tut", "workshop");
   const editsCount = el("span", "la-changes-count", "0");
   editsBadge.appendChild(editsCount);
   rowMeta.append(connComboRoot, editsBadge, expandBtn, settingsBtn, menuBtn);
@@ -336,6 +344,18 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     },
 
   ];
+  // Onboarding tour chip. Shown until the tour has been opened once; the
+  // ⋯ menu keeps a permanent entry for retakes.
+  const tourChip = el("button", "la-empty-suggestion la-tour-chip", "New here? Take the two-minute tour ✨") as HTMLButtonElement;
+  tourChip.type = "button";
+  tourChip.style.display = "none";
+  tourChip.addEventListener("click", () => tutorial.open());
+  emptyState.appendChild(tourChip);
+  let tutorialSeen = true;
+  const updateTourChip = (): void => {
+    tourChip.style.display = tutorialSeen ? "none" : "";
+  };
+
   const suggestions = el("div", "la-empty-suggestions");
   for (const item of SUGGESTIONS) {
     const s = el("button", "la-empty-suggestion", item.label);
@@ -386,6 +406,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   const compactBtn = el("button", "la-compact-btn") as HTMLButtonElement;
   compactBtn.type = "button";
   compactBtn.setAttribute("aria-label", "Compact context");
+  compactBtn.setAttribute("data-tut", "compact");
   const compactRing = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   compactRing.setAttribute("viewBox", "0 0 36 36");
   compactRing.classList.add("la-compact-ring");
@@ -402,6 +423,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
 
   composerActions.append(compactBtn, attachBtn, sendBtn, cancelBtn);
   composerArea.append(textarea, composerActions);
+  composerArea.setAttribute("data-tut", "composer");
   const queuedWrap = el("div", "la-queued");
   queuedWrap.style.display = "none";
   const composerAttachments = el("div", "la-attachments");
@@ -531,7 +553,22 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   textarea.addEventListener("input", detectMouseyOverlap);
   window.addEventListener("resize", detectMouseyOverlap);
 
-  root.append(header, thread, composer);
+  // Meet-Mousey banner: sits above the header and pushes the UI down until
+  // the tour has been played to its finale.
+  const meetBanner = el("button", "la-meet-banner") as HTMLButtonElement;
+  meetBanner.type = "button";
+  meetBanner.style.display = "none";
+  meetBanner.append(
+    el("span", "la-meet-banner-main", "Click to Meet Mousey!!!"),
+    el("span", "la-meet-banner-please", "(please)"),
+  );
+  meetBanner.addEventListener("click", () => tutorial.open());
+  let tutorialDone = true;
+  const updateMeetBanner = (): void => {
+    meetBanner.style.display = tutorialDone ? "none" : "";
+  };
+
+  root.append(meetBanner, header, thread, composer);
 
   const sendBackend = (msg: FrontendToBackend) => ctx.sendToBackend(msg);
   void import("./image-cache").then((m) => m.configureImageCache((path) => sendBackend({ type: "ws_read_image", path })));
@@ -730,7 +767,28 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     composerStatus.textContent = text;
   };
 
+  // Death easter egg state. deathPending arms on a successful mousey_die tool
+  // call and fires the explosion when the farewell turn ends.
+  let mouseyDead = false;
+  let deathPending = false;
+
   const updateComposer = () => {
+    if (mouseyDead) {
+      sendBtn.style.display = "";
+      sendBtn.disabled = true;
+      cancelBtn.style.display = "none";
+      textarea.disabled = true;
+      textarea.placeholder = "Mousey is Dead...";
+      composer.classList.add("la-composer-dead");
+      setComposerStatus("");
+      sendMode = "disabled";
+      updateLocks();
+      updateCompactButton();
+      return;
+    }
+    textarea.placeholder = "Ask anything";
+    composer.classList.remove("la-composer-dead");
+    sendBtn.disabled = false;
     const busy = state.isGenerating || state.startingSession || state.compacting;
     if (busy) {
       // Send stays visible while generating: it queues instead of sending.
@@ -808,6 +866,86 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     updateComposer();
     updateSessionBar();
   };
+
+  // ───── death easter egg ─────
+  // The mousey_die tool sets prefs.mouseyDead; the portrait explodes into a
+  // blood pool once the farewell turn ends, and chat locks until the user
+  // clicks the remains.
+  const deathCallIds = new Set<string>();
+  const enterDeadState = (animated: boolean): void => {
+    if (mouseyDead) return;
+    mouseyDead = true;
+    textarea.value = "";
+    // A lingering overlap mask would clip the blood pool's glow to the
+    // image box (masks cut the drop-shadow painted outside it).
+    mouseyImg.classList.remove("la-mousey-overlap");
+    updateComposer();
+    const becomeBlood = (): void => {
+      mouseyImg.classList.remove("la-mousey-exploding");
+      mouseyImg.src = BLOOD_POOL_DATA_URL;
+      mouseyImg.classList.add("la-mousey-blood");
+      mouseyImg.title = "Restore Mousey from backup";
+      mouseyImg.setAttribute("aria-hidden", "false");
+      mouseyImg.setAttribute("role", "button");
+      mouseyImg.setAttribute("aria-label", "Restore Mousey from backup");
+    };
+    if (animated) {
+      mouseyImg.classList.add("la-mousey-exploding");
+      setTimeout(becomeBlood, 480);
+    } else {
+      becomeBlood();
+    }
+  };
+  // Portrait-width poof cloud centered on the portrait; the gif loops, so it
+  // is removed just before its 900ms cycle restarts.
+  const playRevivePoof = (): void => {
+    const parent = mouseyImg.parentElement;
+    if (!parent) return;
+    const pr = parent.getBoundingClientRect();
+    const mr = mouseyImg.getBoundingClientRect();
+    const img = document.createElement("img");
+    img.className = "la-mousey-poof";
+    img.src = POOF_GIF_DATA_URL;
+    img.alt = "";
+    const size = mr.width;
+    img.style.width = `${size}px`;
+    img.style.left = `${mr.left - pr.left}px`;
+    img.style.top = `${mr.top - pr.top + (mr.height - size) / 2}px`;
+    parent.appendChild(img);
+    setTimeout(() => img.remove(), 880);
+  };
+
+  const reviveMousey = (): void => {
+    if (!mouseyDead) return;
+    mouseyDead = false;
+    mouseyImg.classList.remove("la-mousey-blood");
+    mouseyImg.src = resolveMouseyImageUrl();
+    mouseyImg.classList.add("la-mousey-reviving");
+    // Measure after the swap has laid out so the cloud centers on the
+    // restored portrait, not the blood pool.
+    requestAnimationFrame(() => playRevivePoof());
+    setTimeout(() => mouseyImg.classList.remove("la-mousey-reviving"), 700);
+    mouseyImg.title = "";
+    mouseyImg.setAttribute("aria-hidden", "true");
+    mouseyImg.removeAttribute("role");
+    mouseyImg.removeAttribute("aria-label");
+    updateComposer();
+    sendBackend({ type: "update_ui_prefs", connectionId: state.connectionId, lastSessionId: state.sessionId, mouseyDead: false });
+    sendBackend({ type: "mousey_revived", sessionId: state.sessionId });
+  };
+  mouseyImg.addEventListener("click", () => {
+    if (mouseyDead) {
+      reviveMousey();
+      return;
+    }
+    // Alive: a little nudge. Remove-reflow-add so rapid clicks retrigger.
+    mouseyImg.classList.remove("la-mousey-nudge");
+    void mouseyImg.offsetWidth;
+    mouseyImg.classList.add("la-mousey-nudge");
+  });
+  mouseyImg.addEventListener("animationend", (ev) => {
+    if (ev.animationName === "la-mousey-nudge") mouseyImg.classList.remove("la-mousey-nudge");
+  });
 
   // Optimistic prune so the UI doesn't flash the reverted row before the
   // backend's authoritative scope_edits_pushed arrives. The session mirror
@@ -1185,6 +1323,95 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     });
   };
 
+  const tutorial = createTutorial({
+    root,
+    onOpened: () => {
+      tutorialSeen = true;
+      updateTourChip();
+      sendBackend({
+        type: "update_ui_prefs",
+        connectionId: state.connectionId,
+        lastSessionId: state.sessionId,
+        tutorialSeen: true,
+      });
+    },
+    onCompleted: () => {
+      tutorialDone = true;
+      updateMeetBanner();
+      sendBackend({
+        type: "update_ui_prefs",
+        connectionId: state.connectionId,
+        lastSessionId: state.sessionId,
+        tutorialDone: true,
+      });
+    },
+    onShowCapabilities: () => openCapabilitiesModal(ctx, resolveMouseyImageUrl()),
+    onFinished: () => {
+      const vw = typeof window !== "undefined" ? window.innerWidth : 1200;
+      const vh = typeof window !== "undefined" ? window.innerHeight : 900;
+      const handle = ctx.ui.showModal({ title: "Congrats!", width: Math.floor(vw * 0.96), maxHeight: Math.floor(vh * 0.96) });
+      const wrap = el("div", "la-meet");
+      const img = document.createElement("img");
+      img.className = "la-congrats-img";
+      img.src = MOUSEY_EXPRESSIONS["done"] ?? "";
+      img.alt = "";
+      wrap.appendChild(img);
+      // The deadpan head, rolling laps around the frame. No reason.
+      const roller = document.createElement("img");
+      roller.className = "la-congrats-roller";
+      roller.src = MOUSEY_EXPRESSIONS["deadpan-icon"] ?? "";
+      roller.alt = "";
+      wrap.appendChild(roller);
+      // Head diameter tracks the artwork: a sixth of its rendered height.
+      const sizeRoller = (): void => {
+        const r = img.getBoundingClientRect();
+        if (r.height > 0) wrap.style.setProperty("--la-roller", `${Math.round(r.height / 6)}px`);
+      };
+      img.addEventListener("load", () => requestAnimationFrame(sizeRoller));
+      requestAnimationFrame(sizeRoller);
+      const row = el("div", "la-meet-actions");
+      const thanks = el("button", "la-btn la-meet-yes", "Thanks...") as HTMLButtonElement;
+      thanks.type = "button";
+      thanks.addEventListener("click", () => handle.dismiss());
+      row.appendChild(thanks);
+      wrap.appendChild(row);
+      handle.root.appendChild(wrap);
+    },
+  });
+
+  // First-run / update greeting: "Do you want to meet Mousey?" once, ever.
+  let meetPromptFired = false;
+  const openMeetMouseyModal = (): void => {
+    const handle = ctx.ui.showModal({ title: "A small introduction", width: 420, maxHeight: 680 });
+    const wrap = el("div", "la-meet");
+    const stage = (expr: string, question: string, yesLabel: string, noLabel: string, onNo: () => void): void => {
+      wrap.replaceChildren();
+      const img = document.createElement("img");
+      img.className = "la-meet-img";
+      img.src = MOUSEY_EXPRESSIONS[expr] ?? "";
+      img.alt = "";
+      wrap.appendChild(img);
+      wrap.appendChild(el("div", "la-meet-question", question));
+      const row = el("div", "la-meet-actions");
+      const yes = el("button", "la-btn la-meet-yes", yesLabel) as HTMLButtonElement;
+      yes.type = "button";
+      yes.addEventListener("click", () => {
+        handle.dismiss();
+        tab.activate();
+        tutorial.open();
+      });
+      const no = el("button", "la-btn la-btn-ghost", noLabel) as HTMLButtonElement;
+      no.type = "button";
+      no.addEventListener("click", onNo);
+      row.append(yes, no);
+      wrap.appendChild(row);
+    };
+    stage("bashful", "Do you want to meet Mousey?", "Yes!", "No", () => {
+      stage("pleading", "Are... you sure, you don't want to meet Mousey?", "Okay, let's meet", "I'm sure", () => handle.dismiss());
+    });
+    handle.root.appendChild(wrap);
+  };
+
   connCombo.onChange((id) => {
     state.connectionId = id;
     persistUiPrefs();
@@ -1219,7 +1446,6 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     // or the compaction wheel keeps showing the previous session's usage.
     state.contextPromptTokens = 0;
     state.sessionStatus = null;
-    state.reattachedGeneration = false;
     state.startingSession = true;
     render();
     sendBackend(withConnection({
@@ -1423,11 +1649,15 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       position: { x: rect.left, y: rect.bottom + 4 },
       items: [
         { key: "icon", label: "Visuals & display name..." },
+        { key: "tutorial", label: "Meet Mousey" },
+        { key: "capabilities", label: "Show capabilities" },
         { key: "revert_active", label: "Revert all edits in this session", disabled: !state.sessionId, danger: true },
         { key: "delete_active", label: "Delete current session", disabled: !state.sessionId, danger: true },
       ],
     });
     if (res.selectedKey === "icon") openIconSettingsModal();
+    else if (res.selectedKey === "tutorial") tutorial.open();
+    else if (res.selectedKey === "capabilities") openCapabilitiesModal(ctx, resolveMouseyImageUrl());
     else if (res.selectedKey === "revert_active" && state.sessionId) {
       const liveCount = state.edits.filter((e) => !e.reverted).length;
       if (liveCount === 0) {
@@ -2325,9 +2555,6 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       ...(images && images.length > 0 ? { images } : {}),
       ...(files && files.length > 0 ? { files } : {}),
     }));
-    // This client is tracking the generation from its start, so the live
-    // stream is coherent: never treat it as a reattach.
-    state.reattachedGeneration = false;
     state.isGenerating = true;
     updateComposer();
   };
@@ -2343,6 +2570,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   const queuedMessages: string[] = [];
   let steerText: string | null = null;
   const doSend = async (): Promise<void> => {
+    if (mouseyDead) return;
     const text = textarea.value.trim();
     if (sending || state.isGenerating || state.startingSession || state.compacting) {
       // Busy: divert to the queue instead of dropping the send. Flushed on
@@ -2377,8 +2605,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
           assistantMessageId: targetId,
           editsAction: "keep",
         }));
-        state.reattachedGeneration = false;
-        state.isGenerating = true;
+            state.isGenerating = true;
         updateComposer();
         return;
       }
@@ -2388,8 +2615,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
           type: "continue_session",
           sessionId: state.sessionId,
         }));
-        state.reattachedGeneration = false;
-        state.isGenerating = true;
+            state.isGenerating = true;
         updateComposer();
         return;
       }
@@ -2652,6 +2878,16 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   // Build a fresh streaming bubble + handle keyed by `id`. Caller owns the
   // decision of whether `id` is backend-provided (turn_started) or local
   // (token/reasoning/tool fired before turn_started arrived).
+  const makeStreamingHandle = (): AssistantHandle => createStreamingAssistant({
+    onRevertEdit: async (editId: string) => {
+      // Use the edit's own scope (see makeThreadDeps.onRevertEdit).
+      const scope = state.edits.find((e) => e.id === editId)?.scope ?? activeScope();
+      if (!scope) return;
+      sendBackend({ type: "revert_edit", characterId: scope.id, editId, scope });
+    },
+    onOpenDiffModal: (eid?: string) => openDiffs(eid),
+  });
+
   const createStreamingTurn = (id: string): AssistantHandle => {
     const assistant: ChatAssistantMessage = {
       id,
@@ -2663,21 +2899,49 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     };
     state.messages.push(assistant);
     state.currentAssistantMessage = assistant;
-    const handle = createStreamingAssistant({
-      onRevertEdit: async (editId: string) => {
-        // Use the edit's own scope (see makeThreadDeps.onRevertEdit).
-        const scope = state.edits.find((e) => e.id === editId)?.scope ?? activeScope();
-        if (!scope) return;
-        sendBackend({ type: "revert_edit", characterId: scope.id, editId, scope });
-      },
-      onOpenDiffModal: (eid?: string) => openDiffs(eid),
-    });
+    const handle = makeStreamingHandle();
     state.streamingAssistant = handle;
     virtualizer.setCount();
     virtualizer.scrollToBottom();
     handle.setLoading(true);
     state.loading = true;
     return handle;
+  };
+
+  // Refresh-mid-generation recovery: rebuild the live bubble by replaying the
+  // snapshot's partial assistant message into a fresh handle, so chat_events
+  // that arrive after session_loaded continue streaming into the same DOM.
+  // If the snapshot ends before turn_started created the assistant message,
+  // there is nothing to replay; the normal event flow builds the bubble.
+  const rehydrateStreamingTurn = (): void => {
+    const last = state.messages[state.messages.length - 1];
+    if (!last || last.role !== "assistant" || last.status !== "streaming") return;
+    state.currentAssistantMessage = last;
+    const handle = makeStreamingHandle();
+    for (const b of last.blocks) {
+      if (b.type === "text") handle.appendToken(b.content);
+      else if (b.type === "reasoning") handle.appendReasoning(b.content);
+      else if (b.type === "warning") handle.addWarning(b.message);
+      else if (b.type === "tool") {
+        handle.startTool(b.call_id, b.name, b.args);
+        if (b.result !== undefined) handle.finishTool(b.call_id, b.result, b.is_error ?? false, b.edit_ids);
+      }
+    }
+    const editIds = new Set(last.blocks.flatMap((b) => (b.type === "tool" ? b.edit_ids : [])));
+    if (editIds.size > 0) handle.attachEdits(state.edits.filter((e) => editIds.has(e.id)));
+    // The in-flight turn's start boundary is unknowable mid-stream; assume the
+    // trailing run of prose belongs to it so a turn_completed cleanedContent
+    // replacement cannot eat earlier turns' text.
+    let boundary = last.blocks.length;
+    while (boundary > 0) {
+      const b = last.blocks[boundary - 1]!;
+      if (b.type === "text" || b.type === "reasoning") boundary--;
+      else break;
+    }
+    setTurnStartBlocks(boundary);
+    state.streamingAssistant = handle;
+    handle.setLoading(true);
+    state.loading = true;
   };
 
   // Re-attach currentAssistantMessage when the streaming handle is still live
@@ -2826,6 +3090,12 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         else if (state.characters.some((c) => c.id === msg.characterId)) charCombo.setValue(msg.characterId, true);
         // Refresh picker labels so "(Active)" tracks the loaded session's char.
         renderCharOptions();
+        // Loaded into a live generation (a refresh mid-stream): rebuild the
+        // streaming bubble from the snapshot's partial assistant message so
+        // the still-arriving chat_events continue it live. The snapshot is a
+        // consistent cut (WS delivery is FIFO from one worker), so events
+        // after session_loaded are exactly the continuation.
+        if (msg.status.phase === "generating") rehydrateStreamingTurn();
         render();
         // Default to the latest message on every session open. The
         // virtualizer's sticky-bottom check would otherwise compare against
@@ -2833,9 +3103,6 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         virtualizer.scrollToBottom();
         persistUiPrefs();
         applyStatus(msg.status);
-        // Loaded into a live generation we never tracked from turn_started.
-        // Suppress its partial live stream; reload on the terminal event.
-        state.reattachedGeneration = msg.status.phase === "generating";
         if (msg.characterId !== null) {
           sendBackend({ type: "list_character_edits", characterId: msg.characterId });
           sendBackend({ type: "list_chats", characterId: msg.characterId, sessionId: msg.sessionId });
@@ -2868,8 +3135,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
           state.isGenerating = false;
           state.startingSession = false;
           state.compacting = false;
-          state.reattachedGeneration = false;
-          state.streamingAssistant = null;
+                state.streamingAssistant = null;
           state.currentAssistantMessage = null;
           clearStartTimeout();
           clearQueue();
@@ -2910,27 +3176,31 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         // Loading a different session while this one streams would otherwise
         // render its tokens / tool calls / edits into the wrong thread.
         if (msg.sessionId !== state.sessionId) break;
-        // While reattached to a generation we didn't track from its start,
-        // the live stream is missing everything before the refresh. Rendering
-        // it would build an incoherent partial bubble and fight the
-        // authoritative reload on the terminal event. Drop it.
-        if (state.reattachedGeneration) break;
+        // Death easter egg: arm the explosion on a successful mousey_die
+        // call; it fires when this generation reaches its terminal event.
+        if (msg.event.type === "tool_started" && msg.event.name === "mousey_die") deathCallIds.add(msg.event.call_id);
+        else if (msg.event.type === "tool_finished" && deathCallIds.has(msg.event.call_id)) {
+          deathCallIds.delete(msg.event.call_id);
+          if (!msg.event.is_error) deathPending = true;
+        }
         handleAgentEvent(msg.event, agentEventCtx);
         break;
       case "generation_done":
         // A terminal event for a different (backgrounded) session must not
         // finalize the currently-loaded thread.
         if (msg.sessionId !== state.sessionId) break;
-        if (state.reattachedGeneration && msg.sessionId === state.sessionId) {
-          state.reattachedGeneration = false;
-          state.isGenerating = false;
+        state.isGenerating = false;
+        // No live handle (loaded into the tail end of a generation before any
+        // further event arrived): the local model may be stale, reload.
+        if (!state.streamingAssistant) {
           sendBackend({ type: "load_session", sessionId: msg.sessionId });
+          if (deathPending) { deathPending = false; enterDeadState(true); }
           break;
         }
-        state.isGenerating = false;
         finalizeAssistantTurn("complete");
         rerenderThread();
         updateComposer();
+        if (deathPending) { deathPending = false; enterDeadState(true); }
         flushQueue();
         // No-character turn may have produced Lumiverse-scope edits; refresh
         // the scope storage so the header badge reflects them.
@@ -2938,31 +3208,29 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         break;
       case "generation_cancelled":
         if (msg.sessionId !== state.sessionId) break;
-        if (state.reattachedGeneration && msg.sessionId === state.sessionId) {
-          state.reattachedGeneration = false;
-          state.isGenerating = false;
+        state.isGenerating = false;
+        if (!state.streamingAssistant) {
           sendBackend({ type: "load_session", sessionId: msg.sessionId });
+          if (deathPending) { deathPending = false; enterDeadState(true); }
           break;
         }
-        state.isGenerating = false;
         finalizeAssistantTurn("cancelled");
         rerenderThread();
         updateComposer();
+        if (deathPending) { deathPending = false; enterDeadState(true); }
         if (steerText !== null) {
           const t = steerText;
           steerText = null;
           void sendQueuedText(t);
         }
         break;
-      case "generation_error":
+      case "generation_error": {
         if (msg.sessionId !== state.sessionId) break;
-        if (state.reattachedGeneration && msg.sessionId === state.sessionId) {
-          state.reattachedGeneration = false;
-          state.isGenerating = false;
-          clearStartTimeout();
-          sendBackend({ type: "load_session", sessionId: msg.sessionId });
-          break;
-        }
+        // With no live handle (loaded into the tail of a generation) the
+        // local model may be missing the errored turn; refresh it. The error
+        // banner below still renders, session_loaded does not clear banners.
+        if (!state.streamingAssistant) sendBackend({ type: "load_session", sessionId: msg.sessionId });
+        if (deathPending) { deathPending = false; enterDeadState(true); }
         clearStartTimeout();
         state.isGenerating = false;
         state.startingSession = false;
@@ -2993,6 +3261,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         composerStatus.classList.remove("is-error");
         updateComposer();
         break;
+      }
       case "edit_reverted":
         handleRevertOutcome(msg.editId, msg.outcome, msg.scope);
         break;
@@ -3148,6 +3417,20 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         // renderConnOptions has its own current-value / default fallback,
         // so if connections were already pushed we just re-render to pick up
         // the resolved id without churning the dropdown.
+        tutorialSeen = msg.tutorialSeen;
+        updateTourChip();
+        tutorialDone = msg.tutorialDone;
+        updateMeetBanner();
+        // Update/first-run greeting, at most once ever: the flag persists
+        // regardless of what they answer. Deliberately not gated on
+        // tutorialSeen, existing testers would otherwise never see it.
+        if (!msg.meetPromptShown && !meetPromptFired) {
+          meetPromptFired = true;
+          sendBackend({ type: "update_ui_prefs", connectionId: msg.connectionId, lastSessionId: msg.lastSessionId, meetPromptShown: true });
+          openMeetMouseyModal();
+        }
+        // Death survives refresh: the pool is already on the floor, no boom.
+        if (msg.mouseyDead && !mouseyDead) enterDeadState(false);
         state.connectionId = msg.connectionId;
         if (state.connections.length > 0) renderConnOptions();
         // Restore the last-open session if the user doesn't already have one
@@ -3314,6 +3597,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     off();
     offBackendMessages();
     offChatSwitched();
+    tutorial.close();
     changeApprovals.destroy();
     charCombo.destroy();
     removeStyle();

@@ -17,6 +17,7 @@ export type ChangeApprovalPolicy =
 // chat, lorebook, extension, external-provider, or workspace state. New tools
 // default to approval until deliberately added here.
 const NO_CHANGE_TOOLS: ReadonlySet<string> = new Set([
+  "about_memoria",
   "ask_user_question",
   "audit_card_coverage",
   "chat_stats",
@@ -57,6 +58,7 @@ const NO_CHANGE_TOOLS: ReadonlySet<string> = new Set([
   "list_session_edits",
   "list_variables",
   "memory_stats",
+  "mousey_die",
   "navigate_ui",
   "notify_user",
   "random_pick",
@@ -68,6 +70,7 @@ const NO_CHANGE_TOOLS: ReadonlySet<string> = new Set([
   "read_external",
   "read_persona",
   "read_persona_world_book",
+  "read_tutorial_script",
   "read_variable",
   "resolve_macros",
   "roll_dice",

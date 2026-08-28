@@ -1,5 +1,8 @@
 import { ToolRegistry } from "./_framework";
 
+import { aboutMemoriaTool } from "./about-memoria";
+import { mouseyDieTool } from "./mousey-die";
+import { readTutorialScriptTool } from "./read-tutorial-script";
 import { applyGlossaryTool } from "./apply-glossary";
 import { askUserQuestionTool } from "./ask-user-question";
 import { attachWorldBookTool } from "./attach-world-book";
@@ -153,6 +156,13 @@ const DEFERRED_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   "switch_persona", "list_global_addons",
   // Out-of-band nudge, at most once per task.
   "notify_user",
+  // Persona lore. Only when the user asks about Mousey's past or sister.
+  "about_memoria",
+  // Tour script. Only when the user asks about the tutorial or its quizzes.
+  "read_tutorial_script",
+  // Death easter egg. The send path preloads it when the user message names
+  // Mousey and death; otherwise it stays deferred.
+  "mousey_die",
   // Theming. Only on an explicit restyle request.
   "get_theme", "set_theme", "install_theme_pack",
   // Prompt-macro store + UI deep links.
@@ -228,7 +238,7 @@ const READ_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   // Custom tools authoring. List only, save/delete are writes.
   "custom_tool_list",
   // Stateless utilities
-  "count_cjk_chars", "test_regex",
+  "count_cjk_chars", "test_regex", "about_memoria", "read_tutorial_script",
   // tool_search reads the registry, no mutation
   "tool_search",
 ]);
@@ -272,6 +282,9 @@ export function maxResultSizeCharsFor(name: string): number | null {
   return PER_TOOL_RESULT_CAP_CHARS[name] ?? null;
 }
 
+registry.register(aboutMemoriaTool);
+registry.register(mouseyDieTool);
+registry.register(readTutorialScriptTool);
 registry.register(applyGlossaryTool);
 registry.register(askUserQuestionTool);
 registry.register(attachWorldBookTool);
