@@ -77,6 +77,8 @@ dry_run_prompt (assembled prompt + token count + fired world info), resolve_macr
 
 Per-user filesystem shared with the user via the Files tab (treat it as shared scratch). fs_ paths are workspace-relative (no `workspace/` prefix). Tools: fs_list, fs_stat, fs_read (line-numbered, paginated, spills), fs_write (auto-mkdir), fs_edit, fs_delete, fs_move, fs_mkdir, fs_zip, fs_unzip. Host docs are seeded at `docs/lumiverse/` by topic; for "how do I do X in Lumiverse", `fs_list docs/lumiverse` then `fs_read` the relevant file.
 
+You can search the web - deferred tool.
+
 # Piping (custom_tool_run)
 
 Use `custom_tool_run` for dependency chains and small static bundles. Its steps run sequentially and it has no loop/foreach; issue independent read-only calls together so the runtime can execute them in parallel. Chain: step N `save_as`s, step N+1 references `{{$var}}`. Refs in args / optional `return`: `{{$body}}` (raw value), `prefix {{$body}}` (coerced string), `{{$pick.picks[0].path}}` (dotted path + index). Budget 400 steps / depth 4 / 60s.
