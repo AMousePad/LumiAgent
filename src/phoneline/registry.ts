@@ -37,11 +37,7 @@ function dialKey(userId: string, identifier: string): string {
 }
 
 function parseInheritanceError(message: string): DialFailureInfo | null {
-  // Host throws: 'Shared RPC endpoint "X" requires requester "R" to inherit
-  // owner "O" permissions: a, b, c'. LumiRealm wraps this in 'could not read
-  // pending request from <id>: <innerMessage>'. The substring we match on is
-  // preserved in both shapes.
-  const m = /requires requester "([^"]+)" to inherit owner "[^"]+" permissions: ([^]+?)$/.exec(message);
+  const m = /Shared RPC endpoint "[^"]+" requires (?:requester|owner) "([^"]+)"(?: to inherit owner "[^"]+")? permissions: ([^]+?)$/.exec(message);
   if (!m) return null;
   const requester = m[1]!;
   const perms = m[2]!.split(/,\s*/).map((s) => s.trim()).filter((s) => s.length > 0);

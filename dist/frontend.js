@@ -1,28 +1,16 @@
-var __defProp = Object.defineProperty;
-var __returnValue = (v) => v;
-function __exportSetter(name, newValue) {
-  this[name] = __returnValue.bind(null, newValue);
-}
-var __export = (target, all) => {
-  for (var name in all)
-    __defProp(target, name, {
-      get: all[name],
-      enumerable: true,
-      configurable: true,
-      set: __exportSetter.bind(all, name)
-    });
+var __esm = (fn, res, err) => () => {
+  if (fn)
+    try {
+      res = fn(fn = 0);
+    } catch (e) {
+      err = [e];
+    }
+  if (err)
+    throw err[0];
+  return res;
 };
-var __esm = (fn, res) => () => (fn && (res = fn(fn = 0)), res);
 
 // src/ui/image-cache.ts
-var exports_image_cache = {};
-__export(exports_image_cache, {
-  seedImage: () => seedImage,
-  resolveImage: () => resolveImage,
-  loadImage: () => loadImage,
-  failImage: () => failImage,
-  configureImageCache: () => configureImageCache
-});
 function configureImageCache(request) {
   requestFn = request;
 }
@@ -65,16 +53,6 @@ var init_image_cache = __esm(() => {
 });
 
 // src/ui/file-upload.ts
-var exports_file_upload = {};
-__export(exports_file_upload, {
-  streamUpload: () => streamUpload,
-  safeAttachmentName: () => safeAttachmentName,
-  isTextFile: () => isTextFile,
-  bytesToBase64: () => bytesToBase64,
-  UPLOAD_CHUNK_BYTES: () => UPLOAD_CHUNK_BYTES,
-  MAX_FILES: () => MAX_FILES,
-  INLINE_TEXT_BYTES: () => INLINE_TEXT_BYTES
-});
 function isTextFile(file) {
   if (file.type.startsWith("text/"))
     return true;
@@ -148,13 +126,6 @@ var init_file_upload = __esm(() => {
 });
 
 // src/ui/image-resize.ts
-var exports_image_resize = {};
-__export(exports_image_resize, {
-  resizeBlob: () => resizeBlob,
-  resizeBase64: () => resizeBase64,
-  isSupportedImage: () => isSupportedImage,
-  MAX_IMAGES: () => MAX_IMAGES
-});
 function isSupportedImage(type) {
   return SUPPORTED.has(type);
 }
@@ -204,9 +175,9 @@ async function resizeBlob(blob) {
     for (const edge of [MAX_EDGE, 1000, 700]) {
       const canvas = drawScaled(bitmap, edge);
       for (const q of [0.85, 0.7, 0.55, 0.4]) {
-        const data2 = canvasToBase64(canvas, "image/jpeg", q);
-        if (data2.length > 0 && data2.length <= MAX_B64_PER_IMAGE) {
-          return { data: data2, mime_type: "image/jpeg" };
+        const data = canvasToBase64(canvas, "image/jpeg", q);
+        if (data.length > 0 && data.length <= MAX_B64_PER_IMAGE) {
+          return { data, mime_type: "image/jpeg" };
         }
       }
     }
@@ -224,10 +195,6 @@ var init_image_resize = __esm(() => {
 });
 
 // src/ui/translator-bridge.ts
-var exports_translator_bridge = {};
-__export(exports_translator_bridge, {
-  handleTranslateBatch: () => handleTranslateBatch
-});
 function pickTranslatorFactory() {
   const w = globalThis;
   if (w.Translator?.create)
@@ -237,8 +204,8 @@ function pickTranslatorFactory() {
   if (w.translation?.createTranslator) {
     return {
       create: async (opts) => {
-        const t2 = await w.translation.createTranslator(opts);
-        return t2;
+        const t = await w.translation.createTranslator(opts);
+        return t;
       }
     };
   }
@@ -246,14 +213,14 @@ function pickTranslatorFactory() {
 }
 function getTranslator(factory, source, target) {
   const key = `${source}->${target}`;
-  let p2 = translatorCache.get(key);
-  if (!p2) {
-    p2 = factory.create({ sourceLanguage: source, targetLanguage: target });
-    translatorCache.set(key, p2);
+  let p = translatorCache.get(key);
+  if (!p) {
+    p = factory.create({ sourceLanguage: source, targetLanguage: target });
+    translatorCache.set(key, p);
   }
-  return p2;
+  return p;
 }
-async function translateHtml(html, t2) {
+async function translateHtml(html, t) {
   const doc = new DOMParser().parseFromString(html, "text/html");
   const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
   const nodes = [];
@@ -267,13 +234,13 @@ async function translateHtml(html, t2) {
     if (raw.trim().length === 0)
       continue;
     try {
-      const tr = await t2.translate(raw);
+      const tr = await t.translate(raw);
       n.nodeValue = tr;
     } catch {}
   }
   return doc.body.innerHTML;
 }
-async function translateLua(code, t2) {
+async function translateLua(code, t) {
   const matches = [];
   for (const m of code.matchAll(LUA_STRING_RX)) {
     const start = m.index ?? 0;
@@ -292,7 +259,7 @@ async function translateLua(code, t2) {
       continue;
     }
     try {
-      translatedInners.set(m.inner, await t2.translate(m.inner));
+      translatedInners.set(m.inner, await t.translate(m.inner));
     } catch {
       translatedInners.set(m.inner, m.inner);
     }
@@ -344,10 +311,6 @@ var init_translator_bridge = __esm(() => {
 });
 
 // src/ui/ask-user-modal.ts
-var exports_ask_user_modal = {};
-__export(exports_ask_user_modal, {
-  showAskUserQuestion: () => showAskUserQuestion
-});
 function el9(tag, cls, text) {
   const e = document.createElement(tag);
   if (cls)
@@ -520,11 +483,6 @@ function showAskUserQuestion(input) {
 var OTHER_LABEL = "Other";
 
 // src/ui/theme-bridge.ts
-var exports_theme_bridge = {};
-__export(exports_theme_bridge, {
-  handleThemeInstallPack: () => handleThemeInstallPack,
-  handleThemeCatalog: () => handleThemeCatalog
-});
 function requireCapability(ctx, key) {
   const caps = ctx.host?.capabilities ?? {};
   if (!caps[key])
@@ -4061,9 +4019,9 @@ class Diff {
       if (!component.removed) {
         if (!component.added && this.useLongestToken) {
           let value = newTokens.slice(newPos, newPos + component.count);
-          value = value.map(function(value2, i) {
+          value = value.map(function(value, i) {
             const oldValue = oldTokens[oldPos + i];
-            return oldValue.length > value2.length ? oldValue : value2;
+            return oldValue.length > value.length ? oldValue : value;
           });
           component.value = this.join(value);
         } else {
@@ -4167,11 +4125,11 @@ function overlapCount(a, b) {
 function segment(string, segmenter) {
   const parts = [];
   for (const segmentObj of Array.from(segmenter.segment(string))) {
-    const segment2 = segmentObj.segment;
-    if (parts.length && /\s/.test(parts[parts.length - 1]) && /\s/.test(segment2)) {
-      parts[parts.length - 1] += segment2;
+    const segment = segmentObj.segment;
+    if (parts.length && /\s/.test(parts[parts.length - 1]) && /\s/.test(segment)) {
+      parts[parts.length - 1] += segment;
     } else {
-      parts.push(segment2);
+      parts.push(segment);
     }
   }
   return parts;
@@ -4486,11 +4444,11 @@ function findVisibleRanges(lines, context) {
   if (lines.length === 0)
     return [];
   const visible = new Array(lines.length).fill(false);
-  for (let i2 = 0;i2 < lines.length; i2++) {
-    if (lines[i2].kind === "ctx")
+  for (let i = 0;i < lines.length; i++) {
+    if (lines[i].kind === "ctx")
       continue;
-    const lo = Math.max(0, i2 - context);
-    const hi = Math.min(lines.length - 1, i2 + context);
+    const lo = Math.max(0, i - context);
+    const hi = Math.min(lines.length - 1, i + context);
     for (let j = lo;j <= hi; j++)
       visible[j] = true;
   }
@@ -4630,11 +4588,11 @@ function findSxsVisibleRanges(pairs, context) {
   if (pairs.length === 0)
     return [];
   const visible = new Array(pairs.length).fill(false);
-  for (let i2 = 0;i2 < pairs.length; i2++) {
-    if (pairs[i2].kind === "ctx")
+  for (let i = 0;i < pairs.length; i++) {
+    if (pairs[i].kind === "ctx")
       continue;
-    const lo = Math.max(0, i2 - context);
-    const hi = Math.min(pairs.length - 1, i2 + context);
+    const lo = Math.max(0, i - context);
+    const hi = Math.min(pairs.length - 1, i + context);
     for (let j = lo;j <= hi; j++)
       visible[j] = true;
   }
@@ -5342,7 +5300,7 @@ function renderUserMessage(msg, deps) {
       const img = document.createElement("img");
       img.className = "la-msg-image";
       img.alt = "attachment";
-      Promise.resolve().then(() => (init_image_cache(), exports_image_cache)).then((m) => m.loadImage(im.path, (url) => {
+      Promise.resolve().then(() => (init_image_cache(), {})).then((m) => loadImage(im.path, (url) => {
         if (url)
           img.src = url;
         else
@@ -6584,8 +6542,8 @@ class Virtualizer {
   reconcileScroll() {
     if (!this.scrollState)
       return;
-    const el3 = this.scrollElement;
-    if (!el3)
+    const el = this.scrollElement;
+    if (!el)
       return;
     const MAX_RECONCILE_MS = 5000;
     if (this.now() - this.scrollState.startedAt > MAX_RECONCILE_MS) {
@@ -6805,8 +6763,8 @@ class ChatVirtualizer {
       this.spacer.parentElement.removeChild(this.spacer);
   }
   updateStickiness() {
-    const el3 = this.deps.scrollContainer;
-    const distanceFromBottom = el3.scrollHeight - el3.scrollTop - el3.clientHeight;
+    const el = this.deps.scrollContainer;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     this.stickyToBottom = distanceFromBottom <= STICKY_THRESHOLD_PX;
   }
   normaliseItemStyle(node) {
@@ -6865,8 +6823,8 @@ class ChatVirtualizer {
       this.virt.scrollToIndex(count - 1, { align: "end" });
     };
     const isCurrentlyAtBottom = () => {
-      const el3 = this.deps.scrollContainer;
-      const distance = el3.scrollHeight - el3.scrollTop - el3.clientHeight;
+      const el = this.deps.scrollContainer;
+      const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
       return distance >= 0 && distance <= STICKY_THRESHOLD_PX;
     };
     const grew = totalSize > this.lastTotalSize;
@@ -7504,20 +7462,20 @@ function openDiffModal(ctx, deps, opts) {
     const isMobile = window.innerWidth < MOBILE_BREAKPOINT_PX;
     if (r.op === "create") {
       const snap = r.snapshot;
-      const wrap2 = el4("div", "la-diff-pane-body");
-      wrap2.appendChild(el4("div", "la-diff-pane-note", "Created — full content of the new entry is below."));
+      const wrap = el4("div", "la-diff-pane-body");
+      wrap.appendChild(el4("div", "la-diff-pane-note", "Created — full content of the new entry is below."));
       const full = typeof snap.greeting === "string" ? snap.greeting : JSON.stringify(snap, null, 2);
-      wrap2.appendChild(renderSideBySideDiff("", full));
-      pane.appendChild(wrap2);
+      wrap.appendChild(renderSideBySideDiff("", full));
+      pane.appendChild(wrap);
       return;
     }
     if (r.op === "delete") {
       const snap = r.snapshot;
-      const wrap2 = el4("div", "la-diff-pane-body");
-      wrap2.appendChild(el4("div", "la-diff-pane-note", "Deleted — content shown was removed; revert restores it."));
+      const wrap = el4("div", "la-diff-pane-body");
+      wrap.appendChild(el4("div", "la-diff-pane-note", "Deleted — content shown was removed; revert restores it."));
       const full = typeof snap.greeting === "string" ? snap.greeting : JSON.stringify(snap, null, 2);
-      wrap2.appendChild(renderSideBySideDiff(full, ""));
-      pane.appendChild(wrap2);
+      wrap.appendChild(renderSideBySideDiff(full, ""));
+      pane.appendChild(wrap);
       return;
     }
     const wrap = el4("div", "la-diff-pane-body");
@@ -7878,12 +7836,12 @@ This lives under custom_tools/. The agent's saved tool recipes are stored here �
       const files = await deps.ctx.uploads.pickFile({ multiple: true, maxSizeBytes: 25 * 1024 * 1024 });
       if (files.length === 0)
         return;
-      const { streamUpload: streamUpload2 } = await Promise.resolve().then(() => (init_file_upload(), exports_file_upload));
+      await Promise.resolve().then(() => init_file_upload());
       for (const file of files) {
         const path = joinPath(targetDir, file.name);
         const transferId = `up_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
         setStatus(`Uploading ${file.name}...`);
-        await streamUpload2(deps.sendBackend, path, file.bytes, transferId);
+        await streamUpload(deps.sendBackend, path, file.bytes, transferId);
       }
     } catch (err) {
       setStatus(`Upload failed: ${err.message}`, true);
@@ -8733,8 +8691,8 @@ function createTutorial(deps) {
   let finaleLines = null;
   let completedFired = false;
   function clearExprTimers() {
-    for (const t2 of exprTimers)
-      clearTimeout(t2);
+    for (const t of exprTimers)
+      clearTimeout(t);
     exprTimers = [];
     typingFinish = null;
   }
@@ -8870,12 +8828,12 @@ function createTutorial(deps) {
     }
     spot.classList.remove("is-hidden");
     const c = deps.root.getBoundingClientRect();
-    const t2 = target.getBoundingClientRect();
+    const t = target.getBoundingClientRect();
     const pad = 5;
-    const top = Math.max(0, t2.top - c.top - pad);
-    const left = Math.max(0, t2.left - c.left - pad);
-    const right = Math.min(c.width, t2.right - c.left + pad);
-    const bottom = Math.min(c.height, t2.bottom - c.top + pad);
+    const top = Math.max(0, t.top - c.top - pad);
+    const left = Math.max(0, t.left - c.left - pad);
+    const right = Math.min(c.width, t.right - c.left + pad);
+    const bottom = Math.min(c.height, t.bottom - c.top + pad);
     Object.assign(spot.style, {
       top: `${top}px`,
       left: `${left}px`,
@@ -8948,10 +8906,10 @@ function createTutorial(deps) {
         return;
       done = true;
       typingFinish = null;
-      for (const t2 of targets) {
-        fillLine(t2.div, t2.ln);
-        if (t2.ln.expr)
-          setExpression(t2.ln.expr, false);
+      for (const t of targets) {
+        fillLine(t.div, t.ln);
+        if (t.ln.expr)
+          setExpression(t.ln.expr, false);
       }
       pin();
       onDone?.();
@@ -8968,25 +8926,25 @@ function createTutorial(deps) {
         onDone?.();
         return;
       }
-      const t2 = targets[li];
-      if (ci === 0 && t2.ln.expr)
-        setExpression(t2.ln.expr);
-      if (ci === 0 && t2.ln.anim === "fall")
+      const t = targets[li];
+      if (ci === 0 && t.ln.expr)
+        setExpression(t.ln.expr);
+      if (ci === 0 && t.ln.anim === "fall")
         playFall();
-      const ch = t2.chars[ci];
+      const ch = t.chars[ci];
       if (ch === undefined) {
         li++;
         ci = 0;
         exprTimers.push(setTimeout(step, LINE_PAUSE_MS));
         return;
       }
-      if (t2.ln.kind === "sfx")
-        t2.div.appendChild(wiggleChar(ch, ci));
+      if (t.ln.kind === "sfx")
+        t.div.appendChild(wiggleChar(ch, ci));
       else
-        t2.div.textContent = (t2.div.textContent ?? "") + ch;
+        t.div.textContent = (t.div.textContent ?? "") + ch;
       pin();
       ci++;
-      const base = t2.ln.kind === "sfx" ? SFX_CHAR_MS : CHAR_MS;
+      const base = t.ln.kind === "sfx" ? SFX_CHAR_MS : CHAR_MS;
       exprTimers.push(setTimeout(step, base + (PUNCT.has(ch) ? PUNCT_PAUSE_MS : 0)));
     };
     step();
@@ -9370,6 +9328,7 @@ var SECTIONS = [
       { rw: "W", text: "Images: generate with your configured image provider, save to the workspace, tag into a gallery, or set as an avatar." },
       { rw: "W", text: "Your screen, politely: I can navigate the UI to the tab we're talking about, and send a device push when a long job finishes while you're away." },
       { rw: "R", text: "The web, if you've set up search: web search and page fetch, savable straight into my workspace." },
+      { rw: "W", text: "Your MCP servers: add a server, connect, discover its tools, and use them. What I can do depends on the server, and remote changes aren't covered by my undo." },
       { rw: "R", text: "All your connection profiles: the provider, the model, default settings. (Your API keys stay encrypted, I never see those~)" },
       { rw: "R", text: "Reusable global add-on blocks, the Lumiverse version, your current theme, your active chat, your account role." }
     ]
@@ -9400,7 +9359,7 @@ var EXAMPLES = [
   "Redecorate Lumiverse: ask for a whole theme and I'll write it. You can always revert it~",
   "Generate images for a character's gallery, or a new avatar."
 ];
-var WIP = ["MCP", "Dreamweaver"];
+var WIP = ["Dreamweaver"];
 function el8(tag, cls, text) {
   const e = document.createElement(tag);
   if (cls)
@@ -9499,14 +9458,14 @@ function makeId(prefix) {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 function showToast(text, durationMs = 4000) {
-  const t2 = document.createElement("div");
-  t2.className = "la-toast";
-  t2.textContent = text;
-  document.body.appendChild(t2);
-  requestAnimationFrame(() => t2.classList.add("is-visible"));
+  const t = document.createElement("div");
+  t.className = "la-toast";
+  t.textContent = text;
+  document.body.appendChild(t);
+  requestAnimationFrame(() => t.classList.add("is-visible"));
   setTimeout(() => {
-    t2.classList.remove("is-visible");
-    setTimeout(() => t2.remove(), 300);
+    t.classList.remove("is-visible");
+    setTimeout(() => t.remove(), 300);
   }, durationMs);
 }
 function el10(tag, cls, text) {
@@ -9684,14 +9643,14 @@ function mountDrawer(ctx) {
   };
   const suggestions = el10("div", "la-empty-suggestions");
   for (const item of SUGGESTIONS) {
-    const s2 = el10("button", "la-empty-suggestion", item.label);
-    s2.title = item.send;
-    s2.addEventListener("click", () => {
+    const s = el10("button", "la-empty-suggestion", item.label);
+    s.title = item.send;
+    s.addEventListener("click", () => {
       textarea.value = item.send;
       autosizeTextarea();
       doSend();
     });
-    suggestions.appendChild(s2);
+    suggestions.appendChild(s);
   }
   emptyState.appendChild(suggestions);
   const composer = el10("div", "la-composer");
@@ -9836,8 +9795,8 @@ function mountDrawer(ctx) {
         mouseyImg.classList.remove("la-mousey-overlap");
         return;
       }
-      const t2 = textarea.getBoundingClientRect();
-      const overlap = textarea.value.length > 0 && t2.right > m.left && t2.left < m.right && t2.bottom > m.top && t2.top < m.bottom;
+      const t = textarea.getBoundingClientRect();
+      const overlap = textarea.value.length > 0 && t.right > m.left && t.left < m.right && t.bottom > m.top && t.top < m.bottom;
       mouseyImg.classList.toggle("la-mousey-overlap", overlap);
     });
   };
@@ -9854,7 +9813,7 @@ function mountDrawer(ctx) {
   };
   root.append(meetBanner, header, thread, composer);
   const sendBackend = (msg) => ctx.sendToBackend(msg);
-  Promise.resolve().then(() => (init_image_cache(), exports_image_cache)).then((m) => m.configureImageCache((path) => sendBackend({ type: "ws_read_image", path })));
+  Promise.resolve().then(() => (init_image_cache(), {})).then((m) => configureImageCache((path) => sendBackend({ type: "ws_read_image", path })));
   const withConnection = (msg) => {
     let id = state.connectionId;
     if (id && !state.connections.some((c) => c.id === id)) {
@@ -10638,7 +10597,7 @@ Revert those edits to the character now, or leave them applied?`;
     const handle = ctx.ui.showModal({ title: "Pin a chat", width: 520, maxHeight: 560 });
     const note = el10("p", "la-modal-note", "Pin a chat to avoid the agent having to search your chats to find the right one.");
     const list = el10("div", "la-sessions-modal-list");
-    const render2 = () => {
+    const render = () => {
       list.innerHTML = "";
       const unpin = el10("button", `la-session-item ${state.pinnedChatId === null ? "is-active" : ""}`);
       unpin.append(Object.assign(el10("div"), { textContent: "(No chat pinned)" }), el10("div", "la-session-item-meta", "Agent has no message-history access."));
@@ -10674,8 +10633,8 @@ Revert those edits to the character now, or leave them applied?`;
       }
     };
     handle.root.append(note, list);
-    render2();
-    const detach = pushChatsListeners.push(render2);
+    render();
+    const detach = pushChatsListeners.push(render);
     handle.onDismiss(() => detach());
   };
   const pushChatsListeners = {
@@ -10701,18 +10660,18 @@ Revert those edits to the character now, or leave them applied?`;
     const handle = ctx.ui.showModal({ title: "Sessions", width: 520 });
     const list = el10("div", "la-sessions-modal-list");
     handle.root.appendChild(list);
-    const render2 = () => {
+    const render = () => {
       list.innerHTML = "";
       if (state.sessions.length === 0) {
         list.appendChild(el10("div", "la-diff-pane-empty", "No sessions yet."));
         return;
       }
-      for (const s2 of state.sessions) {
-        const isCurrent = s2.sessionId === state.sessionId;
+      for (const s of state.sessions) {
+        const isCurrent = s.sessionId === state.sessionId;
         const row = el10("div", `la-session-item ${isCurrent ? "is-active" : ""}`);
         const main = el10("div", "la-session-item-main");
-        main.append(el10("div", undefined, s2.characterId === null ? "(No character)" : s2.characterName));
-        main.append(el10("div", "la-session-item-meta", `${s2.messageCount} msg . ${s2.editCount} edits${s2.revertedEditCount ? ` (${s2.revertedEditCount} reverted)` : ""} . ${new Date(s2.lastActivityAt).toLocaleString()}`));
+        main.append(el10("div", undefined, s.characterId === null ? "(No character)" : s.characterName));
+        main.append(el10("div", "la-session-item-meta", `${s.messageCount} msg . ${s.editCount} edits${s.revertedEditCount ? ` (${s.revertedEditCount} reverted)` : ""} . ${new Date(s.lastActivityAt).toLocaleString()}`));
         const exportBtn = el10("button", "la-session-item-delete");
         exportBtn.type = "button";
         exportBtn.title = "Export session as Markdown";
@@ -10720,7 +10679,7 @@ Revert those edits to the character now, or leave them applied?`;
         exportBtn.innerHTML = ICON_DOWNLOAD;
         exportBtn.addEventListener("click", (ev) => {
           ev.stopPropagation();
-          sendBackend({ type: "export_session_markdown", sessionId: s2.sessionId });
+          sendBackend({ type: "export_session_markdown", sessionId: s.sessionId });
         });
         const delBtn = el10("button", "la-session-item-delete");
         delBtn.type = "button";
@@ -10732,7 +10691,7 @@ Revert those edits to the character now, or leave them applied?`;
           const r = await ctx.ui.showConfirm({ title: "Delete session", message: "Permanently delete this session? Edits already committed to the card will NOT be reverted; use 'Revert session' first if you want those undone.", variant: "danger", confirmLabel: "Delete" });
           if (r.confirmed) {
             delBtn.disabled = true;
-            sendBackend({ type: "delete_session", sessionId: s2.sessionId });
+            sendBackend({ type: "delete_session", sessionId: s.sessionId });
           }
         });
         row.append(main);
@@ -10745,15 +10704,15 @@ Revert those edits to the character now, or leave them applied?`;
         }
         row.append(exportBtn, delBtn);
         row.addEventListener("click", () => {
-          sendBackend({ type: "load_session", sessionId: s2.sessionId });
+          sendBackend({ type: "load_session", sessionId: s.sessionId });
           handle.dismiss();
         });
         list.appendChild(row);
       }
     };
-    render2();
+    render();
     sendBackend({ type: "list_sessions" });
-    const detach = pushSessionsListeners.push(render2);
+    const detach = pushSessionsListeners.push(render);
     handle.onDismiss(() => detach());
   };
   editsBadge.addEventListener("click", () => openDiffs());
@@ -10991,30 +10950,30 @@ Revert those edits to the character now, or leave them applied?`;
         pairingsPanel.appendChild(el10("div", "la-pairings-empty", "No pairings yet."));
         return;
       }
-      for (const p2 of pairings) {
+      for (const p of pairings) {
         const row = el10("div", "la-pairing-row");
         const nameCol = el10("div", "la-pairing-name-col");
-        nameCol.appendChild(el10("div", "la-pairing-name", p2.displayName));
-        nameCol.appendChild(el10("div", "la-pairing-id", p2.identifier));
+        nameCol.appendChild(el10("div", "la-pairing-name", p.displayName));
+        nameCol.appendChild(el10("div", "la-pairing-id", p.identifier));
         row.appendChild(nameCol);
         const toggleLabel = el10("label", "la-pairing-toggle");
         const cb = document.createElement("input");
         cb.type = "checkbox";
         cb.className = "la-checkbox";
-        cb.checked = p2.allowed;
+        cb.checked = p.allowed;
         cb.addEventListener("click", async (ev) => {
           ev.preventDefault();
-          const nextAllowed = !p2.allowed;
+          const nextAllowed = !p.allowed;
           const c = await ctx.ui.showConfirm({
             title: nextAllowed ? "Allow this pairing?" : "Block this pairing?",
-            message: `Pairing state is part of the system prompt's External Providers section. Toggling it invalidates the prompt cache on your next message in every active chat. ${nextAllowed ? "Allow" : "Block"} "${p2.displayName}"?`,
+            message: `Pairing state is part of the system prompt's External Providers section. Toggling it invalidates the prompt cache on your next message in every active chat. ${nextAllowed ? "Allow" : "Block"} "${p.displayName}"?`,
             variant: "danger",
             confirmLabel: nextAllowed ? "Allow" : "Block"
           });
           if (!c.confirmed)
             return;
           cb.checked = nextAllowed;
-          sendBackend({ type: "set_phoneline_pairing", identifier: p2.identifier, allowed: nextAllowed });
+          sendBackend({ type: "set_phoneline_pairing", identifier: p.identifier, allowed: nextAllowed });
         });
         toggleLabel.appendChild(cb);
         toggleLabel.appendChild(el10("span", "la-pairing-toggle-label", "Allowed"));
@@ -11023,19 +10982,19 @@ Revert those edits to the character now, or leave them applied?`;
         revokeBtn.addEventListener("click", async () => {
           const c = await ctx.ui.showConfirm({
             title: "Forget this pairing?",
-            message: `Removing "${p2.displayName}" wipes its stored consent and invalidates the system prompt cache on the next message. You will be re-prompted for consent if the extension dials again.`,
+            message: `Removing "${p.displayName}" wipes its stored consent and invalidates the system prompt cache on the next message. You will be re-prompted for consent if the extension dials again.`,
             variant: "danger",
             confirmLabel: "Forget"
           });
           if (!c.confirmed)
             return;
-          sendBackend({ type: "revoke_phoneline_pairing", identifier: p2.identifier });
+          sendBackend({ type: "revoke_phoneline_pairing", identifier: p.identifier });
         });
         row.appendChild(revokeBtn);
         pairingsPanel.appendChild(row);
       }
     };
-    const unregisterPairings = pairingsListeners.push((p2) => renderPairings(p2));
+    const unregisterPairings = pairingsListeners.push((p) => renderPairings(p));
     handle.onDismiss(unregisterPairings);
     sendBackend({ type: "get_phoneline_pairings" });
     const status = el10("div", "la-composer-status");
@@ -11053,8 +11012,8 @@ Revert those edits to the character now, or leave them applied?`;
       repetitionPenalty: null
     };
     const populate = () => {
-      const s2 = state.settings;
-      if (!s2) {
+      const s = state.settings;
+      if (!s) {
         personaArea.value = "";
         personaArea.placeholder = "Loading...";
         promptArea.value = "";
@@ -11063,26 +11022,26 @@ Revert those edits to the character now, or leave them applied?`;
       const active = document.activeElement;
       if (active === personaArea || active === promptArea || active === jbArea || active === wsCapInput || active === toolCapInput || active === tpmInput || active === rpmInput)
         return;
-      personaArea.value = s2.persona;
+      personaArea.value = s.persona;
       personaArea.placeholder = "(empty: agent has no persona)";
-      promptArea.value = s2.systemPromptOverride ?? (s2.defaultSystemPromptBody ?? "");
-      if (s2.samplers)
-        samplerBag = { ...s2.samplers };
-      jbArea.value = s2.jailbreak ?? "";
-      jbPlacement.value = s2.jailbreakPlacement ?? "system_suffix";
-      const wsDefault = s2.workspaceCapDefaultBytes ?? 5368709120;
+      promptArea.value = s.systemPromptOverride ?? (s.defaultSystemPromptBody ?? "");
+      if (s.samplers)
+        samplerBag = { ...s.samplers };
+      jbArea.value = s.jailbreak ?? "";
+      jbPlacement.value = s.jailbreakPlacement ?? "system_suffix";
+      const wsDefault = s.workspaceCapDefaultBytes ?? 5368709120;
       wsCapInput.placeholder = `${Math.round(wsDefault / 1024 / 1024)}`;
-      wsCapInput.value = s2.workspaceCapBytes ? String(Math.round(s2.workspaceCapBytes / 1024 / 1024)) : "";
-      const toolDefault = s2.toolOutputCapDefaultTokens ?? 8000;
+      wsCapInput.value = s.workspaceCapBytes ? String(Math.round(s.workspaceCapBytes / 1024 / 1024)) : "";
+      const toolDefault = s.toolOutputCapDefaultTokens ?? 8000;
       toolCapInput.placeholder = `${toolDefault}`;
-      toolCapInput.value = s2.toolOutputCapTokens ? String(s2.toolOutputCapTokens) : "";
-      cacheModeSelect.value = s2.cacheMode ?? "full";
-      reasoningSelect.value = s2.reasoningEffort ?? "inherit";
-      parallelToolsInput.checked = s2.parallelToolCalls ?? true;
-      debugLogInput.checked = s2.debugLogging ?? false;
-      changeApprovalInput.checked = s2.requireChangeApproval ?? false;
-      tpmInput.value = s2.tpmLimit ? String(s2.tpmLimit) : "";
-      rpmInput.value = s2.rpmLimit ? String(s2.rpmLimit) : "";
+      toolCapInput.value = s.toolOutputCapTokens ? String(s.toolOutputCapTokens) : "";
+      cacheModeSelect.value = s.cacheMode ?? "full";
+      reasoningSelect.value = s.reasoningEffort ?? "inherit";
+      parallelToolsInput.checked = s.parallelToolCalls ?? true;
+      debugLogInput.checked = s.debugLogging ?? false;
+      changeApprovalInput.checked = s.requireChangeApproval ?? false;
+      tpmInput.value = s.tpmLimit ? String(s.tpmLimit) : "";
+      rpmInput.value = s.rpmLimit ? String(s.rpmLimit) : "";
       renderSamplers();
     };
     const resetAllSamplers = () => {
@@ -11103,7 +11062,7 @@ Revert those edits to the character now, or leave them applied?`;
     ];
     const buildSamplerSlider = (def) => {
       const row = el10("div", "la-slider-row");
-      const header2 = el10("div", "la-slider-header");
+      const header = el10("div", "la-slider-header");
       const label = el10("span", "la-slider-label", def.label);
       const numInput = document.createElement("input");
       numInput.type = "number";
@@ -11112,13 +11071,13 @@ Revert those edits to the character now, or leave them applied?`;
       numInput.max = String(def.max);
       numInput.step = String(def.step);
       numInput.placeholder = String(def.defaultHint);
-      header2.append(label, numInput);
+      header.append(label, numInput);
       const track = el10("div", "la-slider-track");
       track.title = "Drag to set, double-click to reset";
       const fill = el10("div", "la-slider-fill");
       const thumb = el10("div", "la-slider-thumb");
       track.append(fill, thumb);
-      row.append(header2, track);
+      row.append(header, track);
       const decimals = (String(def.step).split(".")[1] || "").length;
       const snap = (raw) => {
         const clamped = Math.min(def.max, Math.max(def.min, raw));
@@ -11523,17 +11482,17 @@ Revert those edits to the character now, or leave them applied?`;
     updateComposer();
   };
   const addImageBlobs = async (blobs) => {
-    const { resizeBlob: resizeBlob2, isSupportedImage: isSupportedImage2, MAX_IMAGES: MAX_IMAGES2 } = await Promise.resolve().then(() => (init_image_resize(), exports_image_resize));
+    await Promise.resolve().then(() => init_image_resize());
     for (const blob of blobs) {
-      if (state.attachments.length >= MAX_IMAGES2) {
-        composerStatus.textContent = `Up to ${MAX_IMAGES2} images per message.`;
+      if (state.attachments.length >= MAX_IMAGES) {
+        composerStatus.textContent = `Up to ${MAX_IMAGES} images per message.`;
         composerStatus.classList.add("is-error");
         break;
       }
-      if (!isSupportedImage2(blob.type))
+      if (!isSupportedImage(blob.type))
         continue;
       try {
-        const r = await resizeBlob2(blob);
+        const r = await resizeBlob(blob);
         state.attachments.push({ id: makeId("att"), data: r.data, mime_type: r.mime_type });
         composerStatus.classList.remove("is-error");
         renderAttachments();
@@ -11558,12 +11517,12 @@ Revert those edits to the character now, or leave them applied?`;
     }
   };
   const buildImagePayload = async (sid) => {
-    const { seedImage: seedImage2 } = await Promise.resolve().then(() => (init_image_cache(), exports_image_cache));
+    await Promise.resolve().then(() => init_image_cache());
     const wire = [];
     const refs = [];
     for (const att of state.attachments) {
       const path = `attachments/${sid}/${att.id}.${extForMime(att.mime_type)}`;
-      seedImage2(path, `data:${att.mime_type};base64,${att.data}`);
+      seedImage(path, `data:${att.mime_type};base64,${att.data}`);
       wire.push({ path, data: att.data, mime_type: att.mime_type });
       refs.push({ path, mime_type: att.mime_type });
     }
@@ -11603,9 +11562,9 @@ Revert those edits to the character now, or leave them applied?`;
       } });
     });
     try {
-      const { streamUpload: streamUpload2 } = await Promise.resolve().then(() => (init_file_upload(), exports_file_upload));
+      await Promise.resolve().then(() => init_file_upload());
       const bytes = new Uint8Array(await att.file.arrayBuffer());
-      await streamUpload2(sendBackend, att.path, bytes, transferId, (frac) => {
+      await streamUpload(sendBackend, att.path, bytes, transferId, (frac) => {
         att.progress = Math.min(0.95, frac * 0.95);
         setChipProgress(att);
       });
@@ -11622,22 +11581,22 @@ Revert those edits to the character now, or leave them applied?`;
     }
   };
   const addFiles = async (files) => {
-    const { isTextFile: isTextFile2, INLINE_TEXT_BYTES: INLINE_TEXT_BYTES2, MAX_FILES: MAX_FILES2, safeAttachmentName: safeAttachmentName2 } = await Promise.resolve().then(() => (init_file_upload(), exports_file_upload));
+    await Promise.resolve().then(() => init_file_upload());
     for (const file of files) {
-      if (state.fileAttachments.length >= MAX_FILES2) {
-        composerStatus.textContent = `Up to ${MAX_FILES2} files per message.`;
+      if (state.fileAttachments.length >= MAX_FILES) {
+        composerStatus.textContent = `Up to ${MAX_FILES} files per message.`;
         composerStatus.classList.add("is-error");
         break;
       }
-      const kind = isTextFile2(file) ? "text" : "binary";
+      const kind = isTextFile(file) ? "text" : "binary";
       let inlineContent;
-      if (kind === "text" && file.size <= INLINE_TEXT_BYTES2) {
+      if (kind === "text" && file.size <= INLINE_TEXT_BYTES) {
         try {
           inlineContent = await file.text();
         } catch {}
       }
       const id = makeId("file");
-      const path = `attachments/${composerSid()}/${id}-${safeAttachmentName2(file.name)}`;
+      const path = `attachments/${composerSid()}/${id}-${safeAttachmentName(file.name)}`;
       const att = { id, file, name: file.name, size: file.size, mime: file.type, kind, ...inlineContent !== undefined ? { inlineContent } : {}, path, status: "uploading", progress: 0 };
       state.fileAttachments.push(att);
       composerStatus.classList.remove("is-error");
@@ -11812,9 +11771,9 @@ Revert those edits to the character now, or leave them applied?`;
       steerBtn.addEventListener("click", () => requestSteer(i));
       const editBtn = el10("button", "la-queued-btn", "Edit");
       editBtn.addEventListener("click", () => {
-        const [t2] = queuedMessages.splice(i, 1);
+        const [t] = queuedMessages.splice(i, 1);
         textarea.value = textarea.value.trim().length > 0 ? `${textarea.value}
-${t2}` : t2;
+${t}` : t;
         renderQueue();
         updateComposer();
         textarea.focus();
@@ -12275,9 +12234,9 @@ ${t2}` : t2;
           enterDeadState(true);
         }
         if (steerText !== null) {
-          const t2 = steerText;
+          const t = steerText;
           steerText = null;
-          sendQueuedText(t2);
+          sendQueuedText(t);
         }
         break;
       case "generation_error": {
@@ -12493,16 +12452,16 @@ ${t2}` : t2;
         state.workspacePanel?.onDownloadReady(msg.path, msg.dataBase64, msg.mimeType);
         break;
       case "ws_image_ready":
-        Promise.resolve().then(() => (init_image_cache(), exports_image_cache)).then((m) => m.resolveImage(msg.path, `data:${msg.mimeType};base64,${msg.dataBase64}`));
+        Promise.resolve().then(() => (init_image_cache(), {})).then((m) => resolveImage(msg.path, `data:${msg.mimeType};base64,${msg.dataBase64}`));
         break;
       case "ws_image_error":
-        Promise.resolve().then(() => (init_image_cache(), exports_image_cache)).then((m) => m.failImage(msg.path));
+        Promise.resolve().then(() => (init_image_cache(), {})).then((m) => failImage(msg.path));
         break;
       case "ws_upload_complete": {
-        const p2 = pendingUploads.get(msg.transferId);
-        if (p2) {
+        const p = pendingUploads.get(msg.transferId);
+        if (p) {
           pendingUploads.delete(msg.transferId);
-          p2.resolve();
+          p.resolve();
         }
         break;
       }
@@ -12546,23 +12505,23 @@ ${t2}` : t2;
           try {
             let result;
             if (msg.op === "translate_batch") {
-              const { handleTranslateBatch: handleTranslateBatch2 } = await Promise.resolve().then(() => (init_translator_bridge(), exports_translator_bridge));
-              result = await handleTranslateBatch2(msg.args);
+              await Promise.resolve().then(() => init_translator_bridge());
+              result = await handleTranslateBatch(msg.args);
             } else if (msg.op === "ask_user_question") {
-              const { showAskUserQuestion: showAskUserQuestion2 } = await Promise.resolve().then(() => exports_ask_user_modal);
-              result = await showAskUserQuestion2(msg.args);
+              await Promise.resolve();
+              result = await showAskUserQuestion(msg.args);
             } else if (msg.op === "image_resize") {
-              const { resizeBase64: resizeBase642 } = await Promise.resolve().then(() => (init_image_resize(), exports_image_resize));
+              await Promise.resolve().then(() => init_image_resize());
               const a = msg.args;
-              result = await resizeBase642(a.data, a.mime_type);
+              result = await resizeBase64(a.data, a.mime_type);
             } else if (msg.op === "approve_change") {
               result = await changeApprovals.show(msg.rpcId, msg.args);
             } else if (msg.op === "theme_catalog") {
-              const { handleThemeCatalog: handleThemeCatalog2 } = await Promise.resolve().then(() => exports_theme_bridge);
-              result = handleThemeCatalog2(ctx);
+              await Promise.resolve();
+              result = handleThemeCatalog(ctx);
             } else if (msg.op === "theme_install_pack") {
-              const { handleThemeInstallPack: handleThemeInstallPack2 } = await Promise.resolve().then(() => exports_theme_bridge);
-              result = await handleThemeInstallPack2(ctx, msg.args);
+              await Promise.resolve();
+              result = await handleThemeInstallPack(ctx, msg.args);
             } else {
               sendBackend({ type: "frontend_rpc_response", rpcId: msg.rpcId, error: `unknown rpc op '${msg.op}'` });
               return;
@@ -12769,10 +12728,10 @@ function setupBridgeStatusBanner(opts) {
       body.appendChild(makePermChip(missing[0]));
     } else {
       body.appendChild(document.createTextNode(`permissions `));
-      missing.forEach((p2, i) => {
+      missing.forEach((p, i) => {
         if (i > 0)
           body.appendChild(document.createTextNode(", "));
-        body.appendChild(makePermChip(p2));
+        body.appendChild(makePermChip(p));
       });
     }
     body.appendChild(document.createTextNode(`, required for ${otherSide} communication. The agent integration will not work until this is granted in Lumiverse's extension panel.`));

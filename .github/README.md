@@ -21,7 +21,7 @@
 
 🏠 If you let me [move into your Lumi](https://github.com/AMousePad/LumiAgent/wiki), I promise to make my dedicated [filesystem](https://github.com/AMousePad/LumiAgent/wiki/Workshop#files---v---) workspace neat and tidy!
 
-👉👈 I-if you want to know more about me, there's an in app greeting/interactive tutorial!
+👉👈 I-if you want to know more about me, there's an in app greeting/interactive tutorial, or you can read the [wiki](https://github.com/AMousePad/LumiAgent/wiki)!
 
 🌈 By the way, people have told me that... I look like if ChatGPT and Claude Code had a baby. What does that mean?"
 
@@ -106,6 +106,7 @@ A lot~ ( ꈍ◡ꈍ) Here's the list so you know what to ask me about. As submitt
 - **W** Images: generate with your configured image provider, save to the workspace, tag into a gallery, or set as an avatar.
 - **W** Your screen, politely: I can navigate the UI to the tab we're talking about, and send a device push when a long job finishes while you're away.
 - **R** The web, if you've set up search: web search and page fetch, savable straight into my workspace.
+- **W** Your MCP servers: add a server, connect, discover its tools, and use them. What I can do depends on the server, and remote changes aren't covered by my undo.
 - **R** All your connection profiles: the provider, the model, default settings. (Your API keys stay encrypted, I never see those~)
 - **R** Reusable global add-on blocks, the Lumiverse version, your current theme, your active chat, your account role.
 
@@ -140,7 +141,7 @@ You can get me to:
 12. Redecorate Lumiverse: ask for a whole theme and I'll write it. You can always revert it~
 13. Generate images for a character's gallery, or a new avatar.
 
-**Still in the oven (WIP):** MCP · Dreamweaver
+**Still in the oven (WIP):** Dreamweaver
 
 ## Installation
 

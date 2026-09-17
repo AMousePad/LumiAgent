@@ -54,6 +54,9 @@ const NO_CHANGE_TOOLS: ReadonlySet<string> = new Set([
   "list_image_models",
   "list_images",
   "list_memory_entities",
+  "list_mcp_servers",
+  "get_mcp_server",
+  "list_mcp_tools",
   "list_personas",
   "list_session_edits",
   "list_variables",
@@ -95,6 +98,7 @@ const DELETE_TOOLS: ReadonlySet<string> = new Set([
 ]);
 
 const CREATE_TOOLS: ReadonlySet<string> = new Set([
+  "create_mcp_server",
   "create",
   "create_character",
   "generate_image",
@@ -118,6 +122,9 @@ const MOVE_TOOLS: ReadonlySet<string> = new Set([
 ]);
 
 const TOOL_LABELS: Readonly<Record<string, string>> = {
+  create_mcp_server: "Create an MCP server profile",
+  connect_mcp_server: "Connect an MCP server",
+  call_mcp_tool: "Call an external MCP tool (may change remote state)",
   apply_glossary: "Apply glossary replacements",
   attach_world_book: "Change a lorebook attachment",
   asset_delete: "Delete an asset",
@@ -189,6 +196,12 @@ function resolveTarget(
   args: Readonly<Record<string, unknown>>,
   context: ApprovalTargetContext,
 ): string {
+  if (toolName === "create_mcp_server") return stringField(args, "name") ?? "(new MCP server)";
+  if (toolName === "connect_mcp_server" || toolName === "call_mcp_tool") {
+    const server = stringField(args, "server_id") ?? "(unknown MCP server)";
+    const tool = stringField(args, "tool_name");
+    return tool ? `${server} / ${tool}` : server;
+  }
   const focusedCharacter = context.characterId && context.characterId.length > 0
     ? context.characterId
     : "(no focused character)";

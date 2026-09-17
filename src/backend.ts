@@ -34,6 +34,7 @@ import { revertEditWithCheck, revertEdit, writeFieldValue } from "./state/edit-l
 import { appendEntries, entriesView, findEntry, loadLedger, ledgerPath, persistLedgerNow, purgeAllRevertedInMemory, squashMessage } from "./state/ledger";
 import { characterScope, scopeKeyString } from "./types";
 import { isDebugLogging } from "./log";
+import { registerPhonelineProbe } from "./phoneline/probe";
 import { applySinglePatch, sha256 as patchSha256 } from "./state/patch-stack";
 import { type AgentSettings, DEFAULT_PERSONA, loadSettings, saveSettings, resolveWorkspaceCap, resolveToolOutputCapTokens, WORKSPACE_FILE_CAP_BYTES, DEFAULT_WORKSPACE_MAX_FILES, DEFAULT_TOOL_OUTPUT_CAP_TOKENS } from "./state/settings";
 import { loadUiPrefs, saveUiPrefs } from "./state/ui-prefs";
@@ -3017,13 +3018,10 @@ void initHostVersionCheck({ info: (m) => log("info", m), warn: (m) => log("warn"
   .then(() => { for (const uid of capturedUserIds) sendHostVersionWarning(uid); })
   .catch(() => { /* check failure already logged */ });
 
-// On-request probe other extensions dial after their own perm change. The
-// host inheritance check runs first (so the caller observes its own missing
-// perms if any), and the handler treats any successful invocation as a
-// signal that the caller's perm set may have shifted, triggering our own
-// re-dial so our banner picks up new failures on the outbound direction.
+// A successful probe signals that the caller's grants may have changed.
+// Re-dial to refresh the outbound bridge status as well.
 try {
-  spindle.rpcPool.handle("phoneline_probe", async () => {
+  registerPhonelineProbe(spindle, () => {
     void (async () => {
       try {
         const { invalidate, discoverProviders } = await import("./phoneline/registry");
@@ -3036,7 +3034,6 @@ try {
         log("warn", `phoneline_probe re-dial side effect failed: ${(err as Error).message}`);
       }
     })();
-    return { ok: true };
   });
 } catch (err) {
   log("warn", `phoneline_probe handle failed: ${(err as Error).message}`);

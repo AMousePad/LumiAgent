@@ -1,0 +1,1 @@
+Read one MCP server's redacted profile and current connection status, tool count, and connection error. Does not connect or invoke tools. A disconnected server is a valid status. Use list_mcp_tools for full tool schemas after connecting. No focused character needed.

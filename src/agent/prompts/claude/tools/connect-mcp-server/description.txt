@@ -1,0 +1,1 @@
+Connect an enabled MCP server already configured in Lumiverse. This may open a remote connection or start a configured stdio process. Returns connection status and tool count, then use list_mcp_tools for schemas. An already connected server is reused. Disabled servers must be enabled in Settings > MCP Servers. No focused character needed.

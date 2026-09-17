@@ -13,6 +13,8 @@ export const REQUIRED_PERMISSIONS: readonly string[] = [
   "ui_panels",
   "personas",
   "databanks",
+  "mcp_servers",
+  "mcp_servers.create",
 ];
 
 export const PERMISSION_PURPOSE: Readonly<Record<string, string>> = {
@@ -26,6 +28,8 @@ export const PERMISSION_PURPOSE: Readonly<Record<string, string>> = {
   ui_panels: "mount the LumiAgent drawer",
   personas: "read the active persona for {{user}} resolution",
   databanks: "read databank documents",
+  mcp_servers: "discover, connect, and call your MCP servers",
+  "mcp_servers.create": "create MCP server profiles",
 };
 
 interface PermLog {

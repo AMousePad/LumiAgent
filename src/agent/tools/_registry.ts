@@ -112,6 +112,7 @@ import { readVariableTool } from "./read-variable";
 import { resolveMacrosTool } from "./resolve-macros";
 import { todoWriteTool } from "./todo-write";
 import { toolSearchTool } from "./tool-search";
+import { listMcpServersTool, getMcpServerTool, createMcpServerTool, connectMcpServerTool, listMcpToolsTool, callMcpToolTool } from "./mcp";
 
 export const registry = new ToolRegistry();
 
@@ -148,6 +149,8 @@ const DEFERRED_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   "todo_write",
   // Web (search + fetch). Only when the user asks to look something up.
   "web_search", "web_fetch",
+  "list_mcp_servers", "get_mcp_server", "create_mcp_server",
+  "connect_mcp_server", "list_mcp_tools", "call_mcp_tool",
   // Vision: fetched when the user has an image in the workspace to view.
   "view_image",
   // Image generation + library. Only on an explicitly visual task.
@@ -206,6 +209,7 @@ export function listDeferredToolNames(): readonly string[] {
 // in parallel batches (cap 5). Anything not listed runs serially, the safe
 // default for any tool that mutates state.
 const READ_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
+  "list_mcp_servers", "get_mcp_server", "list_mcp_tools",
   // Path-based reads
   "read", "inspect", "list", "grep",
   // Multi-surface / completion-gate readers
@@ -259,6 +263,12 @@ const PER_TOOL_RESULT_CAP_CHARS: Readonly<Record<string, number>> = {
   fs_read: Number.POSITIVE_INFINITY,
   web_search: Number.POSITIVE_INFINITY,
   web_fetch: Number.POSITIVE_INFINITY,
+  list_mcp_servers: Number.POSITIVE_INFINITY,
+  get_mcp_server: Number.POSITIVE_INFINITY,
+  create_mcp_server: Number.POSITIVE_INFINITY,
+  connect_mcp_server: Number.POSITIVE_INFINITY,
+  list_mcp_tools: Number.POSITIVE_INFINITY,
+  call_mcp_tool: Number.POSITIVE_INFINITY,
   // Compact metadata / list / search outputs.
   inspect: 12_000,
   list: 20_000,
@@ -283,6 +293,12 @@ export function maxResultSizeCharsFor(name: string): number | null {
 }
 
 registry.register(aboutMemoriaTool);
+registry.register(listMcpServersTool);
+registry.register(getMcpServerTool);
+registry.register(createMcpServerTool);
+registry.register(connectMcpServerTool);
+registry.register(listMcpToolsTool);
+registry.register(callMcpToolTool);
 registry.register(mouseyDieTool);
 registry.register(readTutorialScriptTool);
 registry.register(applyGlossaryTool);
