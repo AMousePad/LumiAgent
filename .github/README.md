@@ -5,7 +5,7 @@
 <img src="image/banner.png" alt="LumiAgent" width="640"/>
 
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Lumiverse](https://img.shields.io/badge/Lumiverse-1.1.6%2B-blueviolet)](https://github.com/prolix-oc/Lumiverse)
+[![Lumiverse](https://img.shields.io/badge/Lumiverse-1.2.0%2B-blueviolet)](https://github.com/prolix-oc/Lumiverse)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?logo=typescript)](https://www.typescriptlang.org/)
 [![Bun](https://img.shields.io/badge/Bun-bundle-fbf0df?logo=bun)](https://bun.sh)
 
@@ -17,7 +17,7 @@
 
 ✨ What can I do? Pick a character, lorebook, databank, or theme and ask me to translate, refactor, answer questions, add lorebook entries, or anything else! I have full access to the card, chat file and most of Lumiverse, along with a comprehensive set of tools including web search, image gen, macro control, documentation search, in-app editing capabilities and more ~
 
-📝 But don't worry! Every edit [shows as a diff](https://github.com/AMousePad/LumiAgent/wiki/Workshop) you can review and revert at any time if it isn't what you wanted!~
+📝 But don't worry! My tracked edits [show as diffs](https://github.com/AMousePad/LumiAgent/wiki/Workshop) you can review and revert at any time if it isn't what you wanted!~
 
 🏠 If you let me [move into your Lumi](https://github.com/AMousePad/LumiAgent/wiki), I promise to make my dedicated [filesystem](https://github.com/AMousePad/LumiAgent/wiki/Workshop#files---v---) workspace neat and tidy!
 
@@ -106,7 +106,7 @@ A lot~ ( ꈍ◡ꈍ) Here's the list so you know what to ask me about. As submitt
 - **W** Images: generate with your configured image provider, save to the workspace, tag into a gallery, or set as an avatar.
 - **W** Your screen, politely: I can navigate the UI to the tab we're talking about, and send a device push when a long job finishes while you're away.
 - **R** The web, if you've set up search: web search and page fetch, savable straight into my workspace.
-- **W** Your MCP servers: add a server, connect, discover its tools, and use them. What I can do depends on the server, and remote changes aren't covered by my undo.
+- **W** Your MCP servers: connect, discover their tools, and use them. Set them up in Lumiverse Settings > MCP Servers, or ask me to add a server. What I can do depends on the server, and remote changes aren't covered by my undo.
 - **R** All your connection profiles: the provider, the model, default settings. (Your API keys stay encrypted, I never see those~)
 - **R** Reusable global add-on blocks, the Lumiverse version, your current theme, your active chat, your account role.
 
@@ -140,12 +140,13 @@ You can get me to:
 11. Modify or help update/merge a preset!
 12. Redecorate Lumiverse: ask for a whole theme and I'll write it. You can always revert it~
 13. Generate images for a character's gallery, or a new avatar.
+14. Show me what my MCP servers can do, then use the right tools for my task.
 
 **Still in the oven (WIP):** Dreamweaver
 
 ## Installation
 
-LumiAgent installs as a Lumiverse extension. Lumiverse must be at version **1.1.6 or later.**
+LumiAgent installs as a Lumiverse extension. Lumiverse must be at version **1.2.0 or later.**
 
 1. Open your Lumiverse instance.
 2. Go to the **Sidebar → Scroll Down → Extensions Tab** and add:
@@ -155,6 +156,12 @@ LumiAgent installs as a Lumiverse extension. Lumiverse must be at version **1.1.
    ```
 3. Enable all of the permissions first.
 4. Enable the extension. The **Agent** tab appears in the sidebar.
+
+## 🔌 MCP servers
+
+MCP (Model Context Protocol) lets Mousey use tools provided by other services. Add and manage servers in **Lumiverse → Settings → MCP Servers**, then ask Mousey to connect and use their tools.
+
+MCP profile creation and remote changes are outside Workshop undo. See the [MCP setup guide](https://github.com/AMousePad/LumiAgent/wiki/MCP-Servers) for transports, permissions, and troubleshooting.
 
 ## License
 

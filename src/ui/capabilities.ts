@@ -63,7 +63,7 @@ const SECTIONS: readonly CapSection[] = [
       { rw: "W", text: "Images: generate with your configured image provider, save to the workspace, tag into a gallery, or set as an avatar." },
       { rw: "W", text: "Your screen, politely: I can navigate the UI to the tab we're talking about, and send a device push when a long job finishes while you're away." },
       { rw: "R", text: "The web, if you've set up search: web search and page fetch, savable straight into my workspace." },
-      { rw: "W", text: "Your MCP servers: add a server, connect, discover its tools, and use them. What I can do depends on the server, and remote changes aren't covered by my undo." },
+      { rw: "W", text: "Your MCP servers: connect, discover their tools, and use them. Set them up in Lumiverse Settings > MCP Servers, or ask me to add a server. What I can do depends on the server, and remote changes aren't covered by my undo." },
       { rw: "R", text: "All your connection profiles: the provider, the model, default settings. (Your API keys stay encrypted, I never see those~)" },
       { rw: "R", text: "Reusable global add-on blocks, the Lumiverse version, your current theme, your active chat, your account role." },
     ],
@@ -94,6 +94,7 @@ const EXAMPLES: readonly string[] = [
   "Modify or help update/merge a preset!",
   "Redecorate Lumiverse: ask for a whole theme and I'll write it. You can always revert it~",
   "Generate images for a character's gallery, or a new avatar.",
+  "Show me what my MCP servers can do, then use the right tools for my task.",
 ];
 
 const WIP: readonly string[] = ["Dreamweaver"];
