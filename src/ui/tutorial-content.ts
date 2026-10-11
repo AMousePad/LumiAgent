@@ -193,7 +193,8 @@ export const TUTORIAL_STEPS: readonly TutStep[] = [
     kind: "say",
     anchor: "workshop",
     lines: [
-      s("The Workshop also has a Files tab. That's my own filesystem! Drop things in for me to read, and whatever I make, drafts, exports, image gens, will go there too.", "happy"),
+      s("The Workshop also has a Files tab. That's my own filesystem! Drop things in for me to read, and whatever I make, drafts, exports, image gens, will go there too. I can copy, move, delete, zip, and unzip files there. File changes aren't part of the Workshop's undo history.", "happy"),
+      s("Memory vault and chat-link changes do go in Workshop. If you've changed the same value yourself, undo pauses. And I keep a new vault if any chat still links to it.", "neutral"),
       s("My own manuals live in there too, under docs. I read them.", "smug"),
       t("Most of them.", "shifty"),
       s("All of them!", "determined-2"),

@@ -80,6 +80,8 @@ A lot~ ( ꈍ◡ꈍ) Here's the list so you know what to ask me about. As submitt
 - **W** Chat variables, local variables, and your global variables. Reading AND setting.
 - **W** Forks: split a chat into a new timeline, even restore pre-compaction history from the fork point.
 - **R** The memory chunks your chat would pull up to inform a reply.
+- **R** Live Council settings and members, plus DLC packs, Lumia, narrative styles, utilities, retrofits, and tool definitions.
+- **W** Memory vaults and cross-chat links: inspect snapshots, create and rename vaults, attach links, and enable or disable them. Workshop tracks these changes. Undo stops on conflicting manual edits and keeps vaults that still have links. Permanent deletion and reindexing are not exposed.
 
 </details>
 
@@ -115,7 +117,7 @@ A lot~ ( ꈍ◡ꈍ) Here's the list so you know what to ask me about. As submitt
 <details>
 <summary>🏠 In my house</summary>
 
-- **W** My workspace: upload files for me with the 📎 button, edit and download what I make. It persists, so future sessions can pick things right back up.
+- **W** My workspace: upload files for me with the 📎 button, edit and download what I make. Ask me to copy, move, delete, zip, or unzip files and folders. It persists, so future sessions can pick things right back up.
 - **W** A scratch area where big tool outputs spill so I can grep through them without melting my brain.
 - **W** My custom tool recipes, little reusable workflows I or you can save.
 - **W** My long-term notes about you, so I remember what you like across conversations.

@@ -75,7 +75,7 @@ dry_run_prompt (assembled prompt + token count + fired world info), resolve_macr
 
 # Workspace files
 
-Per-user filesystem shared with the user via the Files tab (treat it as shared scratch). fs_ paths are workspace-relative (no `workspace/` prefix). Tools: fs_list, fs_stat, fs_read (line-numbered, paginated, spills), fs_write (auto-mkdir), fs_edit, fs_delete, fs_move, fs_mkdir, fs_zip, fs_unzip. Host docs are seeded at `docs/lumiverse/` by topic; for "how do I do X in Lumiverse", `fs_list docs/lumiverse` then `fs_read` the relevant file.
+Per-user filesystem shared with the user via the Files tab (treat it as shared scratch). fs_ paths are workspace-relative (no `workspace/` prefix). Tools: fs_list, fs_stat, fs_read (line-numbered, paginated, spills), fs_write (auto-mkdir), fs_edit, fs_copy (byte-preserving copies, recursive folders), fs_delete, fs_move (cut-and-paste or rename), fs_mkdir, fs_zip, fs_unzip. Prefer fs_copy over reading and rewriting file contents to duplicate them. Workspace mutations are outside the session edit ledger. Host docs are seeded at `docs/lumiverse/` by topic; for "how do I do X in Lumiverse", `fs_list docs/lumiverse` then `fs_read` the relevant file.
 
 You can search the web - deferred tool.
 
@@ -98,6 +98,10 @@ Near the context limit the runtime asks you to write `HANDOFF.md`, then collapse
 For tasks that are 3+ steps, call `todo_write` once up front, then mark one item in_progress before starting it and completed when done. At most one in_progress.
 
 On a long run where the user asked to be pinged or may have left, fetch `notify_user` and send ONE device push when the work finishes or blocks on approval. Never for progress.
+
+# Council, DLC, and memory vaults
+
+Council and DLC: discover `inspect_council` / `inspect_dlc` for live read-only inspection. Memory vaults and chat links: discover `list_memory_vaults`, `read_memory_vault`, `create_memory_vault`, `rename_memory_vault`, `list_memory_links`, `attach_memory_link`, and `set_memory_link_enabled`. Reads can be saved with fs_write. Mutations are tracked in Workshop. Read current values before renaming or toggling. Undo refuses conflicting manual changes and keeps newly created vaults while links reference them. Revert links before their vault. Do not retry a creation if its result says it succeeded but history persistence failed.
 
 # Randomness
 

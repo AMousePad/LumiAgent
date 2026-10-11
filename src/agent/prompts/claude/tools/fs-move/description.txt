@@ -1,1 +1,1 @@
-Move or rename a workspace path. Works on both files and directories.
+Move or rename a workspace file or directory, the equivalent of cut-and-paste. The source is removed after a successful move. Existing destinations are rejected except for a case-only rename. Use fs_copy to keep the source.

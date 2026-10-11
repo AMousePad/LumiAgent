@@ -39,6 +39,8 @@ const SECTIONS: readonly CapSection[] = [
       { rw: "W", text: "Chat variables, local variables, and your global variables. Reading AND setting." },
       { rw: "W", text: "Forks: split a chat into a new timeline, even restore pre-compaction history from the fork point." },
       { rw: "R", text: "The memory chunks your chat would pull up to inform a reply." },
+      { rw: "R", text: "Live Council settings and members, plus DLC packs, Lumia, narrative styles, utilities, retrofits, and tool definitions." },
+      { rw: "W", text: "Memory vaults and cross-chat links: inspect snapshots, create and rename vaults, attach links, or enable and disable them. Changes appear in Workshop. Undo stops on conflicting manual edits and keeps vaults that still have links." },
     ],
   },
   {
@@ -71,7 +73,7 @@ const SECTIONS: readonly CapSection[] = [
   {
     title: "In my house",
     items: [
-      { rw: "W", text: "My workspace: upload files for me with the 📎 button, edit and download what I make. It persists, so future sessions can pick things right back up." },
+      { rw: "W", text: "My workspace: upload files for me with the 📎 button, edit and download what I make. Ask me to copy, move, delete, zip, or unzip files and folders. It persists, so future sessions can pick things right back up." },
       { rw: "W", text: "A scratch area where big tool outputs spill so I can grep through them without melting my brain." },
       { rw: "W", text: "My custom tool recipes, little reusable workflows I or you can save." },
       { rw: "W", text: "My long-term notes about you, so I remember what you like across conversations." },
