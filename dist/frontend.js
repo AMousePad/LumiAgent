@@ -4985,6 +4985,24 @@ function describeToolActivity(name, args) {
       return { kind: "read", verb: "Listing", target: "characters" };
     case "list_connections":
       return { kind: "read", verb: "Listing", target: "connections" };
+    case "inspect_council":
+      return { kind: "read", verb: "Inspecting", target: `Council ${s("section") ?? "settings"}` };
+    case "inspect_dlc":
+      return { kind: "read", verb: "Inspecting", target: `DLC ${s("category") ?? "catalog"}` };
+    case "list_memory_vaults":
+      return { kind: "read", verb: "Listing", target: "memory vaults" };
+    case "read_memory_vault":
+      return { kind: "read", verb: "Reading", target: `memory vault ${s("section") ?? "summary"}` };
+    case "create_memory_vault":
+      return { kind: "create", verb: "Creating", target: `memory vault ${s("name") ?? ""}` };
+    case "rename_memory_vault":
+      return { kind: "write", verb: "Renaming", target: `memory vault to ${s("name") ?? ""}` };
+    case "list_memory_links":
+      return { kind: "read", verb: "Listing", target: "memory links" };
+    case "attach_memory_link":
+      return { kind: "create", verb: "Attaching", target: s("vault_id") ? "memory vault" : "chat memories" };
+    case "set_memory_link_enabled":
+      return { kind: "write", verb: args["enabled"] === true ? "Enabling" : "Disabling", target: "memory link" };
     case "survey_cjk":
       return { kind: "search", verb: "Surveying", target: "CJK runs across the card" };
     case "audit_card_coverage": {
@@ -7078,9 +7096,11 @@ var SURFACE_LABELS = {
   preset: "Presets",
   persona: "Personas",
   global_addon: "Global add-ons",
+  memory_vault: "Memory vaults",
+  memory_link: "Memory links",
   external: "External (other extensions)"
 };
-var SURFACE_ORDER = ["character_field", "alternate_greeting", "alternate_field_variant", "world_book_entry", "world_book", "regex_script", "extension", "persona_field", "persona_addon", "chat_message", "preset_block", "preset", "persona", "global_addon", "external"];
+var SURFACE_ORDER = ["character_field", "alternate_greeting", "alternate_field_variant", "world_book_entry", "world_book", "regex_script", "extension", "persona_field", "persona_addon", "chat_message", "preset_block", "preset", "persona", "global_addon", "memory_vault", "memory_link", "external"];
 var MOBILE_BREAKPOINT_PX = 720;
 var DESKTOP_WIDTH_CAP = 1700;
 var DESKTOP_WIDTH_MIN = 720;
@@ -8477,7 +8497,8 @@ var TUTORIAL_STEPS = [
     kind: "say",
     anchor: "workshop",
     lines: [
-      s("The Workshop also has a Files tab. That's my own filesystem! Drop things in for me to read, and whatever I make, drafts, exports, image gens, will go there too.", "happy"),
+      s("The Workshop also has a Files tab. That's my own filesystem! Drop things in for me to read, and whatever I make, drafts, exports, image gens, will go there too. I can copy, move, delete, zip, and unzip files there. File changes aren't part of the Workshop's undo history.", "happy"),
+      s("Memory vault and chat-link changes do go in Workshop. If you've changed the same value yourself, undo pauses. And I keep a new vault if any chat still links to it.", "neutral"),
       s("My own manuals live in there too, under docs. I read them.", "smug"),
       t("Most of them.", "shifty"),
       s("All of them!", "determined-2")
@@ -9303,7 +9324,9 @@ var SECTIONS = [
       { rw: "W", text: "Which lorebooks a chat has attached, and where any lorebook is attached from." },
       { rw: "W", text: "Chat variables, local variables, and your global variables. Reading AND setting." },
       { rw: "W", text: "Forks: split a chat into a new timeline, even restore pre-compaction history from the fork point." },
-      { rw: "R", text: "The memory chunks your chat would pull up to inform a reply." }
+      { rw: "R", text: "The memory chunks your chat would pull up to inform a reply." },
+      { rw: "R", text: "Live Council settings and members, plus DLC packs, Lumia, narrative styles, utilities, retrofits, and tool definitions." },
+      { rw: "W", text: "Memory vaults and cross-chat links: inspect snapshots, create and rename vaults, attach links, or enable and disable them. Changes appear in Workshop. Undo stops on conflicting manual edits and keeps vaults that still have links." }
     ]
   },
   {
@@ -9336,7 +9359,7 @@ var SECTIONS = [
   {
     title: "In my house",
     items: [
-      { rw: "W", text: "My workspace: upload files for me with the \uD83D\uDCCE button, edit and download what I make. It persists, so future sessions can pick things right back up." },
+      { rw: "W", text: "My workspace: upload files for me with the \uD83D\uDCCE button, edit and download what I make. Ask me to copy, move, delete, zip, or unzip files and folders. It persists, so future sessions can pick things right back up." },
       { rw: "W", text: "A scratch area where big tool outputs spill so I can grep through them without melting my brain." },
       { rw: "W", text: "My custom tool recipes, little reusable workflows I or you can save." },
       { rw: "W", text: "My long-term notes about you, so I remember what you like across conversations." },
@@ -10129,6 +10152,15 @@ function mountDrawer(ctx) {
     if (outcome.kind === "failed") {
       composerStatus.textContent = `Revert failed: ${outcome.error}`;
       composerStatus.classList.add("is-error");
+      if (state.diffModal)
+        state.diffModal.setEdits(scopeEntries(workshopScope()));
+      return;
+    }
+    if (outcome.kind === "external_diverged" && outcome.canForce === false) {
+      const message = `Undo stopped to preserve current memory state. ${outcome.currentSample}`;
+      composerStatus.textContent = message;
+      composerStatus.classList.add("is-error");
+      showToast(message, 8000);
       if (state.diffModal)
         state.diffModal.setEdits(scopeEntries(workshopScope()));
       return;
@@ -12283,6 +12315,7 @@ ${t}` : t;
         let okCount = 0;
         let cascadeCount = 0;
         let failed = 0;
+        let conflicts = 0;
         for (const { editId, outcome } of msg.outcomes) {
           if (outcome.kind === "clean" || outcome.kind === "noop_already_reverted") {
             removed.add(editId);
@@ -12294,6 +12327,8 @@ ${t}` : t;
             }
           } else if (outcome.kind === "failed") {
             failed++;
+          } else {
+            conflicts++;
           }
         }
         spliceEntries(removed);
@@ -12308,8 +12343,12 @@ ${t}` : t;
           parts.push(`+${cascadeCount} cascaded`);
         if (failed > 0)
           parts.push(`${failed} failed`);
+        if (conflicts > 0)
+          parts.push(`${conflicts} kept because of conflicting changes or dependencies`);
         composerStatus.textContent = parts.join(", ");
-        composerStatus.classList.toggle("is-error", failed > 0);
+        composerStatus.classList.toggle("is-error", failed > 0 || conflicts > 0);
+        if (conflicts > 0)
+          showToast(parts.join(", "), 8000);
         break;
       }
       case "scope_edits_pushed": {
