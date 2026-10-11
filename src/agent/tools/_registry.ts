@@ -1,4 +1,5 @@
 import { ToolRegistry } from "./_framework";
+import { inspectCouncilTool, inspectDlcTool } from "./inspect-council-dlc";
 
 import { aboutMemoriaTool } from "./about-memoria";
 import { mouseyDieTool } from "./mousey-die";
@@ -126,6 +127,7 @@ export const registry = new ToolRegistry();
 // the core writes) must stay loaded — paying a tool_search round-trip every
 // time defeats the purpose.
 const DEFERRED_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
+  "inspect_council", "inspect_dlc",
   // Lumiverse-state inspectors. Mostly diagnostic; dry_run_prompt stays the anchor.
   "count_tokens", "resolve_macros",
   "list_variables", "read_variable", "set_variable",
@@ -210,6 +212,7 @@ export function listDeferredToolNames(): readonly string[] {
 // in parallel batches (cap 5). Anything not listed runs serially, the safe
 // default for any tool that mutates state.
 const READ_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
+  "inspect_council", "inspect_dlc",
   "list_mcp_servers", "get_mcp_server", "list_mcp_tools",
   // Path-based reads
   "read", "inspect", "list", "grep",
@@ -293,6 +296,8 @@ export function maxResultSizeCharsFor(name: string): number | null {
   return PER_TOOL_RESULT_CAP_CHARS[name] ?? null;
 }
 
+registry.register(inspectCouncilTool);
+registry.register(inspectDlcTool);
 registry.register(aboutMemoriaTool);
 registry.register(listMcpServersTool);
 registry.register(getMcpServerTool);

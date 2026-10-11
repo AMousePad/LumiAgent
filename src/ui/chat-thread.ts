@@ -141,6 +141,8 @@ function describeToolActivity(name: string, args: Record<string, unknown>): { ki
     case "set": return { kind: "write", verb: "Setting", target: describePath(s("path")) };
     case "list_characters": return { kind: "read", verb: "Listing", target: "characters" };
     case "list_connections": return { kind: "read", verb: "Listing", target: "connections" };
+    case "inspect_council": return { kind: "read", verb: "Inspecting", target: `Council ${s("section") ?? "settings"}` };
+    case "inspect_dlc": return { kind: "read", verb: "Inspecting", target: `DLC ${s("category") ?? "catalog"}` };
     case "survey_cjk": return { kind: "search", verb: "Surveying", target: "CJK runs across the card" };
     case "audit_card_coverage": { const lang = s("source_lang") ?? "cjk"; return { kind: "search", verb: "Auditing", target: `${lang} coverage` }; }
     case "update_character": return { kind: "write", verb: "Updating", target: `character (${Object.keys((args["patch"] as Record<string, unknown>) ?? {}).join(", ")})` };

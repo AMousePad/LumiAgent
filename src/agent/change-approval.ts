@@ -17,6 +17,7 @@ export type ChangeApprovalPolicy =
 // chat, lorebook, extension, external-provider, or workspace state. New tools
 // default to approval until deliberately added here.
 const NO_CHANGE_TOOLS: ReadonlySet<string> = new Set([
+  "inspect_council", "inspect_dlc",
   "about_memoria",
   "ask_user_question",
   "audit_card_coverage",
