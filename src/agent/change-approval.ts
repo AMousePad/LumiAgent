@@ -98,6 +98,7 @@ const DELETE_TOOLS: ReadonlySet<string> = new Set([
 ]);
 
 const CREATE_TOOLS: ReadonlySet<string> = new Set([
+  "fs_copy",
   "create_mcp_server",
   "create",
   "create_character",
@@ -136,6 +137,7 @@ const TOOL_LABELS: Readonly<Record<string, string>> = {
   delete: "Delete card content",
   edit: "Edit card content",
   edit_external: "Edit external-provider content",
+  fs_copy: "Copy a workspace item",
   fs_delete: "Delete a workspace item",
   fs_edit: "Edit a workspace file",
   fs_mkdir: "Create a workspace folder",
@@ -205,7 +207,7 @@ function resolveTarget(
   const focusedCharacter = context.characterId && context.characterId.length > 0
     ? context.characterId
     : "(no focused character)";
-  if (toolName === "fs_move") {
+  if (toolName === "fs_move" || toolName === "fs_copy") {
     const from = stringField(args, "from") ?? "(unknown)";
     const to = stringField(args, "to") ?? "(unknown)";
     return `${from} -> ${to}`;

@@ -22,6 +22,7 @@ import { customToolSaveTool } from "./custom-tool-save";
 import { editExternalTool } from "./edit-external";
 import { editTool } from "./edit";
 import { finishTool } from "./finish";
+import { fsCopyTool } from "./fs-copy";
 import { fsDeleteTool } from "./fs-delete";
 import { fsEditTool } from "./fs-edit";
 import { fsListTool } from "./fs-list";
@@ -188,7 +189,7 @@ const DEFERRED_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   "list_session_edits", "revert_session_edits", "squash_session_edits",
   // Workspace + tmp long-tail. Core reads (fs_read/fs_write/fs_list/fs_edit/
   // fs_delete) and spill readers (tmp_read/tmp_grep) stay loaded.
-  "fs_zip", "fs_unzip", "fs_move", "fs_mkdir", "fs_stat", "tmp_stat", "tmp_list",
+  "fs_copy", "fs_zip", "fs_unzip", "fs_move", "fs_mkdir", "fs_stat", "tmp_stat", "tmp_list",
   // LumiRealm-specific mutations. Each is rare per session; deferred until
   // the agent confirms the user is on a LumiRealm-imported card / module.
   "asset_rename", "asset_delete",
@@ -326,6 +327,7 @@ registry.register(customToolRunTool);
 registry.register(customToolSaveTool);
 registry.register(editExternalTool);
 registry.register(finishTool);
+registry.register(fsCopyTool);
 registry.register(fsDeleteTool);
 registry.register(fsEditTool);
 registry.register(fsListTool);

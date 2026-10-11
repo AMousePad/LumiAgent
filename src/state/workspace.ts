@@ -156,11 +156,14 @@ function basename(rel: string): string {
   return ix < 0 ? rel : rel.slice(ix + 1);
 }
 
-export async function listDir(spindle: SpindleAPI, userId: string, relPath: string): Promise<FileNode[]> {
+export async function listDir(spindle: SpindleAPI, userId: string, relPath: string, strict = false): Promise<FileNode[]> {
   const prefix = listingPrefix(relPath);
   const parent = normaliseRelPath(relPath);
   let entries: string[];
-  try { entries = await spindle.userStorage.list(prefix, userId); } catch { return []; }
+  try { entries = await spindle.userStorage.list(prefix, userId); } catch (error) {
+    if (strict) throw error;
+    return [];
+  }
   const childNames: string[] = [];
   const seen = new Set<string>();
   for (const raw of entries) {
@@ -175,7 +178,11 @@ export async function listDir(spindle: SpindleAPI, userId: string, relPath: stri
   const out: FileNode[] = [];
   for (const childName of childNames) {
     const childRel = parent === "" ? childName : `${parent}/${childName}`;
-    const node = await stat(spindle, userId, childRel).catch(() => null);
+    const node = await stat(spindle, userId, childRel, strict).catch((error) => {
+      if (strict) throw error;
+      return null;
+    });
+    if (!node && strict) throw new Error(`workspace path disappeared during listing: ${childRel}`);
     if (node) out.push(node);
   }
   out.sort((a, b) => {
@@ -185,7 +192,7 @@ export async function listDir(spindle: SpindleAPI, userId: string, relPath: stri
   return out;
 }
 
-export async function stat(spindle: SpindleAPI, userId: string, relPath: string): Promise<FileNode | null> {
+export async function stat(spindle: SpindleAPI, userId: string, relPath: string, strict = false): Promise<FileNode | null> {
   const abs = absPath(relPath);
   const norm = normaliseRelPath(relPath);
   try {
@@ -200,7 +207,10 @@ export async function stat(spindle: SpindleAPI, userId: string, relPath: string)
       modifiedAt: s.modifiedAt ?? null,
       ...(isSystemPath(norm) ? { isSystem: true } : {}),
     };
-  } catch { return null; }
+  } catch (error) {
+    if (strict) throw error;
+    return null;
+  }
 }
 
 export async function readText(spindle: SpindleAPI, userId: string, relPath: string): Promise<string> {
@@ -269,21 +279,102 @@ async function movePathUnlocked(spindle: SpindleAPI, userId: string, fromRel: st
   await spindle.userStorage.move(absPath(a), absPath(b), userId);
 }
 
-export async function walk(spindle: SpindleAPI, userId: string, relPath: string): Promise<FileNode[]> {
-  const root = await stat(spindle, userId, relPath);
+export async function walk(spindle: SpindleAPI, userId: string, relPath: string, strict = false): Promise<FileNode[]> {
+  const root = await stat(spindle, userId, relPath, strict);
   if (!root) return [];
   if (!root.isDirectory) return [root];
   const out: FileNode[] = [];
   const queue: string[] = [normaliseRelPath(relPath)];
   while (queue.length > 0) {
     const cur = queue.shift()!;
-    const children = await listDir(spindle, userId, cur);
+    const children = await listDir(spindle, userId, cur, strict);
     for (const child of children) {
       if (child.isDirectory) queue.push(child.path);
       else out.push(child);
     }
   }
   return out;
+}
+
+export async function copyPath(
+  spindle: SpindleAPI,
+  userId: string,
+  fromRel: string,
+  toRel: string,
+  options: { recursive?: boolean; caps?: WorkspaceCaps; signal?: AbortSignal } = {},
+): Promise<{ from: string; to: string; files_copied: number; directories_copied: number; bytes_copied: number }> {
+  return serializeMutation(spindle, userId, () => copyPathUnlocked(spindle, userId, fromRel, toRel, options));
+}
+
+async function copyPathUnlocked(
+  spindle: SpindleAPI, userId: string, fromRel: string, toRel: string,
+  options: { recursive?: boolean; caps?: WorkspaceCaps; signal?: AbortSignal },
+) {
+  const from = normaliseRelPath(fromRel);
+  const to = normaliseRelPath(toRel);
+  if (!from || !to) throw new Error("source and destination must be non-empty");
+  const sourceKey = from.toLowerCase();
+  const targetKey = to.toLowerCase();
+  if (sourceKey === targetKey || targetKey.startsWith(`${sourceKey}/`)) {
+    throw new Error("cannot copy a path onto itself or into its own directory");
+  }
+  options.signal?.throwIfAborted();
+  const source = await stat(spindle, userId, from, true);
+  if (!source) throw new Error(`workspace path '${from}' not found`);
+  if (source.isDirectory && !options.recursive) throw new Error("copying a directory requires recursive=true");
+  if (await spindle.userStorage.exists(absPath(to), userId)) throw new Error(`destination already exists: ${to}`);
+
+  const nodes: FileNode[] = [source];
+  for (let i = 0; i < nodes.length; i++) {
+    options.signal?.throwIfAborted();
+    const node = nodes[i]!;
+    if (node.isDirectory) nodes.push(...await listDir(spindle, userId, node.path, true));
+  }
+  const caps = options.caps ?? DEFAULT_WORKSPACE_CAPS;
+  const usage = await cachedUsage(spindle, userId);
+  const files = nodes.filter((node) => !node.isDirectory);
+  const incomingBytes = files.reduce((sum, node) => sum + node.sizeBytes, 0);
+  if (files.some((node) => node.sizeBytes > caps.maxFileBytes)) throw new Error("copy exceeds the per-file size cap");
+  const counted = !isTemporary(to);
+  if (counted && usage.totalBytes + incomingBytes > caps.maxTotalBytes) throw new Error("copy would exceed the workspace byte cap");
+  if (counted && usage.fileCount + files.length > caps.maxFiles) throw new Error("copy would exceed the workspace file cap");
+
+  const result = { from, to, files_copied: 0, directories_copied: 0, bytes_copied: 0 };
+  let remainingBytes = counted ? caps.maxTotalBytes - usage.totalBytes : Infinity;
+  try {
+    for (const node of nodes) {
+      options.signal?.throwIfAborted();
+      const target = to + node.path.slice(from.length);
+      if (await spindle.userStorage.exists(absPath(target), userId)) throw new Error(`destination already exists: ${target}`);
+      if (node.isDirectory) {
+        await makeDir(spindle, userId, target);
+        result.directories_copied++;
+        continue;
+      }
+      // UTF-8 decoding replaces invalid bytes, so copies must use binary storage.
+      const bytes = await readBinary(spindle, userId, node.path);
+      if (bytes.byteLength !== node.sizeBytes || bytes.byteLength > caps.maxFileBytes || bytes.byteLength > remainingBytes) {
+        throw new Error(`source changed beyond the copy size budget: ${node.path}`);
+      }
+      options.signal?.throwIfAborted();
+      await ensureParentDir(spindle, userId, target);
+      if (await spindle.userStorage.exists(absPath(target), userId)) throw new Error(`destination already exists: ${target}`);
+      options.signal?.throwIfAborted();
+      // One quota preflight avoids a full workspace scan for every copied file.
+      await spindle.userStorage.writeBinary(absPath(target), bytes, userId);
+      if (counted) {
+        usage.totalBytes += bytes.byteLength;
+        usage.fileCount++;
+        usage.fileSizes.set(target, bytes.byteLength);
+      }
+      remainingBytes -= bytes.byteLength;
+      result.files_copied++;
+      result.bytes_copied += bytes.byteLength;
+    }
+  } catch (error) {
+    throw new Error(`Copy incomplete: ${result.files_copied} files and ${result.directories_copied} directories copied to '${to}'. The source was kept. ${(error as Error).message}`);
+  }
+  return result;
 }
 
 async function ensureParentDir(spindle: SpindleAPI, userId: string, relPath: string): Promise<void> {

@@ -1303,12 +1303,7 @@ async function handleWsDuplicate(path: string, userId: string): Promise<void> {
     }
     if (!dest) throw new Error("couldn't find a free name");
     const { workspaceCaps } = await resolveCapsForUser(userId);
-    // Always copy raw bytes. The host read() is readFileSync(utf-8), which never
-    // throws on a binary file, it lossily replaces invalid bytes with U+FFFD, so
-    // a readText-first strategy silently corrupts the duplicate. Text round-trips
-    // through the binary path intact.
-    const bytes = await ws.readBinary(spindle, userId, path);
-    await ws.writeBinary(spindle, userId, dest, bytes, workspaceCaps);
+    await ws.copyPath(spindle, userId, path, dest, { caps: workspaceCaps });
     send({ type: "ws_changed" }, userId);
   } catch (err) { send({ type: "ws_error", error: (err as Error).message }, userId); }
 }
