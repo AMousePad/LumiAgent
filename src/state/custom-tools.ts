@@ -114,7 +114,8 @@ export async function saveCustomTool(
   userId: string,
   manifest: CustomToolManifest,
 ): Promise<void> {
-  await spindle.userStorage.setJson(manifestPath(manifest.name), manifest, { userId, indent: 2 });
+  const { writeText, resolveUserCaps } = await import("./workspace");
+  await writeText(spindle, userId, `custom_tools/${manifest.name}/tool.json`, JSON.stringify(manifest, null, 2), await resolveUserCaps(spindle, userId));
 }
 
 export async function loadCustomTool(
@@ -134,11 +135,14 @@ export async function deleteCustomTool(
   name: string,
 ): Promise<boolean> {
   if (!isValidToolName(name)) return false;
-  try {
-    await spindle.userStorage.delete(manifestPath(name), userId);
-    try { await spindle.userStorage.delete(`${CUSTOM_TOOLS_DIR}/${name}`, userId); } catch { /* dir may not exist as a separate entry */ }
-    return true;
-  } catch { return false; }
+  const { unmeteredWorkspaceMutation } = await import("./workspace");
+  return unmeteredWorkspaceMutation(spindle, userId, async () => {
+    try {
+      await spindle.userStorage.delete(manifestPath(name), userId);
+      try { await spindle.userStorage.delete(`${CUSTOM_TOOLS_DIR}/${name}`, userId); } catch { }
+      return true;
+    } catch { return false; }
+  });
 }
 
 export async function listCustomTools(

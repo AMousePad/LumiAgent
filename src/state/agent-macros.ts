@@ -34,7 +34,8 @@ async function load(spindle: SpindleAPI, userId: string): Promise<MacroMap> {
 }
 
 async function persist(spindle: SpindleAPI, userId: string, map: MacroMap): Promise<void> {
-  await spindle.userStorage.write(`workspace/${MACROS_PATH}`, JSON.stringify(map), userId);
+  const { writeText, resolveUserCaps } = await import("./workspace");
+  await writeText(spindle, userId, MACROS_PATH, JSON.stringify(map), await resolveUserCaps(spindle, userId));
   cache.set(userId, map);
 }
 

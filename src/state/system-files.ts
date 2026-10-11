@@ -109,8 +109,12 @@ async function readFromStorage<T>(spindle: SpindleAPI, userId: string, path: str
 async function writeIfMissing(spindle: SpindleAPI, userId: string, relPath: string, content: string): Promise<boolean> {
   const existing = await readFromStorage<string>(spindle, userId, relPath);
   if (existing !== null) return false;
-  await spindle.userStorage.write(absPath(relPath), content, userId);
-  return true;
+  const { unmeteredWorkspaceMutation } = await import("./workspace");
+  return unmeteredWorkspaceMutation(spindle, userId, async () => {
+    if (await readFromStorage<string>(spindle, userId, relPath) !== null) return false;
+    await spindle.userStorage.write(absPath(relPath), content, userId);
+    return true;
+  });
 }
 
 async function ensureDir(spindle: SpindleAPI, userId: string, relPath: string): Promise<void> {
@@ -146,12 +150,15 @@ async function seedLumiverseDocsIfNeeded(spindle: SpindleAPI, userId: string): P
   if (paths.length === 0) return;
   const existing = await readFromStorage<string>(spindle, userId, LUMIVERSE_DOCS_MARKER);
   if (existing !== null && existing.trim() === LUMIVERSE_DOCS_VERSION) return;
-  for (const rel of paths) {
-    await spindle.userStorage.write(absPath(`${LUMIVERSE_DOCS_ROOT}/${rel}`), LUMIVERSE_DOCS[rel]!, userId);
-  }
-  await pruneOrphanedDocs(spindle, userId, new Set(paths));
-  // Marker last: a crash mid-write leaves it stale so the next start retries.
-  await spindle.userStorage.write(absPath(LUMIVERSE_DOCS_MARKER), LUMIVERSE_DOCS_VERSION, userId);
+  const { unmeteredWorkspaceMutation } = await import("./workspace");
+  await unmeteredWorkspaceMutation(spindle, userId, async () => {
+    for (const rel of paths) {
+      await spindle.userStorage.write(absPath(`${LUMIVERSE_DOCS_ROOT}/${rel}`), LUMIVERSE_DOCS[rel]!, userId);
+    }
+    await pruneOrphanedDocs(spindle, userId, new Set(paths));
+    // A crash before the marker update must trigger another seed attempt.
+    await spindle.userStorage.write(absPath(LUMIVERSE_DOCS_MARKER), LUMIVERSE_DOCS_VERSION, userId);
+  });
 }
 
 // Idempotent. Creates anything missing; leaves existing content alone.

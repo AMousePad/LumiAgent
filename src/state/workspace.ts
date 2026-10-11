@@ -25,6 +25,75 @@ export const DEFAULT_WORKSPACE_CAPS: WorkspaceCaps = {
   maxFileBytes: WORKSPACE_MAX_FILE_BYTES,
 };
 
+interface UsageState {
+  tail: Promise<unknown>;
+  usage?: { totalBytes: number; fileCount: number; scannedAt: number; fileSizes: Map<string, number> };
+}
+
+const usageStates = new WeakMap<SpindleAPI, Map<string, UsageState>>();
+// Direct host filesystem edits cannot notify the worker, so cached totals expire.
+const USAGE_MAX_AGE_MS = 60_000;
+
+function usageState(spindle: SpindleAPI, userId: string): UsageState {
+  let users = usageStates.get(spindle);
+  if (!users) usageStates.set(spindle, users = new Map());
+  let state = users.get(userId);
+  if (!state) users.set(userId, state = { tail: Promise.resolve() });
+  return state;
+}
+
+async function serializeMutation<T>(spindle: SpindleAPI, userId: string, action: () => Promise<T>): Promise<T> {
+  const state = usageState(spindle, userId);
+  const pending = state.tail.then(action);
+  state.tail = pending.catch(() => { delete state.usage; });
+  return pending;
+}
+
+export function unmeteredWorkspaceMutation<T>(spindle: SpindleAPI, userId: string, action: () => Promise<T>): Promise<T> {
+  return serializeMutation(spindle, userId, async () => {
+    const state = usageState(spindle, userId);
+    delete state.usage;
+    try { return await action(); }
+    finally { delete state.usage; }
+  });
+}
+
+function isTemporary(rel: string): boolean {
+  return rel === "tmp" || rel.startsWith("tmp/");
+}
+
+async function cachedUsage(spindle: SpindleAPI, userId: string) {
+  const state = usageState(spindle, userId);
+  if (!state.usage || Date.now() - state.usage.scannedAt >= USAGE_MAX_AGE_MS) {
+    state.usage = { ...await scanUsage(spindle, userId), scannedAt: Date.now() };
+  }
+  return state.usage;
+}
+
+async function meteredWrite(spindle: SpindleAPI, userId: string, relPath: string, bytes: number, caps: WorkspaceCaps, write: () => Promise<void>): Promise<void> {
+  await serializeMutation(spindle, userId, async () => {
+    const target = normaliseRelPath(relPath);
+    if (!target) throw new Error("file path must be non-empty");
+    if (bytes > caps.maxFileBytes) throw new Error(`file size ${bytes} exceeds per-file cap (${caps.maxFileBytes} bytes)`);
+    let usage = await cachedUsage(spindle, userId);
+    const existing = await spindle.userStorage.stat(absPath(target), userId);
+    if (existing.exists && existing.isDirectory) throw new Error(`path is a directory: ${target}`);
+    if (!isTemporary(target) && usage.fileSizes.get(target) !== (existing.exists ? existing.sizeBytes : undefined)) {
+      delete usageState(spindle, userId).usage;
+      usage = await cachedUsage(spindle, userId);
+    }
+    const deltaBytes = isTemporary(target) ? 0 : bytes - (existing.exists ? existing.sizeBytes : 0);
+    const deltaFiles = isTemporary(target) || existing.exists ? 0 : 1;
+    if (usage.totalBytes + deltaBytes > caps.maxTotalBytes) throw new Error(`workspace would exceed ${caps.maxTotalBytes}-byte cap`);
+    if (usage.fileCount + deltaFiles > caps.maxFiles) throw new Error(`workspace would exceed ${caps.maxFiles}-file cap`);
+    await ensureParentDir(spindle, userId, target);
+    await write();
+    usage.totalBytes += deltaBytes;
+    usage.fileCount += deltaFiles;
+    if (!isTemporary(target)) usage.fileSizes.set(target, bytes);
+  });
+}
+
 // Per-user caps from the saved settings. Use this from any tool that writes
 // to the workspace (fs_write, fs_edit, fs_unzip, …) so the user's configured
 // workspaceCapBytes override is honored. The default-arg path on writeText /
@@ -143,18 +212,13 @@ export async function readBinary(spindle: SpindleAPI, userId: string, relPath: s
 }
 
 export async function writeText(spindle: SpindleAPI, userId: string, relPath: string, content: string, caps: WorkspaceCaps = DEFAULT_WORKSPACE_CAPS): Promise<void> {
-  // Caps are byte caps and the host stores UTF-8, so measure encoded bytes, not
-  // UTF-16 code units. content.length undercounts multibyte text (CJK, emoji) by
-  // up to 3x, which would let it slip past the per-file and total caps.
-  await ensureUnderCaps(spindle, userId, new TextEncoder().encode(content).byteLength, relPath, caps);
-  await ensureParentDir(spindle, userId, relPath);
-  await spindle.userStorage.write(absPath(relPath), content, userId);
+  await meteredWrite(spindle, userId, relPath, new TextEncoder().encode(content).byteLength, caps,
+    () => spindle.userStorage.write(absPath(relPath), content, userId));
 }
 
 export async function writeBinary(spindle: SpindleAPI, userId: string, relPath: string, data: Uint8Array, caps: WorkspaceCaps = DEFAULT_WORKSPACE_CAPS): Promise<void> {
-  await ensureUnderCaps(spindle, userId, data.byteLength, relPath, caps);
-  await ensureParentDir(spindle, userId, relPath);
-  await spindle.userStorage.writeBinary(absPath(relPath), data, userId);
+  await meteredWrite(spindle, userId, relPath, data.byteLength, caps,
+    () => spindle.userStorage.writeBinary(absPath(relPath), data, userId));
 }
 
 export async function makeDir(spindle: SpindleAPI, userId: string, relPath: string): Promise<void> {
@@ -170,10 +234,14 @@ export async function remove(spindle: SpindleAPI, userId: string, relPath: strin
   const { checkDeleteAllowed } = await import("./system-files");
   const guard = checkDeleteAllowed(norm);
   if (guard.protected) throw new Error(guard.reason ?? "protected path");
-  await spindle.userStorage.delete(absPath(norm), userId);
+  await unmeteredWorkspaceMutation(spindle, userId, () => spindle.userStorage.delete(absPath(norm), userId));
 }
 
 export async function movePath(spindle: SpindleAPI, userId: string, fromRel: string, toRel: string): Promise<void> {
+  return unmeteredWorkspaceMutation(spindle, userId, () => movePathUnlocked(spindle, userId, fromRel, toRel));
+}
+
+async function movePathUnlocked(spindle: SpindleAPI, userId: string, fromRel: string, toRel: string): Promise<void> {
   const a = normaliseRelPath(fromRel);
   const b = normaliseRelPath(toRel);
   if (a === "" || b === "") throw new Error("source and destination must be non-empty");
@@ -233,29 +301,32 @@ async function writeDirectoryMarker(spindle: SpindleAPI, userId: string, relPath
   await spindle.userStorage.write(`${absPath(norm)}/${DIRECTORY_MARKER}`, "", userId);
 }
 
-async function ensureUnderCaps(spindle: SpindleAPI, userId: string, incomingBytes: number, relPath: string, caps: WorkspaceCaps): Promise<void> {
-  if (incomingBytes > caps.maxFileBytes) {
-    throw new Error(`file size ${incomingBytes} exceeds per-file cap (${caps.maxFileBytes} bytes)`);
+async function scanUsage(spindle: SpindleAPI, userId: string) {
+  const entries = await spindle.userStorage.list(`${WORKSPACE_ROOT}/`, userId);
+  const paths = [...new Set(entries.map((path) => path.replace(/\\/g, "/")))];
+  let totalBytes = 0;
+  let fileCount = 0;
+  const fileSizes = new Map<string, number>();
+  for (let i = 0; i < paths.length; i += 16) {
+    const batch = paths.slice(i, i + 16).filter((path) => !isTemporary(path) && path.split("/").at(-1) !== DIRECTORY_MARKER);
+    const nodes = await Promise.all(batch.map((path) => spindle.userStorage.stat(absPath(path), userId)));
+    for (let j = 0; j < nodes.length; j++) {
+      const node = nodes[j]!;
+      if (!node.exists) throw new Error("workspace changed during quota scan, retry the operation");
+      if (!node.isDirectory) {
+        totalBytes += node.sizeBytes;
+        fileCount++;
+        fileSizes.set(batch[j]!, node.sizeBytes);
+      }
+    }
   }
-  // tmp/ has its own per-user LRU caps managed in tmp-store.ts, so leave it
-  // out of the workspace count to avoid double-billing the user.
-  const all = (await walk(spindle, userId, "")).filter((n) => !n.path.startsWith("tmp/") && n.path !== "tmp");
-  const target = normaliseRelPath(relPath);
-  const existingNode = all.find((n) => n.path === target);
-  const existingBytes = existingNode?.sizeBytes ?? 0;
-  const usedBytes = all.reduce((s, n) => s + n.sizeBytes, 0) - existingBytes;
-  if (usedBytes + incomingBytes > caps.maxTotalBytes) {
-    throw new Error(`workspace would exceed ${caps.maxTotalBytes}-byte cap. Currently using ${usedBytes} bytes.`);
-  }
-  if (!existingNode && all.length + 1 > caps.maxFiles) {
-    throw new Error(`workspace would exceed ${caps.maxFiles}-file cap.`);
-  }
+  return { totalBytes, fileCount, fileSizes };
 }
 
 export async function getWorkspaceUsage(spindle: SpindleAPI, userId: string): Promise<{ totalBytes: number; fileCount: number }> {
-  const all = (await walk(spindle, userId, "")).filter((n) => !n.path.startsWith("tmp/") && n.path !== "tmp");
-  return {
-    totalBytes: all.reduce((s, n) => s + n.sizeBytes, 0),
-    fileCount: all.length,
-  };
+  return serializeMutation(spindle, userId, async () => {
+    const usage = await scanUsage(spindle, userId);
+    usageState(spindle, userId).usage = { ...usage, scannedAt: Date.now() };
+    return { totalBytes: usage.totalBytes, fileCount: usage.fileCount };
+  });
 }
