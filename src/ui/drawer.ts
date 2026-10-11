@@ -981,6 +981,14 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       if (state.diffModal) state.diffModal.setEdits(scopeEntries(workshopScope()));
       return;
     }
+    if (outcome.kind === "external_diverged" && outcome.canForce === false) {
+      const message = `Undo stopped to preserve current memory state. ${outcome.currentSample}`;
+      composerStatus.textContent = message;
+      composerStatus.classList.add("is-error");
+      showToast(message, 8000);
+      if (state.diffModal) state.diffModal.setEdits(scopeEntries(workshopScope()));
+      return;
+    }
     // External-divergence path: spindle value drifted outside the agent.
     // (superseded is now a defensive case; cascade-by-default in the backend
     // means we shouldn't normally land here for chained edits.)
@@ -3267,7 +3275,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         break;
       case "edits_reverted_bulk": {
         const removed = new Set<string>();
-        let okCount = 0; let cascadeCount = 0; let failed = 0;
+        let okCount = 0; let cascadeCount = 0; let failed = 0; let conflicts = 0;
         for (const { editId, outcome } of msg.outcomes) {
           if (outcome.kind === "clean" || outcome.kind === "noop_already_reverted") {
             removed.add(editId);
@@ -3278,6 +3286,8 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
             }
           } else if (outcome.kind === "failed") {
             failed++;
+          } else {
+            conflicts++;
           }
         }
         spliceEntries(removed);
@@ -3288,8 +3298,10 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         if (okCount > 0) parts.push(`Reverted ${okCount} edit${okCount === 1 ? "" : "s"}`);
         if (cascadeCount > 0) parts.push(`+${cascadeCount} cascaded`);
         if (failed > 0) parts.push(`${failed} failed`);
+        if (conflicts > 0) parts.push(`${conflicts} kept because of conflicting changes or dependencies`);
         composerStatus.textContent = parts.join(", ");
-        composerStatus.classList.toggle("is-error", failed > 0);
+        composerStatus.classList.toggle("is-error", failed > 0 || conflicts > 0);
+        if (conflicts > 0) showToast(parts.join(", "), 8000);
         break;
       }
       case "scope_edits_pushed": {

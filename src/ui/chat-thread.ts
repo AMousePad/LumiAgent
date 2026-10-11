@@ -143,6 +143,13 @@ function describeToolActivity(name: string, args: Record<string, unknown>): { ki
     case "list_connections": return { kind: "read", verb: "Listing", target: "connections" };
     case "inspect_council": return { kind: "read", verb: "Inspecting", target: `Council ${s("section") ?? "settings"}` };
     case "inspect_dlc": return { kind: "read", verb: "Inspecting", target: `DLC ${s("category") ?? "catalog"}` };
+    case "list_memory_vaults": return { kind: "read", verb: "Listing", target: "memory vaults" };
+    case "read_memory_vault": return { kind: "read", verb: "Reading", target: `memory vault ${s("section") ?? "summary"}` };
+    case "create_memory_vault": return { kind: "create", verb: "Creating", target: `memory vault ${s("name") ?? ""}` };
+    case "rename_memory_vault": return { kind: "write", verb: "Renaming", target: `memory vault to ${s("name") ?? ""}` };
+    case "list_memory_links": return { kind: "read", verb: "Listing", target: "memory links" };
+    case "attach_memory_link": return { kind: "create", verb: "Attaching", target: s("vault_id") ? "memory vault" : "chat memories" };
+    case "set_memory_link_enabled": return { kind: "write", verb: args["enabled"] === true ? "Enabling" : "Disabling", target: "memory link" };
     case "survey_cjk": return { kind: "search", verb: "Surveying", target: "CJK runs across the card" };
     case "audit_card_coverage": { const lang = s("source_lang") ?? "cjk"; return { kind: "search", verb: "Auditing", target: `${lang} coverage` }; }
     case "update_character": return { kind: "write", verb: "Updating", target: `character (${Object.keys((args["patch"] as Record<string, unknown>) ?? {}).join(", ")})` };

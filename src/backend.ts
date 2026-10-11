@@ -30,7 +30,7 @@ import { fillPrompt } from "./agent/prompts/_fill";
 import compactionTemplate from "./agent/prompts/claude/backend/compaction.txt";
 import compactionPrimerTemplate from "./agent/prompts/claude/backend/compaction_primer.txt";
 import attachedFilesHeader from "./agent/prompts/claude/backend/attached_files_header.txt";
-import { revertEditWithCheck, revertEdit, writeFieldValue } from "./state/edit-log";
+import { revertEditWithCheck, revertEdit, writeFieldValue, revertMemoryEditsWithCheck } from "./state/edit-log";
 import { appendEntries, entriesView, findEntry, loadLedger, ledgerPath, persistLedgerNow, purgeAllRevertedInMemory, squashMessage } from "./state/ledger";
 import { characterScope, scopeKeyString } from "./types";
 import { isDebugLogging } from "./log";
@@ -839,7 +839,8 @@ async function handleListCharactersStorage(userId: string): Promise<void> {
 
     // Non-character scopes have no entity list to iterate, so enumerate their
     // ledger directories directly. Empty ledgers are skipped like characters.
-    for (const kind of ["persona", "chat", "preset", "world_book", "regex_script"] as const) {
+    let vaultNames: Map<string, string> | undefined;
+    for (const kind of ["persona", "chat", "preset", "world_book", "regex_script", "memory_vault"] as const) {
       let names: string[] = [];
       try { names = await spindle.userStorage.list(`ledgers/${kind}/`, userId); } catch { /* no dir yet */ }
       for (const rel of names) {
@@ -856,12 +857,18 @@ async function handleListCharactersStorage(userId: string): Promise<void> {
           if (st.exists) ledgerBytes = st.sizeBytes;
         } catch { /* cache only */ }
         const kindLabel = kind === "chat" ? "Chat"
+          : kind === "memory_vault" ? "Memory vault"
           : kind === "preset" ? "Preset"
           : kind === "world_book" ? "World book"
           : kind === "regex_script" ? "Regex script"
           : "Persona";
         let label = `${kindLabel} ${id.slice(0, 8)}`;
-        if (kind === "persona") {
+        if (kind === "memory_vault") {
+          try {
+            vaultNames ??= new Map((await spindle.memories.vaults.list(userId)).map((vault) => [vault.id, vault.name]));
+            label = vaultNames.get(id) ?? label;
+          } catch { }
+        } else if (kind === "persona") {
           try { const p = await spindle.personas.get(id, userId); if (p) label = p.name; } catch { /* fall back to id */ }
         } else if (kind === "preset") {
           try { const p = await spindle.presets.get(id, userId); if (p) label = p.name; } catch { /* fall back to id */ }
@@ -1947,6 +1954,17 @@ async function handleRevertEditsBulk(scope: ScopeRef, editIds: readonly string[]
     sessionEditCount.set(sid, (sessionEditCount.get(sid) ?? 0) + 1);
   };
 
+  const memoryResults = await revertMemoryEditsWithCheck(spindle, ledger, targetSet, userId);
+  for (const { entry, outcome } of memoryResults) {
+    targetSet.delete(entry.id);
+    outcomes.push({ editId: entry.id, outcome });
+    if (outcome.kind === "clean" || outcome.kind === "noop_already_reverted") {
+      removedIds.add(entry.id);
+      bumpSession(entry.sessionId);
+      if (outcome.kind === "clean") for (const id of outcome.cascadedEditIds ?? []) removedIds.add(id);
+    }
+  }
+
   // ───── 1. Per-file batched revert (the hot path) ─────
   type FileWork = { file: typeof ledger.files[number]; hits: typeof ledger.files[number]["patches"]; cascadeIds: string[]; recomputed: string; savedExpectedHash: string };
   const fileWork: FileWork[] = [];
@@ -2104,6 +2122,9 @@ async function handleRevertEditsBulk(scope: ScopeRef, editIds: readonly string[]
   // purged from the ledger but stay `reverted: false` in `s.edits`, leaving
   // the session view perpetually divergent from the ledger.
   const cascadeIdSet = new Set<string>();
+  for (const { outcome } of memoryResults) {
+    if (outcome.kind === "clean") for (const id of outcome.cascadedEditIds ?? []) cascadeIdSet.add(id);
+  }
   for (const w of fileWork) for (const cid of w.cascadeIds) cascadeIdSet.add(cid);
   return { cascadeIds: cascadeIdSet };
 }
@@ -2112,7 +2133,7 @@ async function handleRevertAllCharacters(scopes: readonly ScopeRef[], userId: st
   // Serialise so we don't blow up Lumiverse with N concurrent ledger loads +
   // workspace walks. Each per-scope call also suppresses its refresh
   // fanout, then we fire ONE refresh at the end.
-  for (const scope of scopes) {
+  for (const scope of [...scopes].sort((a, b) => Number(a.kind === "memory_vault") - Number(b.kind === "memory_vault"))) {
     try {
       const ledger = await loadLedger(spindle, scope, userId);
       const liveIds: string[] = [];
@@ -2293,7 +2314,7 @@ async function revertEditsBatch(characterId: string, entries: readonly EditLogEn
   }
   let ok = 0; let failed = 0;
   const okIds = new Set<string>();
-  for (const { scope, ids } of byScope.values()) {
+  for (const { scope, ids } of [...byScope.values()].sort((a, b) => Number(a.scope.kind === "memory_vault") - Number(b.scope.kind === "memory_vault"))) {
     const bulk = await handleRevertEditsBulk(scope, ids, userId);
     // handleRevertEditsBulk purges successful ids from the ledger; survivors
     // are the failures. loadLedger is cache-backed so this is cheap.

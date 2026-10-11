@@ -19,10 +19,12 @@ const SURFACE_LABELS: Record<EditSurface, string> = {
   preset: "Presets",
   persona: "Personas",
   global_addon: "Global add-ons",
+  memory_vault: "Memory vaults",
+  memory_link: "Memory links",
   external: "External (other extensions)",
 };
 
-const SURFACE_ORDER: EditSurface[] = ["character_field", "alternate_greeting", "alternate_field_variant", "world_book_entry", "world_book", "regex_script", "extension", "persona_field", "persona_addon", "chat_message", "preset_block", "preset", "persona", "global_addon", "external"];
+const SURFACE_ORDER: EditSurface[] = ["character_field", "alternate_greeting", "alternate_field_variant", "world_book_entry", "world_book", "regex_script", "extension", "persona_field", "persona_addon", "chat_message", "preset_block", "preset", "persona", "global_addon", "memory_vault", "memory_link", "external"];
 
 const MOBILE_BREAKPOINT_PX = 720;
 const DESKTOP_WIDTH_CAP = 1700;

@@ -208,6 +208,7 @@ function upsertFile(ledger: ScopedLedger, file: FileState): void {
 
 type StructuralSurface = StructuralPatch["surface"];
 const STRUCTURAL_SURFACES: ReadonlySet<string> = new Set<StructuralSurface>([
+  "memory_vault", "memory_link",
   "world_book_entry", "world_book", "regex_script", "alternate_greeting", "alternate_field_variant", "persona", "preset", "preset_block",
 ]);
 
@@ -705,6 +706,7 @@ export function laterEditsOnSameFile(_ledger: ScopedLedger, _editId: string): Ed
 // instead of following the current focus (bulk tag edits can touch hundreds of
 // character scopes in one call).
 const LEDGER_SCOPE_KINDS: readonly ScopeKind[] = [
+  "memory_vault",
   "character",
   "persona",
   "chat",

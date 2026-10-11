@@ -24,8 +24,9 @@ import type {
 import type { WorldBookSnapshot, PresetSnapshot, AlternateFieldVariantSnapshot } from "../types";
 import type { EditLogEntry, EditRecord, RevertOutcomeWire, ScopeRef } from "../types";
 import { characterScope } from "../types";
+import { revertMemoryCreation, readVaultMetadata, readOwnedMemoryLinks } from "./memory-revert";
 import type { ScopedLedger } from "./ledger";
-import { findPatch, findStructural, findExternal, persistLedgerNow, purgeIdsInMemory } from "./ledger";
+import { findPatch, findStructural, findExternal, persistLedgerNow, purgeIdsInMemory, entriesView } from "./ledger";
 import { tryRevert, recordExternalDrift, sha256, currentValue, purgeRevertedPatches } from "./patch-stack";
 
 export interface RevertResult {
@@ -362,6 +363,10 @@ export async function revertEdit(
     // op:edit + surface:external branch above). The previous per-surface
     // op:edit switch here was dead code that drifted out of sync with V2.
     if (r.op === "create") {
+      if (r.surface === "memory_vault" || r.surface === "memory_link") {
+        const conflict = await revertMemoryCreation(spindle, userId, r.surface, r.snapshot as Parameters<typeof revertMemoryCreation>[3]);
+        return conflict ? { success: false, error: conflict } : { success: true };
+      }
       if (r.surface === "world_book_entry") {
         await spindle.world_books.entries.delete(r.surfaceId, userId);
         return { success: true };
@@ -505,6 +510,15 @@ export async function readLiveValue(
   // External surfaces: the owning extension owns its own concurrency model.
   if (r.surface === "external") return null;
   switch (r.surface) {
+    case "memory_vault": {
+      const value = await readVaultMetadata(spindle, userId, r.surfaceId);
+      return value && r.field === "name" ? value.name : null;
+    }
+    case "memory_link": {
+      const [chatId, linkId] = r.surfaceId.split(":");
+      const link = (await readOwnedMemoryLinks(spindle, userId, chatId!)).find((item) => item.id === linkId);
+      return link && r.field === "enabled" ? JSON.stringify(link.enabled) : null;
+    }
     case "character_field": {
       const c = await spindle.characters.get(characterId, userId);
       if (!c) return null;
@@ -631,6 +645,13 @@ async function revertFieldEditV2(
     },
   };
   const live = await readLiveValue(spindle, entryView, characterId, userId);
+  const isMemory = file.key.surface === "memory_vault" || file.key.surface === "memory_link";
+  if (isMemory && live !== null) {
+    const laterManual = file.patches.slice(file.patches.indexOf(patch) + 1).some((item) => !item.reverted && item.author !== "agent");
+    if (sha256(live) !== file.expectedHash || laterManual) {
+      return { kind: "external_diverged", editId, currentSample: sample(live), expectedSample: sample(currentValue(file) ?? file.base), canForce: false };
+    }
+  }
   if (live === null) {
     // The surface was deleted out from under this field edit (typically by
     // reverting the structural create that made it). The edit is moot: drop its
@@ -716,6 +737,17 @@ export async function writeFieldValue(
   valueEncoding?: "json",
 ): Promise<void> {
   switch (surface) {
+    case "memory_vault": {
+      if (field !== "name" || !value.trim() || value.length > 200) throw new Error("vault name must contain 1 to 200 characters");
+      if (!await spindle.memories.vaults.rename(surfaceId, value, userId)) throw new Error("memory vault not found");
+      return;
+    }
+    case "memory_link": {
+      if (field !== "enabled" || (value !== "true" && value !== "false")) throw new Error("link enabled must be true or false");
+      const [chatId, linkId] = surfaceId.split(":");
+      if (!await spindle.memories.links.toggle(chatId!, linkId!, value === "true", userId)) throw new Error("memory link not found");
+      return;
+    }
     case "character_field": {
       const decoded = valueEncoding === "json" ? JSON.parse(value) : value;
       await spindle.characters.update(characterId, { [field]: decoded } as CharacterUpdateDTO, userId);
@@ -832,6 +864,16 @@ export async function revertEditWithCheck(
   // Structural (create/delete) and external edits keep the v1 revert path.
   const struct = findStructural(ledger, editId);
   if (struct) {
+    if (struct.surface === "memory_vault" || struct.surface === "memory_link") {
+      if (struct.op !== "create") return { kind: "failed", editId, error: "memory deletion is not supported" };
+      try {
+        const conflict = await revertMemoryCreation(spindle, userId, struct.surface, struct.snapshot as Parameters<typeof revertMemoryCreation>[3]);
+        if (conflict) return { kind: "external_diverged", editId, currentSample: conflict, expectedSample: "Unchanged creation with no dependent links", canForce: false };
+        purgeIdsInMemory(ledger, [editId]);
+        await persistLedgerNow(spindle, ledger, userId);
+        return { kind: "clean", editId };
+      } catch (error) { return { kind: "failed", editId, error: (error as Error).message }; }
+    }
     const entry: EditLogEntry = {
       id: editId, ts: struct.ts, sessionId: struct.sessionId ?? "", scope: characterScope(characterId),
       toolCallId: struct.toolCallId ?? "", toolName: struct.op, turn: 0, reverted: false,
@@ -855,6 +897,18 @@ export async function revertEditWithCheck(
   }
   void force;
   return { kind: "failed", editId, error: "edit not found in character ledger" };
+}
+
+export async function revertMemoryEditsWithCheck(spindle: SpindleAPI, ledger: ScopedLedger, editIds: ReadonlySet<string>, userId: string) {
+  const entries = entriesView(ledger).filter((entry) => editIds.has(entry.id) && !entry.reverted
+    && (entry.record.surface === "memory_vault" || entry.record.surface === "memory_link"));
+  entries.sort((a, b) => b.ts - a.ts || Number(b.record.op === "edit") - Number(a.record.op === "edit"));
+  const results: { entry: EditLogEntry; outcome: RevertOutcomeWire }[] = [];
+  for (const entry of entries) {
+    const outcome = await revertEditWithCheck(spindle, ledger, entry.id, ledger.scope.id, userId, false);
+    results.push({ entry, outcome });
+  }
+  return results;
 }
 
 export type { CharacterDTO, WorldBookEntryDTO, RegexScriptDTO };

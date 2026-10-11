@@ -7,6 +7,8 @@ import type {
   PersonaDTO,
   UserPresetDTO,
   PromptBlockSnapshotDTO,
+  VaultDTO,
+  ChatLinkDTO,
 } from "lumiverse-spindle-types";
 
 export type LlmMessagePart =
@@ -64,7 +66,7 @@ export type ChangeApprovalResultWire =
 // Ledger filing scope. Phase 0 only ever produces "character"; the other
 // kinds are filing drawers for non-character surfaces added in later phases.
 // variables/images are singleton pseudo-scopes (id is a fixed constant).
-export type ScopeKind = "character" | "persona" | "chat" | "databank" | "preset" | "world_book" | "regex_script" | "global_addon" | "variables" | "images";
+export type ScopeKind = "character" | "persona" | "chat" | "databank" | "preset" | "world_book" | "regex_script" | "global_addon" | "variables" | "images" | "memory_vault";
 
 export interface ScopeRef {
   readonly kind: ScopeKind;
@@ -100,6 +102,8 @@ export type EditSurface =
   | "world_book"
   | "persona"
   | "global_addon"
+  | "memory_vault"
+  | "memory_link"
   | "external";
 
 export interface AlternateFieldVariantSnapshot {
@@ -119,7 +123,14 @@ export interface PresetSnapshot {
   readonly blocks: readonly PromptBlockSnapshotDTO[];
 }
 
+export interface MemoryVaultSnapshot {
+  readonly vault: VaultDTO;
+  contentsHash: string | null;
+}
+
 export type StructuralSnapshot =
+  | MemoryVaultSnapshot
+  | ChatLinkDTO
   | WorldBookEntryDTO
   | RegexScriptDTO
   | PersonaDTO
@@ -217,7 +228,7 @@ export type RevertOutcomeWire =
   | { kind: "clean"; editId: string; cascadedEditIds?: readonly string[] | undefined }
   | { kind: "noop_already_reverted"; editId: string }
   | { kind: "superseded"; editId: string; laterEditIds: readonly string[] }
-  | { kind: "external_diverged"; editId: string; currentSample: string; expectedSample: string }
+  | { kind: "external_diverged"; editId: string; currentSample: string; expectedSample: string; canForce?: boolean }
   | { kind: "failed"; editId: string; error: string };
 
 // A user-attached image, stored as a reference to a workspace file under

@@ -17,7 +17,7 @@ export type ChangeApprovalPolicy =
 // chat, lorebook, extension, external-provider, or workspace state. New tools
 // default to approval until deliberately added here.
 const NO_CHANGE_TOOLS: ReadonlySet<string> = new Set([
-  "inspect_council", "inspect_dlc",
+  "inspect_council", "inspect_dlc", "list_memory_vaults", "read_memory_vault", "list_memory_links",
   "about_memoria",
   "ask_user_question",
   "audit_card_coverage",
@@ -99,6 +99,7 @@ const DELETE_TOOLS: ReadonlySet<string> = new Set([
 ]);
 
 const CREATE_TOOLS: ReadonlySet<string> = new Set([
+  "create_memory_vault", "attach_memory_link",
   "fs_copy",
   "create_mcp_server",
   "create",
@@ -124,6 +125,10 @@ const MOVE_TOOLS: ReadonlySet<string> = new Set([
 ]);
 
 const TOOL_LABELS: Readonly<Record<string, string>> = {
+  create_memory_vault: "Snapshot chat memory into a vault",
+  rename_memory_vault: "Rename a memory vault",
+  attach_memory_link: "Attach a memory vault or chat link",
+  set_memory_link_enabled: "Enable or disable a memory link",
   create_mcp_server: "Create an MCP server profile",
   connect_mcp_server: "Connect an MCP server",
   call_mcp_tool: "Call an external MCP tool (may change remote state)",
@@ -199,6 +204,9 @@ function resolveTarget(
   args: Readonly<Record<string, unknown>>,
   context: ApprovalTargetContext,
 ): string {
+  if (toolName === "create_memory_vault") return `${stringField(args, "chat_id") ?? context.pinnedChatId ?? "(no chat)"} / ${stringField(args, "name") ?? "(new vault)"}`;
+  if (toolName === "rename_memory_vault") return stringField(args, "vault_id") ?? "(unknown vault)";
+  if (toolName === "attach_memory_link" || toolName === "set_memory_link_enabled") return `${stringField(args, "chat_id") ?? context.pinnedChatId ?? "(no chat)"} / ${stringField(args, "vault_id") ?? stringField(args, "target_chat_id") ?? stringField(args, "link_id") ?? "(unknown link)"}`;
   if (toolName === "create_mcp_server") return stringField(args, "name") ?? "(new MCP server)";
   if (toolName === "connect_mcp_server" || toolName === "call_mcp_tool") {
     const server = stringField(args, "server_id") ?? "(unknown MCP server)";
