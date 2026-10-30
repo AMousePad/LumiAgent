@@ -1,3 +1,4 @@
+import { WorkspaceUploads } from "./workspace-upload";
 import type { SpindleFrontendContext, SpindleModalHandle } from "lumiverse-spindle-types";
 import type {
   BackendToFrontend,
@@ -120,7 +121,7 @@ interface UiState {
   attachments: { id: string; data: string; mime_type: string }[];
   // Non-image file attachments queued in the composer. Uploaded (chunked) to the
   // workspace at ATTACH time so send is instant; only refs go on the message.
-  fileAttachments: { id: string; file: File; name: string; size: number; mime: string; kind: "text" | "binary"; inlineContent?: string; path: string; status: "uploading" | "ready" | "error"; progress: number; error?: string }[];
+  fileAttachments: { id: string; file: File; name: string; size: number; mime: string; kind: "text" | "binary"; inlineContent?: string; path: string; status: "uploading" | "ready" | "error"; progress: number; error?: string; uploadController?: AbortController }[];
   // Session id the queued attachments were uploaded under. For a not-yet-started
   // session this is generated eagerly so attach-time paths match the send.
   attachmentSessionId: string | null;
@@ -1032,7 +1033,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     // Build (or reuse) the workspace panel so its tree survives modal reopens
     // and its in-flight requests don't get re-fired every time.
     if (!state.workspacePanel) {
-      state.workspacePanel = mountWorkspacePanel({ ctx, sendBackend });
+      state.workspacePanel = mountWorkspacePanel({ ctx, sendBackend, upload: (file, path, progress) => workspaceUploads.upload(file, path, progress) });
     }
     state.diffModal = openDiffModal(ctx, {
       getEdits: () => scopeEntries(workshopScope()),
@@ -2406,6 +2407,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       rm.setAttribute("aria-label", "Remove file");
       rm.textContent = "×";
       rm.addEventListener("click", () => {
+        att.uploadController?.abort();
         state.fileAttachments = state.fileAttachments.filter((a) => a.id !== att.id);
         renderAttachments();
       });
@@ -2462,8 +2464,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     return { wire, refs };
   };
 
-  // Outstanding chunked uploads keyed by transferId; resolved by ws_upload_complete.
-  const pendingUploads = new Map<string, { resolve: () => void; reject: (e: Error) => void }>();
+  const workspaceUploads = new WorkspaceUploads(sendBackend);
   type FileAtt = (typeof state.fileAttachments)[number];
 
   // Session id the queued attachments upload under. For a not-yet-started
@@ -2480,28 +2481,24 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     if (!chip) return;
     chip.classList.toggle("is-uploading", att.status === "uploading");
     chip.classList.toggle("is-error", att.status === "error");
+    chip.setAttribute("title", att.error ?? att.name);
     const bar = chip.querySelector(".la-file-progress-bar") as HTMLElement | null;
     if (bar) bar.style.width = `${Math.round(att.progress * 100)}%`;
   };
 
-  // Stream a file to its workspace path on attach. Chunk-sent progress caps at
-  // 95%; the backend ack (ws_upload_complete) flips it to ready.
   const uploadAttachment = async (att: FileAtt): Promise<void> => {
-    const transferId = makeId("up");
-    const acked = new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => { if (pendingUploads.delete(transferId)) reject(new Error("upload timed out")); }, 5 * 60_000);
-      pendingUploads.set(transferId, { resolve: () => { clearTimeout(timer); resolve(); }, reject: (e) => { clearTimeout(timer); reject(e); } });
-    });
+    att.uploadController = new AbortController();
     try {
-      const { streamUpload } = await import("./file-upload");
-      const bytes = new Uint8Array(await att.file.arrayBuffer());
-      await streamUpload(sendBackend, att.path, bytes, transferId, (frac) => { att.progress = Math.min(0.95, frac * 0.95); setChipProgress(att); });
-      await acked;
-      att.status = "ready"; att.progress = 1;
+      await workspaceUploads.upload(att.file, att.path, fraction => {
+        att.progress = fraction;
+        setChipProgress(att);
+      }, att.uploadController.signal);
+      att.status = "ready";
+      att.progress = 1;
     } catch (err) {
-      att.status = "error"; att.error = (err as Error).message;
+      att.status = "error";
+      att.error = (err as Error).message;
     } finally {
-      pendingUploads.delete(transferId);
       setChipProgress(att);
       updateComposer();
     }
@@ -3473,8 +3470,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         void import("./image-cache").then((m) => m.failImage(msg.path));
         break;
       case "ws_upload_complete": {
-        const p = pendingUploads.get(msg.transferId);
-        if (p) { pendingUploads.delete(msg.transferId); p.resolve(); }
+        workspaceUploads.complete(msg.transferId, msg.error);
         break;
       }
       case "ws_zip_ready":
@@ -3617,6 +3613,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
 
   return () => {
     off();
+    workspaceUploads.dispose();
     offBackendMessages();
     for (const controller of frontendRequests.values()) controller.abort();
     frontendRequests.clear();

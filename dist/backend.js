@@ -22037,6 +22037,37 @@ async function writeText(spindle2, userId, relPath, content, caps = DEFAULT_WORK
 async function writeBinary(spindle2, userId, relPath, data, caps = DEFAULT_WORKSPACE_CAPS) {
   await meteredWrite(spindle2, userId, relPath, data.byteLength, caps, () => spindle2.userStorage.writeBinary(absPath(relPath), data, userId));
 }
+async function importUpload(spindle2, userId, relPath, uploadId, caps = DEFAULT_WORKSPACE_CAPS) {
+  let chunk = await spindle2.files.readChunk({ uploadId }, 0, userId);
+  const size = chunk.size;
+  if (!Number.isSafeInteger(size) || size < 0)
+    throw new Error("Invalid upload size");
+  await meteredWrite(spindle2, userId, relPath, size, { ...caps, maxFileBytes: Number.MAX_SAFE_INTEGER }, async () => {
+    let bytes;
+    try {
+      bytes = new Uint8Array(size);
+    } catch {
+      throw new Error("Not enough contiguous memory to save this upload. Streaming workspace storage is required for this file.");
+    }
+    let offset = 0;
+    for (;; ) {
+      if (chunk.offset !== offset || chunk.size !== size || chunk.data.byteLength > size - offset) {
+        throw new Error("Upload returned inconsistent chunk metadata");
+      }
+      bytes.set(chunk.data, offset);
+      offset += chunk.data.byteLength;
+      if (chunk.eof) {
+        if (offset !== size)
+          throw new Error("Upload ended before its declared size");
+        break;
+      }
+      if (chunk.data.byteLength === 0 || offset >= size)
+        throw new Error("Upload did not advance");
+      chunk = await spindle2.files.readChunk({ uploadId }, offset, userId);
+    }
+    await spindle2.userStorage.writeBinary(absPath(relPath), bytes, userId);
+  });
+}
 async function makeDir(spindle2, userId, relPath) {
   const norm = normaliseRelPath(relPath);
   if (norm === "")
@@ -39880,70 +39911,23 @@ async function handleWsWriteText(path, content, userId) {
     send({ type: "ws_error", error: err.message }, userId);
   }
 }
-async function handleWsUploadBinary(path, dataBase64, userId) {
+async function handleWsUploadStaged(transferId, path, uploadId, userId, frontendSessionId) {
+  let error;
   try {
     const ws = await Promise.resolve().then(() => (init_workspace(), {}));
-    const bytes = base64ToBytes(dataBase64);
     const { workspaceCaps } = await resolveCapsForUser(userId);
-    await writeBinary(spindle, userId, path, bytes, workspaceCaps);
+    await importUpload(spindle, userId, path, uploadId, workspaceCaps);
     send({ type: "ws_changed" }, userId);
   } catch (err) {
-    send({ type: "ws_error", error: err.message }, userId);
-  }
-}
-var uploadBuffers = new Map;
-var UPLOAD_BUFFER_TTL_MS = 300000;
-var uploadBufferTimers = new Map;
-function clearUploadBuffer(key) {
-  uploadBuffers.delete(key);
-  const t = uploadBufferTimers.get(key);
-  if (t) {
-    clearTimeout(t);
-    uploadBufferTimers.delete(key);
-  }
-}
-async function handleWsUploadPart(transferId, path, dataBase64, index, total, userId) {
-  const key = `${userId}:${transferId}`;
-  try {
-    let buf = uploadBuffers.get(key);
-    if (!buf) {
-      buf = { path, total, parts: new Array(total).fill(null) };
-      uploadBuffers.set(key, buf);
+    error = err.message;
+  } finally {
+    try {
+      await spindle.uploads.delete(uploadId, userId);
+    } catch (err) {
+      log("warn", `Upload cleanup failed: ${err.message}`);
     }
-    const existing = uploadBufferTimers.get(key);
-    if (existing)
-      clearTimeout(existing);
-    uploadBufferTimers.set(key, setTimeout(() => {
-      log("warn", `upload transfer ${transferId} timed out`);
-      clearUploadBuffer(key);
-      send({ type: "ws_error", error: "Upload timed out before all parts arrived." }, userId);
-    }, UPLOAD_BUFFER_TTL_MS));
-    if (buf.path !== path || buf.total !== total) {
-      throw new Error(`upload part for ${transferId} mismatches path or total`);
-    }
-    if (index < 0 || index >= total)
-      throw new Error(`bad upload index ${index}`);
-    buf.parts[index] = dataBase64;
-    if (buf.parts.every((p) => p !== null)) {
-      const ws = await Promise.resolve().then(() => (init_workspace(), {}));
-      const decoded = buf.parts.map((b64) => base64ToBytes(b64 ?? ""));
-      const totalLen = decoded.reduce((s, b) => s + b.byteLength, 0);
-      const merged = new Uint8Array(totalLen);
-      let off = 0;
-      for (const b of decoded) {
-        merged.set(b, off);
-        off += b.byteLength;
-      }
-      clearUploadBuffer(key);
-      const { workspaceCaps } = await resolveCapsForUser(userId);
-      await writeBinary(spindle, userId, path, merged, workspaceCaps);
-      send({ type: "ws_changed" }, userId);
-      send({ type: "ws_upload_complete", transferId, path }, userId);
-    }
-  } catch (err) {
-    clearUploadBuffer(key);
-    send({ type: "ws_error", error: err.message }, userId);
   }
+  spindle.sendToFrontend({ type: "ws_upload_complete", transferId, path, ...error ? { error } : {} }, userId, frontendSessionId ? { frontendSessionId } : undefined);
 }
 async function handleWsDelete(path, recursive, userId) {
   try {
@@ -41575,11 +41559,11 @@ spindle.onFrontendMessage(async (raw, userId, frontendSessionId) => {
       case "ws_duplicate":
         await handleWsDuplicate(msg.path, userId);
         return;
-      case "ws_upload_binary":
-        await handleWsUploadBinary(msg.path, msg.dataBase64, userId);
+      case "ws_upload_staged":
+        handleWsUploadStaged(msg.transferId, msg.path, msg.uploadId, userId, frontendSessionId);
         return;
-      case "ws_upload_part":
-        await handleWsUploadPart(msg.transferId, msg.path, msg.dataBase64, msg.index, msg.total, userId);
+      case "ws_upload_discard":
+        await spindle.uploads.delete(msg.uploadId, userId);
         return;
       case "ws_delete":
         await handleWsDelete(msg.path, msg.recursive, userId);

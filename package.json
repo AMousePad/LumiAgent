@@ -24,6 +24,7 @@
     "@tanstack/virtual-core": "^3.13.0",
     "diff": "^9.0.0",
     "zod": "^4.0.0",
-    "modern-screenshot": "4.7.0"
+    "modern-screenshot": "4.7.0",
+    "tus-js-client": "^4.3.1"
   }
 }

@@ -118,6 +118,8 @@ A lot~ ( ꈍ◡ꈍ) Here's the list so you know what to ask me about. As submitt
 <summary>🏠 In my house</summary>
 
 - **W** My workspace: upload files for me with the 📎 button, edit and download what I make. Ask me to copy, move, delete, zip, or unzip files and folders. It persists, so future sessions can pick things right back up.
+
+Workspace and composer file uploads use Spindle's resumable upload endpoint, with progress and automatic retries. Uploads are subject to the host's 100 GiB limit and your configured workspace quota. Saving currently requires the whole file in backend memory, so available memory and runtime buffer limits can impose a lower limit. Image attachments retain their image-processing limits.
 - **W** A scratch area where big tool outputs spill so I can grep through them without melting my brain.
 - **W** My custom tool recipes, little reusable workflows I or you can save.
 - **W** My long-term notes about you, so I remember what you like across conversations.

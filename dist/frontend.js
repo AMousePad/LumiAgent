@@ -1,3 +1,36 @@
+var __create = Object.create;
+var __getProtoOf = Object.getPrototypeOf;
+var __defProp = Object.defineProperty;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+function __accessProp(key) {
+  return this[key];
+}
+var __toESMCache_node;
+var __toESMCache_esm;
+var __toESM = (mod, isNodeMode, target) => {
+  var canCache = mod != null && typeof mod === "object";
+  if (canCache) {
+    var cache = isNodeMode ? __toESMCache_node ??= new WeakMap : __toESMCache_esm ??= new WeakMap;
+    var cached = cache.get(mod);
+    if (cached)
+      return cached;
+  }
+  target = mod != null ? __create(__getProtoOf(mod)) : {};
+  const to = isNodeMode || !mod || !mod.__esModule || !__hasOwnProp.call(mod, "default") ? __defProp(target, "default", { value: mod, enumerable: true }) : target;
+  if (mod && typeof mod === "object" || typeof mod === "function") {
+    for (let key of __getOwnPropNames(mod))
+      if (!__hasOwnProp.call(to, key))
+        __defProp(to, key, {
+          get: __accessProp.bind(mod, key),
+          enumerable: true
+        });
+  }
+  if (canCache)
+    cache.set(mod, to);
+  return to;
+};
+var __commonJS = (cb, mod) => () => (mod || cb((mod = { exports: {} }).exports, mod), mod.exports);
 var __esm = (fn, res, err) => () => {
   if (fn)
     try {
@@ -9,6 +42,401 @@ var __esm = (fn, res, err) => () => {
     throw err[0];
   return res;
 };
+
+// ../../../node_modules/requires-port/index.js
+var require_requires_port = __commonJS(function(exports, module) {
+  module.exports = function required(port, protocol) {
+    protocol = protocol.split(":")[0];
+    port = +port;
+    if (!port)
+      return false;
+    switch (protocol) {
+      case "http":
+      case "ws":
+        return port !== 80;
+      case "https":
+      case "wss":
+        return port !== 443;
+      case "ftp":
+        return port !== 21;
+      case "gopher":
+        return port !== 70;
+      case "file":
+        return false;
+    }
+    return port !== 0;
+  };
+});
+
+// ../../../node_modules/querystringify/index.js
+var require_querystringify = __commonJS(function(exports) {
+  var has = Object.prototype.hasOwnProperty;
+  var undef;
+  function decode(input) {
+    try {
+      return decodeURIComponent(input.replace(/\+/g, " "));
+    } catch (e) {
+      return null;
+    }
+  }
+  function encode(input) {
+    try {
+      return encodeURIComponent(input);
+    } catch (e) {
+      return null;
+    }
+  }
+  function querystring(query) {
+    var parser = /([^=?#&]+)=?([^&]*)/g, result = {}, part;
+    while (part = parser.exec(query)) {
+      var key = decode(part[1]), value = decode(part[2]);
+      if (key === null || value === null || key in result)
+        continue;
+      result[key] = value;
+    }
+    return result;
+  }
+  function querystringify(obj, prefix) {
+    prefix = prefix || "";
+    var pairs = [], value, key;
+    if (typeof prefix !== "string")
+      prefix = "?";
+    for (key in obj) {
+      if (has.call(obj, key)) {
+        value = obj[key];
+        if (!value && (value === null || value === undef || isNaN(value))) {
+          value = "";
+        }
+        key = encode(key);
+        value = encode(value);
+        if (key === null || value === null)
+          continue;
+        pairs.push(key + "=" + value);
+      }
+    }
+    return pairs.length ? prefix + pairs.join("&") : "";
+  }
+  exports.stringify = querystringify;
+  exports.parse = querystring;
+});
+
+// ../../../node_modules/url-parse/index.js
+var require_url_parse = __commonJS(function(exports, module) {
+  var required = require_requires_port();
+  var qs = require_querystringify();
+  var controlOrWhitespace = /^[\x00-\x20\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+/;
+  var CRHTLF = /[\n\r\t]/g;
+  var slashes = /^[A-Za-z][A-Za-z0-9+-.]*:\/\//;
+  var port = /:\d+$/;
+  var protocolre = /^([a-z][a-z0-9.+-]*:)?(\/\/)?([\\/]+)?([\S\s]*)/i;
+  var windowsDriveLetter = /^[a-zA-Z]:/;
+  function trimLeft(str) {
+    return (str ? str : "").toString().replace(controlOrWhitespace, "");
+  }
+  var rules = [
+    ["#", "hash"],
+    ["?", "query"],
+    function sanitize(address, url) {
+      return isSpecial(url.protocol) ? address.replace(/\\/g, "/") : address;
+    },
+    ["/", "pathname"],
+    ["@", "auth", 1],
+    [NaN, "host", undefined, 1, 1],
+    [/:(\d*)$/, "port", undefined, 1],
+    [NaN, "hostname", undefined, 1, 1]
+  ];
+  var ignore = { hash: 1, query: 1 };
+  function lolcation(loc) {
+    var globalVar;
+    if (typeof window !== "undefined")
+      globalVar = window;
+    else if (typeof global !== "undefined")
+      globalVar = global;
+    else if (typeof self !== "undefined")
+      globalVar = self;
+    else
+      globalVar = {};
+    var location2 = globalVar.location || {};
+    loc = loc || location2;
+    var finaldestination = {}, type = typeof loc, key;
+    if (loc.protocol === "blob:") {
+      finaldestination = new Url(unescape(loc.pathname), {});
+    } else if (type === "string") {
+      finaldestination = new Url(loc, {});
+      for (key in ignore)
+        delete finaldestination[key];
+    } else if (type === "object") {
+      for (key in loc) {
+        if (key in ignore)
+          continue;
+        finaldestination[key] = loc[key];
+      }
+      if (finaldestination.slashes === undefined) {
+        finaldestination.slashes = slashes.test(loc.href);
+      }
+    }
+    return finaldestination;
+  }
+  function isSpecial(scheme) {
+    return scheme === "file:" || scheme === "ftp:" || scheme === "http:" || scheme === "https:" || scheme === "ws:" || scheme === "wss:";
+  }
+  function extractProtocol(address, location2) {
+    address = trimLeft(address);
+    address = address.replace(CRHTLF, "");
+    location2 = location2 || {};
+    var match = protocolre.exec(address);
+    var protocol = match[1] ? match[1].toLowerCase() : "";
+    var forwardSlashes = !!match[2];
+    var otherSlashes = !!match[3];
+    var slashesCount = 0;
+    var rest;
+    if (forwardSlashes) {
+      if (otherSlashes) {
+        rest = match[2] + match[3] + match[4];
+        slashesCount = match[2].length + match[3].length;
+      } else {
+        rest = match[2] + match[4];
+        slashesCount = match[2].length;
+      }
+    } else {
+      if (otherSlashes) {
+        rest = match[3] + match[4];
+        slashesCount = match[3].length;
+      } else {
+        rest = match[4];
+      }
+    }
+    if (protocol === "file:") {
+      if (slashesCount >= 2) {
+        rest = rest.slice(2);
+      }
+    } else if (isSpecial(protocol)) {
+      rest = match[4];
+    } else if (protocol) {
+      if (forwardSlashes) {
+        rest = rest.slice(2);
+      }
+    } else if (slashesCount >= 2 && isSpecial(location2.protocol)) {
+      rest = match[4];
+    }
+    return {
+      protocol,
+      slashes: forwardSlashes || isSpecial(protocol),
+      slashesCount,
+      rest
+    };
+  }
+  function resolve(relative, base) {
+    if (relative === "")
+      return base;
+    var path = (base || "/").split("/").slice(0, -1).concat(relative.split("/")), i = path.length, last = path[i - 1], unshift = false, up = 0;
+    while (i--) {
+      if (path[i] === ".") {
+        path.splice(i, 1);
+      } else if (path[i] === "..") {
+        path.splice(i, 1);
+        up++;
+      } else if (up) {
+        if (i === 0)
+          unshift = true;
+        path.splice(i, 1);
+        up--;
+      }
+    }
+    if (unshift)
+      path.unshift("");
+    if (last === "." || last === "..")
+      path.push("");
+    return path.join("/");
+  }
+  function Url(address, location2, parser) {
+    address = trimLeft(address);
+    address = address.replace(CRHTLF, "");
+    if (!(this instanceof Url)) {
+      return new Url(address, location2, parser);
+    }
+    var relative, extracted, parse, instruction, index, key, instructions = rules.slice(), type = typeof location2, url = this, i = 0;
+    if (type !== "object" && type !== "string") {
+      parser = location2;
+      location2 = null;
+    }
+    if (parser && typeof parser !== "function")
+      parser = qs.parse;
+    location2 = lolcation(location2);
+    extracted = extractProtocol(address || "", location2);
+    relative = !extracted.protocol && !extracted.slashes;
+    url.slashes = extracted.slashes || relative && location2.slashes;
+    url.protocol = extracted.protocol || location2.protocol || "";
+    address = extracted.rest;
+    if (extracted.protocol === "file:" && (extracted.slashesCount !== 2 || windowsDriveLetter.test(address)) || !extracted.slashes && (extracted.protocol || extracted.slashesCount < 2 || !isSpecial(url.protocol))) {
+      instructions[3] = [/(.*)/, "pathname"];
+    }
+    for (;i < instructions.length; i++) {
+      instruction = instructions[i];
+      if (typeof instruction === "function") {
+        address = instruction(address, url);
+        continue;
+      }
+      parse = instruction[0];
+      key = instruction[1];
+      if (parse !== parse) {
+        url[key] = address;
+      } else if (typeof parse === "string") {
+        index = parse === "@" ? address.lastIndexOf(parse) : address.indexOf(parse);
+        if (~index) {
+          if (typeof instruction[2] === "number") {
+            url[key] = address.slice(0, index);
+            address = address.slice(index + instruction[2]);
+          } else {
+            url[key] = address.slice(index);
+            address = address.slice(0, index);
+          }
+        }
+      } else if (index = parse.exec(address)) {
+        url[key] = index[1];
+        address = address.slice(0, index.index);
+      }
+      url[key] = url[key] || (relative && instruction[3] ? location2[key] || "" : "");
+      if (instruction[4])
+        url[key] = url[key].toLowerCase();
+    }
+    if (parser)
+      url.query = parser(url.query);
+    if (relative && location2.slashes && url.pathname.charAt(0) !== "/" && (url.pathname !== "" || location2.pathname !== "")) {
+      url.pathname = resolve(url.pathname, location2.pathname);
+    }
+    if (url.pathname.charAt(0) !== "/" && isSpecial(url.protocol)) {
+      url.pathname = "/" + url.pathname;
+    }
+    if (!required(url.port, url.protocol)) {
+      url.host = url.hostname;
+      url.port = "";
+    }
+    url.username = url.password = "";
+    if (url.auth) {
+      index = url.auth.indexOf(":");
+      if (~index) {
+        url.username = url.auth.slice(0, index);
+        url.username = encodeURIComponent(decodeURIComponent(url.username));
+        url.password = url.auth.slice(index + 1);
+        url.password = encodeURIComponent(decodeURIComponent(url.password));
+      } else {
+        url.username = encodeURIComponent(decodeURIComponent(url.auth));
+      }
+      url.auth = url.password ? url.username + ":" + url.password : url.username;
+    }
+    url.origin = url.protocol !== "file:" && isSpecial(url.protocol) && url.host ? url.protocol + "//" + url.host : "null";
+    url.href = url.toString();
+  }
+  function set(part, value, fn) {
+    var url = this;
+    switch (part) {
+      case "query":
+        if (typeof value === "string" && value.length) {
+          value = (fn || qs.parse)(value);
+        }
+        url[part] = value;
+        break;
+      case "port":
+        url[part] = value;
+        if (!required(value, url.protocol)) {
+          url.host = url.hostname;
+          url[part] = "";
+        } else if (value) {
+          url.host = url.hostname + ":" + value;
+        }
+        break;
+      case "hostname":
+        url[part] = value;
+        if (url.port)
+          value += ":" + url.port;
+        url.host = value;
+        break;
+      case "host":
+        url[part] = value;
+        if (port.test(value)) {
+          value = value.split(":");
+          url.port = value.pop();
+          url.hostname = value.join(":");
+        } else {
+          url.hostname = value;
+          url.port = "";
+        }
+        break;
+      case "protocol":
+        url.protocol = value.toLowerCase();
+        url.slashes = !fn;
+        break;
+      case "pathname":
+      case "hash":
+        if (value) {
+          var char = part === "pathname" ? "/" : "#";
+          url[part] = value.charAt(0) !== char ? char + value : value;
+        } else {
+          url[part] = value;
+        }
+        break;
+      case "username":
+      case "password":
+        url[part] = encodeURIComponent(value);
+        break;
+      case "auth":
+        var index = value.indexOf(":");
+        if (~index) {
+          url.username = value.slice(0, index);
+          url.username = encodeURIComponent(decodeURIComponent(url.username));
+          url.password = value.slice(index + 1);
+          url.password = encodeURIComponent(decodeURIComponent(url.password));
+        } else {
+          url.username = encodeURIComponent(decodeURIComponent(value));
+        }
+    }
+    for (var i = 0;i < rules.length; i++) {
+      var ins = rules[i];
+      if (ins[4])
+        url[ins[1]] = url[ins[1]].toLowerCase();
+    }
+    url.auth = url.password ? url.username + ":" + url.password : url.username;
+    url.origin = url.protocol !== "file:" && isSpecial(url.protocol) && url.host ? url.protocol + "//" + url.host : "null";
+    url.href = url.toString();
+    return url;
+  }
+  function toString(stringify) {
+    if (!stringify || typeof stringify !== "function")
+      stringify = qs.stringify;
+    var query, url = this, { host, protocol } = url;
+    if (protocol && protocol.charAt(protocol.length - 1) !== ":")
+      protocol += ":";
+    var result = protocol + (url.protocol && url.slashes || isSpecial(url.protocol) ? "//" : "");
+    if (url.username) {
+      result += url.username;
+      if (url.password)
+        result += ":" + url.password;
+      result += "@";
+    } else if (url.password) {
+      result += ":" + url.password;
+      result += "@";
+    } else if (url.protocol !== "file:" && isSpecial(url.protocol) && !host && url.pathname !== "/") {
+      result += "@";
+    }
+    if (host[host.length - 1] === ":" || port.test(url.hostname) && !url.port) {
+      host += ":";
+    }
+    result += host + url.pathname;
+    query = typeof url.query === "object" ? stringify(url.query) : url.query;
+    if (query)
+      result += query.charAt(0) !== "?" ? "?" + query : query;
+    if (url.hash)
+      result += url.hash;
+    return result;
+  }
+  Url.prototype = { set, toString };
+  Url.extractProtocol = extractProtocol;
+  Url.location = lolcation;
+  Url.trimLeft = trimLeft;
+  Url.qs = qs;
+  module.exports = Url;
+});
 
 // src/ui/image-cache.ts
 function configureImageCache(request) {
@@ -50,79 +478,6 @@ var cache, waiters, requestFn = null;
 var init_image_cache = __esm(() => {
   cache = new Map;
   waiters = new Map;
-});
-
-// src/ui/file-upload.ts
-function isTextFile(file) {
-  if (file.type.startsWith("text/"))
-    return true;
-  if (file.type === "application/json" || file.type === "application/xml")
-    return true;
-  const ext = file.name.toLowerCase().split(".").pop() ?? "";
-  return TEXT_EXTS.has(ext);
-}
-function safeAttachmentName(name) {
-  const cleaned = name.replace(/[^A-Za-z0-9._-]/g, "_").replace(/\.{2,}/g, "_");
-  return cleaned.length > 0 ? cleaned.slice(0, 120) : "file";
-}
-function bytesToBase64(bytes) {
-  let binary = "";
-  const chunk = 32768;
-  for (let i = 0;i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-  }
-  return btoa(binary);
-}
-async function streamUpload(send, path, bytes, transferId, onProgress) {
-  const total = Math.max(1, Math.ceil(bytes.length / UPLOAD_CHUNK_BYTES));
-  for (let i = 0;i < total; i++) {
-    const slice = bytes.subarray(i * UPLOAD_CHUNK_BYTES, Math.min(bytes.length, (i + 1) * UPLOAD_CHUNK_BYTES));
-    send({ type: "ws_upload_part", transferId, path, dataBase64: bytesToBase64(slice), index: i, total });
-    onProgress?.((i + 1) / total);
-    if (i < total - 1)
-      await new Promise((r) => setTimeout(r, 0));
-  }
-}
-var MAX_FILES = 5, INLINE_TEXT_BYTES, UPLOAD_CHUNK_BYTES, TEXT_EXTS;
-var init_file_upload = __esm(() => {
-  INLINE_TEXT_BYTES = 16 * 1024;
-  UPLOAD_CHUNK_BYTES = 2 * 1024 * 1024;
-  TEXT_EXTS = new Set([
-    "txt",
-    "md",
-    "markdown",
-    "json",
-    "jsonl",
-    "csv",
-    "tsv",
-    "xml",
-    "yaml",
-    "yml",
-    "html",
-    "htm",
-    "css",
-    "js",
-    "ts",
-    "tsx",
-    "jsx",
-    "py",
-    "rb",
-    "go",
-    "rs",
-    "java",
-    "c",
-    "h",
-    "cpp",
-    "lua",
-    "sh",
-    "ini",
-    "toml",
-    "log",
-    "srt",
-    "vtt",
-    "sql",
-    "svg"
-  ]);
 });
 
 // src/ui/image-resize.ts
@@ -192,6 +547,60 @@ async function resizeBlob(blob) {
 var MAX_IMAGES = 4, MAX_EDGE = 1568, MAX_B64_PER_IMAGE = 700000, SUPPORTED;
 var init_image_resize = __esm(() => {
   SUPPORTED = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+});
+
+// src/ui/file-upload.ts
+function isTextFile(file) {
+  if (file.type.startsWith("text/"))
+    return true;
+  if (file.type === "application/json" || file.type === "application/xml")
+    return true;
+  const ext = file.name.toLowerCase().split(".").pop() ?? "";
+  return TEXT_EXTS.has(ext);
+}
+function safeAttachmentName(name) {
+  const cleaned = name.replace(/[^A-Za-z0-9._-]/g, "_").replace(/\.{2,}/g, "_");
+  return cleaned.length > 0 ? cleaned.slice(0, 120) : "file";
+}
+var MAX_FILES = 5, INLINE_TEXT_BYTES, TEXT_EXTS;
+var init_file_upload = __esm(() => {
+  INLINE_TEXT_BYTES = 16 * 1024;
+  TEXT_EXTS = new Set([
+    "txt",
+    "md",
+    "markdown",
+    "json",
+    "jsonl",
+    "csv",
+    "tsv",
+    "xml",
+    "yaml",
+    "yml",
+    "html",
+    "htm",
+    "css",
+    "js",
+    "ts",
+    "tsx",
+    "jsx",
+    "py",
+    "rb",
+    "go",
+    "rs",
+    "java",
+    "c",
+    "h",
+    "cpp",
+    "lua",
+    "sh",
+    "ini",
+    "toml",
+    "log",
+    "srt",
+    "vtt",
+    "sql",
+    "svg"
+  ]);
 });
 
 // src/ui/translator-bridge.ts
@@ -490,7 +899,7 @@ function supportWebp(ownerDocument) {
   }
   return Boolean(canvas) && "toDataURL" in canvas && Boolean(canvas.toDataURL("image/webp").includes("image/webp"));
 }
-function resolveUrl(url, baseUrl) {
+function resolveUrl2(url, baseUrl) {
   if (url.match(/^[a-z]+:\/\//i))
     return url;
   if (IN_BROWSER && url.match(/^\/\//))
@@ -945,7 +1354,7 @@ function getSandBox(context) {
     try {
       if (ownerDocument) {
         sandbox = ownerDocument.createElement("iframe");
-        sandbox.id = `__SANDBOX__${uuid()}`;
+        sandbox.id = `__SANDBOX__${uuid2()}`;
         sandbox.width = "0";
         sandbox.height = "0";
         sandbox.style.visibility = "hidden";
@@ -1103,7 +1512,7 @@ function copyPseudoClass(node, cloned, copyScrollbar, context, addWordToFontFami
       return;
     addWordToFontFamilies?.(content);
     content = content.replace(/(')|(")|(counter\(.+\))/g, "");
-    const klasses = [uuid()];
+    const klasses = [uuid2()];
     const defaultStyle = getDefaultStyle(node, pseudoClass, context);
     currentNodeStyle?.forEach((_, key) => {
       defaultStyle.delete(key);
@@ -1416,7 +1825,7 @@ function hasCssUrl(cssText) {
 function parseCssUrls(cssText, baseUrl) {
   const result = [];
   cssText.replace(URL_RE, (raw, quotation, url) => {
-    result.push([url, resolveUrl(url, baseUrl)]);
+    result.push([url, resolveUrl2(url, baseUrl)]);
     return raw;
   });
   return result.filter(([url]) => !isDataUrl(url));
@@ -1573,7 +1982,7 @@ async function embedWebFont(clone, context) {
           } catch (error) {
             context.log.warn(`Error fetch remote css import from ${baseUrl}`, error);
           }
-          const replacedCssText = cssText.replace(URL_RE, (raw, quotation, url) => raw.replace(url, resolveUrl(url, baseUrl)));
+          const replacedCssText = cssText.replace(URL_RE, (raw, quotation, url) => raw.replace(url, resolveUrl2(url, baseUrl)));
           for (const rule of parseCss(replacedCssText)) {
             try {
               tempStyleSheet.insertRule(rule, tempStyleSheet.cssRules.length);
@@ -1755,7 +2164,7 @@ async function domToCanvas(node, options) {
   const image = createImage(dataUrl, svg.ownerDocument);
   return await imageToCanvas(image, context);
 }
-var PREFIX = "[modern-screenshot]", IN_BROWSER, SUPPORT_WEB_WORKER, SUPPORT_ATOB, SUPPORT_BTOA, USER_AGENT, IN_CHROME, IN_SAFARI, IN_FIREFOX, isContext = (value) => value && ("__CONTEXT__" in value), isCssFontFaceRule = (rule) => rule.constructor.name === "CSSFontFaceRule", isCSSImportRule = (rule) => rule.constructor.name === "CSSImportRule", isLayerBlockRule = (rule) => rule.constructor.name === "CSSLayerBlockRule", isElementNode = (node) => node.nodeType === 1, isSVGElementNode = (node) => typeof node.className === "object", isSVGImageElementNode = (node) => node.tagName === "image", isSVGUseElementNode = (node) => node.tagName === "use", isHTMLElementNode = (node) => isElementNode(node) && typeof node.style !== "undefined" && !isSVGElementNode(node), isCommentNode = (node) => node.nodeType === 8, isTextNode = (node) => node.nodeType === 3, isImageElement = (node) => node.tagName === "IMG", isVideoElement = (node) => node.tagName === "VIDEO", isCanvasElement = (node) => node.tagName === "CANVAS", isTextareaElement = (node) => node.tagName === "TEXTAREA", isInputElement = (node) => node.tagName === "INPUT", isStyleElement = (node) => node.tagName === "STYLE", isScriptElement = (node) => node.tagName === "SCRIPT", isSelectElement = (node) => node.tagName === "SELECT", isSlotElement = (node) => node.tagName === "SLOT", isIFrameElement = (node) => node.tagName === "IFRAME", consoleWarn = (...args) => console.warn(PREFIX, ...args), isDataUrl = (url) => url.startsWith("data:"), XMLNS = "http://www.w3.org/2000/svg", blobToDataUrl = (blob) => readBlob(blob, "dataUrl"), uuid, uid = 0, ignoredStyles, includedAttributes, pseudoClasses, scrollbarPseudoClasses, excludeParentNodes, NORMAL_ATTRIBUTE_RE, URL_RE, properties, COMMENTS_RE, KEYFRAMES_RE, URL_WITH_FORMAT_RE, FONT_SRC_RE, SVG_EXTERNAL_RESOURCE_REGEX;
+var PREFIX = "[modern-screenshot]", IN_BROWSER, SUPPORT_WEB_WORKER, SUPPORT_ATOB, SUPPORT_BTOA, USER_AGENT, IN_CHROME, IN_SAFARI, IN_FIREFOX, isContext = (value) => value && ("__CONTEXT__" in value), isCssFontFaceRule = (rule) => rule.constructor.name === "CSSFontFaceRule", isCSSImportRule = (rule) => rule.constructor.name === "CSSImportRule", isLayerBlockRule = (rule) => rule.constructor.name === "CSSLayerBlockRule", isElementNode = (node) => node.nodeType === 1, isSVGElementNode = (node) => typeof node.className === "object", isSVGImageElementNode = (node) => node.tagName === "image", isSVGUseElementNode = (node) => node.tagName === "use", isHTMLElementNode = (node) => isElementNode(node) && typeof node.style !== "undefined" && !isSVGElementNode(node), isCommentNode = (node) => node.nodeType === 8, isTextNode = (node) => node.nodeType === 3, isImageElement = (node) => node.tagName === "IMG", isVideoElement = (node) => node.tagName === "VIDEO", isCanvasElement = (node) => node.tagName === "CANVAS", isTextareaElement = (node) => node.tagName === "TEXTAREA", isInputElement = (node) => node.tagName === "INPUT", isStyleElement = (node) => node.tagName === "STYLE", isScriptElement = (node) => node.tagName === "SCRIPT", isSelectElement = (node) => node.tagName === "SELECT", isSlotElement = (node) => node.tagName === "SLOT", isIFrameElement = (node) => node.tagName === "IFRAME", consoleWarn = (...args) => console.warn(PREFIX, ...args), isDataUrl = (url) => url.startsWith("data:"), XMLNS = "http://www.w3.org/2000/svg", blobToDataUrl = (blob) => readBlob(blob, "dataUrl"), uuid2, uid = 0, ignoredStyles, includedAttributes, pseudoClasses, scrollbarPseudoClasses, excludeParentNodes, NORMAL_ATTRIBUTE_RE, URL_RE, properties, COMMENTS_RE, KEYFRAMES_RE, URL_WITH_FORMAT_RE, FONT_SRC_RE, SVG_EXTERNAL_RESOURCE_REGEX;
 var init_dist = __esm(() => {
   IN_BROWSER = typeof window !== "undefined";
   SUPPORT_WEB_WORKER = IN_BROWSER && "Worker" in window;
@@ -1765,7 +2174,7 @@ var init_dist = __esm(() => {
   IN_CHROME = USER_AGENT.includes("Chrome");
   IN_SAFARI = USER_AGENT.includes("AppleWebKit") && !IN_CHROME;
   IN_FIREFOX = USER_AGENT.includes("Firefox");
-  uuid = /* @__PURE__ */ function uuid2() {
+  uuid2 = /* @__PURE__ */ function uuid2() {
     let counter = 0;
     const random = () => `0000${(Math.random() * 36 ** 4 << 0).toString(36)}`.slice(-4);
     return () => {
@@ -1941,6 +2350,2834 @@ async function handleThemeInstallPack(ctx, args) {
     saveToLibrary: a.save_to_library === true
   });
   return result;
+}
+
+// ../../../node_modules/tus-js-client/lib.esm/error.js
+function _typeof(o) {
+  "@babel/helpers - typeof";
+  return _typeof = typeof Symbol == "function" && typeof Symbol.iterator == "symbol" ? function(o) {
+    return typeof o;
+  } : function(o) {
+    return o && typeof Symbol == "function" && o.constructor === Symbol && o !== Symbol.prototype ? "symbol" : typeof o;
+  }, _typeof(o);
+}
+function _defineProperties(target, props) {
+  for (var i = 0;i < props.length; i++) {
+    var descriptor = props[i];
+    descriptor.enumerable = descriptor.enumerable || false;
+    descriptor.configurable = true;
+    if ("value" in descriptor)
+      descriptor.writable = true;
+    Object.defineProperty(target, _toPropertyKey(descriptor.key), descriptor);
+  }
+}
+function _createClass(Constructor, protoProps, staticProps) {
+  if (protoProps)
+    _defineProperties(Constructor.prototype, protoProps);
+  if (staticProps)
+    _defineProperties(Constructor, staticProps);
+  Object.defineProperty(Constructor, "prototype", { writable: false });
+  return Constructor;
+}
+function _toPropertyKey(t) {
+  var i = _toPrimitive(t, "string");
+  return _typeof(i) == "symbol" ? i : i + "";
+}
+function _toPrimitive(t, r) {
+  if (_typeof(t) != "object" || !t)
+    return t;
+  var e = t[Symbol.toPrimitive];
+  if (e !== undefined) {
+    var i = e.call(t, r || "default");
+    if (_typeof(i) != "object")
+      return i;
+    throw new TypeError("@@toPrimitive must return a primitive value.");
+  }
+  return (r === "string" ? String : Number)(t);
+}
+function _classCallCheck(instance, Constructor) {
+  if (!(instance instanceof Constructor)) {
+    throw new TypeError("Cannot call a class as a function");
+  }
+}
+function _callSuper(t, o, e) {
+  return o = _getPrototypeOf(o), _possibleConstructorReturn(t, _isNativeReflectConstruct() ? Reflect.construct(o, e || [], _getPrototypeOf(t).constructor) : o.apply(t, e));
+}
+function _possibleConstructorReturn(self2, call) {
+  if (call && (_typeof(call) === "object" || typeof call === "function")) {
+    return call;
+  } else if (call !== undefined) {
+    throw new TypeError("Derived constructors may only return object or undefined");
+  }
+  return _assertThisInitialized(self2);
+}
+function _assertThisInitialized(self2) {
+  if (self2 === undefined) {
+    throw new ReferenceError("this hasn't been initialised - super() hasn't been called");
+  }
+  return self2;
+}
+function _inherits(subClass, superClass) {
+  if (typeof superClass !== "function" && superClass !== null) {
+    throw new TypeError("Super expression must either be null or a function");
+  }
+  subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, writable: true, configurable: true } });
+  Object.defineProperty(subClass, "prototype", { writable: false });
+  if (superClass)
+    _setPrototypeOf(subClass, superClass);
+}
+function _wrapNativeSuper(Class) {
+  var _cache = typeof Map === "function" ? new Map : undefined;
+  _wrapNativeSuper = function _wrapNativeSuper(Class) {
+    if (Class === null || !_isNativeFunction(Class))
+      return Class;
+    if (typeof Class !== "function") {
+      throw new TypeError("Super expression must either be null or a function");
+    }
+    if (typeof _cache !== "undefined") {
+      if (_cache.has(Class))
+        return _cache.get(Class);
+      _cache.set(Class, Wrapper);
+    }
+    function Wrapper() {
+      return _construct(Class, arguments, _getPrototypeOf(this).constructor);
+    }
+    Wrapper.prototype = Object.create(Class.prototype, { constructor: { value: Wrapper, enumerable: false, writable: true, configurable: true } });
+    return _setPrototypeOf(Wrapper, Class);
+  };
+  return _wrapNativeSuper(Class);
+}
+function _construct(t, e, r) {
+  if (_isNativeReflectConstruct())
+    return Reflect.construct.apply(null, arguments);
+  var o = [null];
+  o.push.apply(o, e);
+  var p = new (t.bind.apply(t, o));
+  return r && _setPrototypeOf(p, r.prototype), p;
+}
+function _isNativeReflectConstruct() {
+  try {
+    var t = !Boolean.prototype.valueOf.call(Reflect.construct(Boolean, [], function() {}));
+  } catch (t) {}
+  return (_isNativeReflectConstruct = function _isNativeReflectConstruct() {
+    return !!t;
+  })();
+}
+function _isNativeFunction(fn) {
+  try {
+    return Function.toString.call(fn).indexOf("[native code]") !== -1;
+  } catch (e) {
+    return typeof fn === "function";
+  }
+}
+function _setPrototypeOf(o, p) {
+  _setPrototypeOf = Object.setPrototypeOf ? Object.setPrototypeOf.bind() : function _setPrototypeOf(o, p) {
+    o.__proto__ = p;
+    return o;
+  };
+  return _setPrototypeOf(o, p);
+}
+function _getPrototypeOf(o) {
+  _getPrototypeOf = Object.setPrototypeOf ? Object.getPrototypeOf.bind() : function _getPrototypeOf(o) {
+    return o.__proto__ || Object.getPrototypeOf(o);
+  };
+  return _getPrototypeOf(o);
+}
+var DetailedError = /* @__PURE__ */ function(_Error) {
+  function DetailedError(message) {
+    var _this;
+    var causingErr = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : null;
+    var req = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : null;
+    var res = arguments.length > 3 && arguments[3] !== undefined ? arguments[3] : null;
+    _classCallCheck(this, DetailedError);
+    _this = _callSuper(this, DetailedError, [message]);
+    _this.originalRequest = req;
+    _this.originalResponse = res;
+    _this.causingError = causingErr;
+    if (causingErr != null) {
+      message += ", caused by ".concat(causingErr.toString());
+    }
+    if (req != null) {
+      var requestId = req.getHeader("X-Request-ID") || "n/a";
+      var method = req.getMethod();
+      var url = req.getURL();
+      var status = res ? res.getStatus() : "n/a";
+      var body = res ? res.getBody() || "" : "n/a";
+      message += ", originated from request (method: ".concat(method, ", url: ").concat(url, ", response code: ").concat(status, ", response text: ").concat(body, ", request id: ").concat(requestId, ")");
+    }
+    _this.message = message;
+    return _this;
+  }
+  _inherits(DetailedError, _Error);
+  return _createClass(DetailedError);
+}(/* @__PURE__ */ _wrapNativeSuper(Error));
+var error_default = DetailedError;
+
+// ../../../node_modules/tus-js-client/lib.esm/logger.js
+var isEnabled = false;
+function log(msg) {
+  if (!isEnabled)
+    return;
+  console.log(msg);
+}
+
+// ../../../node_modules/tus-js-client/lib.esm/noopUrlStorage.js
+function _typeof2(o) {
+  "@babel/helpers - typeof";
+  return _typeof2 = typeof Symbol == "function" && typeof Symbol.iterator == "symbol" ? function(o) {
+    return typeof o;
+  } : function(o) {
+    return o && typeof Symbol == "function" && o.constructor === Symbol && o !== Symbol.prototype ? "symbol" : typeof o;
+  }, _typeof2(o);
+}
+function _classCallCheck2(instance, Constructor) {
+  if (!(instance instanceof Constructor)) {
+    throw new TypeError("Cannot call a class as a function");
+  }
+}
+function _defineProperties2(target, props) {
+  for (var i = 0;i < props.length; i++) {
+    var descriptor = props[i];
+    descriptor.enumerable = descriptor.enumerable || false;
+    descriptor.configurable = true;
+    if ("value" in descriptor)
+      descriptor.writable = true;
+    Object.defineProperty(target, _toPropertyKey2(descriptor.key), descriptor);
+  }
+}
+function _createClass2(Constructor, protoProps, staticProps) {
+  if (protoProps)
+    _defineProperties2(Constructor.prototype, protoProps);
+  if (staticProps)
+    _defineProperties2(Constructor, staticProps);
+  Object.defineProperty(Constructor, "prototype", { writable: false });
+  return Constructor;
+}
+function _toPropertyKey2(t) {
+  var i = _toPrimitive2(t, "string");
+  return _typeof2(i) == "symbol" ? i : i + "";
+}
+function _toPrimitive2(t, r) {
+  if (_typeof2(t) != "object" || !t)
+    return t;
+  var e = t[Symbol.toPrimitive];
+  if (e !== undefined) {
+    var i = e.call(t, r || "default");
+    if (_typeof2(i) != "object")
+      return i;
+    throw new TypeError("@@toPrimitive must return a primitive value.");
+  }
+  return (r === "string" ? String : Number)(t);
+}
+var NoopUrlStorage = /* @__PURE__ */ function() {
+  function NoopUrlStorage() {
+    _classCallCheck2(this, NoopUrlStorage);
+  }
+  return _createClass2(NoopUrlStorage, [{
+    key: "listAllUploads",
+    value: function listAllUploads() {
+      return Promise.resolve([]);
+    }
+  }, {
+    key: "findUploadsByFingerprint",
+    value: function findUploadsByFingerprint(_fingerprint) {
+      return Promise.resolve([]);
+    }
+  }, {
+    key: "removeUpload",
+    value: function removeUpload(_urlStorageKey) {
+      return Promise.resolve();
+    }
+  }, {
+    key: "addUpload",
+    value: function addUpload(_fingerprint, _upload) {
+      return Promise.resolve(null);
+    }
+  }]);
+}();
+
+// ../../../node_modules/js-base64/base64.mjs
+var version = "3.9.5";
+var VERSION = version;
+var _TD = typeof TextDecoder === "function" ? new TextDecoder("utf-8", { ignoreBOM: true }) : undefined;
+var _TE = typeof TextEncoder === "function" ? new TextEncoder : undefined;
+var b64ch = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
+var b64chs = Array.prototype.slice.call(b64ch);
+var b64tab = ((a) => {
+  let tab = {};
+  a.forEach((c, i) => tab[c] = i);
+  return tab;
+})(b64chs);
+var b64re = /^(?:[A-Za-z\d+\/]{4})*?(?:[A-Za-z\d+\/]{2}(?:==)?|[A-Za-z\d+\/]{3}=?)?$/;
+var _fromCC = String.fromCharCode.bind(String);
+var _U8Afrom = typeof Uint8Array.from === "function" ? Uint8Array.from.bind(Uint8Array) : (it) => new Uint8Array(Array.prototype.slice.call(it, 0));
+var _mkUriSafe = (src) => src.replace(/=/g, "").replace(/[+\/]/g, (m0) => m0 == "+" ? "-" : "_");
+var _tidyB64 = (s) => s.replace(/[^A-Za-z0-9\+\/]/g, "");
+var btoaPolyfill = (bin) => {
+  let u32, c0, c1, c2, asc = "";
+  const pad = bin.length % 3;
+  for (let i = 0;i < bin.length; ) {
+    if ((c0 = bin.charCodeAt(i++)) > 255 || (c1 = bin.charCodeAt(i++)) > 255 || (c2 = bin.charCodeAt(i++)) > 255)
+      throw new TypeError("invalid character found");
+    u32 = c0 << 16 | c1 << 8 | c2;
+    asc += b64chs[u32 >> 18 & 63] + b64chs[u32 >> 12 & 63] + b64chs[u32 >> 6 & 63] + b64chs[u32 & 63];
+  }
+  return pad ? asc.slice(0, pad - 3) + "===".substring(pad) : asc;
+};
+var _btoa = typeof btoa === "function" ? (bin) => btoa(bin) : btoaPolyfill;
+var _fromUint8Array = typeof Uint8Array.prototype.toBase64 === "function" ? Function.prototype.call.bind(Uint8Array.prototype.toBase64) : (u8a) => {
+  const maxargs = 4096;
+  let strs = [];
+  for (let i = 0, l = u8a.length;i < l; i += maxargs) {
+    strs.push(_fromCC.apply(null, u8a.subarray(i, i + maxargs)));
+  }
+  return _btoa(strs.join(""));
+};
+var fromUint8Array = (u8a, urlsafe = false) => urlsafe ? _mkUriSafe(_fromUint8Array(u8a)) : _fromUint8Array(u8a);
+var cb_utob = (c) => {
+  if (c.length < 2) {
+    var cc = c.charCodeAt(0);
+    return cc < 128 ? c : cc < 2048 ? _fromCC(192 | cc >>> 6) + _fromCC(128 | cc & 63) : _fromCC(224 | cc >>> 12 & 15) + _fromCC(128 | cc >>> 6 & 63) + _fromCC(128 | cc & 63);
+  } else {
+    var cc = 65536 + (c.charCodeAt(0) - 55296) * 1024 + (c.charCodeAt(1) - 56320);
+    return _fromCC(240 | cc >>> 18 & 7) + _fromCC(128 | cc >>> 12 & 63) + _fromCC(128 | cc >>> 6 & 63) + _fromCC(128 | cc & 63);
+  }
+};
+var re_utob = /[\uD800-\uDBFF][\uDC00-\uDFFF]|[^\x00-\x7F]/g;
+var utob = (u) => u.replace(re_utob, cb_utob);
+var _encode = _TE ? (s) => _fromUint8Array(_TE.encode(s)) : (s) => _btoa(utob(s));
+var encode = (src, urlsafe = false) => urlsafe ? _mkUriSafe(_encode(src)) : _encode(src);
+var encodeURI = (src) => encode(src, true);
+var re_btou = /[\xC0-\xDF][\x80-\xBF]|[\xE0-\xEF][\x80-\xBF]{2}|[\xF0-\xF7][\x80-\xBF]{3}/g;
+var cb_btou = (cccc) => {
+  switch (cccc.length) {
+    case 4:
+      var cp = (7 & cccc.charCodeAt(0)) << 18 | (63 & cccc.charCodeAt(1)) << 12 | (63 & cccc.charCodeAt(2)) << 6 | 63 & cccc.charCodeAt(3), offset = cp - 65536;
+      return _fromCC((offset >>> 10) + 55296) + _fromCC((offset & 1023) + 56320);
+    case 3:
+      return _fromCC((15 & cccc.charCodeAt(0)) << 12 | (63 & cccc.charCodeAt(1)) << 6 | 63 & cccc.charCodeAt(2));
+    default:
+      return _fromCC((31 & cccc.charCodeAt(0)) << 6 | 63 & cccc.charCodeAt(1));
+  }
+};
+var btou = (b) => b.replace(re_btou, cb_btou);
+var atobPolyfill = (asc) => {
+  asc = asc.replace(/\s+/g, "");
+  if (!b64re.test(asc))
+    throw new TypeError("malformed base64.");
+  asc += "==".slice(2 - (asc.length & 3));
+  let u24, r1, r2;
+  let binArray = [];
+  for (let i = 0;i < asc.length; ) {
+    u24 = b64tab[asc.charAt(i++)] << 18 | b64tab[asc.charAt(i++)] << 12 | (r1 = b64tab[asc.charAt(i++)]) << 6 | (r2 = b64tab[asc.charAt(i++)]);
+    if (r1 === 64) {
+      binArray.push(_fromCC(u24 >> 16 & 255));
+    } else if (r2 === 64) {
+      binArray.push(_fromCC(u24 >> 16 & 255, u24 >> 8 & 255));
+    } else {
+      binArray.push(_fromCC(u24 >> 16 & 255, u24 >> 8 & 255, u24 & 255));
+    }
+  }
+  return binArray.join("");
+};
+var _atob = typeof atob === "function" ? (asc) => atob(_tidyB64(asc)) : atobPolyfill;
+var _toUint8Array = typeof Uint8Array.fromBase64 === "function" ? (a) => Uint8Array.fromBase64(a) : (a) => _U8Afrom(_atob(a).split("").map((c) => c.charCodeAt(0)));
+var toUint8Array = (a) => _toUint8Array(_unURI(a));
+var _decode = _TD ? (a) => _TD.decode(_toUint8Array(a)) : (a) => btou(_atob(a));
+var _unURI = (a) => _tidyB64(a.replace(/[-_]/g, (m0) => m0 == "-" ? "+" : "/"));
+var decode = (src) => _decode(_unURI(src));
+var isValid = (src) => {
+  if (typeof src !== "string")
+    return false;
+  const s = src.replace(/\s+/g, "").replace(/={0,2}$/, "");
+  return !/[^\s0-9a-zA-Z\+/]/.test(s) || !/[^\s0-9a-zA-Z\-_]/.test(s);
+};
+var _noEnum = (v) => {
+  return {
+    value: v,
+    enumerable: false,
+    writable: true,
+    configurable: true
+  };
+};
+var extendString = function() {
+  const _add = (name, body) => Object.defineProperty(String.prototype, name, _noEnum(body));
+  _add("fromBase64", function() {
+    return decode(this);
+  });
+  _add("toBase64", function(urlsafe) {
+    return encode(this, urlsafe);
+  });
+  _add("toBase64URI", function() {
+    return encode(this, true);
+  });
+  _add("toBase64URL", function() {
+    return encode(this, true);
+  });
+  _add("toUint8Array", function() {
+    return toUint8Array(this);
+  });
+};
+var extendUint8Array = function() {
+  const _add = (name, body) => Object.defineProperty(Uint8Array.prototype, name, _noEnum(body));
+  _add("toBase64", function(urlsafe) {
+    return fromUint8Array(this, urlsafe);
+  });
+  _add("toBase64URI", function() {
+    return fromUint8Array(this, true);
+  });
+  _add("toBase64URL", function() {
+    return fromUint8Array(this, true);
+  });
+};
+var extendBuiltins = () => {
+  extendString();
+  extendUint8Array();
+};
+var gBase64 = {
+  version,
+  VERSION,
+  atob: _atob,
+  atobPolyfill,
+  btoa: _btoa,
+  btoaPolyfill,
+  fromBase64: decode,
+  toBase64: encode,
+  encode,
+  encodeURI,
+  encodeURL: encodeURI,
+  utob,
+  btou,
+  decode,
+  isValid,
+  fromUint8Array,
+  toUint8Array,
+  extendString,
+  extendUint8Array,
+  extendBuiltins
+};
+
+// ../../../node_modules/tus-js-client/lib.esm/upload.js
+var import_url_parse = __toESM(require_url_parse());
+
+// ../../../node_modules/tus-js-client/lib.esm/uuid.js
+function uuid() {
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function(c) {
+    var r = Math.random() * 16 | 0;
+    var v = c === "x" ? r : r & 3 | 8;
+    return v.toString(16);
+  });
+}
+
+// ../../../node_modules/tus-js-client/lib.esm/upload.js
+function _regeneratorRuntime() {
+  /*! regenerator-runtime -- Copyright (c) 2014-present, Facebook, Inc. -- license (MIT): https://github.com/facebook/regenerator/blob/main/LICENSE */
+  _regeneratorRuntime = function _regeneratorRuntime() {
+    return e;
+  };
+  var t, e = {}, r = Object.prototype, n = r.hasOwnProperty, o = Object.defineProperty || function(t, e, r) {
+    t[e] = r.value;
+  }, i = typeof Symbol == "function" ? Symbol : {}, a = i.iterator || "@@iterator", c = i.asyncIterator || "@@asyncIterator", u = i.toStringTag || "@@toStringTag";
+  function define(t, e, r) {
+    return Object.defineProperty(t, e, { value: r, enumerable: true, configurable: true, writable: true }), t[e];
+  }
+  try {
+    define({}, "");
+  } catch (t) {
+    define = function define(t, e, r) {
+      return t[e] = r;
+    };
+  }
+  function wrap(t, e, r, n) {
+    var i = e && e.prototype instanceof Generator ? e : Generator, a = Object.create(i.prototype), c = new Context(n || []);
+    return o(a, "_invoke", { value: makeInvokeMethod(t, r, c) }), a;
+  }
+  function tryCatch(t, e, r) {
+    try {
+      return { type: "normal", arg: t.call(e, r) };
+    } catch (t) {
+      return { type: "throw", arg: t };
+    }
+  }
+  e.wrap = wrap;
+  var h = "suspendedStart", l = "suspendedYield", f = "executing", s = "completed", y = {};
+  function Generator() {}
+  function GeneratorFunction() {}
+  function GeneratorFunctionPrototype() {}
+  var p = {};
+  define(p, a, function() {
+    return this;
+  });
+  var d = Object.getPrototypeOf, v = d && d(d(values([])));
+  v && v !== r && n.call(v, a) && (p = v);
+  var g = GeneratorFunctionPrototype.prototype = Generator.prototype = Object.create(p);
+  function defineIteratorMethods(t) {
+    ["next", "throw", "return"].forEach(function(e) {
+      define(t, e, function(t) {
+        return this._invoke(e, t);
+      });
+    });
+  }
+  function AsyncIterator(t, e) {
+    function invoke(r, o, i, a) {
+      var c = tryCatch(t[r], t, o);
+      if (c.type !== "throw") {
+        var u = c.arg, h = u.value;
+        return h && _typeof3(h) == "object" && n.call(h, "__await") ? e.resolve(h.__await).then(function(t) {
+          invoke("next", t, i, a);
+        }, function(t) {
+          invoke("throw", t, i, a);
+        }) : e.resolve(h).then(function(t) {
+          u.value = t, i(u);
+        }, function(t) {
+          return invoke("throw", t, i, a);
+        });
+      }
+      a(c.arg);
+    }
+    var r;
+    o(this, "_invoke", { value: function value(t, n) {
+      function callInvokeWithMethodAndArg() {
+        return new e(function(e, r) {
+          invoke(t, n, e, r);
+        });
+      }
+      return r = r ? r.then(callInvokeWithMethodAndArg, callInvokeWithMethodAndArg) : callInvokeWithMethodAndArg();
+    } });
+  }
+  function makeInvokeMethod(e, r, n) {
+    var o = h;
+    return function(i, a) {
+      if (o === f)
+        throw Error("Generator is already running");
+      if (o === s) {
+        if (i === "throw")
+          throw a;
+        return { value: t, done: true };
+      }
+      for (n.method = i, n.arg = a;; ) {
+        var c = n.delegate;
+        if (c) {
+          var u = maybeInvokeDelegate(c, n);
+          if (u) {
+            if (u === y)
+              continue;
+            return u;
+          }
+        }
+        if (n.method === "next")
+          n.sent = n._sent = n.arg;
+        else if (n.method === "throw") {
+          if (o === h)
+            throw o = s, n.arg;
+          n.dispatchException(n.arg);
+        } else
+          n.method === "return" && n.abrupt("return", n.arg);
+        o = f;
+        var p = tryCatch(e, r, n);
+        if (p.type === "normal") {
+          if (o = n.done ? s : l, p.arg === y)
+            continue;
+          return { value: p.arg, done: n.done };
+        }
+        p.type === "throw" && (o = s, n.method = "throw", n.arg = p.arg);
+      }
+    };
+  }
+  function maybeInvokeDelegate(e, r) {
+    var n = r.method, o = e.iterator[n];
+    if (o === t)
+      return r.delegate = null, n === "throw" && e.iterator["return"] && (r.method = "return", r.arg = t, maybeInvokeDelegate(e, r), r.method === "throw") || n !== "return" && (r.method = "throw", r.arg = new TypeError("The iterator does not provide a '" + n + "' method")), y;
+    var i = tryCatch(o, e.iterator, r.arg);
+    if (i.type === "throw")
+      return r.method = "throw", r.arg = i.arg, r.delegate = null, y;
+    var a = i.arg;
+    return a ? a.done ? (r[e.resultName] = a.value, r.next = e.nextLoc, r.method !== "return" && (r.method = "next", r.arg = t), r.delegate = null, y) : a : (r.method = "throw", r.arg = new TypeError("iterator result is not an object"), r.delegate = null, y);
+  }
+  function pushTryEntry(t) {
+    var e = { tryLoc: t[0] };
+    1 in t && (e.catchLoc = t[1]), 2 in t && (e.finallyLoc = t[2], e.afterLoc = t[3]), this.tryEntries.push(e);
+  }
+  function resetTryEntry(t) {
+    var e = t.completion || {};
+    e.type = "normal", delete e.arg, t.completion = e;
+  }
+  function Context(t) {
+    this.tryEntries = [{ tryLoc: "root" }], t.forEach(pushTryEntry, this), this.reset(true);
+  }
+  function values(e) {
+    if (e || e === "") {
+      var r = e[a];
+      if (r)
+        return r.call(e);
+      if (typeof e.next == "function")
+        return e;
+      if (!isNaN(e.length)) {
+        var o = -1, i = function next() {
+          for (;++o < e.length; )
+            if (n.call(e, o))
+              return next.value = e[o], next.done = false, next;
+          return next.value = t, next.done = true, next;
+        };
+        return i.next = i;
+      }
+    }
+    throw new TypeError(_typeof3(e) + " is not iterable");
+  }
+  return GeneratorFunction.prototype = GeneratorFunctionPrototype, o(g, "constructor", { value: GeneratorFunctionPrototype, configurable: true }), o(GeneratorFunctionPrototype, "constructor", { value: GeneratorFunction, configurable: true }), GeneratorFunction.displayName = define(GeneratorFunctionPrototype, u, "GeneratorFunction"), e.isGeneratorFunction = function(t) {
+    var e = typeof t == "function" && t.constructor;
+    return !!e && (e === GeneratorFunction || (e.displayName || e.name) === "GeneratorFunction");
+  }, e.mark = function(t) {
+    return Object.setPrototypeOf ? Object.setPrototypeOf(t, GeneratorFunctionPrototype) : (t.__proto__ = GeneratorFunctionPrototype, define(t, u, "GeneratorFunction")), t.prototype = Object.create(g), t;
+  }, e.awrap = function(t) {
+    return { __await: t };
+  }, defineIteratorMethods(AsyncIterator.prototype), define(AsyncIterator.prototype, c, function() {
+    return this;
+  }), e.AsyncIterator = AsyncIterator, e.async = function(t, r, n, o, i) {
+    i === undefined && (i = Promise);
+    var a = new AsyncIterator(wrap(t, r, n, o), i);
+    return e.isGeneratorFunction(r) ? a : a.next().then(function(t) {
+      return t.done ? t.value : a.next();
+    });
+  }, defineIteratorMethods(g), define(g, u, "Generator"), define(g, a, function() {
+    return this;
+  }), define(g, "toString", function() {
+    return "[object Generator]";
+  }), e.keys = function(t) {
+    var e = Object(t), r = [];
+    for (var n in e)
+      r.push(n);
+    return r.reverse(), function next() {
+      for (;r.length; ) {
+        var t = r.pop();
+        if (t in e)
+          return next.value = t, next.done = false, next;
+      }
+      return next.done = true, next;
+    };
+  }, e.values = values, Context.prototype = { constructor: Context, reset: function reset(e) {
+    if (this.prev = 0, this.next = 0, this.sent = this._sent = t, this.done = false, this.delegate = null, this.method = "next", this.arg = t, this.tryEntries.forEach(resetTryEntry), !e)
+      for (var r in this)
+        r.charAt(0) === "t" && n.call(this, r) && !isNaN(+r.slice(1)) && (this[r] = t);
+  }, stop: function stop() {
+    this.done = true;
+    var t = this.tryEntries[0].completion;
+    if (t.type === "throw")
+      throw t.arg;
+    return this.rval;
+  }, dispatchException: function dispatchException(e) {
+    if (this.done)
+      throw e;
+    var r = this;
+    function handle(n, o) {
+      return a.type = "throw", a.arg = e, r.next = n, o && (r.method = "next", r.arg = t), !!o;
+    }
+    for (var o = this.tryEntries.length - 1;o >= 0; --o) {
+      var i = this.tryEntries[o], a = i.completion;
+      if (i.tryLoc === "root")
+        return handle("end");
+      if (i.tryLoc <= this.prev) {
+        var c = n.call(i, "catchLoc"), u = n.call(i, "finallyLoc");
+        if (c && u) {
+          if (this.prev < i.catchLoc)
+            return handle(i.catchLoc, true);
+          if (this.prev < i.finallyLoc)
+            return handle(i.finallyLoc);
+        } else if (c) {
+          if (this.prev < i.catchLoc)
+            return handle(i.catchLoc, true);
+        } else {
+          if (!u)
+            throw Error("try statement without catch or finally");
+          if (this.prev < i.finallyLoc)
+            return handle(i.finallyLoc);
+        }
+      }
+    }
+  }, abrupt: function abrupt(t, e) {
+    for (var r = this.tryEntries.length - 1;r >= 0; --r) {
+      var o = this.tryEntries[r];
+      if (o.tryLoc <= this.prev && n.call(o, "finallyLoc") && this.prev < o.finallyLoc) {
+        var i = o;
+        break;
+      }
+    }
+    i && (t === "break" || t === "continue") && i.tryLoc <= e && e <= i.finallyLoc && (i = null);
+    var a = i ? i.completion : {};
+    return a.type = t, a.arg = e, i ? (this.method = "next", this.next = i.finallyLoc, y) : this.complete(a);
+  }, complete: function complete(t, e) {
+    if (t.type === "throw")
+      throw t.arg;
+    return t.type === "break" || t.type === "continue" ? this.next = t.arg : t.type === "return" ? (this.rval = this.arg = t.arg, this.method = "return", this.next = "end") : t.type === "normal" && e && (this.next = e), y;
+  }, finish: function finish(t) {
+    for (var e = this.tryEntries.length - 1;e >= 0; --e) {
+      var r = this.tryEntries[e];
+      if (r.finallyLoc === t)
+        return this.complete(r.completion, r.afterLoc), resetTryEntry(r), y;
+    }
+  }, catch: function _catch(t) {
+    for (var e = this.tryEntries.length - 1;e >= 0; --e) {
+      var r = this.tryEntries[e];
+      if (r.tryLoc === t) {
+        var n = r.completion;
+        if (n.type === "throw") {
+          var o = n.arg;
+          resetTryEntry(r);
+        }
+        return o;
+      }
+    }
+    throw Error("illegal catch attempt");
+  }, delegateYield: function delegateYield(e, r, n) {
+    return this.delegate = { iterator: values(e), resultName: r, nextLoc: n }, this.method === "next" && (this.arg = t), y;
+  } }, e;
+}
+function asyncGeneratorStep(gen, resolve, reject, _next, _throw, key, arg) {
+  try {
+    var info = gen[key](arg);
+    var value = info.value;
+  } catch (error) {
+    reject(error);
+    return;
+  }
+  if (info.done) {
+    resolve(value);
+  } else {
+    Promise.resolve(value).then(_next, _throw);
+  }
+}
+function _asyncToGenerator(fn) {
+  return function() {
+    var self2 = this, args = arguments;
+    return new Promise(function(resolve, reject) {
+      var gen = fn.apply(self2, args);
+      function _next(value) {
+        asyncGeneratorStep(gen, resolve, reject, _next, _throw, "next", value);
+      }
+      function _throw(err) {
+        asyncGeneratorStep(gen, resolve, reject, _next, _throw, "throw", err);
+      }
+      _next(undefined);
+    });
+  };
+}
+function _slicedToArray(arr, i) {
+  return _arrayWithHoles(arr) || _iterableToArrayLimit(arr, i) || _unsupportedIterableToArray(arr, i) || _nonIterableRest();
+}
+function _nonIterableRest() {
+  throw new TypeError(`Invalid attempt to destructure non-iterable instance.
+In order to be iterable, non-array objects must have a [Symbol.iterator]() method.`);
+}
+function _iterableToArrayLimit(r, l) {
+  var t = r == null ? null : typeof Symbol != "undefined" && r[Symbol.iterator] || r["@@iterator"];
+  if (t != null) {
+    var e, n, i, u, a = [], f = true, o = false;
+    try {
+      if (i = (t = t.call(r)).next, l === 0) {
+        if (Object(t) !== t)
+          return;
+        f = false;
+      } else
+        for (;!(f = (e = i.call(t)).done) && (a.push(e.value), a.length !== l); f = true)
+          ;
+    } catch (r) {
+      o = true, n = r;
+    } finally {
+      try {
+        if (!f && t["return"] != null && (u = t["return"](), Object(u) !== u))
+          return;
+      } finally {
+        if (o)
+          throw n;
+      }
+    }
+    return a;
+  }
+}
+function _arrayWithHoles(arr) {
+  if (Array.isArray(arr))
+    return arr;
+}
+function _typeof3(o) {
+  "@babel/helpers - typeof";
+  return _typeof3 = typeof Symbol == "function" && typeof Symbol.iterator == "symbol" ? function(o) {
+    return typeof o;
+  } : function(o) {
+    return o && typeof Symbol == "function" && o.constructor === Symbol && o !== Symbol.prototype ? "symbol" : typeof o;
+  }, _typeof3(o);
+}
+function _createForOfIteratorHelper(o, allowArrayLike) {
+  var it = typeof Symbol !== "undefined" && o[Symbol.iterator] || o["@@iterator"];
+  if (!it) {
+    if (Array.isArray(o) || (it = _unsupportedIterableToArray(o)) || allowArrayLike && o && typeof o.length === "number") {
+      if (it)
+        o = it;
+      var i = 0;
+      var F = function F() {};
+      return { s: F, n: function n() {
+        if (i >= o.length)
+          return { done: true };
+        return { done: false, value: o[i++] };
+      }, e: function e(_e) {
+        throw _e;
+      }, f: F };
+    }
+    throw new TypeError(`Invalid attempt to iterate non-iterable instance.
+In order to be iterable, non-array objects must have a [Symbol.iterator]() method.`);
+  }
+  var normalCompletion = true, didErr = false, err;
+  return { s: function s() {
+    it = it.call(o);
+  }, n: function n() {
+    var step = it.next();
+    normalCompletion = step.done;
+    return step;
+  }, e: function e(_e2) {
+    didErr = true;
+    err = _e2;
+  }, f: function f() {
+    try {
+      if (!normalCompletion && it["return"] != null)
+        it["return"]();
+    } finally {
+      if (didErr)
+        throw err;
+    }
+  } };
+}
+function _unsupportedIterableToArray(o, minLen) {
+  if (!o)
+    return;
+  if (typeof o === "string")
+    return _arrayLikeToArray(o, minLen);
+  var n = Object.prototype.toString.call(o).slice(8, -1);
+  if (n === "Object" && o.constructor)
+    n = o.constructor.name;
+  if (n === "Map" || n === "Set")
+    return Array.from(o);
+  if (n === "Arguments" || /^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(n))
+    return _arrayLikeToArray(o, minLen);
+}
+function _arrayLikeToArray(arr, len) {
+  if (len == null || len > arr.length)
+    len = arr.length;
+  for (var i = 0, arr2 = new Array(len);i < len; i++)
+    arr2[i] = arr[i];
+  return arr2;
+}
+function ownKeys(e, r) {
+  var t = Object.keys(e);
+  if (Object.getOwnPropertySymbols) {
+    var o = Object.getOwnPropertySymbols(e);
+    r && (o = o.filter(function(r) {
+      return Object.getOwnPropertyDescriptor(e, r).enumerable;
+    })), t.push.apply(t, o);
+  }
+  return t;
+}
+function _objectSpread(e) {
+  for (var r = 1;r < arguments.length; r++) {
+    var t = arguments[r] != null ? arguments[r] : {};
+    r % 2 ? ownKeys(Object(t), true).forEach(function(r) {
+      _defineProperty(e, r, t[r]);
+    }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys(Object(t)).forEach(function(r) {
+      Object.defineProperty(e, r, Object.getOwnPropertyDescriptor(t, r));
+    });
+  }
+  return e;
+}
+function _defineProperty(obj, key, value) {
+  key = _toPropertyKey3(key);
+  if (key in obj) {
+    Object.defineProperty(obj, key, { value, enumerable: true, configurable: true, writable: true });
+  } else {
+    obj[key] = value;
+  }
+  return obj;
+}
+function _classCallCheck3(instance, Constructor) {
+  if (!(instance instanceof Constructor)) {
+    throw new TypeError("Cannot call a class as a function");
+  }
+}
+function _defineProperties3(target, props) {
+  for (var i = 0;i < props.length; i++) {
+    var descriptor = props[i];
+    descriptor.enumerable = descriptor.enumerable || false;
+    descriptor.configurable = true;
+    if ("value" in descriptor)
+      descriptor.writable = true;
+    Object.defineProperty(target, _toPropertyKey3(descriptor.key), descriptor);
+  }
+}
+function _createClass3(Constructor, protoProps, staticProps) {
+  if (protoProps)
+    _defineProperties3(Constructor.prototype, protoProps);
+  if (staticProps)
+    _defineProperties3(Constructor, staticProps);
+  Object.defineProperty(Constructor, "prototype", { writable: false });
+  return Constructor;
+}
+function _toPropertyKey3(t) {
+  var i = _toPrimitive3(t, "string");
+  return _typeof3(i) == "symbol" ? i : i + "";
+}
+function _toPrimitive3(t, r) {
+  if (_typeof3(t) != "object" || !t)
+    return t;
+  var e = t[Symbol.toPrimitive];
+  if (e !== undefined) {
+    var i = e.call(t, r || "default");
+    if (_typeof3(i) != "object")
+      return i;
+    throw new TypeError("@@toPrimitive must return a primitive value.");
+  }
+  return (r === "string" ? String : Number)(t);
+}
+var PROTOCOL_TUS_V1 = "tus-v1";
+var PROTOCOL_IETF_DRAFT_03 = "ietf-draft-03";
+var PROTOCOL_IETF_DRAFT_05 = "ietf-draft-05";
+var defaultOptions = {
+  endpoint: null,
+  uploadUrl: null,
+  metadata: {},
+  metadataForPartialUploads: {},
+  fingerprint: null,
+  uploadSize: null,
+  onProgress: null,
+  onChunkComplete: null,
+  onSuccess: null,
+  onError: null,
+  onUploadUrlAvailable: null,
+  overridePatchMethod: false,
+  headers: {},
+  addRequestId: false,
+  onBeforeRequest: null,
+  onAfterResponse: null,
+  onShouldRetry: defaultOnShouldRetry,
+  chunkSize: Number.POSITIVE_INFINITY,
+  retryDelays: [0, 1000, 3000, 5000],
+  parallelUploads: 1,
+  parallelUploadBoundaries: null,
+  storeFingerprintForResuming: true,
+  removeFingerprintOnSuccess: false,
+  uploadLengthDeferred: false,
+  uploadDataDuringCreation: false,
+  urlStorage: null,
+  fileReader: null,
+  httpStack: null,
+  protocol: PROTOCOL_TUS_V1
+};
+var BaseUpload = /* @__PURE__ */ function() {
+  function BaseUpload(file, options) {
+    _classCallCheck3(this, BaseUpload);
+    if ("resume" in options) {
+      console.log("tus: The `resume` option has been removed in tus-js-client v2. Please use the URL storage API instead.");
+    }
+    this.options = options;
+    this.options.chunkSize = Number(this.options.chunkSize);
+    this._urlStorage = this.options.urlStorage;
+    this.file = file;
+    this.url = null;
+    this._req = null;
+    this._fingerprint = null;
+    this._urlStorageKey = null;
+    this._offset = null;
+    this._aborted = false;
+    this._size = null;
+    this._source = null;
+    this._retryAttempt = 0;
+    this._retryTimeout = null;
+    this._offsetBeforeRetry = 0;
+    this._parallelUploads = null;
+    this._parallelUploadUrls = null;
+  }
+  return _createClass3(BaseUpload, [{
+    key: "findPreviousUploads",
+    value: function findPreviousUploads() {
+      var _this = this;
+      return this.options.fingerprint(this.file, this.options).then(function(fingerprint) {
+        return _this._urlStorage.findUploadsByFingerprint(fingerprint);
+      });
+    }
+  }, {
+    key: "resumeFromPreviousUpload",
+    value: function resumeFromPreviousUpload(previousUpload) {
+      this.url = previousUpload.uploadUrl || null;
+      this._parallelUploadUrls = previousUpload.parallelUploadUrls || null;
+      this._urlStorageKey = previousUpload.urlStorageKey;
+    }
+  }, {
+    key: "start",
+    value: function start() {
+      var _this2 = this;
+      var file = this.file;
+      if (!file) {
+        this._emitError(new Error("tus: no file or stream to upload provided"));
+        return;
+      }
+      if (![PROTOCOL_TUS_V1, PROTOCOL_IETF_DRAFT_03, PROTOCOL_IETF_DRAFT_05].includes(this.options.protocol)) {
+        this._emitError(new Error("tus: unsupported protocol ".concat(this.options.protocol)));
+        return;
+      }
+      if (!this.options.endpoint && !this.options.uploadUrl && !this.url) {
+        this._emitError(new Error("tus: neither an endpoint or an upload URL is provided"));
+        return;
+      }
+      var retryDelays = this.options.retryDelays;
+      if (retryDelays != null && Object.prototype.toString.call(retryDelays) !== "[object Array]") {
+        this._emitError(new Error("tus: the `retryDelays` option must either be an array or null"));
+        return;
+      }
+      if (this.options.parallelUploads > 1) {
+        for (var _i = 0, _arr = ["uploadUrl", "uploadSize", "uploadLengthDeferred"];_i < _arr.length; _i++) {
+          var optionName = _arr[_i];
+          if (this.options[optionName]) {
+            this._emitError(new Error("tus: cannot use the ".concat(optionName, " option when parallelUploads is enabled")));
+            return;
+          }
+        }
+      }
+      if (this.options.parallelUploadBoundaries) {
+        if (this.options.parallelUploads <= 1) {
+          this._emitError(new Error("tus: cannot use the `parallelUploadBoundaries` option when `parallelUploads` is disabled"));
+          return;
+        }
+        if (this.options.parallelUploads !== this.options.parallelUploadBoundaries.length) {
+          this._emitError(new Error("tus: the `parallelUploadBoundaries` must have the same length as the value of `parallelUploads`"));
+          return;
+        }
+      }
+      this.options.fingerprint(file, this.options).then(function(fingerprint) {
+        if (fingerprint == null) {
+          log("No fingerprint was calculated meaning that the upload cannot be stored in the URL storage.");
+        } else {
+          log("Calculated fingerprint: ".concat(fingerprint));
+        }
+        _this2._fingerprint = fingerprint;
+        if (_this2._source) {
+          return _this2._source;
+        }
+        return _this2.options.fileReader.openFile(file, _this2.options.chunkSize);
+      }).then(function(source) {
+        _this2._source = source;
+        if (_this2.options.uploadLengthDeferred) {
+          _this2._size = null;
+        } else if (_this2.options.uploadSize != null) {
+          _this2._size = Number(_this2.options.uploadSize);
+          if (Number.isNaN(_this2._size)) {
+            _this2._emitError(new Error("tus: cannot convert `uploadSize` option into a number"));
+            return;
+          }
+        } else {
+          _this2._size = _this2._source.size;
+          if (_this2._size == null) {
+            _this2._emitError(new Error("tus: cannot automatically derive upload's size from input. Specify it manually using the `uploadSize` option or use the `uploadLengthDeferred` option"));
+            return;
+          }
+        }
+        if (_this2.options.parallelUploads > 1 || _this2._parallelUploadUrls != null) {
+          _this2._startParallelUpload();
+        } else {
+          _this2._startSingleUpload();
+        }
+      })["catch"](function(err) {
+        _this2._emitError(err);
+      });
+    }
+  }, {
+    key: "_startParallelUpload",
+    value: function _startParallelUpload() {
+      var _this$options$paralle, _this3 = this;
+      var totalSize = this._size;
+      var totalProgress = 0;
+      this._parallelUploads = [];
+      var partCount = this._parallelUploadUrls != null ? this._parallelUploadUrls.length : this.options.parallelUploads;
+      var parts = (_this$options$paralle = this.options.parallelUploadBoundaries) !== null && _this$options$paralle !== undefined ? _this$options$paralle : splitSizeIntoParts(this._source.size, partCount);
+      if (this._parallelUploadUrls) {
+        parts.forEach(function(part, index) {
+          part.uploadUrl = _this3._parallelUploadUrls[index] || null;
+        });
+      }
+      this._parallelUploadUrls = new Array(parts.length);
+      var uploads = parts.map(function(part, index) {
+        var lastPartProgress = 0;
+        return _this3._source.slice(part.start, part.end).then(function(_ref) {
+          var value = _ref.value;
+          return new Promise(function(resolve, reject) {
+            var options = _objectSpread(_objectSpread({}, _this3.options), {}, {
+              uploadUrl: part.uploadUrl || null,
+              storeFingerprintForResuming: false,
+              removeFingerprintOnSuccess: false,
+              parallelUploads: 1,
+              parallelUploadBoundaries: null,
+              metadata: _this3.options.metadataForPartialUploads,
+              headers: _objectSpread(_objectSpread({}, _this3.options.headers), {}, {
+                "Upload-Concat": "partial"
+              }),
+              onSuccess: resolve,
+              onError: reject,
+              onProgress: function onProgress(newPartProgress) {
+                totalProgress = totalProgress - lastPartProgress + newPartProgress;
+                lastPartProgress = newPartProgress;
+                _this3._emitProgress(totalProgress, totalSize);
+              },
+              onUploadUrlAvailable: function onUploadUrlAvailable() {
+                _this3._parallelUploadUrls[index] = upload.url;
+                if (_this3._parallelUploadUrls.filter(function(u) {
+                  return Boolean(u);
+                }).length === parts.length) {
+                  _this3._saveUploadInUrlStorage();
+                }
+              }
+            });
+            var upload = new BaseUpload(value, options);
+            upload.start();
+            _this3._parallelUploads.push(upload);
+          });
+        });
+      });
+      var req;
+      Promise.all(uploads).then(function() {
+        req = _this3._openRequest("POST", _this3.options.endpoint);
+        req.setHeader("Upload-Concat", "final;".concat(_this3._parallelUploadUrls.join(" ")));
+        var metadata = encodeMetadata(_this3.options.metadata);
+        if (metadata !== "") {
+          req.setHeader("Upload-Metadata", metadata);
+        }
+        return _this3._sendRequest(req, null);
+      }).then(function(res) {
+        if (!inStatusCategory(res.getStatus(), 200)) {
+          _this3._emitHttpError(req, res, "tus: unexpected response while creating upload");
+          return;
+        }
+        var location2 = res.getHeader("Location");
+        if (location2 == null) {
+          _this3._emitHttpError(req, res, "tus: invalid or missing Location header");
+          return;
+        }
+        _this3.url = resolveUrl(_this3.options.endpoint, location2);
+        log("Created upload at ".concat(_this3.url));
+        _this3._emitSuccess(res);
+      })["catch"](function(err) {
+        _this3._emitError(err);
+      });
+    }
+  }, {
+    key: "_startSingleUpload",
+    value: function _startSingleUpload() {
+      this._aborted = false;
+      if (this.url != null) {
+        log("Resuming upload from previous URL: ".concat(this.url));
+        this._resumeUpload();
+        return;
+      }
+      if (this.options.uploadUrl != null) {
+        log("Resuming upload from provided URL: ".concat(this.options.uploadUrl));
+        this.url = this.options.uploadUrl;
+        this._resumeUpload();
+        return;
+      }
+      log("Creating a new upload");
+      this._createUpload();
+    }
+  }, {
+    key: "abort",
+    value: function abort(shouldTerminate) {
+      var _this4 = this;
+      if (this._parallelUploads != null) {
+        var _iterator = _createForOfIteratorHelper(this._parallelUploads), _step;
+        try {
+          for (_iterator.s();!(_step = _iterator.n()).done; ) {
+            var upload = _step.value;
+            upload.abort(shouldTerminate);
+          }
+        } catch (err) {
+          _iterator.e(err);
+        } finally {
+          _iterator.f();
+        }
+      }
+      if (this._req !== null) {
+        this._req.abort();
+      }
+      this._aborted = true;
+      if (this._retryTimeout != null) {
+        clearTimeout(this._retryTimeout);
+        this._retryTimeout = null;
+      }
+      if (!shouldTerminate || this.url == null) {
+        return Promise.resolve();
+      }
+      return BaseUpload.terminate(this.url, this.options).then(function() {
+        return _this4._removeFromUrlStorage();
+      });
+    }
+  }, {
+    key: "_emitHttpError",
+    value: function _emitHttpError(req, res, message, causingErr) {
+      this._emitError(new error_default(message, causingErr, req, res));
+    }
+  }, {
+    key: "_emitError",
+    value: function _emitError(err) {
+      var _this5 = this;
+      if (this._aborted)
+        return;
+      if (this.options.retryDelays != null) {
+        var shouldResetDelays = this._offset != null && this._offset > this._offsetBeforeRetry;
+        if (shouldResetDelays) {
+          this._retryAttempt = 0;
+        }
+        if (shouldRetry(err, this._retryAttempt, this.options)) {
+          var delay = this.options.retryDelays[this._retryAttempt++];
+          this._offsetBeforeRetry = this._offset;
+          this._retryTimeout = setTimeout(function() {
+            _this5.start();
+          }, delay);
+          return;
+        }
+      }
+      if (typeof this.options.onError === "function") {
+        this.options.onError(err);
+      } else {
+        throw err;
+      }
+    }
+  }, {
+    key: "_emitSuccess",
+    value: function _emitSuccess(lastResponse) {
+      if (this.options.removeFingerprintOnSuccess) {
+        this._removeFromUrlStorage();
+      }
+      if (typeof this.options.onSuccess === "function") {
+        this.options.onSuccess({
+          lastResponse
+        });
+      }
+    }
+  }, {
+    key: "_emitProgress",
+    value: function _emitProgress(bytesSent, bytesTotal) {
+      if (typeof this.options.onProgress === "function") {
+        this.options.onProgress(bytesSent, bytesTotal);
+      }
+    }
+  }, {
+    key: "_emitChunkComplete",
+    value: function _emitChunkComplete(chunkSize, bytesAccepted, bytesTotal) {
+      if (typeof this.options.onChunkComplete === "function") {
+        this.options.onChunkComplete(chunkSize, bytesAccepted, bytesTotal);
+      }
+    }
+  }, {
+    key: "_createUpload",
+    value: function _createUpload() {
+      var _this6 = this;
+      if (!this.options.endpoint) {
+        this._emitError(new Error("tus: unable to create upload because no endpoint is provided"));
+        return;
+      }
+      var req = this._openRequest("POST", this.options.endpoint);
+      if (this.options.uploadLengthDeferred) {
+        req.setHeader("Upload-Defer-Length", "1");
+      } else {
+        req.setHeader("Upload-Length", "".concat(this._size));
+      }
+      var metadata = encodeMetadata(this.options.metadata);
+      if (metadata !== "") {
+        req.setHeader("Upload-Metadata", metadata);
+      }
+      var promise;
+      if (this.options.uploadDataDuringCreation && !this.options.uploadLengthDeferred) {
+        this._offset = 0;
+        promise = this._addChunkToRequest(req);
+      } else {
+        if (this.options.protocol === PROTOCOL_IETF_DRAFT_03 || this.options.protocol === PROTOCOL_IETF_DRAFT_05) {
+          req.setHeader("Upload-Complete", "?0");
+        }
+        promise = this._sendRequest(req, null);
+      }
+      promise.then(function(res) {
+        if (!inStatusCategory(res.getStatus(), 200)) {
+          _this6._emitHttpError(req, res, "tus: unexpected response while creating upload");
+          return;
+        }
+        var location2 = res.getHeader("Location");
+        if (location2 == null) {
+          _this6._emitHttpError(req, res, "tus: invalid or missing Location header");
+          return;
+        }
+        _this6.url = resolveUrl(_this6.options.endpoint, location2);
+        log("Created upload at ".concat(_this6.url));
+        if (typeof _this6.options.onUploadUrlAvailable === "function") {
+          _this6.options.onUploadUrlAvailable();
+        }
+        if (_this6._size === 0) {
+          _this6._emitSuccess(res);
+          _this6._source.close();
+          return;
+        }
+        _this6._saveUploadInUrlStorage().then(function() {
+          if (_this6.options.uploadDataDuringCreation) {
+            _this6._handleUploadResponse(req, res);
+          } else {
+            _this6._offset = 0;
+            _this6._performUpload();
+          }
+        });
+      })["catch"](function(err) {
+        _this6._emitHttpError(req, null, "tus: failed to create upload", err);
+      });
+    }
+  }, {
+    key: "_resumeUpload",
+    value: function _resumeUpload() {
+      var _this7 = this;
+      var req = this._openRequest("HEAD", this.url);
+      var promise = this._sendRequest(req, null);
+      promise.then(function(res) {
+        var status = res.getStatus();
+        if (!inStatusCategory(status, 200)) {
+          if (status === 423) {
+            _this7._emitHttpError(req, res, "tus: upload is currently locked; retry later");
+            return;
+          }
+          if (inStatusCategory(status, 400)) {
+            _this7._removeFromUrlStorage();
+          }
+          if (!_this7.options.endpoint) {
+            _this7._emitHttpError(req, res, "tus: unable to resume upload (new upload cannot be created without an endpoint)");
+            return;
+          }
+          _this7.url = null;
+          _this7._createUpload();
+          return;
+        }
+        var offset = Number.parseInt(res.getHeader("Upload-Offset"), 10);
+        if (Number.isNaN(offset)) {
+          _this7._emitHttpError(req, res, "tus: invalid or missing offset value");
+          return;
+        }
+        var length = Number.parseInt(res.getHeader("Upload-Length"), 10);
+        if (Number.isNaN(length) && !_this7.options.uploadLengthDeferred && _this7.options.protocol === PROTOCOL_TUS_V1) {
+          _this7._emitHttpError(req, res, "tus: invalid or missing length value");
+          return;
+        }
+        if (typeof _this7.options.onUploadUrlAvailable === "function") {
+          _this7.options.onUploadUrlAvailable();
+        }
+        _this7._saveUploadInUrlStorage().then(function() {
+          if (offset === length) {
+            _this7._emitProgress(length, length);
+            _this7._emitSuccess(res);
+            return;
+          }
+          _this7._offset = offset;
+          _this7._performUpload();
+        });
+      })["catch"](function(err) {
+        _this7._emitHttpError(req, null, "tus: failed to resume upload", err);
+      });
+    }
+  }, {
+    key: "_performUpload",
+    value: function _performUpload() {
+      var _this8 = this;
+      if (this._aborted) {
+        return;
+      }
+      var req;
+      if (this.options.overridePatchMethod) {
+        req = this._openRequest("POST", this.url);
+        req.setHeader("X-HTTP-Method-Override", "PATCH");
+      } else {
+        req = this._openRequest("PATCH", this.url);
+      }
+      req.setHeader("Upload-Offset", "".concat(this._offset));
+      var promise = this._addChunkToRequest(req);
+      promise.then(function(res) {
+        if (!inStatusCategory(res.getStatus(), 200)) {
+          _this8._emitHttpError(req, res, "tus: unexpected response while uploading chunk");
+          return;
+        }
+        _this8._handleUploadResponse(req, res);
+      })["catch"](function(err) {
+        if (_this8._aborted) {
+          return;
+        }
+        _this8._emitHttpError(req, null, "tus: failed to upload chunk at offset ".concat(_this8._offset), err);
+      });
+    }
+  }, {
+    key: "_addChunkToRequest",
+    value: function _addChunkToRequest(req) {
+      var _this9 = this;
+      var start = this._offset;
+      var end = this._offset + this.options.chunkSize;
+      req.setProgressHandler(function(bytesSent) {
+        _this9._emitProgress(start + bytesSent, _this9._size);
+      });
+      if (this.options.protocol === PROTOCOL_TUS_V1) {
+        req.setHeader("Content-Type", "application/offset+octet-stream");
+      } else if (this.options.protocol === PROTOCOL_IETF_DRAFT_05) {
+        req.setHeader("Content-Type", "application/partial-upload");
+      }
+      if ((end === Number.POSITIVE_INFINITY || end > this._size) && !this.options.uploadLengthDeferred) {
+        end = this._size;
+      }
+      return this._source.slice(start, end).then(function(_ref2) {
+        var { value, done } = _ref2;
+        var valueSize = value !== null && value !== undefined && value.size ? value.size : 0;
+        if (_this9.options.uploadLengthDeferred && done) {
+          _this9._size = _this9._offset + valueSize;
+          req.setHeader("Upload-Length", "".concat(_this9._size));
+        }
+        var newSize = _this9._offset + valueSize;
+        if (!_this9.options.uploadLengthDeferred && done && newSize !== _this9._size) {
+          return Promise.reject(new Error("upload was configured with a size of ".concat(_this9._size, " bytes, but the source is done after ").concat(newSize, " bytes")));
+        }
+        if (value === null) {
+          return _this9._sendRequest(req);
+        }
+        if (_this9.options.protocol === PROTOCOL_IETF_DRAFT_03 || _this9.options.protocol === PROTOCOL_IETF_DRAFT_05) {
+          req.setHeader("Upload-Complete", done ? "?1" : "?0");
+        }
+        _this9._emitProgress(_this9._offset, _this9._size);
+        return _this9._sendRequest(req, value);
+      });
+    }
+  }, {
+    key: "_handleUploadResponse",
+    value: function _handleUploadResponse(req, res) {
+      var offset = Number.parseInt(res.getHeader("Upload-Offset"), 10);
+      if (Number.isNaN(offset)) {
+        this._emitHttpError(req, res, "tus: invalid or missing offset value");
+        return;
+      }
+      this._emitProgress(offset, this._size);
+      this._emitChunkComplete(offset - this._offset, offset, this._size);
+      this._offset = offset;
+      if (offset === this._size) {
+        this._emitSuccess(res);
+        this._source.close();
+        return;
+      }
+      this._performUpload();
+    }
+  }, {
+    key: "_openRequest",
+    value: function _openRequest(method, url) {
+      var req = openRequest(method, url, this.options);
+      this._req = req;
+      return req;
+    }
+  }, {
+    key: "_removeFromUrlStorage",
+    value: function _removeFromUrlStorage() {
+      var _this10 = this;
+      if (!this._urlStorageKey)
+        return;
+      this._urlStorage.removeUpload(this._urlStorageKey)["catch"](function(err) {
+        _this10._emitError(err);
+      });
+      this._urlStorageKey = null;
+    }
+  }, {
+    key: "_saveUploadInUrlStorage",
+    value: function _saveUploadInUrlStorage() {
+      var _this11 = this;
+      if (!this.options.storeFingerprintForResuming || !this._fingerprint || this._urlStorageKey !== null) {
+        return Promise.resolve();
+      }
+      var storedUpload = {
+        size: this._size,
+        metadata: this.options.metadata,
+        creationTime: new Date().toString()
+      };
+      if (this._parallelUploads) {
+        storedUpload.parallelUploadUrls = this._parallelUploadUrls;
+      } else {
+        storedUpload.uploadUrl = this.url;
+      }
+      return this._urlStorage.addUpload(this._fingerprint, storedUpload).then(function(urlStorageKey) {
+        _this11._urlStorageKey = urlStorageKey;
+      });
+    }
+  }, {
+    key: "_sendRequest",
+    value: function _sendRequest(req) {
+      var body = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : null;
+      return sendRequest(req, body, this.options);
+    }
+  }], [{
+    key: "terminate",
+    value: function terminate(url) {
+      var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+      var req = openRequest("DELETE", url, options);
+      return sendRequest(req, null, options).then(function(res) {
+        if (res.getStatus() === 204) {
+          return;
+        }
+        throw new error_default("tus: unexpected response while terminating upload", null, req, res);
+      })["catch"](function(err) {
+        if (!(err instanceof error_default)) {
+          err = new error_default("tus: failed to terminate upload", err, req, null);
+        }
+        if (!shouldRetry(err, 0, options)) {
+          throw err;
+        }
+        var delay = options.retryDelays[0];
+        var remainingDelays = options.retryDelays.slice(1);
+        var newOptions = _objectSpread(_objectSpread({}, options), {}, {
+          retryDelays: remainingDelays
+        });
+        return new Promise(function(resolve) {
+          return setTimeout(resolve, delay);
+        }).then(function() {
+          return BaseUpload.terminate(url, newOptions);
+        });
+      });
+    }
+  }]);
+}();
+function encodeMetadata(metadata) {
+  return Object.entries(metadata).map(function(_ref3) {
+    var _ref4 = _slicedToArray(_ref3, 2), key = _ref4[0], value = _ref4[1];
+    return "".concat(key, " ").concat(gBase64.encode(String(value)));
+  }).join(",");
+}
+function inStatusCategory(status, category) {
+  return status >= category && status < category + 100;
+}
+function openRequest(method, url, options) {
+  var req = options.httpStack.createRequest(method, url);
+  if (options.protocol === PROTOCOL_IETF_DRAFT_03) {
+    req.setHeader("Upload-Draft-Interop-Version", "5");
+  } else if (options.protocol === PROTOCOL_IETF_DRAFT_05) {
+    req.setHeader("Upload-Draft-Interop-Version", "6");
+  } else {
+    req.setHeader("Tus-Resumable", "1.0.0");
+  }
+  var headers = options.headers || {};
+  for (var _i2 = 0, _Object$entries = Object.entries(headers);_i2 < _Object$entries.length; _i2++) {
+    var _Object$entries$_i = _slicedToArray(_Object$entries[_i2], 2), name = _Object$entries$_i[0], value = _Object$entries$_i[1];
+    req.setHeader(name, value);
+  }
+  if (options.addRequestId) {
+    var requestId = uuid();
+    req.setHeader("X-Request-ID", requestId);
+  }
+  return req;
+}
+function sendRequest(_x, _x2, _x3) {
+  return _sendRequest2.apply(this, arguments);
+}
+function _sendRequest2() {
+  _sendRequest2 = _asyncToGenerator(/* @__PURE__ */ _regeneratorRuntime().mark(function _callee(req, body, options) {
+    var res;
+    return _regeneratorRuntime().wrap(function _callee$(_context) {
+      while (true)
+        switch (_context.prev = _context.next) {
+          case 0:
+            if (!(typeof options.onBeforeRequest === "function")) {
+              _context.next = 3;
+              break;
+            }
+            _context.next = 3;
+            return options.onBeforeRequest(req);
+          case 3:
+            _context.next = 5;
+            return req.send(body);
+          case 5:
+            res = _context.sent;
+            if (!(typeof options.onAfterResponse === "function")) {
+              _context.next = 9;
+              break;
+            }
+            _context.next = 9;
+            return options.onAfterResponse(req, res);
+          case 9:
+            return _context.abrupt("return", res);
+          case 10:
+          case "end":
+            return _context.stop();
+        }
+    }, _callee);
+  }));
+  return _sendRequest2.apply(this, arguments);
+}
+function isOnline() {
+  var online = true;
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    online = false;
+  }
+  return online;
+}
+function shouldRetry(err, retryAttempt, options) {
+  if (options.retryDelays == null || retryAttempt >= options.retryDelays.length || err.originalRequest == null) {
+    return false;
+  }
+  if (options && typeof options.onShouldRetry === "function") {
+    return options.onShouldRetry(err, retryAttempt, options);
+  }
+  return defaultOnShouldRetry(err);
+}
+function defaultOnShouldRetry(err) {
+  var status = err.originalResponse ? err.originalResponse.getStatus() : 0;
+  return (!inStatusCategory(status, 400) || status === 409 || status === 423) && isOnline();
+}
+function resolveUrl(origin, link) {
+  return new import_url_parse.default(link, origin).toString();
+}
+function splitSizeIntoParts(totalSize, partCount) {
+  var partSize = Math.floor(totalSize / partCount);
+  var parts = [];
+  for (var i = 0;i < partCount; i++) {
+    parts.push({
+      start: partSize * i,
+      end: partSize * (i + 1)
+    });
+  }
+  parts[partCount - 1].end = totalSize;
+  return parts;
+}
+BaseUpload.defaultOptions = defaultOptions;
+var upload_default = BaseUpload;
+
+// ../../../node_modules/tus-js-client/lib.esm/browser/isReactNative.js
+var isReactNative = function isReactNative() {
+  return typeof navigator !== "undefined" && typeof navigator.product === "string" && navigator.product.toLowerCase() === "reactnative";
+};
+var isReactNative_default = isReactNative;
+
+// ../../../node_modules/tus-js-client/lib.esm/browser/uriToBlob.js
+function uriToBlob(uri) {
+  return new Promise(function(resolve, reject) {
+    var xhr = new XMLHttpRequest;
+    xhr.responseType = "blob";
+    xhr.onload = function() {
+      var blob = xhr.response;
+      resolve(blob);
+    };
+    xhr.onerror = function(err) {
+      reject(err);
+    };
+    xhr.open("GET", uri);
+    xhr.send();
+  });
+}
+
+// ../../../node_modules/tus-js-client/lib.esm/browser/sources/isCordova.js
+var isCordova = function isCordova() {
+  return typeof window !== "undefined" && (typeof window.PhoneGap !== "undefined" || typeof window.Cordova !== "undefined" || typeof window.cordova !== "undefined");
+};
+var isCordova_default = isCordova;
+
+// ../../../node_modules/tus-js-client/lib.esm/browser/sources/readAsByteArray.js
+function readAsByteArray(chunk) {
+  return new Promise(function(resolve, reject) {
+    var reader = new FileReader;
+    reader.onload = function() {
+      var value = new Uint8Array(reader.result);
+      resolve({
+        value
+      });
+    };
+    reader.onerror = function(err) {
+      reject(err);
+    };
+    reader.readAsArrayBuffer(chunk);
+  });
+}
+
+// ../../../node_modules/tus-js-client/lib.esm/browser/sources/FileSource.js
+function _typeof4(o) {
+  "@babel/helpers - typeof";
+  return _typeof4 = typeof Symbol == "function" && typeof Symbol.iterator == "symbol" ? function(o) {
+    return typeof o;
+  } : function(o) {
+    return o && typeof Symbol == "function" && o.constructor === Symbol && o !== Symbol.prototype ? "symbol" : typeof o;
+  }, _typeof4(o);
+}
+function _classCallCheck4(instance, Constructor) {
+  if (!(instance instanceof Constructor)) {
+    throw new TypeError("Cannot call a class as a function");
+  }
+}
+function _defineProperties4(target, props) {
+  for (var i = 0;i < props.length; i++) {
+    var descriptor = props[i];
+    descriptor.enumerable = descriptor.enumerable || false;
+    descriptor.configurable = true;
+    if ("value" in descriptor)
+      descriptor.writable = true;
+    Object.defineProperty(target, _toPropertyKey4(descriptor.key), descriptor);
+  }
+}
+function _createClass4(Constructor, protoProps, staticProps) {
+  if (protoProps)
+    _defineProperties4(Constructor.prototype, protoProps);
+  if (staticProps)
+    _defineProperties4(Constructor, staticProps);
+  Object.defineProperty(Constructor, "prototype", { writable: false });
+  return Constructor;
+}
+function _toPropertyKey4(t) {
+  var i = _toPrimitive4(t, "string");
+  return _typeof4(i) == "symbol" ? i : i + "";
+}
+function _toPrimitive4(t, r) {
+  if (_typeof4(t) != "object" || !t)
+    return t;
+  var e = t[Symbol.toPrimitive];
+  if (e !== undefined) {
+    var i = e.call(t, r || "default");
+    if (_typeof4(i) != "object")
+      return i;
+    throw new TypeError("@@toPrimitive must return a primitive value.");
+  }
+  return (r === "string" ? String : Number)(t);
+}
+var FileSource = /* @__PURE__ */ function() {
+  function FileSource(file) {
+    _classCallCheck4(this, FileSource);
+    this._file = file;
+    this.size = file.size;
+  }
+  return _createClass4(FileSource, [{
+    key: "slice",
+    value: function slice(start, end) {
+      if (isCordova_default()) {
+        return readAsByteArray(this._file.slice(start, end));
+      }
+      var value = this._file.slice(start, end);
+      var done = end >= this.size;
+      return Promise.resolve({
+        value,
+        done
+      });
+    }
+  }, {
+    key: "close",
+    value: function close() {}
+  }]);
+}();
+
+// ../../../node_modules/tus-js-client/lib.esm/browser/sources/StreamSource.js
+function _typeof5(o) {
+  "@babel/helpers - typeof";
+  return _typeof5 = typeof Symbol == "function" && typeof Symbol.iterator == "symbol" ? function(o) {
+    return typeof o;
+  } : function(o) {
+    return o && typeof Symbol == "function" && o.constructor === Symbol && o !== Symbol.prototype ? "symbol" : typeof o;
+  }, _typeof5(o);
+}
+function _classCallCheck5(instance, Constructor) {
+  if (!(instance instanceof Constructor)) {
+    throw new TypeError("Cannot call a class as a function");
+  }
+}
+function _defineProperties5(target, props) {
+  for (var i = 0;i < props.length; i++) {
+    var descriptor = props[i];
+    descriptor.enumerable = descriptor.enumerable || false;
+    descriptor.configurable = true;
+    if ("value" in descriptor)
+      descriptor.writable = true;
+    Object.defineProperty(target, _toPropertyKey5(descriptor.key), descriptor);
+  }
+}
+function _createClass5(Constructor, protoProps, staticProps) {
+  if (protoProps)
+    _defineProperties5(Constructor.prototype, protoProps);
+  if (staticProps)
+    _defineProperties5(Constructor, staticProps);
+  Object.defineProperty(Constructor, "prototype", { writable: false });
+  return Constructor;
+}
+function _toPropertyKey5(t) {
+  var i = _toPrimitive5(t, "string");
+  return _typeof5(i) == "symbol" ? i : i + "";
+}
+function _toPrimitive5(t, r) {
+  if (_typeof5(t) != "object" || !t)
+    return t;
+  var e = t[Symbol.toPrimitive];
+  if (e !== undefined) {
+    var i = e.call(t, r || "default");
+    if (_typeof5(i) != "object")
+      return i;
+    throw new TypeError("@@toPrimitive must return a primitive value.");
+  }
+  return (r === "string" ? String : Number)(t);
+}
+function len(blobOrArray) {
+  if (blobOrArray === undefined)
+    return 0;
+  if (blobOrArray.size !== undefined)
+    return blobOrArray.size;
+  return blobOrArray.length;
+}
+function concat(a, b) {
+  if (a.concat) {
+    return a.concat(b);
+  }
+  if (a instanceof Blob) {
+    return new Blob([a, b], {
+      type: a.type
+    });
+  }
+  if (a.set) {
+    var c = new a.constructor(a.length + b.length);
+    c.set(a);
+    c.set(b, a.length);
+    return c;
+  }
+  throw new Error("Unknown data type");
+}
+var StreamSource = /* @__PURE__ */ function() {
+  function StreamSource(reader) {
+    _classCallCheck5(this, StreamSource);
+    this._buffer = undefined;
+    this._bufferOffset = 0;
+    this._reader = reader;
+    this._done = false;
+  }
+  return _createClass5(StreamSource, [{
+    key: "slice",
+    value: function slice(start, end) {
+      if (start < this._bufferOffset) {
+        return Promise.reject(new Error("Requested data is before the reader's current offset"));
+      }
+      return this._readUntilEnoughDataOrDone(start, end);
+    }
+  }, {
+    key: "_readUntilEnoughDataOrDone",
+    value: function _readUntilEnoughDataOrDone(start, end) {
+      var _this = this;
+      var hasEnoughData = end <= this._bufferOffset + len(this._buffer);
+      if (this._done || hasEnoughData) {
+        var value = this._getDataFromBuffer(start, end);
+        var done = value == null ? this._done : false;
+        return Promise.resolve({
+          value,
+          done
+        });
+      }
+      return this._reader.read().then(function(_ref) {
+        var { value, done } = _ref;
+        if (done) {
+          _this._done = true;
+        } else if (_this._buffer === undefined) {
+          _this._buffer = value;
+        } else {
+          _this._buffer = concat(_this._buffer, value);
+        }
+        return _this._readUntilEnoughDataOrDone(start, end);
+      });
+    }
+  }, {
+    key: "_getDataFromBuffer",
+    value: function _getDataFromBuffer(start, end) {
+      if (start > this._bufferOffset) {
+        this._buffer = this._buffer.slice(start - this._bufferOffset);
+        this._bufferOffset = start;
+      }
+      var hasAllDataBeenRead = len(this._buffer) === 0;
+      if (this._done && hasAllDataBeenRead) {
+        return null;
+      }
+      return this._buffer.slice(0, end - start);
+    }
+  }, {
+    key: "close",
+    value: function close() {
+      if (this._reader.cancel) {
+        this._reader.cancel();
+      }
+    }
+  }]);
+}();
+
+// ../../../node_modules/tus-js-client/lib.esm/browser/fileReader.js
+function _typeof6(o) {
+  "@babel/helpers - typeof";
+  return _typeof6 = typeof Symbol == "function" && typeof Symbol.iterator == "symbol" ? function(o) {
+    return typeof o;
+  } : function(o) {
+    return o && typeof Symbol == "function" && o.constructor === Symbol && o !== Symbol.prototype ? "symbol" : typeof o;
+  }, _typeof6(o);
+}
+function _regeneratorRuntime2() {
+  /*! regenerator-runtime -- Copyright (c) 2014-present, Facebook, Inc. -- license (MIT): https://github.com/facebook/regenerator/blob/main/LICENSE */
+  _regeneratorRuntime2 = function _regeneratorRuntime() {
+    return e;
+  };
+  var t, e = {}, r = Object.prototype, n = r.hasOwnProperty, o = Object.defineProperty || function(t, e, r) {
+    t[e] = r.value;
+  }, i = typeof Symbol == "function" ? Symbol : {}, a = i.iterator || "@@iterator", c = i.asyncIterator || "@@asyncIterator", u = i.toStringTag || "@@toStringTag";
+  function define(t, e, r) {
+    return Object.defineProperty(t, e, { value: r, enumerable: true, configurable: true, writable: true }), t[e];
+  }
+  try {
+    define({}, "");
+  } catch (t) {
+    define = function define(t, e, r) {
+      return t[e] = r;
+    };
+  }
+  function wrap(t, e, r, n) {
+    var i = e && e.prototype instanceof Generator ? e : Generator, a = Object.create(i.prototype), c = new Context(n || []);
+    return o(a, "_invoke", { value: makeInvokeMethod(t, r, c) }), a;
+  }
+  function tryCatch(t, e, r) {
+    try {
+      return { type: "normal", arg: t.call(e, r) };
+    } catch (t) {
+      return { type: "throw", arg: t };
+    }
+  }
+  e.wrap = wrap;
+  var h = "suspendedStart", l = "suspendedYield", f = "executing", s = "completed", y = {};
+  function Generator() {}
+  function GeneratorFunction() {}
+  function GeneratorFunctionPrototype() {}
+  var p = {};
+  define(p, a, function() {
+    return this;
+  });
+  var d = Object.getPrototypeOf, v = d && d(d(values([])));
+  v && v !== r && n.call(v, a) && (p = v);
+  var g = GeneratorFunctionPrototype.prototype = Generator.prototype = Object.create(p);
+  function defineIteratorMethods(t) {
+    ["next", "throw", "return"].forEach(function(e) {
+      define(t, e, function(t) {
+        return this._invoke(e, t);
+      });
+    });
+  }
+  function AsyncIterator(t, e) {
+    function invoke(r, o, i, a) {
+      var c = tryCatch(t[r], t, o);
+      if (c.type !== "throw") {
+        var u = c.arg, h = u.value;
+        return h && _typeof6(h) == "object" && n.call(h, "__await") ? e.resolve(h.__await).then(function(t) {
+          invoke("next", t, i, a);
+        }, function(t) {
+          invoke("throw", t, i, a);
+        }) : e.resolve(h).then(function(t) {
+          u.value = t, i(u);
+        }, function(t) {
+          return invoke("throw", t, i, a);
+        });
+      }
+      a(c.arg);
+    }
+    var r;
+    o(this, "_invoke", { value: function value(t, n) {
+      function callInvokeWithMethodAndArg() {
+        return new e(function(e, r) {
+          invoke(t, n, e, r);
+        });
+      }
+      return r = r ? r.then(callInvokeWithMethodAndArg, callInvokeWithMethodAndArg) : callInvokeWithMethodAndArg();
+    } });
+  }
+  function makeInvokeMethod(e, r, n) {
+    var o = h;
+    return function(i, a) {
+      if (o === f)
+        throw Error("Generator is already running");
+      if (o === s) {
+        if (i === "throw")
+          throw a;
+        return { value: t, done: true };
+      }
+      for (n.method = i, n.arg = a;; ) {
+        var c = n.delegate;
+        if (c) {
+          var u = maybeInvokeDelegate(c, n);
+          if (u) {
+            if (u === y)
+              continue;
+            return u;
+          }
+        }
+        if (n.method === "next")
+          n.sent = n._sent = n.arg;
+        else if (n.method === "throw") {
+          if (o === h)
+            throw o = s, n.arg;
+          n.dispatchException(n.arg);
+        } else
+          n.method === "return" && n.abrupt("return", n.arg);
+        o = f;
+        var p = tryCatch(e, r, n);
+        if (p.type === "normal") {
+          if (o = n.done ? s : l, p.arg === y)
+            continue;
+          return { value: p.arg, done: n.done };
+        }
+        p.type === "throw" && (o = s, n.method = "throw", n.arg = p.arg);
+      }
+    };
+  }
+  function maybeInvokeDelegate(e, r) {
+    var n = r.method, o = e.iterator[n];
+    if (o === t)
+      return r.delegate = null, n === "throw" && e.iterator["return"] && (r.method = "return", r.arg = t, maybeInvokeDelegate(e, r), r.method === "throw") || n !== "return" && (r.method = "throw", r.arg = new TypeError("The iterator does not provide a '" + n + "' method")), y;
+    var i = tryCatch(o, e.iterator, r.arg);
+    if (i.type === "throw")
+      return r.method = "throw", r.arg = i.arg, r.delegate = null, y;
+    var a = i.arg;
+    return a ? a.done ? (r[e.resultName] = a.value, r.next = e.nextLoc, r.method !== "return" && (r.method = "next", r.arg = t), r.delegate = null, y) : a : (r.method = "throw", r.arg = new TypeError("iterator result is not an object"), r.delegate = null, y);
+  }
+  function pushTryEntry(t) {
+    var e = { tryLoc: t[0] };
+    1 in t && (e.catchLoc = t[1]), 2 in t && (e.finallyLoc = t[2], e.afterLoc = t[3]), this.tryEntries.push(e);
+  }
+  function resetTryEntry(t) {
+    var e = t.completion || {};
+    e.type = "normal", delete e.arg, t.completion = e;
+  }
+  function Context(t) {
+    this.tryEntries = [{ tryLoc: "root" }], t.forEach(pushTryEntry, this), this.reset(true);
+  }
+  function values(e) {
+    if (e || e === "") {
+      var r = e[a];
+      if (r)
+        return r.call(e);
+      if (typeof e.next == "function")
+        return e;
+      if (!isNaN(e.length)) {
+        var o = -1, i = function next() {
+          for (;++o < e.length; )
+            if (n.call(e, o))
+              return next.value = e[o], next.done = false, next;
+          return next.value = t, next.done = true, next;
+        };
+        return i.next = i;
+      }
+    }
+    throw new TypeError(_typeof6(e) + " is not iterable");
+  }
+  return GeneratorFunction.prototype = GeneratorFunctionPrototype, o(g, "constructor", { value: GeneratorFunctionPrototype, configurable: true }), o(GeneratorFunctionPrototype, "constructor", { value: GeneratorFunction, configurable: true }), GeneratorFunction.displayName = define(GeneratorFunctionPrototype, u, "GeneratorFunction"), e.isGeneratorFunction = function(t) {
+    var e = typeof t == "function" && t.constructor;
+    return !!e && (e === GeneratorFunction || (e.displayName || e.name) === "GeneratorFunction");
+  }, e.mark = function(t) {
+    return Object.setPrototypeOf ? Object.setPrototypeOf(t, GeneratorFunctionPrototype) : (t.__proto__ = GeneratorFunctionPrototype, define(t, u, "GeneratorFunction")), t.prototype = Object.create(g), t;
+  }, e.awrap = function(t) {
+    return { __await: t };
+  }, defineIteratorMethods(AsyncIterator.prototype), define(AsyncIterator.prototype, c, function() {
+    return this;
+  }), e.AsyncIterator = AsyncIterator, e.async = function(t, r, n, o, i) {
+    i === undefined && (i = Promise);
+    var a = new AsyncIterator(wrap(t, r, n, o), i);
+    return e.isGeneratorFunction(r) ? a : a.next().then(function(t) {
+      return t.done ? t.value : a.next();
+    });
+  }, defineIteratorMethods(g), define(g, u, "Generator"), define(g, a, function() {
+    return this;
+  }), define(g, "toString", function() {
+    return "[object Generator]";
+  }), e.keys = function(t) {
+    var e = Object(t), r = [];
+    for (var n in e)
+      r.push(n);
+    return r.reverse(), function next() {
+      for (;r.length; ) {
+        var t = r.pop();
+        if (t in e)
+          return next.value = t, next.done = false, next;
+      }
+      return next.done = true, next;
+    };
+  }, e.values = values, Context.prototype = { constructor: Context, reset: function reset(e) {
+    if (this.prev = 0, this.next = 0, this.sent = this._sent = t, this.done = false, this.delegate = null, this.method = "next", this.arg = t, this.tryEntries.forEach(resetTryEntry), !e)
+      for (var r in this)
+        r.charAt(0) === "t" && n.call(this, r) && !isNaN(+r.slice(1)) && (this[r] = t);
+  }, stop: function stop() {
+    this.done = true;
+    var t = this.tryEntries[0].completion;
+    if (t.type === "throw")
+      throw t.arg;
+    return this.rval;
+  }, dispatchException: function dispatchException(e) {
+    if (this.done)
+      throw e;
+    var r = this;
+    function handle(n, o) {
+      return a.type = "throw", a.arg = e, r.next = n, o && (r.method = "next", r.arg = t), !!o;
+    }
+    for (var o = this.tryEntries.length - 1;o >= 0; --o) {
+      var i = this.tryEntries[o], a = i.completion;
+      if (i.tryLoc === "root")
+        return handle("end");
+      if (i.tryLoc <= this.prev) {
+        var c = n.call(i, "catchLoc"), u = n.call(i, "finallyLoc");
+        if (c && u) {
+          if (this.prev < i.catchLoc)
+            return handle(i.catchLoc, true);
+          if (this.prev < i.finallyLoc)
+            return handle(i.finallyLoc);
+        } else if (c) {
+          if (this.prev < i.catchLoc)
+            return handle(i.catchLoc, true);
+        } else {
+          if (!u)
+            throw Error("try statement without catch or finally");
+          if (this.prev < i.finallyLoc)
+            return handle(i.finallyLoc);
+        }
+      }
+    }
+  }, abrupt: function abrupt(t, e) {
+    for (var r = this.tryEntries.length - 1;r >= 0; --r) {
+      var o = this.tryEntries[r];
+      if (o.tryLoc <= this.prev && n.call(o, "finallyLoc") && this.prev < o.finallyLoc) {
+        var i = o;
+        break;
+      }
+    }
+    i && (t === "break" || t === "continue") && i.tryLoc <= e && e <= i.finallyLoc && (i = null);
+    var a = i ? i.completion : {};
+    return a.type = t, a.arg = e, i ? (this.method = "next", this.next = i.finallyLoc, y) : this.complete(a);
+  }, complete: function complete(t, e) {
+    if (t.type === "throw")
+      throw t.arg;
+    return t.type === "break" || t.type === "continue" ? this.next = t.arg : t.type === "return" ? (this.rval = this.arg = t.arg, this.method = "return", this.next = "end") : t.type === "normal" && e && (this.next = e), y;
+  }, finish: function finish(t) {
+    for (var e = this.tryEntries.length - 1;e >= 0; --e) {
+      var r = this.tryEntries[e];
+      if (r.finallyLoc === t)
+        return this.complete(r.completion, r.afterLoc), resetTryEntry(r), y;
+    }
+  }, catch: function _catch(t) {
+    for (var e = this.tryEntries.length - 1;e >= 0; --e) {
+      var r = this.tryEntries[e];
+      if (r.tryLoc === t) {
+        var n = r.completion;
+        if (n.type === "throw") {
+          var o = n.arg;
+          resetTryEntry(r);
+        }
+        return o;
+      }
+    }
+    throw Error("illegal catch attempt");
+  }, delegateYield: function delegateYield(e, r, n) {
+    return this.delegate = { iterator: values(e), resultName: r, nextLoc: n }, this.method === "next" && (this.arg = t), y;
+  } }, e;
+}
+function asyncGeneratorStep2(gen, resolve, reject, _next, _throw, key, arg) {
+  try {
+    var info = gen[key](arg);
+    var value = info.value;
+  } catch (error) {
+    reject(error);
+    return;
+  }
+  if (info.done) {
+    resolve(value);
+  } else {
+    Promise.resolve(value).then(_next, _throw);
+  }
+}
+function _asyncToGenerator2(fn) {
+  return function() {
+    var self2 = this, args = arguments;
+    return new Promise(function(resolve, reject) {
+      var gen = fn.apply(self2, args);
+      function _next(value) {
+        asyncGeneratorStep2(gen, resolve, reject, _next, _throw, "next", value);
+      }
+      function _throw(err) {
+        asyncGeneratorStep2(gen, resolve, reject, _next, _throw, "throw", err);
+      }
+      _next(undefined);
+    });
+  };
+}
+function _classCallCheck6(instance, Constructor) {
+  if (!(instance instanceof Constructor)) {
+    throw new TypeError("Cannot call a class as a function");
+  }
+}
+function _defineProperties6(target, props) {
+  for (var i = 0;i < props.length; i++) {
+    var descriptor = props[i];
+    descriptor.enumerable = descriptor.enumerable || false;
+    descriptor.configurable = true;
+    if ("value" in descriptor)
+      descriptor.writable = true;
+    Object.defineProperty(target, _toPropertyKey6(descriptor.key), descriptor);
+  }
+}
+function _createClass6(Constructor, protoProps, staticProps) {
+  if (protoProps)
+    _defineProperties6(Constructor.prototype, protoProps);
+  if (staticProps)
+    _defineProperties6(Constructor, staticProps);
+  Object.defineProperty(Constructor, "prototype", { writable: false });
+  return Constructor;
+}
+function _toPropertyKey6(t) {
+  var i = _toPrimitive6(t, "string");
+  return _typeof6(i) == "symbol" ? i : i + "";
+}
+function _toPrimitive6(t, r) {
+  if (_typeof6(t) != "object" || !t)
+    return t;
+  var e = t[Symbol.toPrimitive];
+  if (e !== undefined) {
+    var i = e.call(t, r || "default");
+    if (_typeof6(i) != "object")
+      return i;
+    throw new TypeError("@@toPrimitive must return a primitive value.");
+  }
+  return (r === "string" ? String : Number)(t);
+}
+var FileReader2 = /* @__PURE__ */ function() {
+  function FileReader2() {
+    _classCallCheck6(this, FileReader2);
+  }
+  return _createClass6(FileReader2, [{
+    key: "openFile",
+    value: function() {
+      var _openFile = _asyncToGenerator2(/* @__PURE__ */ _regeneratorRuntime2().mark(function _callee(input, chunkSize) {
+        var blob;
+        return _regeneratorRuntime2().wrap(function _callee$(_context) {
+          while (true)
+            switch (_context.prev = _context.next) {
+              case 0:
+                if (!(isReactNative_default() && input && typeof input.uri !== "undefined")) {
+                  _context.next = 11;
+                  break;
+                }
+                _context.prev = 1;
+                _context.next = 4;
+                return uriToBlob(input.uri);
+              case 4:
+                blob = _context.sent;
+                return _context.abrupt("return", new FileSource(blob));
+              case 8:
+                _context.prev = 8;
+                _context.t0 = _context["catch"](1);
+                throw new Error("tus: cannot fetch `file.uri` as Blob, make sure the uri is correct and accessible. ".concat(_context.t0));
+              case 11:
+                if (!(typeof input.slice === "function" && typeof input.size !== "undefined")) {
+                  _context.next = 13;
+                  break;
+                }
+                return _context.abrupt("return", Promise.resolve(new FileSource(input)));
+              case 13:
+                if (!(typeof input.read === "function")) {
+                  _context.next = 18;
+                  break;
+                }
+                chunkSize = Number(chunkSize);
+                if (Number.isFinite(chunkSize)) {
+                  _context.next = 17;
+                  break;
+                }
+                return _context.abrupt("return", Promise.reject(new Error("cannot create source for stream without a finite value for the `chunkSize` option")));
+              case 17:
+                return _context.abrupt("return", Promise.resolve(new StreamSource(input, chunkSize)));
+              case 18:
+                return _context.abrupt("return", Promise.reject(new Error("source object may only be an instance of File, Blob, or Reader in this environment")));
+              case 19:
+              case "end":
+                return _context.stop();
+            }
+        }, _callee, null, [[1, 8]]);
+      }));
+      function openFile(_x, _x2) {
+        return _openFile.apply(this, arguments);
+      }
+      return openFile;
+    }()
+  }]);
+}();
+
+// ../../../node_modules/tus-js-client/lib.esm/browser/fileSignature.js
+function fingerprint(file, options) {
+  if (isReactNative_default()) {
+    return Promise.resolve(reactNativeFingerprint(file, options));
+  }
+  return Promise.resolve(["tus-br", file.name, file.type, file.size, file.lastModified, options.endpoint].join("-"));
+}
+function reactNativeFingerprint(file, options) {
+  var exifHash = file.exif ? hashCode(JSON.stringify(file.exif)) : "noexif";
+  return ["tus-rn", file.name || "noname", file.size || "nosize", exifHash, options.endpoint].join("/");
+}
+function hashCode(str) {
+  var hash = 0;
+  if (str.length === 0) {
+    return hash;
+  }
+  for (var i = 0;i < str.length; i++) {
+    var _char = str.charCodeAt(i);
+    hash = (hash << 5) - hash + _char;
+    hash &= hash;
+  }
+  return hash;
+}
+
+// ../../../node_modules/tus-js-client/lib.esm/browser/httpStack.js
+function _typeof7(o) {
+  "@babel/helpers - typeof";
+  return _typeof7 = typeof Symbol == "function" && typeof Symbol.iterator == "symbol" ? function(o) {
+    return typeof o;
+  } : function(o) {
+    return o && typeof Symbol == "function" && o.constructor === Symbol && o !== Symbol.prototype ? "symbol" : typeof o;
+  }, _typeof7(o);
+}
+function _classCallCheck7(instance, Constructor) {
+  if (!(instance instanceof Constructor)) {
+    throw new TypeError("Cannot call a class as a function");
+  }
+}
+function _defineProperties7(target, props) {
+  for (var i = 0;i < props.length; i++) {
+    var descriptor = props[i];
+    descriptor.enumerable = descriptor.enumerable || false;
+    descriptor.configurable = true;
+    if ("value" in descriptor)
+      descriptor.writable = true;
+    Object.defineProperty(target, _toPropertyKey7(descriptor.key), descriptor);
+  }
+}
+function _createClass7(Constructor, protoProps, staticProps) {
+  if (protoProps)
+    _defineProperties7(Constructor.prototype, protoProps);
+  if (staticProps)
+    _defineProperties7(Constructor, staticProps);
+  Object.defineProperty(Constructor, "prototype", { writable: false });
+  return Constructor;
+}
+function _toPropertyKey7(t) {
+  var i = _toPrimitive7(t, "string");
+  return _typeof7(i) == "symbol" ? i : i + "";
+}
+function _toPrimitive7(t, r) {
+  if (_typeof7(t) != "object" || !t)
+    return t;
+  var e = t[Symbol.toPrimitive];
+  if (e !== undefined) {
+    var i = e.call(t, r || "default");
+    if (_typeof7(i) != "object")
+      return i;
+    throw new TypeError("@@toPrimitive must return a primitive value.");
+  }
+  return (r === "string" ? String : Number)(t);
+}
+var XHRHttpStack = /* @__PURE__ */ function() {
+  function XHRHttpStack() {
+    _classCallCheck7(this, XHRHttpStack);
+  }
+  return _createClass7(XHRHttpStack, [{
+    key: "createRequest",
+    value: function createRequest(method, url) {
+      return new Request(method, url);
+    }
+  }, {
+    key: "getName",
+    value: function getName() {
+      return "XHRHttpStack";
+    }
+  }]);
+}();
+var Request = /* @__PURE__ */ function() {
+  function Request(method, url) {
+    _classCallCheck7(this, Request);
+    this._xhr = new XMLHttpRequest;
+    this._xhr.open(method, url, true);
+    this._method = method;
+    this._url = url;
+    this._headers = {};
+  }
+  return _createClass7(Request, [{
+    key: "getMethod",
+    value: function getMethod() {
+      return this._method;
+    }
+  }, {
+    key: "getURL",
+    value: function getURL() {
+      return this._url;
+    }
+  }, {
+    key: "setHeader",
+    value: function setHeader(header, value) {
+      this._xhr.setRequestHeader(header, value);
+      this._headers[header] = value;
+    }
+  }, {
+    key: "getHeader",
+    value: function getHeader(header) {
+      return this._headers[header];
+    }
+  }, {
+    key: "setProgressHandler",
+    value: function setProgressHandler(progressHandler) {
+      if (!("upload" in this._xhr)) {
+        return;
+      }
+      this._xhr.upload.onprogress = function(e) {
+        if (!e.lengthComputable) {
+          return;
+        }
+        progressHandler(e.loaded);
+      };
+    }
+  }, {
+    key: "send",
+    value: function send() {
+      var _this = this;
+      var body = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : null;
+      return new Promise(function(resolve, reject) {
+        _this._xhr.onload = function() {
+          resolve(new Response(_this._xhr));
+        };
+        _this._xhr.onerror = function(err) {
+          reject(err);
+        };
+        _this._xhr.send(body);
+      });
+    }
+  }, {
+    key: "abort",
+    value: function abort() {
+      this._xhr.abort();
+      return Promise.resolve();
+    }
+  }, {
+    key: "getUnderlyingObject",
+    value: function getUnderlyingObject() {
+      return this._xhr;
+    }
+  }]);
+}();
+var Response = /* @__PURE__ */ function() {
+  function Response(xhr) {
+    _classCallCheck7(this, Response);
+    this._xhr = xhr;
+  }
+  return _createClass7(Response, [{
+    key: "getStatus",
+    value: function getStatus() {
+      return this._xhr.status;
+    }
+  }, {
+    key: "getHeader",
+    value: function getHeader(header) {
+      return this._xhr.getResponseHeader(header);
+    }
+  }, {
+    key: "getBody",
+    value: function getBody() {
+      return this._xhr.responseText;
+    }
+  }, {
+    key: "getUnderlyingObject",
+    value: function getUnderlyingObject() {
+      return this._xhr;
+    }
+  }]);
+}();
+
+// ../../../node_modules/tus-js-client/lib.esm/browser/urlStorage.js
+function _typeof8(o) {
+  "@babel/helpers - typeof";
+  return _typeof8 = typeof Symbol == "function" && typeof Symbol.iterator == "symbol" ? function(o) {
+    return typeof o;
+  } : function(o) {
+    return o && typeof Symbol == "function" && o.constructor === Symbol && o !== Symbol.prototype ? "symbol" : typeof o;
+  }, _typeof8(o);
+}
+function _classCallCheck8(instance, Constructor) {
+  if (!(instance instanceof Constructor)) {
+    throw new TypeError("Cannot call a class as a function");
+  }
+}
+function _defineProperties8(target, props) {
+  for (var i = 0;i < props.length; i++) {
+    var descriptor = props[i];
+    descriptor.enumerable = descriptor.enumerable || false;
+    descriptor.configurable = true;
+    if ("value" in descriptor)
+      descriptor.writable = true;
+    Object.defineProperty(target, _toPropertyKey8(descriptor.key), descriptor);
+  }
+}
+function _createClass8(Constructor, protoProps, staticProps) {
+  if (protoProps)
+    _defineProperties8(Constructor.prototype, protoProps);
+  if (staticProps)
+    _defineProperties8(Constructor, staticProps);
+  Object.defineProperty(Constructor, "prototype", { writable: false });
+  return Constructor;
+}
+function _toPropertyKey8(t) {
+  var i = _toPrimitive8(t, "string");
+  return _typeof8(i) == "symbol" ? i : i + "";
+}
+function _toPrimitive8(t, r) {
+  if (_typeof8(t) != "object" || !t)
+    return t;
+  var e = t[Symbol.toPrimitive];
+  if (e !== undefined) {
+    var i = e.call(t, r || "default");
+    if (_typeof8(i) != "object")
+      return i;
+    throw new TypeError("@@toPrimitive must return a primitive value.");
+  }
+  return (r === "string" ? String : Number)(t);
+}
+var hasStorage = false;
+try {
+  hasStorage = "localStorage" in window;
+  key = "tusSupport";
+  originalValue = localStorage.getItem(key);
+  localStorage.setItem(key, originalValue);
+  if (originalValue === null)
+    localStorage.removeItem(key);
+} catch (e) {
+  if (e.code === e.SECURITY_ERR || e.code === e.QUOTA_EXCEEDED_ERR) {
+    hasStorage = false;
+  } else {
+    throw e;
+  }
+}
+var key;
+var originalValue;
+var canStoreURLs = hasStorage;
+var WebStorageUrlStorage = /* @__PURE__ */ function() {
+  function WebStorageUrlStorage() {
+    _classCallCheck8(this, WebStorageUrlStorage);
+  }
+  return _createClass8(WebStorageUrlStorage, [{
+    key: "findAllUploads",
+    value: function findAllUploads() {
+      var results = this._findEntries("tus::");
+      return Promise.resolve(results);
+    }
+  }, {
+    key: "findUploadsByFingerprint",
+    value: function findUploadsByFingerprint(fingerprint) {
+      var results = this._findEntries("tus::".concat(fingerprint, "::"));
+      return Promise.resolve(results);
+    }
+  }, {
+    key: "removeUpload",
+    value: function removeUpload(urlStorageKey) {
+      localStorage.removeItem(urlStorageKey);
+      return Promise.resolve();
+    }
+  }, {
+    key: "addUpload",
+    value: function addUpload(fingerprint, upload) {
+      var id = Math.round(Math.random() * 1000000000000);
+      var key = "tus::".concat(fingerprint, "::").concat(id);
+      localStorage.setItem(key, JSON.stringify(upload));
+      return Promise.resolve(key);
+    }
+  }, {
+    key: "_findEntries",
+    value: function _findEntries(prefix) {
+      var results = [];
+      for (var i = 0;i < localStorage.length; i++) {
+        var _key = localStorage.key(i);
+        if (_key.indexOf(prefix) !== 0)
+          continue;
+        try {
+          var upload = JSON.parse(localStorage.getItem(_key));
+          upload.urlStorageKey = _key;
+          results.push(upload);
+        } catch (_e) {}
+      }
+      return results;
+    }
+  }]);
+}();
+
+// ../../../node_modules/tus-js-client/lib.esm/browser/index.js
+function _typeof9(o) {
+  "@babel/helpers - typeof";
+  return _typeof9 = typeof Symbol == "function" && typeof Symbol.iterator == "symbol" ? function(o) {
+    return typeof o;
+  } : function(o) {
+    return o && typeof Symbol == "function" && o.constructor === Symbol && o !== Symbol.prototype ? "symbol" : typeof o;
+  }, _typeof9(o);
+}
+function _classCallCheck9(instance, Constructor) {
+  if (!(instance instanceof Constructor)) {
+    throw new TypeError("Cannot call a class as a function");
+  }
+}
+function _defineProperties9(target, props) {
+  for (var i = 0;i < props.length; i++) {
+    var descriptor = props[i];
+    descriptor.enumerable = descriptor.enumerable || false;
+    descriptor.configurable = true;
+    if ("value" in descriptor)
+      descriptor.writable = true;
+    Object.defineProperty(target, _toPropertyKey9(descriptor.key), descriptor);
+  }
+}
+function _createClass9(Constructor, protoProps, staticProps) {
+  if (protoProps)
+    _defineProperties9(Constructor.prototype, protoProps);
+  if (staticProps)
+    _defineProperties9(Constructor, staticProps);
+  Object.defineProperty(Constructor, "prototype", { writable: false });
+  return Constructor;
+}
+function _callSuper2(t, o, e) {
+  return o = _getPrototypeOf2(o), _possibleConstructorReturn2(t, _isNativeReflectConstruct2() ? Reflect.construct(o, e || [], _getPrototypeOf2(t).constructor) : o.apply(t, e));
+}
+function _possibleConstructorReturn2(self2, call) {
+  if (call && (_typeof9(call) === "object" || typeof call === "function")) {
+    return call;
+  } else if (call !== undefined) {
+    throw new TypeError("Derived constructors may only return object or undefined");
+  }
+  return _assertThisInitialized2(self2);
+}
+function _assertThisInitialized2(self2) {
+  if (self2 === undefined) {
+    throw new ReferenceError("this hasn't been initialised - super() hasn't been called");
+  }
+  return self2;
+}
+function _isNativeReflectConstruct2() {
+  try {
+    var t = !Boolean.prototype.valueOf.call(Reflect.construct(Boolean, [], function() {}));
+  } catch (t) {}
+  return (_isNativeReflectConstruct2 = function _isNativeReflectConstruct() {
+    return !!t;
+  })();
+}
+function _getPrototypeOf2(o) {
+  _getPrototypeOf2 = Object.setPrototypeOf ? Object.getPrototypeOf.bind() : function _getPrototypeOf(o) {
+    return o.__proto__ || Object.getPrototypeOf(o);
+  };
+  return _getPrototypeOf2(o);
+}
+function _inherits2(subClass, superClass) {
+  if (typeof superClass !== "function" && superClass !== null) {
+    throw new TypeError("Super expression must either be null or a function");
+  }
+  subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, writable: true, configurable: true } });
+  Object.defineProperty(subClass, "prototype", { writable: false });
+  if (superClass)
+    _setPrototypeOf2(subClass, superClass);
+}
+function _setPrototypeOf2(o, p) {
+  _setPrototypeOf2 = Object.setPrototypeOf ? Object.setPrototypeOf.bind() : function _setPrototypeOf(o, p) {
+    o.__proto__ = p;
+    return o;
+  };
+  return _setPrototypeOf2(o, p);
+}
+function ownKeys2(e, r) {
+  var t = Object.keys(e);
+  if (Object.getOwnPropertySymbols) {
+    var o = Object.getOwnPropertySymbols(e);
+    r && (o = o.filter(function(r) {
+      return Object.getOwnPropertyDescriptor(e, r).enumerable;
+    })), t.push.apply(t, o);
+  }
+  return t;
+}
+function _objectSpread2(e) {
+  for (var r = 1;r < arguments.length; r++) {
+    var t = arguments[r] != null ? arguments[r] : {};
+    r % 2 ? ownKeys2(Object(t), true).forEach(function(r) {
+      _defineProperty2(e, r, t[r]);
+    }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys2(Object(t)).forEach(function(r) {
+      Object.defineProperty(e, r, Object.getOwnPropertyDescriptor(t, r));
+    });
+  }
+  return e;
+}
+function _defineProperty2(obj, key, value) {
+  key = _toPropertyKey9(key);
+  if (key in obj) {
+    Object.defineProperty(obj, key, { value, enumerable: true, configurable: true, writable: true });
+  } else {
+    obj[key] = value;
+  }
+  return obj;
+}
+function _toPropertyKey9(t) {
+  var i = _toPrimitive9(t, "string");
+  return _typeof9(i) == "symbol" ? i : i + "";
+}
+function _toPrimitive9(t, r) {
+  if (_typeof9(t) != "object" || !t)
+    return t;
+  var e = t[Symbol.toPrimitive];
+  if (e !== undefined) {
+    var i = e.call(t, r || "default");
+    if (_typeof9(i) != "object")
+      return i;
+    throw new TypeError("@@toPrimitive must return a primitive value.");
+  }
+  return (r === "string" ? String : Number)(t);
+}
+var defaultOptions2 = _objectSpread2(_objectSpread2({}, upload_default.defaultOptions), {}, {
+  httpStack: new XHRHttpStack,
+  fileReader: new FileReader2,
+  urlStorage: canStoreURLs ? new WebStorageUrlStorage : new NoopUrlStorage,
+  fingerprint
+});
+var Upload = /* @__PURE__ */ function(_BaseUpload) {
+  function Upload() {
+    var file = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : null;
+    var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+    _classCallCheck9(this, Upload);
+    options = _objectSpread2(_objectSpread2({}, defaultOptions2), options);
+    return _callSuper2(this, Upload, [file, options]);
+  }
+  _inherits2(Upload, _BaseUpload);
+  return _createClass9(Upload, null, [{
+    key: "terminate",
+    value: function terminate(url) {
+      var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+      options = _objectSpread2(_objectSpread2({}, defaultOptions2), options);
+      return upload_default.terminate(url, options);
+    }
+  }]);
+}(upload_default);
+var isSupported = typeof XMLHttpRequest === "function" && typeof Blob === "function" && typeof Blob.prototype.slice === "function";
+
+// src/ui/staged-upload.ts
+var UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024;
+function uploadFile(file, options) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const uploadId = () => {
+      if (!upload.url)
+        return;
+      const url = new URL(upload.url, location.href);
+      if (url.origin !== location.origin)
+        return;
+      return /^\/api\/v1\/spindle-uploads\/([a-zA-Z0-9-]+)$/.exec(url.pathname)?.[1];
+    };
+    const finish = (error) => {
+      if (settled)
+        return;
+      settled = true;
+      options.signal?.removeEventListener("abort", cancel);
+      const id = uploadId();
+      if (error || !id) {
+        try {
+          if (id)
+            options.onDiscard(id);
+        } finally {
+          reject(error ?? new Error("Upload returned an invalid file reference"));
+        }
+      } else
+        resolve(id);
+    };
+    const upload = new Upload(file, {
+      endpoint: "/api/v1/spindle-uploads",
+      chunkSize: UPLOAD_CHUNK_BYTES,
+      retryDelays: [0, 1000, 3000, 5000, 1e4],
+      storeFingerprintForResuming: false,
+      metadata: { extension: "lumiagent", filename: file.name, spindle_read_mode: "chunked" },
+      onBeforeRequest: (request) => {
+        const url = new URL(request.getURL(), location.href);
+        if (url.origin !== location.origin || !url.pathname.startsWith("/api/v1/spindle-uploads")) {
+          throw new Error("Upload destination must be on this Lumiverse host");
+        }
+        request.getUnderlyingObject().withCredentials = true;
+      },
+      onProgress: (sent, total) => options.onProgress?.(total === 0 ? 1 : sent / total),
+      onError: (error) => finish(error),
+      onSuccess: () => finish()
+    });
+    const cancel = () => {
+      upload.abort().then(() => finish(new DOMException("Upload cancelled", "AbortError")), (error) => finish(error));
+    };
+    options.signal?.addEventListener("abort", cancel, { once: true });
+    if (options.signal?.aborted)
+      cancel();
+    else
+      upload.start();
+  });
+}
+
+// src/ui/workspace-upload.ts
+class WorkspaceUploads {
+  send;
+  active = new Set;
+  pending = new Map;
+  constructor(send) {
+    this.send = send;
+  }
+  complete(transferId, error) {
+    const pending = this.pending.get(transferId);
+    if (!pending)
+      return;
+    this.pending.delete(transferId);
+    if (error)
+      pending.reject(new Error(error));
+    else
+      pending.resolve();
+  }
+  dispose() {
+    for (const controller of this.active)
+      controller.abort();
+    for (const id of this.pending.keys())
+      this.complete(id, "Upload interrupted: view closed");
+  }
+  async upload(file, path, onProgress, signal) {
+    const controller = new AbortController;
+    const cancel = () => controller.abort();
+    signal?.addEventListener("abort", cancel, { once: true });
+    if (signal?.aborted)
+      cancel();
+    this.active.add(controller);
+    try {
+      const uploadId = await uploadFile(file, {
+        signal: controller.signal,
+        onProgress: (fraction) => onProgress?.(fraction * 0.95),
+        onDiscard: (uploadId) => this.send({ type: "ws_upload_discard", uploadId })
+      });
+      if (controller.signal.aborted) {
+        this.send({ type: "ws_upload_discard", uploadId });
+        throw new DOMException("Upload cancelled", "AbortError");
+      }
+      const transferId = crypto.randomUUID();
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => this.complete(transferId, "Saving the upload timed out. Check the workspace before retrying."), 30 * 60000);
+        this.pending.set(transferId, {
+          resolve: () => {
+            clearTimeout(timer);
+            resolve();
+          },
+          reject: (error) => {
+            clearTimeout(timer);
+            reject(error);
+          }
+        });
+        try {
+          this.send({ type: "ws_upload_staged", transferId, path, uploadId });
+        } catch (error) {
+          this.complete(transferId, error.message);
+          this.send({ type: "ws_upload_discard", uploadId });
+        }
+      });
+      onProgress?.(1);
+    } finally {
+      signal?.removeEventListener("abort", cancel);
+      this.active.delete(controller);
+    }
+  }
 }
 
 // src/types.ts
@@ -9288,21 +12525,31 @@ This lives under custom_tools/. The agent's saved tool recipes are stored here â
     renderTree();
   };
   refreshBtn.addEventListener("click", refresh);
-  uploadBtn.addEventListener("click", async () => {
+  const uploadInput = document.createElement("input");
+  uploadInput.type = "file";
+  uploadInput.multiple = true;
+  uploadInput.hidden = true;
+  root.appendChild(uploadInput);
+  uploadBtn.addEventListener("click", () => uploadInput.click());
+  uploadInput.addEventListener("change", async () => {
+    const files = Array.from(uploadInput.files ?? []);
+    uploadInput.value = "";
+    const targetDir = selectedPath && selectedIsDirectory ? selectedPath : "";
+    uploadBtn.disabled = true;
     try {
-      const targetDir = selectedPath && selectedIsDirectory ? selectedPath : "";
-      const files = await deps.ctx.uploads.pickFile({ multiple: true, maxSizeBytes: 25 * 1024 * 1024 });
-      if (files.length === 0)
-        return;
-      await Promise.resolve().then(() => init_file_upload());
       for (const file of files) {
-        const path = joinPath(targetDir, file.name);
-        const transferId = `up_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-        setStatus(`Uploading ${file.name}...`);
-        await streamUpload(deps.sendBackend, path, file.bytes, transferId);
+        await deps.upload(file, joinPath(targetDir, file.name), (fraction) => {
+          setStatus(fraction >= 0.95 ? `Saving ${file.name}...` : `Uploading ${file.name}: ${Math.round(fraction / 0.95 * 100)}%`);
+        });
+      }
+      if (files.length) {
+        refresh();
+        setStatus("Upload complete.");
       }
     } catch (err) {
       setStatus(`Upload failed: ${err.message}`, true);
+    } finally {
+      uploadBtn.disabled = false;
     }
   });
   newFolderBtn.addEventListener("click", () => {
@@ -11637,7 +14884,7 @@ Force-revert anyway (this overwrites the external change)?`;
     }
     state.diffModal = null;
     if (!state.workspacePanel) {
-      state.workspacePanel = mountWorkspacePanel({ ctx, sendBackend });
+      state.workspacePanel = mountWorkspacePanel({ ctx, sendBackend, upload: (file, path, progress) => workspaceUploads.upload(file, path, progress) });
     }
     state.diffModal = openDiffModal(ctx, {
       getEdits: () => scopeEntries(workshopScope()),
@@ -12946,6 +16193,7 @@ Revert those edits to the character now, or leave them applied?`;
       rm.setAttribute("aria-label", "Remove file");
       rm.textContent = "Ã—";
       rm.addEventListener("click", () => {
+        att.uploadController?.abort();
         state.fileAttachments = state.fileAttachments.filter((a) => a.id !== att.id);
         renderAttachments();
       });
@@ -13001,7 +16249,7 @@ Revert those edits to the character now, or leave them applied?`;
     }
     return { wire, refs };
   };
-  const pendingUploads = new Map;
+  const workspaceUploads = new WorkspaceUploads(sendBackend);
   const composerSid = () => {
     if (state.sessionId)
       return state.sessionId;
@@ -13015,40 +16263,24 @@ Revert those edits to the character now, or leave them applied?`;
       return;
     chip.classList.toggle("is-uploading", att.status === "uploading");
     chip.classList.toggle("is-error", att.status === "error");
+    chip.setAttribute("title", att.error ?? att.name);
     const bar = chip.querySelector(".la-file-progress-bar");
     if (bar)
       bar.style.width = `${Math.round(att.progress * 100)}%`;
   };
   const uploadAttachment = async (att) => {
-    const transferId = makeId("up");
-    const acked = new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        if (pendingUploads.delete(transferId))
-          reject(new Error("upload timed out"));
-      }, 300000);
-      pendingUploads.set(transferId, { resolve: () => {
-        clearTimeout(timer);
-        resolve();
-      }, reject: (e) => {
-        clearTimeout(timer);
-        reject(e);
-      } });
-    });
+    att.uploadController = new AbortController;
     try {
-      await Promise.resolve().then(() => init_file_upload());
-      const bytes = new Uint8Array(await att.file.arrayBuffer());
-      await streamUpload(sendBackend, att.path, bytes, transferId, (frac) => {
-        att.progress = Math.min(0.95, frac * 0.95);
+      await workspaceUploads.upload(att.file, att.path, (fraction) => {
+        att.progress = fraction;
         setChipProgress(att);
-      });
-      await acked;
+      }, att.uploadController.signal);
       att.status = "ready";
       att.progress = 1;
     } catch (err) {
       att.status = "error";
       att.error = err.message;
     } finally {
-      pendingUploads.delete(transferId);
       setChipProgress(att);
       updateComposer();
     }
@@ -13939,11 +17171,7 @@ ${t}` : t;
         Promise.resolve().then(() => (init_image_cache(), {})).then((m) => failImage(msg.path));
         break;
       case "ws_upload_complete": {
-        const p = pendingUploads.get(msg.transferId);
-        if (p) {
-          pendingUploads.delete(msg.transferId);
-          p.resolve();
-        }
+        workspaceUploads.complete(msg.transferId, msg.error);
         break;
       }
       case "ws_zip_ready":
@@ -14073,6 +17301,7 @@ ${t}` : t;
   });
   return () => {
     off();
+    workspaceUploads.dispose();
     offBackendMessages();
     for (const controller of frontendRequests.values())
       controller.abort();

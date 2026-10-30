@@ -8,6 +8,7 @@ import type { FrontendToBackend, WorkspaceEntry } from "../types";
 export interface WorkspacePanelDeps {
   readonly ctx: SpindleFrontendContext;
   sendBackend(msg: FrontendToBackend): void;
+  upload(file: File, path: string, onProgress: (fraction: number) => void): Promise<void>;
 }
 
 export interface WorkspacePanelHandle {
@@ -313,21 +314,27 @@ export function mountWorkspacePanel(deps: WorkspacePanelDeps): WorkspacePanelHan
 
   refreshBtn.addEventListener("click", refresh);
 
-  uploadBtn.addEventListener("click", async () => {
+  const uploadInput = document.createElement("input");
+  uploadInput.type = "file";
+  uploadInput.multiple = true;
+  uploadInput.hidden = true;
+  root.appendChild(uploadInput);
+  uploadBtn.addEventListener("click", () => uploadInput.click());
+  uploadInput.addEventListener("change", async () => {
+    const files = Array.from(uploadInput.files ?? []);
+    uploadInput.value = "";
+    const targetDir = selectedPath && selectedIsDirectory ? selectedPath : "";
+    uploadBtn.disabled = true;
     try {
-      const targetDir = selectedPath && selectedIsDirectory ? selectedPath : "";
-      const files = await deps.ctx.uploads.pickFile({ multiple: true, maxSizeBytes: 25 * 1024 * 1024 });
-      if (files.length === 0) return;
-      const { streamUpload } = await import("./file-upload");
       for (const file of files) {
-        const path = joinPath(targetDir, file.name);
-        const transferId = `up_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-        setStatus(`Uploading ${file.name}...`);
-        await streamUpload(deps.sendBackend, path, file.bytes, transferId);
+        await deps.upload(file, joinPath(targetDir, file.name), fraction => {
+          setStatus(fraction >= 0.95 ? `Saving ${file.name}...` : `Uploading ${file.name}: ${Math.round(fraction / 0.95 * 100)}%`);
+        });
       }
+      if (files.length) { refresh(); setStatus("Upload complete."); }
     } catch (err) {
       setStatus(`Upload failed: ${(err as Error).message}`, true);
-    }
+    } finally { uploadBtn.disabled = false; }
   });
 
   newFolderBtn.addEventListener("click", () => {

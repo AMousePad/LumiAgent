@@ -7,9 +7,7 @@ import type { SpindleAPI } from "lumiverse-spindle-types";
 export const WORKSPACE_ROOT = "workspace";
 const DIRECTORY_MARKER = ".lumiagent-directory";
 
-// Hardcoded ceiling for a single file (chunked upload buffers the full payload
-// before writing, so this is bounded by memory not disk). Total workspace size
-// and file count come from AgentSettings and are passed into write paths.
+// Buffered agent writes retain a per-file budget. Staged uploads use the workspace quota.
 export const WORKSPACE_MAX_FILE_BYTES = 1024 * 1024 * 1024;
 export const WORKSPACE_MAX_FILES = 5000;
 
@@ -229,6 +227,33 @@ export async function writeText(spindle: SpindleAPI, userId: string, relPath: st
 export async function writeBinary(spindle: SpindleAPI, userId: string, relPath: string, data: Uint8Array, caps: WorkspaceCaps = DEFAULT_WORKSPACE_CAPS): Promise<void> {
   await meteredWrite(spindle, userId, relPath, data.byteLength, caps,
     () => spindle.userStorage.writeBinary(absPath(relPath), data, userId));
+}
+
+export async function importUpload(spindle: SpindleAPI, userId: string, relPath: string, uploadId: string, caps: WorkspaceCaps = DEFAULT_WORKSPACE_CAPS): Promise<void> {
+  let chunk = await spindle.files.readChunk({ uploadId }, 0, userId);
+  const size = chunk.size;
+  if (!Number.isSafeInteger(size) || size < 0) throw new Error("Invalid upload size");
+  // Storage still requires one contiguous buffer, so quota checks precede allocation.
+  await meteredWrite(spindle, userId, relPath, size, { ...caps, maxFileBytes: Number.MAX_SAFE_INTEGER }, async () => {
+    let bytes: Uint8Array;
+    try { bytes = new Uint8Array(size); }
+    catch { throw new Error("Not enough contiguous memory to save this upload. Streaming workspace storage is required for this file."); }
+    let offset = 0;
+    for (;;) {
+      if (chunk.offset !== offset || chunk.size !== size || chunk.data.byteLength > size - offset) {
+        throw new Error("Upload returned inconsistent chunk metadata");
+      }
+      bytes.set(chunk.data, offset);
+      offset += chunk.data.byteLength;
+      if (chunk.eof) {
+        if (offset !== size) throw new Error("Upload ended before its declared size");
+        break;
+      }
+      if (chunk.data.byteLength === 0 || offset >= size) throw new Error("Upload did not advance");
+      chunk = await spindle.files.readChunk({ uploadId }, offset, userId);
+    }
+    await spindle.userStorage.writeBinary(absPath(relPath), bytes, userId);
+  });
 }
 
 export async function makeDir(spindle: SpindleAPI, userId: string, relPath: string): Promise<void> {

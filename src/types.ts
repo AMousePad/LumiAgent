@@ -261,7 +261,7 @@ export interface MessageFile {
 }
 
 // Wire shape for a file on send_message. Bytes are streamed separately via
-// ws_upload_part; this carries only the ref (+ inline text for small files).
+// the host upload endpoint. Messages carry references and small inline text.
 export type WireFile = MessageFile;
 
 export interface ChatUserMessage {
@@ -399,8 +399,8 @@ export type FrontendToBackend =
   | { type: "ws_read_text"; path: string }
   | { type: "ws_write_text"; path: string; content: string }
   | { type: "ws_duplicate"; path: string }
-  | { type: "ws_upload_binary"; path: string; dataBase64: string }
-  | { type: "ws_upload_part"; transferId: string; path: string; dataBase64: string; index: number; total: number }
+  | { type: "ws_upload_staged"; transferId: string; path: string; uploadId: string }
+  | { type: "ws_upload_discard"; uploadId: string }
   | { type: "ws_delete"; path: string; recursive: boolean }
   | { type: "ws_move"; from: string; to: string }
   | { type: "ws_mkdir"; path: string }
@@ -450,7 +450,7 @@ export type BackendToFrontend =
   | { type: "ws_download_ready"; path: string; dataBase64: string; mimeType: string }
   | { type: "ws_image_ready"; path: string; dataBase64: string; mimeType: string }
   | { type: "ws_image_error"; path: string; error: string }
-  | { type: "ws_upload_complete"; transferId: string; path: string }
+  | { type: "ws_upload_complete"; transferId: string; path: string; error?: string }
   | { type: "ws_zip_ready"; dataBase64: string; filename: string }
   | { type: "ws_error"; error: string }
   | { type: "context_usage"; sessionId: string; promptTokens: number; contextTokens: number; percentUsed: number }

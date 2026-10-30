@@ -1334,75 +1334,20 @@ async function handleWsWriteText(path: string, content: string, userId: string):
   } catch (err) { send({ type: "ws_error", error: (err as Error).message }, userId); }
 }
 
-async function handleWsUploadBinary(path: string, dataBase64: string, userId: string): Promise<void> {
+async function handleWsUploadStaged(transferId: string, path: string, uploadId: string, userId: string, frontendSessionId?: string): Promise<void> {
+  let error: string | undefined;
   try {
     const ws = await import("./state/workspace");
-    const bytes = base64ToBytes(dataBase64);
     const { workspaceCaps } = await resolveCapsForUser(userId);
-    await ws.writeBinary(spindle, userId, path, bytes, workspaceCaps);
+    await ws.importUpload(spindle, userId, path, uploadId, workspaceCaps);
     send({ type: "ws_changed" }, userId);
-  } catch (err) { send({ type: "ws_error", error: (err as Error).message }, userId); }
-}
-
-// Chunked upload assembly buffer. Keyed by `${userId}:${transferId}` so
-// concurrent uploads from the same user don't collide. Cleared on completion
-// or when a different transferId starts writing to the same path.
-// parts slots are null until received, NOT "": a genuinely empty final chunk
-// (e.g. a zero-byte file's single part) base64-encodes to "", so completion
-// must key on "slot received" not "slot non-empty".
-const uploadBuffers = new Map<string, { path: string; total: number; parts: (string | null)[] }>();
-const UPLOAD_BUFFER_TTL_MS = 5 * 60_000;
-const uploadBufferTimers = new Map<string, ReturnType<typeof setTimeout>>();
-
-function clearUploadBuffer(key: string): void {
-  uploadBuffers.delete(key);
-  const t = uploadBufferTimers.get(key);
-  if (t) { clearTimeout(t); uploadBufferTimers.delete(key); }
-}
-
-async function handleWsUploadPart(transferId: string, path: string, dataBase64: string, index: number, total: number, userId: string): Promise<void> {
-  const key = `${userId}:${transferId}`;
-  try {
-    let buf = uploadBuffers.get(key);
-    if (!buf) {
-      buf = { path, total, parts: new Array<string | null>(total).fill(null) };
-      uploadBuffers.set(key, buf);
-    }
-    // Refresh the reap timer on every part: a large multi-chunk upload on a slow
-    // link would otherwise be torn down mid-flight by a timer armed on part 0.
-    // On expiry tell the frontend, which only ever shows "Uploading..." and
-    // would hang silently otherwise (a lost part never completes the buffer).
-    const existing = uploadBufferTimers.get(key);
-    if (existing) clearTimeout(existing);
-    uploadBufferTimers.set(key, setTimeout(() => {
-      log("warn", `upload transfer ${transferId} timed out`);
-      clearUploadBuffer(key);
-      send({ type: "ws_error", error: "Upload timed out before all parts arrived." }, userId);
-    }, UPLOAD_BUFFER_TTL_MS));
-    if (buf.path !== path || buf.total !== total) {
-      throw new Error(`upload part for ${transferId} mismatches path or total`);
-    }
-    if (index < 0 || index >= total) throw new Error(`bad upload index ${index}`);
-    buf.parts[index] = dataBase64;
-    // Check completion: every slot received (an empty-string chunk counts).
-    if (buf.parts.every((p) => p !== null)) {
-      const ws = await import("./state/workspace");
-      // Concatenate decoded bytes in order.
-      const decoded = buf.parts.map((b64) => base64ToBytes(b64 ?? ""));
-      const totalLen = decoded.reduce((s, b) => s + b.byteLength, 0);
-      const merged = new Uint8Array(totalLen);
-      let off = 0;
-      for (const b of decoded) { merged.set(b, off); off += b.byteLength; }
-      clearUploadBuffer(key);
-      const { workspaceCaps } = await resolveCapsForUser(userId);
-      await ws.writeBinary(spindle, userId, path, merged, workspaceCaps);
-      send({ type: "ws_changed" }, userId);
-      send({ type: "ws_upload_complete", transferId, path }, userId);
-    }
-  } catch (err) {
-    clearUploadBuffer(key);
-    send({ type: "ws_error", error: (err as Error).message }, userId);
+  } catch (err) { error = (err as Error).message; }
+  finally {
+    try { await spindle.uploads.delete(uploadId, userId); }
+    catch (err) { log("warn", `Upload cleanup failed: ${(err as Error).message}`); }
   }
+  spindle.sendToFrontend({ type: "ws_upload_complete", transferId, path, ...(error ? { error } : {}) }, userId,
+    frontendSessionId ? { frontendSessionId } : undefined);
 }
 
 async function handleWsDelete(path: string, recursive: boolean, userId: string): Promise<void> {
@@ -3139,8 +3084,8 @@ spindle.onFrontendMessage(async (raw: unknown, userId: string, frontendSessionId
       case "ws_read_text": await handleWsReadText(msg.path, userId); return;
       case "ws_write_text": await handleWsWriteText(msg.path, msg.content, userId); return;
       case "ws_duplicate": await handleWsDuplicate(msg.path, userId); return;
-      case "ws_upload_binary": await handleWsUploadBinary(msg.path, msg.dataBase64, userId); return;
-      case "ws_upload_part": await handleWsUploadPart(msg.transferId, msg.path, msg.dataBase64, msg.index, msg.total, userId); return;
+      case "ws_upload_staged": void handleWsUploadStaged(msg.transferId, msg.path, msg.uploadId, userId, frontendSessionId); return;
+      case "ws_upload_discard": await spindle.uploads.delete(msg.uploadId, userId); return;
       case "ws_delete": await handleWsDelete(msg.path, msg.recursive, userId); return;
       case "ws_move": await handleWsMove(msg.from, msg.to, userId); return;
       case "ws_mkdir": await handleWsMkdir(msg.path, userId); return;
