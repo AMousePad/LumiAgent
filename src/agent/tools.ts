@@ -3,6 +3,7 @@ import { isDeferredTool, isReadOnlyTool, listDeferredToolNames, maxResultSizeCha
 import { formatZodError } from "./tools/_framework";
 import type { ToolCtx as SharedToolCtx, QueuedImage as SharedQueuedImage } from "./tools/_context";
 import { changeApprovalPolicyFor, type ChangeImpact } from "./change-approval";
+import { canonicalToolReferences, isPublicTool } from './tools/_tool-groups';
 
 export type ToolCtx = SharedToolCtx;
 export type QueuedImage = SharedQueuedImage;
@@ -51,13 +52,17 @@ export function toolRequiresCharacter(name: string): boolean {
 }
 
 export function makeToolSchemas(hasCharacter = true): ToolSchema[] {
-  return registry.schemas().filter((s) => passesCharacterGate(s.name, hasCharacter));
+  return registry.schemas().filter((s) => isPublicTool(s.name) && passesCharacterGate(s.name, hasCharacter)).map(publicSchema);
+}
+
+function publicSchema(schema: ToolSchema): ToolSchema {
+  return { ...schema, description: canonicalToolReferences(schema.description) };
 }
 
 // Schemas shipped in the initial tools list passed to the LLM. Excludes
 // deferred tools (model fetches their schemas via tool_search on demand).
 export function makeInitialToolSchemas(hasCharacter = true): ToolSchema[] {
-  return registry.schemas().filter((s) => !isDeferredTool(s.name) && passesCharacterGate(s.name, hasCharacter));
+  return makeToolSchemas(hasCharacter).filter((s) => !isDeferredTool(s.name));
 }
 
 // Lookup table of full schemas for deferred tools. runAgent uses this to
@@ -67,7 +72,7 @@ export function makeDeferredToolSchemaMap(hasCharacter = true): Record<string, T
   for (const name of listDeferredToolNames()) {
     if (!passesCharacterGate(name, hasCharacter)) continue;
     const s = registry.schemaFor(name);
-    if (s) out[name] = s;
+    if (s) out[name] = publicSchema(s);
   }
   return out;
 }

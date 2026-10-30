@@ -32,7 +32,8 @@ export const dryRunPromptTool = defineTool({
   execute: async (input, ctx) => {
     const chatId = input.chat_id ?? ctx.pinnedChatId;
     if (!chatId) {
-      return { content: JSON.stringify({ error: "no chat_id given and no pinned chat. Pass chat_id, or pin a chat first." }), isError: true };
+      const active = await ctx.spindle.chats.getActive(ctx.userId).catch(() => null);
+      return { content: JSON.stringify({ error: 'No chat_id supplied and no chat pinned. Use chats(action=active/list), then pass the intended chat_id.', active_chat_id: active?.id ?? null }), isError: true };
     }
     try {
       // Fall back to the agent's own connection so dry-run doesn't depend on the

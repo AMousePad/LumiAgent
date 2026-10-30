@@ -181,6 +181,7 @@ function send(msg: BackendToFrontend, userId: string): void {
 // posts back a frontend_rpc_response which resolves the pending promise.
 interface PendingRpc {
   userId: string;
+  frontendSessionId?: string | undefined;
   resolve: (v: unknown) => void;
   reject: (e: Error) => void;
   timer: ReturnType<typeof setTimeout>;
@@ -203,17 +204,22 @@ function rejectFrontendRpc(rpcId: string, reason: string, notifyFrontend: boolea
   const pending = takePendingFrontendRpc(rpcId);
   if (!pending) return;
   if (notifyFrontend) {
-    try { send({ type: "frontend_rpc_cancel", rpcId, reason }, pending.userId); }
+    try { spindle.sendToFrontend({ type: "frontend_rpc_cancel", rpcId, reason }, pending.userId, pending.frontendSessionId ? { frontendSessionId: pending.frontendSessionId } : undefined); }
     catch { /* frontend is already unavailable */ }
   }
   pending.reject(new Error(reason));
 }
 
-function cancelFrontendRpcsForUser(userId: string, reason: string): void {
+function cancelFrontendRpcsForUser(userId: string, reason: string, frontendSessionId?: string): void {
   for (const [rpcId, pending] of pendingFrontendRpc) {
-    if (pending.userId === userId) rejectFrontendRpc(rpcId, reason, true);
+    if (pending.userId === userId && pending.frontendSessionId === frontendSessionId) rejectFrontendRpc(rpcId, reason, true);
   }
 }
+
+spindle.on("FRONTEND_SESSION_CLOSED", (payload, userId) => {
+  const sessionId = (payload as { frontendSessionId?: unknown } | null)?.frontendSessionId;
+  if (userId && typeof sessionId === "string") cancelFrontendRpcsForUser(userId, "Originating browser session closed", sessionId);
+});
 
 function callFrontend(
   userId: string,
@@ -221,7 +227,9 @@ function callFrontend(
   args: unknown,
   timeoutMs = DEFAULT_FRONTEND_RPC_TIMEOUT_MS,
   signal?: AbortSignal,
+  frontendSessionId?: string,
 ): Promise<unknown> {
+  if ((op.startsWith("theme_") || op === 'ui_capture') && !frontendSessionId) return Promise.reject(new Error("This operation requires the originating browser session. Start a new request in an updated Lumiverse tab."));
   const rpcId = makeId("rpc");
   if (signal?.aborted) return Promise.reject(new Error(`frontend rpc '${op}' was cancelled`));
   return new Promise<unknown>((resolve, reject) => {
@@ -233,6 +241,7 @@ function callFrontend(
       : undefined;
     pendingFrontendRpc.set(rpcId, {
       userId,
+      frontendSessionId,
       resolve,
       reject,
       timer,
@@ -240,7 +249,7 @@ function callFrontend(
       ...(onAbort ? { onAbort } : {}),
     });
     if (signal && onAbort) signal.addEventListener("abort", onAbort, { once: true });
-    try { send({ type: "frontend_rpc_request", rpcId, op, args }, userId); }
+    try { spindle.sendToFrontend({ type: "frontend_rpc_request", rpcId, op, args }, userId, frontendSessionId ? { frontendSessionId } : undefined); }
     catch (e) {
       const pending = takePendingFrontendRpc(rpcId);
       pending?.reject(e as Error);
@@ -251,10 +260,10 @@ function callFrontend(
 // The responding userId must match the user the request was issued for.
 // Without this check, any user could resolve another user's pending RPC
 // (which routes phoneline-consent decisions), silently approving pairings.
-function resolveFrontendRpc(rpcId: string, fromUserId: string, result: unknown, error: string | undefined): void {
+function resolveFrontendRpc(rpcId: string, fromUserId: string, result: unknown, error: string | undefined, frontendSessionId?: string): void {
   const pending = pendingFrontendRpc.get(rpcId);
   if (!pending) return;
-  if (pending.userId !== fromUserId) {
+  if (pending.userId !== fromUserId || (pending.frontendSessionId && pending.frontendSessionId !== frontendSessionId)) {
     log("warn", `dropped frontend_rpc_response: rpcId=${rpcId} responder=${fromUserId} expected=${pending.userId}`);
     return;
   }
@@ -278,6 +287,7 @@ async function requestChangeApproval(
   userId: string,
   request: ToolApprovalRequest,
   signal: AbortSignal,
+  frontendSessionId?: string,
 ): Promise<ToolApprovalDecision> {
   const result = await callFrontend(userId, "approve_change", {
     sessionId: request.sessionId,
@@ -291,7 +301,7 @@ async function requestChangeApproval(
     invocationPath: request.invocationPath,
     details: approvalDetails(request.args),
     expiresAt: Date.now() + CHANGE_APPROVAL_TIMEOUT_MS,
-  }, CHANGE_APPROVAL_TIMEOUT_MS, signal);
+  }, CHANGE_APPROVAL_TIMEOUT_MS, signal, frontendSessionId);
   if (!result || typeof result !== "object" || typeof (result as { approved?: unknown }).approved !== "boolean") {
     return { kind: "unavailable", reason: "The frontend returned an invalid approval response" };
   }
@@ -1647,7 +1657,7 @@ async function handleStartSession(sessionId: string, characterId: string | null,
 // Re-run the agent on the current session state without appending a new
 // user message. Used by the composer's "empty send" path when the last
 // message is a user message that the agent didn't finish replying to.
-async function handleContinueSession(sessionId: string, connectionId: string | undefined, userId: string): Promise<void> {
+async function handleContinueSession(sessionId: string, connectionId: string | undefined, userId: string, frontendSessionId?: string): Promise<void> {
   if (activeSessions.has(scopedKey(userId, sessionId))) {
     send({ type: "generation_error", sessionId, error: "session already has a generation in flight" }, userId);
     return;
@@ -1687,7 +1697,7 @@ async function handleContinueSession(sessionId: string, connectionId: string | u
     await saveSession(spindle, s, userId);
     send({ type: "session_truncated", sessionId, messages: s.messages, edits: s.edits }, userId);
   }
-  void handleSendMessageInternal(s, userId, connectionId);
+  void handleSendMessageInternal(s, userId, connectionId, frontendSessionId);
 }
 
 // Persist attachment bytes to workspace files under attachments/{sessionId}/ and
@@ -1735,6 +1745,7 @@ async function handleSendMessage(
   userId: string,
   wireImages?: readonly WireImage[],
   wireFiles?: readonly WireFile[],
+  frontendSessionId?: string,
 ): Promise<void> {
   log("info", `send_message sessionId=${sessionId} userMessageId=${userMessageId} contentLen=${content.length} images=${wireImages?.length ?? 0} files=${wireFiles?.length ?? 0}`);
   if (activeSessions.has(scopedKey(userId, sessionId))) {
@@ -1763,7 +1774,7 @@ async function handleSendMessage(
     // First time this session appears in the picker.
     void handleListSessions(undefined, userId);
   }
-  await handleSendMessageInternal(s, userId, connectionId);
+  await handleSendMessageInternal(s, userId, connectionId, frontendSessionId);
 }
 
 function handleCancelGeneration(sessionId: string, userId: string): void {
@@ -2444,7 +2455,7 @@ async function handleFreeToolResult(sessionId: string, callId: string, userId: s
   send({ type: "session_truncated", sessionId, messages: s.messages, edits: s.edits }, userId);
 }
 
-async function handleEditUserMessage(sessionId: string, messageId: string, newContent: string, editsAction: "keep" | "revert", connectionId: string | undefined, userId: string): Promise<void> {
+async function handleEditUserMessage(sessionId: string, messageId: string, newContent: string, editsAction: "keep" | "revert", connectionId: string | undefined, userId: string, frontendSessionId?: string): Promise<void> {
   if (activeSessions.has(scopedKey(userId, sessionId))) {
     send({ type: "generation_error", sessionId, error: "wait for the current generation to finish" }, userId);
     return;
@@ -2488,10 +2499,10 @@ async function handleEditUserMessage(sessionId: string, messageId: string, newCo
   send({ type: "session_truncated", sessionId, messages: s.messages, edits: s.edits }, userId);
 
   // Kick off regeneration as if the user just sent this message.
-  void handleSendMessageInternal(s, userId, connectionId);
+  void handleSendMessageInternal(s, userId, connectionId, frontendSessionId);
 }
 
-async function handleRegenerateAssistant(sessionId: string, assistantMessageId: string, editsAction: "keep" | "revert", connectionId: string | undefined, userId: string): Promise<void> {
+async function handleRegenerateAssistant(sessionId: string, assistantMessageId: string, editsAction: "keep" | "revert", connectionId: string | undefined, userId: string, frontendSessionId?: string): Promise<void> {
   if (activeSessions.has(scopedKey(userId, sessionId))) {
     send({ type: "generation_error", sessionId, error: "wait for the current generation to finish" }, userId);
     return;
@@ -2525,7 +2536,7 @@ async function handleRegenerateAssistant(sessionId: string, assistantMessageId: 
   await saveSession(spindle, s, userId);
   send({ type: "session_truncated", sessionId, messages: s.messages, edits: s.edits }, userId);
 
-  void handleSendMessageInternal(s, userId, connectionId);
+  void handleSendMessageInternal(s, userId, connectionId, frontendSessionId);
 }
 
 async function handleForkSession(sourceSessionId: string, messageId: string, userId: string): Promise<void> {
@@ -2580,7 +2591,7 @@ async function handleForkSession(sourceSessionId: string, messageId: string, use
 // with the user message we're replying to. connectionIdOverride is the
 // user's current dropdown value, applied here as the single heal point so
 // every entry path (send, edit, regenerate, continue) picks up the latest.
-async function handleSendMessageInternal(s: PersistedSession, userId: string, connectionIdOverride: string | undefined): Promise<void> {
+async function handleSendMessageInternal(s: PersistedSession, userId: string, connectionIdOverride: string | undefined, frontendSessionId?: string): Promise<void> {
   if (connectionIdOverride && s.connectionId !== connectionIdOverride) {
     s.connectionId = connectionIdOverride;
   }
@@ -2653,7 +2664,7 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
     }
     dispatch = makeToolDispatch({
       requireChangeApproval: settings.requireChangeApproval,
-      requestApproval: (request, signal) => requestChangeApproval(userId, request, signal),
+      requestApproval: (request, signal) => requestChangeApproval(userId, request, signal, frontendSessionId),
     });
     const provider = await resolveProviderForConnection(s.connectionId, userId);
     samplerParams = buildSamplerParams(settings.samplers, settings.parallelToolCalls, provider);
@@ -2686,7 +2697,7 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
       maxTurns: DEFAULT_MAX_TURNS_PER_MESSAGE, startingTurn: lastTurn,
       cacheMode: settings.cacheMode, tpmLimit: settings.tpmLimit, rpmLimit: settings.rpmLimit, signal: ac.signal,
       recentReads: recentReadsFor(userId, s.sessionId),
-      callFrontend: (op, args, timeoutMs) => callFrontend(userId, op, args, timeoutMs, ac.signal),
+      callFrontend: (op, args, timeoutMs) => callFrontend(userId, op, args, timeoutMs, ac.signal, frontendSessionId),
     })) {
       send({ type: "chat_event", sessionId: s.sessionId, event: ev }, userId);
       switch (ev.type) {
@@ -3081,7 +3092,7 @@ subscribeToMissingChanges((missing) => {
   })();
 });
 
-spindle.onFrontendMessage(async (raw: unknown, userId: string) => {
+spindle.onFrontendMessage(async (raw: unknown, userId: string, frontendSessionId?: string) => {
   if (!userId) {
     log("warn", `dropped message without userId`);
     return;
@@ -3095,9 +3106,9 @@ spindle.onFrontendMessage(async (raw: unknown, userId: string) => {
       case "list_sessions": await handleListSessions(msg.characterId, userId); return;
       case "load_session": await handleLoadSession(msg.sessionId, userId); return;
       case "start_session": void handleStartSession(msg.sessionId, msg.characterId, msg.connectionId, userId); return;
-      case "send_message": void handleSendMessage(msg.sessionId, msg.userMessageId, msg.content, msg.connectionId, userId, msg.images, msg.files); return;
+      case "send_message": void handleSendMessage(msg.sessionId, msg.userMessageId, msg.content, msg.connectionId, userId, msg.images, msg.files, frontendSessionId); return;
       case "ws_read_image": void handleWsReadImage(msg.path, userId); return;
-      case "continue_session": void handleContinueSession(msg.sessionId, msg.connectionId, userId); return;
+      case "continue_session": void handleContinueSession(msg.sessionId, msg.connectionId, userId, frontendSessionId); return;
       case "cancel_generation": handleCancelGeneration(msg.sessionId, userId); return;
       case "delete_session": await handleDeleteSession(msg.sessionId, userId); return;
       case "export_session_markdown": await handleExportSessionMarkdown(msg.sessionId, userId); return;
@@ -3105,8 +3116,8 @@ spindle.onFrontendMessage(async (raw: unknown, userId: string) => {
       case "revert_edit": await handleRevertEdit(msg.scope ?? characterScope(msg.characterId), msg.editId, msg.force === true, userId); return;
       case "revert_edits_bulk": await handleRevertEditsBulk(msg.scope ?? characterScope(msg.characterId), msg.editIds, userId); return;
       case "revert_session": await handleRevertSession(msg.sessionId, userId); return;
-      case "edit_user_message": void handleEditUserMessage(msg.sessionId, msg.messageId, msg.newContent, msg.editsAction, msg.connectionId, userId); return;
-      case "regenerate_assistant_message": void handleRegenerateAssistant(msg.sessionId, msg.assistantMessageId, msg.editsAction, msg.connectionId, userId); return;
+      case "edit_user_message": void handleEditUserMessage(msg.sessionId, msg.messageId, msg.newContent, msg.editsAction, msg.connectionId, userId, frontendSessionId); return;
+      case "regenerate_assistant_message": void handleRegenerateAssistant(msg.sessionId, msg.assistantMessageId, msg.editsAction, msg.connectionId, userId, frontendSessionId); return;
       case "fork_session": void handleForkSession(msg.sourceSessionId, msg.messageId, userId); return;
       case "delete_message": void handleDeleteMessage(msg.sessionId, msg.messageId, msg.editsAction, userId); return;
       case "free_tool_result": void handleFreeToolResult(msg.sessionId, msg.callId, userId); return;
@@ -3138,8 +3149,8 @@ spindle.onFrontendMessage(async (raw: unknown, userId: string) => {
       case "get_phoneline_pairings": await handleGetPhonelinePairings(userId); return;
       case "set_phoneline_pairing": await handleSetPhonelinePairing(userId, msg.identifier, msg.allowed); return;
       case "revoke_phoneline_pairing": await handleRevokePhonelinePairing(userId, msg.identifier); return;
-      case "frontend_ready": cancelFrontendRpcsForUser(userId, "Frontend reloaded"); return;
-      case "frontend_rpc_response": resolveFrontendRpc(msg.rpcId, userId, msg.result, msg.error); return;
+      case "frontend_ready": cancelFrontendRpcsForUser(userId, "Frontend reloaded", frontendSessionId); return;
+      case "frontend_rpc_response": resolveFrontendRpc(msg.rpcId, userId, msg.result, msg.error, frontendSessionId); return;
       default:
         log("warn", `unknown frontend message type=${(msg as { type?: string }).type ?? "?"}`);
     }

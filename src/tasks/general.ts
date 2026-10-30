@@ -1,4 +1,5 @@
 import { fillPrompt } from "../agent/prompts/_fill";
+import { canonicalToolReferences } from '../agent/tools/_tool-groups';
 import builtinBody from "../agent/prompts/claude/tasks/general/builtin_body.txt";
 import chatSectionBody from "../agent/prompts/claude/tasks/general/chat_section.txt";
 import addressingBody from "../agent/prompts/claude/tasks/general/addressing_section.txt";
@@ -41,7 +42,7 @@ export function buildGeneralSystemPrompt(params: GeneralPromptParams): string {
   // either the pinned chat's messages or `{pinned: false}` so the agent can
   // tell the user to pin. Hard-coding the section means pin/unpin doesn't
   // invalidate the prompt cache.
-  const chatSection = `\n\n${chatSectionBody}`;
+  const chatSection = `\n\n${canonicalToolReferences(chatSectionBody)}`;
 
   // Agent notes snapshot. Captured once at session start so the prompt cache
   // doesn't break when the file changes mid-session. Edits via the workshop
@@ -101,9 +102,9 @@ export function buildContextNote(params: ContextNoteParams): string {
     const lines = params.externalProviders.flatMap((p) =>
       p.surfaces.map((s) => `- \`${s.id}\` (${s.scope}): ${s.label}. ${s.description.slice(0, 240)}${s.description.length > 240 ? "..." : ""}`),
     );
-    parts.push(fillPrompt(externalSurfacesPreamble, { LINES: lines.join("\n") }));
+    parts.push(fillPrompt(canonicalToolReferences(externalSurfacesPreamble), { LINES: lines.join("\n") }));
   }
   return parts.join("\n\n");
 }
 
-export const BUILTIN_PROMPT_BODY = builtinBody;
+export const BUILTIN_PROMPT_BODY = canonicalToolReferences(builtinBody);

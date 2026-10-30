@@ -1,4 +1,6 @@
 import { ToolRegistry } from "./_framework";
+import { captureUiTool } from './capture-ui';
+import { isPublicTool, isToolGroup, registerToolGroups } from './_tool-groups';
 import { inspectCouncilTool, inspectDlcTool } from "./inspect-council-dlc";
 import { memoryVaultLinkTools } from "./memory-vaults-links";
 
@@ -119,85 +121,13 @@ import { listMcpServersTool, getMcpServerTool, createMcpServerTool, connectMcpSe
 
 export const registry = new ToolRegistry();
 
-// Tools listed here ship by NAME only in the initial system prompt.
-// Their full schemas are fetched on demand via `tool_search`. Add a name
-// here to defer. Remove to make a tool always-loaded. tool_search itself
-// is never deferred (the model needs it to discover the rest).
-// A tool belongs here only if it's GENUINELY RARE during a normal card-edit
-// session. Anything the agent reaches for as a reflex (authoring, randomising,
-// the core writes) must stay loaded — paying a tool_search round-trip every
-// time defeats the purpose.
-const DEFERRED_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
-  "inspect_council", "inspect_dlc", ...memoryVaultLinkTools.map((tool) => tool.name),
-  // Lumiverse-state inspectors. Mostly diagnostic; dry_run_prompt stays the anchor.
-  "count_tokens", "resolve_macros",
-  "list_variables", "read_variable", "set_variable",
-  "list_activated_world_info", "list_active_regex_scripts", "list_chat_memories",
-  "list_chat_world_books", "attach_world_book",
-  "list_personas", "read_persona", "read_persona_world_book",
-  "list_databanks", "read_databank", "list_databank_documents", "read_databank_document",
-  "manage_databank",
-  "list_connections", "read_connection",
-  "get_active_chat", "get_user_info", "get_lumiverse_version",
-  // Chat reading is niche unless the user pins a chat; on a pin the agent
-  // discovers these via the chat section in the system prompt.
-  "chat_stats", "list_chat_messages", "grep_chat_messages",
-  "list_chats", "list_chats_for_character", "read_chat_messages",
-  // Custom-tool authoring. custom_tool_run stays loaded; saved recipes are rare.
-  "custom_tool_save", "custom_tool_list", "custom_tool_delete",
-  // Genuinely-niche utilities.
-  "roll_dice", "count_cjk_chars", "test_regex", "random_pick",
-  // Mid-task user prompt, rare.
-  "ask_user_question",
-  // Multi-step planning aid; fetched when a task warrants a checklist.
-  "todo_write",
-  // Web (search + fetch). Only when the user asks to look something up.
-  "web_search", "web_fetch",
-  "list_mcp_servers", "get_mcp_server", "create_mcp_server",
-  "connect_mcp_server", "list_mcp_tools", "call_mcp_tool",
-  // Vision: fetched when the user has an image in the workspace to view.
-  "view_image",
-  // Image generation + library. Only on an explicitly visual task.
-  "generate_image", "list_image_models", "list_images",
-  // Persona / add-on long tail.
-  "switch_persona", "list_global_addons",
-  // Out-of-band nudge, at most once per task.
-  "notify_user",
-  // Persona lore. Only when the user asks about Mousey's past or sister.
-  "about_memoria",
-  // Tour script. Only when the user asks about the tutorial or its quizzes.
-  "read_tutorial_script",
-  // Death easter egg. The send path preloads it when the user message names
-  // Mousey and death; otherwise it stays deferred.
-  "mousey_die",
-  // Theming. Only on an explicit restyle request.
-  "get_theme", "set_theme", "install_theme_pack",
-  // Prompt-macro store + UI deep links.
-  "set_macro", "navigate_ui",
-  // Memory Cortex curation. Only when the user asks about long-term memory.
-  "memory_stats", "list_memory_entities", "remember_fact", "update_memory_entity",
-  // Bulk translation surface. Fetched once a translation/CJK task is underway;
-  // the prompt body still names them as the completion gate so the agent knows
-  // to tool_search them.
-  "apply_glossary", "translate_card_strings", "audit_card_coverage", "survey_cjk",
-  // External-provider (phone-line) tools. Useless without an active provider;
-  // the context note announces surfaces when one is present.
-  "list_external", "read_external", "edit_external", "update_external", "grep_external",
-  // Metadata mutators. Path-based set/edit cover the common cases; these are
-  // for the long-tail non-string fields.
-  "update_character", "update_regex_script", "update_world_book_entry",
-  "create_character",
-  "bulk_update_character_tags",
-  // Session edit-ledger management. Niche; the workshop UI is the usual path.
-  "list_session_edits", "revert_session_edits", "squash_session_edits",
-  // Workspace + tmp long-tail. Core reads (fs_read/fs_write/fs_list/fs_edit/
-  // fs_delete) and spill readers (tmp_read/tmp_grep) stay loaded.
-  "fs_copy", "fs_zip", "fs_unzip", "fs_move", "fs_mkdir", "fs_stat", "tmp_stat", "tmp_list",
-  // LumiRealm-specific mutations. Each is rare per session; deferred until
-  // the agent confirms the user is on a LumiRealm-imported card / module.
-  "asset_rename", "asset_delete",
-  "module_attach", "module_detach",
-  "set_toggle", "set_chat_variable", "set_default_variables_text",
+const DEFERRED_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "about_memoria", "read_tutorial_script", "mousey_die",
+  "translate_card_strings", "count_cjk_chars", "bulk_update_character_tags",
+  "asset_rename", "asset_delete", "module_attach", "module_detach",
+  "set_default_variables_text", "create_mcp_server",
+  "create_memory_vault", "rename_memory_vault", "attach_memory_link", "set_memory_link_enabled",
+  "squash_session_edits", "notify_user",
 ]);
 
 export function isDeferredTool(name: string): boolean {
@@ -205,7 +135,7 @@ export function isDeferredTool(name: string): boolean {
 }
 
 export function listDeferredToolNames(): readonly string[] {
-  return [...DEFERRED_TOOL_NAMES].sort();
+  return [...DEFERRED_TOOL_NAMES].filter(isPublicTool).sort();
 }
 
 // Read-only tools that never write spindle/userStorage and never push to the
@@ -232,12 +162,11 @@ const READ_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   "dry_run_prompt", "resolve_macros", "count_tokens",
   "list_image_models", "list_images", "list_global_addons", "get_theme",
   "memory_stats", "list_memory_entities",
-  "list_variables", "read_variable", "set_variable",
+  "list_variables", "read_variable",
   "list_activated_world_info", "list_active_regex_scripts", "list_chat_memories",
   "list_chat_world_books",
   "list_personas", "read_persona", "read_persona_world_book",
   "list_databanks", "read_databank", "list_databank_documents", "read_databank_document",
-  "manage_databank",
   "list_connections", "read_connection",
   "get_active_chat", "get_user_info", "get_lumiverse_version",
   // Ledger reads
@@ -294,6 +223,7 @@ const PER_TOOL_RESULT_CAP_CHARS: Readonly<Record<string, number>> = {
 };
 
 export function maxResultSizeCharsFor(name: string): number | null {
+  if (isToolGroup(name)) return Number.POSITIVE_INFINITY;
   return PER_TOOL_RESULT_CAP_CHARS[name] ?? null;
 }
 
@@ -419,3 +349,5 @@ registry.register(readVariableTool);
 registry.register(resolveMacrosTool);
 registry.register(todoWriteTool);
 registry.register(toolSearchTool);
+registry.register(captureUiTool);
+registerToolGroups(registry, isReadOnlyTool);

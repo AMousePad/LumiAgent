@@ -185,6 +185,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   });
 
   const root = tab.root;
+  root.setAttribute('data-lumiagent-capture-exclude', '');
   root.classList.add("la-drawer");
   const changeApprovals = createChangeApprovalController(ctx);
 
@@ -3014,6 +3015,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     clearErrorBanners,
   };
 
+  const frontendRequests = new Map<string, AbortController>();
   const offBackendMessages = ctx.onBackendMessage((raw) => {
     const msg = raw as BackendToFrontend;
     switch (msg.type) {
@@ -3536,6 +3538,12 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
               result = await resizeBase64(a.data, a.mime_type);
             } else if (msg.op === "approve_change") {
               result = await changeApprovals.show(msg.rpcId, msg.args as ChangeApprovalRequestWire);
+            } else if (msg.op === 'ui_capture') {
+              const { captureUi } = await import('./capture');
+              const controller = new AbortController();
+              frontendRequests.set(msg.rpcId, controller);
+              try { result = await captureUi(msg.args as import('./capture').UiCaptureInput, controller.signal); }
+              finally { frontendRequests.delete(msg.rpcId); }
             } else if (msg.op === "theme_catalog") {
               const { handleThemeCatalog } = await import("./theme-bridge");
               result = handleThemeCatalog(ctx);
@@ -3554,6 +3562,8 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         break;
       }
       case "frontend_rpc_cancel":
+        frontendRequests.get(msg.rpcId)?.abort(new Error(msg.reason));
+        frontendRequests.delete(msg.rpcId);
         changeApprovals.cancel(msg.rpcId, msg.reason);
         break;
       case "scope_squashed": {
@@ -3608,6 +3618,8 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   return () => {
     off();
     offBackendMessages();
+    for (const controller of frontendRequests.values()) controller.abort();
+    frontendRequests.clear();
     offChatSwitched();
     tutorial.close();
     changeApprovals.destroy();

@@ -1,6 +1,5 @@
-# Deferred tools (fetch via tool_search)
+# Additional tools
 
-The schemas for the tools listed below are not loaded. Calling them directly fails. To use one, first call `tool_search({ query: "select:<name>[,<name>...]" })`. Its result is a `<functions>` block that registers the schemas; the tool then becomes callable on the next turn. Keyword search (`tool_search({ query: "regex" })`) works too.
+Common workflows are already loaded. Use tool_search only for the additional tools below or to look up a schema. Select exact names with query="select:<name>[,<name>...]", or search by capability. Results are available on the next model step in this response.
 
-Deferred tools available:
 {{TOOL_LIST}}

@@ -1,25 +1,12 @@
-Reads any string-valued surface on the character by path.
+Read a string leaf as line-numbered text and satisfy edit's recent-read requirement. offset/limit paginate lines. Large results return spilled=true and tmp_handle, read or search that handle with tmp_read/tmp_grep. Use list for containers, not read.
 
-There is NO `character_id` argument on `read` / `edit` / `rewrite` / `set`; passing one is rejected as an unrecognized key. To reach a character other than the session focus, put its id in the path: `char/<id>/<field>` works everywhere `char/<field>` does (`list_characters` enumerates ids). With no focus, unqualified `char/<field>` fails `[PATH_NOT_FOUND] ... [NO_TARGET]`; read the trailing code, the leading one just says the path did not resolve.
+Paths:
+- char/<field>, char/tags, char/alternate_greetings/<index>, char/alternate_fields/<field>/<variantId>/<content|label>, char/extensions/<dotted-with-brackets>
+- rx/<scriptId>/<find_regex|replace_string>
+- wb/<entryId>/<content|comment>
+- persona/<id>/<name|title|description>, persona/<id>/wb/<entryId>/<content|comment>, persona/<id>/addon/<addonId>/<content|label>
+- global_addon/<id>/<content|label>
+- chat/<chatId>/msg/<msgId>/content
+- preset/<presetId>/block/<blockId>/<content|name>
 
-Path grammar:
-  char/<field>                          top-level character string (description, first_mes, scenario, personality, mes_example, system_prompt, post_history_instructions, creator_notes, creator, name)
-  char/<id>/<field>                     the same, on an explicit character by id. The `<id>/` segment is accepted before every char/ form below.
-  char/tags                             tags as a compact JSON string array
-  char/alternate_greetings/<idx>        one greeting by 0-based index
-  char/alternate_fields/<field>/<variantId>/<content|label>  one variant of description / personality / scenario. Discover ids via list({path:"char/alternate_fields/<field>"}).
-  char/extensions/<dotted-extension>    a string leaf under character.extensions (dotted-with-brackets, e.g. lumirealm.payload.triggers[0].effect[0].value)
-  rx/<scriptId>/find_regex              regex script pattern
-  rx/<scriptId>/replace_string          regex script body
-  wb/<entryId>/content                  lorebook entry body
-  wb/<entryId>/comment                  lorebook entry label
-  persona/<id>/<name|title|description>  a user persona field
-  persona/<id>/wb/<entryId>/<content|comment>  persona world-book entry
-  persona/<id>/addon/<addonId>/<content|label>  a persona-scoped add-on
-  global_addon/<id>/<content|label>     a reusable global add-on (read_persona resolves the ids)
-  chat/<chatId>/msg/<msgId>/content     one solo or group chat message
-  preset/<presetId>/block/<blockId>/<content|name>  prompt-preset block
-
-Records the path as 'recently read' so a subsequent `edit` on the same path passes the read-gate.
-
-Returns: a plain string body. Most of the time that's line-numbered text (`   1\tcontent line\n   2\t...`). If the body would exceed the per-call budget it spills, and you get JSON of the form `{spilled: true, tmp_handle: "tmp_...", peek, total_chars, total_lines, hint}` — pass `tmp_handle` to `tmp_grep` / `tmp_read` / `tmp_stat` from there.
+char/<field> uses focus. Insert an explicit ID after char/ to address another character: char/<id>/extensions/<dotted>. read/edit/rewrite/set do not accept character_id arguments. Other path IDs identify the target directly. Discover IDs with list, list_characters, chats or personas. Extension objects/arrays are not strings: walk them with list or replace them with set. Tags are returned as a JSON string array.

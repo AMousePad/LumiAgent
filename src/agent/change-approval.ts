@@ -1,3 +1,5 @@
+import { isToolGroup } from './tools/_tool-groups';
+
 export type ChangeApprovalAction = "create" | "update" | "delete" | "move" | "write";
 export type ChangeApprovalSeverity = "change" | "destructive";
 
@@ -87,6 +89,7 @@ const NO_CHANGE_TOOLS: ReadonlySet<string> = new Set([
   "todo_write",
   "tool_search",
   "view_image",
+  "capture_ui",
 ]);
 
 const DELETE_TOOLS: ReadonlySet<string> = new Set([
@@ -322,7 +325,7 @@ export function changeApprovalPolicyFor(
   args: Readonly<Record<string, unknown>>,
   context: ApprovalTargetContext = {},
 ): ChangeApprovalPolicy {
-  if (toolName === "custom_tool_run") return { kind: "delegate" };
+  if (toolName === "custom_tool_run" || isToolGroup(toolName)) return { kind: "delegate" };
   if (NO_CHANGE_TOOLS.has(toolName)) return { kind: "none" };
   if ((toolName === "apply_glossary" || toolName === "translate_card_strings") && args["dry_run"] === true) {
     return { kind: "none" };

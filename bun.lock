@@ -7,6 +7,7 @@
       "dependencies": {
         "@tanstack/virtual-core": "^3.13.0",
         "diff": "^9.0.0",
+        "modern-screenshot": "4.7.0",
         "zod": "^4.0.0",
       },
       "devDependencies": {
@@ -31,6 +32,8 @@
     "diff": ["diff@9.0.0", "", {}, "sha512-svtcdpS8CgJyqAjEQIXdb3OjhFVVYjzGAPO8WGCmRbrml64SPw/jJD4GoE98aR7r25A0XcgrK3F02yw9R/vhQw=="],
 
     "lumiverse-spindle-types": ["lumiverse-spindle-types@0.6.74", "", {}, "sha512-iJzI0eYRv3qQmigIpinWXhbVvlbntvByLt6YNxq6wvvn21gXiVNmZYXj7lpKptVg6ZDsYiQ6m3BJmhI0jdVr2Q=="],
+
+    "modern-screenshot": ["modern-screenshot@4.7.0", "", {}, "sha512-9YxN+ddPSMMlhylOv25VHzXrl9u67QRxoh7+SEewGtgUw7t6hHTrjptSDJUSne9oG4Xk/h2cwG15nIt4Hc9ujg=="],
 
     "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 

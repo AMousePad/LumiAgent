@@ -1,16 +1,5 @@
-Run multiple built-in tool calls in one turn (worked examples in the system prompt's "Piping tool calls" section).
-- Chain: step N saves with `save_as`, step N+1 references via `{{$var}}`.
-- Fan-out: each step `save_as`s; the runtime returns all bindings as one object.
-Use whenever you'd call tool A then feed its value into tool B, or call several tools whose results you all want — the intermediates stay in the interpreter, never round-trip through your tool_result stream.
+Run ordered tool calls as one pipeline, or execute a saved recipe by name. Supply exactly one of steps or name. Each step has sibling keys call, args, save_as. Unknown step keys are rejected before execution. Put every called tool argument inside args.
 
-Step shape: `call`, `args`, `save_as` are SIBLINGS. `save_as` never goes inside `args`, and every arg the target tool needs (including `character_id`) goes inside `args`. Unknown keys at step level are silently dropped with no error. A `character_id` misplaced there does NOT fail loudly: the step falls back to the focused character and writes to the wrong card.
+Use save_as:"body", then {{$body}} for its raw value, {{$body.field[0]}} for a nested value, or embedded references for strings. Returns explicit return if supplied, otherwise saved bindings, otherwise the final result. Save each write result you need to confirm.
 
-Each step's `args` are validated against THAT tool's own schema, at the moment the step runs, not up front. So a bad arg in step 40 is only found after steps 0-39 have already written.
-
-Not atomic: steps run in order, the first failure aborts the rest, and nothing is rolled back. Completed writes stay committed. On `step[N] failed`, fix step N and resume from there, do not blindly re-run the whole pipe.
-
-Every step executes whether or not it has `save_as`. Mutations land regardless of what comes back. But only the returned value reaches you: without `save_as`/`return` you see the LAST step's result only. Put `save_as` on every write you need to confirm, or verify after with `list_session_edits` rather than re-reading each path.
-
-Ref syntax in step args / optional `return`: `{{$body}}` (raw value), `prefix {{$body}} end` (coerced string), `{{$pick.picks[0].id}}` (dotted path + index).
-Returns: explicit `return` → that; else any `save_as` → object of all bindings; else the final step's result.
-Budget: 400 steps / depth 4 / 60s, shared with any nested pipe. The `name` form runs a saved recipe; default to inline `steps`.
+Not atomic: each step validates and runs in order. On failure, earlier writes remain. Fix and resume at the failed step, never rerun completed mutations blindly. Limits: 400 steps, nesting depth 4, 60 seconds shared across nested calls. Use custom_tools to manage saved recipes. Load an unfamiliar tool's schema before using it in a pipeline.

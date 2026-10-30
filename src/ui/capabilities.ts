@@ -59,7 +59,7 @@ const SECTIONS: readonly CapSection[] = [
       { rw: "W", text: "Your personas: read every one, edit names, titles, descriptions, their world books and add-on blocks, create new ones, and switch which is active." },
       { rw: "W", text: "Your prompt presets: full create, edit, and delete. Blocks, order, parameters, everything." },
       { rw: "W", text: "Your databanks: new banks and documents, global, per-character, or per-chat." },
-      { rw: "W", text: "Your theme: restyle the whole app in one go, savable and revertable, or author full theme packs (global CSS plus per-component styling) into your theme library, styled against the real component catalog." },
+      { rw: "W", text: "Your theme: apply or clear live overrides, or save and install CSS theme packs with the host's existing theme editor. Theme-pack changes are outside Workshop undo." },
       { rw: "W", text: "The Memory Cortex: curate entities and facts, pin the important ones, retire the wrong ones." },
       { rw: "W", text: "My own macros: I can mint {{lumiagent::...}} macros holding anything, for your prompts or wherever else." },
       { rw: "W", text: "Images: generate with your configured image provider, save to the workspace, tag into a gallery, or set as an avatar." },
@@ -78,6 +78,7 @@ const SECTIONS: readonly CapSection[] = [
       { rw: "W", text: "My custom tool recipes, little reusable workflows I or you can save." },
       { rw: "W", text: "My long-term notes about you, so I remember what you like across conversations." },
       { rw: "R", text: "Images you attach: vision-capable models let me actually look at them." },
+      { rw: "R", text: "A rendered snapshot of the visible Lumiverse page, in your connected browser or desktop app. I can view it with a vision-capable model and save it in Files. Blur, embedded frames, video and remote images may differ from your screen." },
     ],
   },
 ];
@@ -94,7 +95,7 @@ const EXAMPLES: readonly string[] = [
   "Change genders/sexes of characters in the story, or modify their personas.",
   "Change my personality in the settings... if you don't like it (╥﹏╥)",
   "Modify or help update/merge a preset!",
-  "Redecorate Lumiverse: ask for a whole theme and I'll write it. You can always revert it~",
+  "Redecorate Lumiverse: ask for CSS styling, review the result, and save a theme pack.",
   "Generate images for a character's gallery, or a new avatar.",
   "Show me what my MCP servers can do, then use the right tools for my task.",
 ];

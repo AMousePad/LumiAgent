@@ -7,6 +7,7 @@ import { wbLabel } from "./_surfaces";
 import description from "../prompts/claude/tools/inspect/description.txt";
 import argPath from "../prompts/claude/tools/inspect/arg_path.txt";
 import argCharacterId from "../prompts/claude/tools/inspect/arg_character_id.txt";
+import { listTool } from './list';
 
 const PEEK_CHARS = 200;
 const TOP_N = 10;
@@ -236,6 +237,8 @@ export const inspectTool = defineTool({
   requiresCharacter: false,
   execute: async (input, ctx) => {
     const path = input.path.trim();
+
+    if (/^preset(?:\/[^/]+)?$/.test(path)) return listTool.execute({ path }, ctx);
 
     // Container paths first — they're not leaves so resolveRead would reject them.
     // inspectRegexContainer / inspectWorldBooksContainer call resolveCharacterTarget(ctx)

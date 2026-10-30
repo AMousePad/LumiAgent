@@ -24,10 +24,10 @@ const inputSchema = z.object({
     call: z.string().min(1),
     args: z.record(z.string(), z.unknown()).optional(),
     save_as: z.string().min(1).optional(),
-  })).optional(),
+  }).strict()).optional(),
   return: z.unknown().optional(),
   args: z.record(z.string(), z.unknown()).optional(),
-}).refine((d) => (d.name !== undefined) !== (d.steps !== undefined), {
+}).strict().refine((d) => (d.name !== undefined) !== (d.steps !== undefined), {
   message: "provide exactly one of `name` (saved recipe) or `steps` (inline pipe)",
 });
 

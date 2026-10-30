@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import { isDeferredTool, listDeferredToolNames, registry } from "./_registry";
+import { canonicalToolReferences, isPublicTool, publicToolName } from './_tool-groups';
 import description from "../prompts/claude/tools/tool-search/description.txt";
 import argQuery from "../prompts/claude/tools/tool-search/arg_query.txt";
 
@@ -74,12 +75,13 @@ export const toolSearchTool = defineTool<Input>({
     let pickedNames: string[] = [];
     const missingSelect: string[] = [];
     const unavailableNoChar: string[] = [];
-    const selectMatch = input.query.match(/^select:(.+)$/i);
+    const selectMatch = input.query.match(/^select:(.+)$/i)
+      ?? (registry.get(publicToolName(input.query.trim())) ? [input.query, input.query.trim()] : null);
     if (selectMatch) {
       const requested = selectMatch[1]!.split(",").map((s) => s.trim()).filter(Boolean);
       const found: string[] = [];
       for (const n of requested) {
-        const tool = registry.get(n);
+        const tool = registry.get(publicToolName(n));
         if (!tool) {
           missingSelect.push(n);
           continue;
@@ -100,7 +102,7 @@ export const toolSearchTool = defineTool<Input>({
     } else {
       const terms = input.query.toLowerCase().split(/\s+/).filter(Boolean);
       const scored: Array<{ name: string; score: number }> = [];
-      for (const name of deferredNames) {
+      for (const name of registry.list().map(t => t.name).filter(isPublicTool)) {
         const t = registry.get(name);
         if (!t) continue;
         if (t.requiresCharacter && !hasChar) continue;
@@ -123,25 +125,24 @@ export const toolSearchTool = defineTool<Input>({
 
     const schemas = pickedNames
       .map((n) => registry.schemaFor(n))
-      .filter((s): s is { name: string; description: string; parameters: Record<string, unknown> } => s !== undefined);
+      .filter((s): s is { name: string; description: string; parameters: Record<string, unknown> } => s !== undefined)
+      .map(s => ({ ...s, description: canonicalToolReferences(s.description) }));
 
     ctx.discoverTools?.(pickedNames);
 
-    const stillDeferred = pickedNames.filter((n) => isDeferredTool(n));
     const alreadyLoaded = pickedNames.filter((n) => !isDeferredTool(n));
 
-    const header = `Loaded ${schemas.length} tool schema${schemas.length === 1 ? "" : "s"}. Call them on your very next step in this same response. Don't wait for the user, and don't route around them.`;
+    const header = `Available: ${schemas.map(s => s.name).join(', ')}. Use these schemas on your next step.`;
     const noteLines: string[] = [];
     if (alreadyLoaded.length > 0) {
       noteLines.push(`Note: ${alreadyLoaded.join(", ")} ${alreadyLoaded.length === 1 ? "was" : "were"} already loaded. Selecting an already-loaded tool is a harmless no-op.`);
     }
     if (missingSelect.length > 0) {
-      noteLines.push(`Warning: unknown names not loaded: ${missingSelect.join(", ")}. Check the deferred-tools list in the system prompt. Do NOT call these names — they won't dispatch.`);
+      noteLines.push(`Unknown tools: ${missingSelect.join(", ")}. Search by capability or use an exact registered name.`);
     }
     if (unavailableNoChar.length > 0) {
       noteLines.push(`Not loaded (need a focused character, this is an All-Characters session): ${unavailableNoChar.join(", ")}. Focus a character first, then re-run tool_search.`);
     }
-    void stillDeferred;
     return {
       content: `${header}\n${noteLines.join("\n")}\n\n${formatFunctions(schemas)}`,
     };
