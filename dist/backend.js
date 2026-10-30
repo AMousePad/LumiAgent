@@ -12772,7 +12772,7 @@ var init_settings = __esm(() => {
 });
 
 // src/generated/lumiverse-docs.ts
-var LUMIVERSE_DOCS_VERSION = "de9baecfe0437efb", LUMIVERSE_DOCS;
+var LUMIVERSE_DOCS_VERSION = "358c3b307e6afaeb", LUMIVERSE_DOCS;
 var init_lumiverse_docs = __esm(() => {
   LUMIVERSE_DOCS = {
     "characters/alternate-fields.md": `---\r
@@ -12930,7 +12930,7 @@ Notes for other users (or yourself) about the character. These are **never sent 
 \r
 ### Original Source\r
 \r
-Link back to the character's source on Chub, CharacterHub, LumiHub (\`lumi.spot\`), or Illarin (\`illarin.xyz\`). LumiHub and Illarin links can point to a character or a creator's profile. You can also enter a Chub \`creator/character\` path.\r
+Link back to the character's source on Chub, CharacterHub, LumiHub (\`lumi.spot\`), or Illarin (\`illarin.com\`). LumiHub and Illarin links can point to a character or a creator's profile. You can also enter a Chub \`creator/character\` path.\r
 \r
 Press Enter or leave the field to save it. The link button opens the saved source, and the source travels with exported character cards. Clear the field to remove it.\r
 \r
@@ -13484,7 +13484,7 @@ Every document gets an auto-generated, kebab-cased **slug** based on its name:\r
 \r
 Type \`#\` in the chat input and an autocomplete popover lets you pick a document from any attached databank. The mention is removed from the message before it's sent \u2014 the AI sees the document content instead.\r
 \r
-**Sizing behavior:** if a full document fits within a 2,000-token budget, the entire text is injected. If it doesn't, Lumiverse runs a semantic search inside the mentioned document and injects the most relevant chunks. Either way, the inserted content is labeled with \`[Source: <document name>]\` so the AI knows where it came from.\r
+An explicit mention injects the document's entire parsed text. It bypasses semantic chunk retrieval; automatic retrieval still selects relevant chunks normally. Full documents can consume substantial context, so the model's configured context-window limit still applies to the assembled prompt.\r
 \r
 **Renaming changes the slug.** If you rename a document, update any presets or chat templates that reference it.\r
 \r
@@ -13548,7 +13548,7 @@ Databank content is available in your presets through dedicated macros:\r
 Aliases for \`{{databank}}\`: \`{{databankMemory}}\`, \`{{documents}}\`, \`{{knowledgeBank}}\`.\r
 \r
 !!! note "The macro controls *placement*, not *whether* databank content injects"\r
-    Like [long-term memory](memory.md), databank retrieval injects automatically whenever active banks return chunks. The \`{{databank}}\` macro only controls **where** that content appears \u2014 without it, retrieved chunks are inserted as a system message just before the chat history. To stop injection entirely, deactivate the bank for this chat/character or disable embeddings, rather than removing the macro.\r
+    Databank retrieval injects automatically whenever active banks return chunks. The \`{{databank}}\` macro controls **where** that content appears \u2014 without it, retrieved chunks are inserted as a system message just before the chat history. To stop injection entirely, deactivate the bank for this chat/character or disable embeddings, rather than removing the macro. [Chat Memory](memory.md#injection-strategy) has its own Injection Strategy and defaults to Macro only.\r
 \r
 Use \`{{databankActive}}\` to wrap databank content in a conditional so the section disappears cleanly when nothing retrieves:\r
 \r
@@ -13785,7 +13785,8 @@ Chatting is the heart of Lumiverse. Once you have a character and a connection s
 | [Speech-to-Text](speech-to-text.md) | Dictate messages with Web Speech or Whisper/STT connections |\r
 | [OOC Comments](ooc.md) | Out-of-character asides and meta-commentary |\r
 | [Loom Summary](loom-summary.md) | Automatic and manual story summarization |\r
-| [Long-Term Memory](memory.md) | Recall relevant past moments via vector search |\r
+| [Long-Term Memory / Chat Memory](memory.md) | Recall older passages; compare memory systems and find their settings |\r
+| [Memory Cortex](memory-cortex.md) | Optional entity, relationship, importance, and scene/arc analysis |\r
 | [Guided Generation](guided-generation.md) | Reusable prompt fragments that shape responses |\r
 | [Quick Replies](quick-replies.md) | Pre-written message templates for fast input |\r
 | [Regen Feedback](regen-feedback.md) | Guide regenerations with specific feedback |\r
@@ -13820,112 +13821,92 @@ title: Summary\r
 \r
 # Summary\r
 \r
-As conversations grow long, older messages fall out of the AI's context window. The Loom Summary system solves this by generating structured summaries of your chat history, preserving key story beats, character developments, and unresolved threads in a compact form the AI can reference.\r
+Summary (also called **Loom Summary**) keeps one editable overview of the story in the current chat's metadata. An LLM can update it from the previous summary and selected recent messages, or you can write it yourself. Include \`{{loomSummary}}\` in your preset to make the saved text available to the chat model.\r
 \r
----\r
+**Summary needs neither embeddings nor Memory Cortex.** It is separate from [Chat Memory / LTM](memory.md), which retrieves older passages, and [Memory Cortex](memory-cortex.md), which tracks entities and relationships and consolidates scenes/arcs. Cortex's \`{{arc}}\` does not read the saved Loom Summary.\r
 \r
-## How It Works\r
+## Where to Configure It\r
 \r
-The summarizer analyzes recent messages and produces a structured summary organized into categories. This summary is stored in the chat's metadata and available via the \`{{loomSummary}}\` macro. Include that macro in your preset, and the AI always has access to the story so far \u2014 even after the raw messages have scrolled out of context.\r
+Open the sidebar **Summary** panel with a chat selected. The panel contains the summary editor, summarization settings, and prompt templates. These controls are not in Settings \u2192 Embeddings or Settings \u2192 Memory Cortex.\r
 \r
----\r
+1. Choose **Manual** or **Automatic** under **Summarization Mode**.\r
+2. Under **API Source**, use the active LLM connection or choose a dedicated connection for summary requests.\r
+3. Set how many messages to include. In Automatic mode, also set the interval and message lag.\r
+4. Click **Generate** to update the summary, review the text, and save any manual corrections.\r
+5. Add \`{{loomSummary}}\` to an enabled system block in your active preset, usually before Chat History.\r
 \r
-## Modes\r
+You can save a hand-written summary without making a model request. Summary generation uses an LLM connection, not an embedding connection or the Cortex sidecar configuration.\r
 \r
-Open the **Summary Editor** panel to configure summarization:\r
+## Modes and Message Selection\r
 \r
-| Mode | Behavior |\r
-|------|----------|\r
-| **Disabled** | No summarization |\r
-| **Automatic** | A new summary is generated every N messages |\r
-| **Manual** | You click "Generate" to create a summary on demand |\r
+| Setting | Behavior |\r
+|---------|----------|\r
+| **Disabled** | Disables automatic summarization. It does not erase a saved summary or prevent \`{{loomSummary}}\` from reading it. |\r
+| **Manual** | Generate when you choose to |\r
+| **Automatic** | Update the summary after the configured number of new messages |\r
+| **Interval** | How often automatic updates occur |\r
+| **Context** (Automatic) | How many messages an automatic pass considers |\r
+| **Message Lag** | Leave the newest messages out of automatic summarization, allowing recent events to settle before they enter the summary |\r
+| **Manual Context** | How many messages to consider when generating manually, including in Automatic mode |\r
+| **API Source** | Active connection or a dedicated LLM connection |\r
+| **Request Timeout** | How long to allow a summary request before it times out |\r
 \r
-### Automatic Mode Settings\r
+A pass updates the previous summary using its selected messages. It does not reread every old message each time. Summaries can omit or misinterpret events; review the result after important changes.\r
 \r
-| Setting | Description |\r
-|---------|-------------|\r
-| **Interval** | How many new messages before auto-generating (e.g., every 10 messages) |\r
-| **Auto Context** | How many recent messages to include in each summarization pass |\r
+## Summary Editor Controls\r
 \r
-### Manual Mode Settings\r
+- **Generate** updates from selected recent messages and the existing summary.\r
+- **Rebuild** regenerates from chat history in batches. Review the confirmation: this replaces the current summary and can make multiple model requests.\r
+- **Refresh** reloads the saved summary from chat metadata.\r
+- **Clear** removes this chat's summary.\r
+- **Save** persists your manual edits.\r
 \r
-| Setting | Description |\r
-|---------|-------------|\r
-| **Manual Context** | How many recent messages to include when you click Generate |\r
+Rebuilding a Summary is different from **Recompile Memories** in the chat input menu or **Rebuild** in Cortex settings. Those prepare recall chunks and Cortex records; they do not regenerate Loom Summary.\r
 \r
----\r
+## Prompt Template and Summary Structure\r
 \r
-## Summary Structure\r
+The default summarization instructions organize the overview into these categories:\r
 \r
-The generated summary is organized into seven categories, each with item limits to keep it compact:\r
+| Category | Default item limit | Purpose |\r
+|----------|:------------------:|---------|\r
+| Completed Objectives | 7 | Resolved arcs, milestones, concluded conflicts |\r
+| Focused Objectives | 5 | Active story threads |\r
+| Foreshadowing Beats | 5 | Hints, promises, warnings |\r
+| Character Developments | 7 | Changes in beliefs, skills, or emotional state |\r
+| Memorable Actions | 7 | Significant events and actions |\r
+| Memorable Dialogues | 5 | Confessions, promises, threats, revelations |\r
+| Relationships | 5 | Trust, tension, affection, rivalry |\r
 \r
-| Category | Max Items | What It Captures |\r
-|----------|:---------:|------------------|\r
-| **Completed Objectives** | 7 | Resolved story arcs, achieved milestones, concluded conflicts |\r
-| **Focused Objectives** | 5 | Active story threads \u2014 what's happening right now |\r
-| **Foreshadowing Beats** | 5 | Hints seeded for future events, promises, warnings |\r
-| **Character Developments** | 7 | Meaningful changes in personality, beliefs, skills, emotional state |\r
-| **Memorable Actions** | 7 | Significant physical events \u2014 combat, gestures, locations visited |\r
-| **Memorable Dialogues** | 5 | Impactful words \u2014 confessions, promises, threats, revelations |\r
-| **Relationships** | 5 | Evolving dynamics \u2014 trust, tension, affection, rivalry |\r
+These are instructions to the summarizing model, not guarantees that it preserves every event. The **Prompt Template** controls let you edit the system/user instructions or restore the server defaults. A custom prompt can produce a different structure.\r
 \r
-When a category reaches its limit, the summarizer consolidates related items or retires the least relevant ones. Active conflicts and unresolved threads are never silently dropped.\r
+## Put the Summary in the Prompt\r
 \r
----\r
+Use an enabled system block such as:\r
 \r
-## API Source\r
+\`\`\`text\r
+Story so far:\r
+{{loomSummary}}\r
+\`\`\`\r
 \r
-Choose which AI model generates summaries:\r
+The macro reads the saved summary for this chat; it does not generate one. It returns empty text if no summary is saved. There is no automatic summary injection when the macro is absent. Check the resolved prompt in the prompt breakdown / dry-run to confirm your active preset includes it.\r
 \r
-| Option | Description |\r
-|--------|-------------|\r
-| **Active Connection** | Uses whatever connection is currently selected |\r
-| **Dedicated Connection** | Uses a specific connection, consistent across all summaries |\r
+For a combined setup, use separate blocks containing \`{{loomSummary}}\` and \`{{memories}}\`: the first supplies a saved overview, the second retrieves earlier context. Add individual Cortex macros only if you want a custom layout; see [Cortex prompt placement](memory-cortex.md#put-cortex-in-the-prompt).\r
 \r
-A dedicated connection is useful if you want summaries generated by a cheaper/faster model while your main connection handles the conversation.\r
+## Limit Messages in Context\r
 \r
----\r
+In the Summary panel, enable **Limit messages in context** and set **Message Count** to restrict the raw chat history sent to the model. This operates independently of summary generation.\r
 \r
-## Message Limits\r
+Limiting history does not itself summarize removed messages. Before relying on it, save a useful summary and confirm \`{{loomSummary}}\` is present in your active preset. Keep the summary updated as the chat progresses. The Chat Memory exclusion window is a separate setting and does not automatically match this message limit.\r
 \r
-You can also limit how many raw messages are included in the prompt context:\r
+## Troubleshooting\r
 \r
-1. Enable **Limit messages in context**\r
-2. Set a **message count** (e.g., keep the last 20 messages)\r
-3. Older messages are trimmed from the context\r
-4. Use \`{{loomSummary}}\` in your preset to retain knowledge from the trimmed messages\r
-\r
-This lets you maintain a tight context window while preserving long-term story continuity through the summary.\r
-\r
-### Scene Break Splitting\r
-\r
-When enabled, the summarizer respects intentional scene boundaries (\`---\`, \`***\`, \`===\`) in your chat. Messages between scene breaks are treated as narrative units, keeping the summary coherent across chapters and time jumps.\r
-\r
----\r
-\r
-## Using the Summary Editor\r
-\r
-The Summary Editor panel shows your current summary with these controls:\r
-\r
-- **Generate** \u2014 Create a new summary from recent messages\r
-- **Refresh** \u2014 Reload the summary from chat metadata\r
-- **Clear** \u2014 Delete the summary for this chat\r
-- **Save** \u2014 Save manual edits you've made to the summary text\r
-\r
-You can manually edit the summary at any time \u2014 useful for correcting mistakes, adding context the AI missed, or steering the narrative record.\r
-\r
----\r
-\r
-## Tips\r
-\r
-!!! tip "Include {{loomSummary}} in your preset"\r
-    The summary does nothing unless your preset references it. Add \`{{loomSummary}}\` in a block (typically before the chat history) so the AI can read the accumulated story context.\r
-\r
-!!! tip "Manual mode for important moments"\r
-    Even in automatic mode, you can manually generate a summary at any time. Do this after major plot events to make sure they're captured before the next auto-interval.\r
-\r
-!!! tip "Pair with message limits"\r
-    The most effective setup: limit raw messages to ~20-30, enable auto-summarization every 10 messages, and include \`{{loomSummary}}\` in your preset. This keeps your context lean while preserving the entire story.\r
+| Symptom | What to check |\r
+|---------|---------------|\r
+| A summary is saved but the model cannot see it | Check \`{{loomSummary}}\` in an enabled block of the active preset and inspect the resolved prompt. |\r
+| \`{{loomSummary}}\` is empty | Select the correct chat, refresh its summary, and generate or save text there. |\r
+| Summary generation fails | Check the active/dedicated LLM connection, credentials/model, and timeout. Embedding settings will not fix a summary request. |\r
+| Older events are missing | A normal pass uses selected recent messages plus the previous summary. Correct it manually or rebuild history. |\r
+| Summary appears after disabling summarization | Disabled does not delete saved text. Clear the summary or remove/disable its preset block if you want it out of the prompt. |\r
 `,
     "chatting/memory-cortex.md": `---\r
 title: Memory Cortex\r
@@ -13933,315 +13914,201 @@ title: Memory Cortex\r
 \r
 # Memory Cortex\r
 \r
-Memory Cortex is an advanced memory layer that sits on top of [Long-Term Memory](memory.md). While basic long-term memory retrieves relevant text chunks by similarity, the cortex understands *what happened* \u2014 tracking characters, relationships, emotional beats, and narrative arcs across your entire conversation.\r
+Memory Cortex adds entity tracking, relationship records, narrative importance scores, emotional recall, and scene/arc consolidation to chat-history recall. It is optional: [Chat Memory / LTM](memory.md) works with Cortex disabled. [Summary](loom-summary.md) is a separate saved overview, not a Cortex consolidation.\r
 \r
----\r
+## Where Everything Lives\r
 \r
-## What Does It Add?\r
+| Location | What you do there |\r
+|----------|-------------------|\r
+| **Settings \u2192 Embeddings** | Configure embeddings and enable **Vectorise chat messages** |\r
+| **Settings \u2192 Advanced \u2192 Long-Term Chat Memory** | Shared chunking, exclusion, query settings, templates, and Injection Strategy; Conservative/Balanced/Aggressive/Manual modes |\r
+| **Settings \u2192 Memory Cortex** | Global switch, Simple/Standard/Advanced modes, sidecar connections, formatter, ranking, and consolidation |\r
+| Sidebar **Memory** | Inspect/edit this chat's entities, colors, chunks, relationships, consolidations, and links |\r
+| Sidebar **Memory \u2192 Stats** | Enable/disable Cortex for this chat; the global switch must also be on |\r
+| Chat input bar quick menu \u2192 **Recompile Memories** | Prepare Chat Memory and, when enabled for the chat, Cortex |\r
 \r
-| Feature | Long-Term Memory | Memory Cortex |\r
-|---------|:---:|:---:|\r
-| Retrieve relevant past passages | Yes | Yes |\r
-| Track named characters, locations, factions | - | Yes |\r
-| Map relationships between entities | - | Yes |\r
-| Score narrative importance (salience) | - | Yes |\r
-| Detect emotional tones | - | Yes |\r
-| Summarize story arcs | - | Yes |\r
-| Attribute font colors to characters | - | Yes |\r
-\r
-Memory Cortex doesn't replace long-term memory \u2014 it enhances it. With the cortex enabled, retrieved memories are ranked using narrative importance, emotional resonance, and entity relevance in addition to raw text similarity.\r
-\r
----\r
+Cortex's **Advanced** mode is inside the Memory Cortex tab. **Settings \u2192 Advanced** holds the shared LTM controls. These are different places.\r
 \r
 ## Getting Started\r
 \r
-### 1. Enable the Cortex\r
+1. Set up [Chat Memory](memory.md#set-up-chat-memory-without-cortex), including a tested embedding connection and **Vectorise chat messages**.\r
+2. In **Settings \u2192 Memory Cortex**, turn on **Enable Memory Cortex**. Check the per-chat toggle under **Memory \u2192 Stats** if Cortex is disabled for this chat.\r
+3. Choose **Simple** or **Standard**. Heuristic entity/importance analysis does not require a sidecar LLM.\r
+4. Add \`{{memories}}\` to an enabled system block in your active preset for combined memory context. Keep \`{{loomSummary}}\` in a separate block if you also use Summary.\r
+5. Use **Recompile Memories** from the chat input bar. Cortex settings also provide **Rebuild** for the open chat. Wait for processing, inspect **Memory \u2192 Stats**, then inspect the resolved prompt.\r
 \r
-Open **Settings > Memory Cortex** and flip the master toggle on.\r
+**Warm Memory Cortex when opening a chat** is opt-in. It prepares state on chat open; manual recompilation works while it is off. Chat Memory's warmup toggle is separately located in Settings \u2192 Advanced.\r
 \r
-### 2. Pick a Preset\r
+### What the Modes Actually Change\r
 \r
-Three presets configure the cortex for different use cases:\r
+| Mode | Behavior |\r
+|------|----------|\r
+| **Simple** | Heuristic extraction/scoring, fused ranking, emotional resonance, diversity selection, and entity context. Consolidation, relationship injection, and arc injection are off. |\r
+| **Standard** | Heuristic extraction/scoring plus relationship/arc injection and consolidation. Selecting it enables sidecar consolidation when a sidecar connection is already configured. |\r
+| **Advanced** | Keeps your current configuration and exposes detailed controls. It does **not** automatically enable LLM extraction or select a connection. |\r
 \r
-| Preset | Entity Tracking | Salience Scoring | Consolidation | Sidecar LLM | Best For |\r
-|--------|:---:|:---:|:---:|:---:|------|\r
-| **Simple** | Heuristic | Heuristic | Off | Off | Casual chats, low overhead |\r
-| **Standard** | Heuristic | Heuristic | On | Off | Most roleplay (recommended) |\r
-| **Advanced** | Heuristic + LLM | Heuristic + LLM | On | On | Long epics, maximum accuracy |\r
+Choosing a sidecar connection can switch extraction/scoring to sidecar mode and enable AI summaries. Check those controls after choosing a connection or switching modes; the mode name alone does not establish which model is doing the work.\r
 \r
-!!! tip "Start with Standard"\r
-    Standard gives you entity tracking, salience scoring, and consolidation using zero-cost heuristics \u2014 no extra API calls. You can always upgrade to Advanced later.\r
+## How Cortex Processes and Recalls History\r
 \r
-### 3. Rebuild Existing Chats\r
+**Analysis** enriches chunks with salience (importance), emotional tags, entities, facts, and relationships. Heuristics use text patterns; a configured sidecar can analyze these with an LLM. Both can misidentify names or infer incorrect facts, so review the Memory panel.\r
 \r
-If you enable the cortex on a chat that already has history, click **Rebuild** in the Memory Cortex settings. This processes all existing chunks through the cortex pipeline. New messages are processed automatically going forward.\r
+**Retrieval** combines semantic relevance with configured signals such as importance, recency, reinforcement, emotional resonance, and entity relevance. Diversity selection avoids closely clustered passages. Core-memory protection affects decay/ranking; it does not guarantee inclusion in every prompt.\r
 \r
----\r
+**Consolidation** groups older chunks into scene summaries, then scene summaries into arcs when thresholds are reached. Without AI summaries it extracts source text; with a sidecar it can generate summaries. Inspect these under **Memory \u2192 Stats \u2192 Consolidations**. They do not update \`{{loomSummary}}\`.\r
 \r
-## How It Works\r
+**Prompt assembly reads usable cached Cortex results**, rather than waiting for a fresh query on every send. On a cold cache or an unusable result, it falls back to basic Chat Memory while Cortex work runs in the background. Basic Chat Memory also uses a cache, so a cold start can initially have no recall. Enabling Cortex does not guarantee entities or arcs in the very next prompt.\r
 \r
-Every time a message is sent, the cortex processes the corresponding chunk through several layers:\r
+## Sidecar LLM\r
 \r
-### Salience Scoring\r
+An embedding model creates search vectors. A **sidecar LLM** extracts or summarizes information. They are different connections and workloads; enabling embeddings does not configure a sidecar.\r
 \r
-Each chunk gets a narrative importance score (0.0 to 1.0) based on:\r
+In **Settings \u2192 Memory Cortex**, choose a sidecar **Connection** and **Model**, then check extraction mode, salience mode, and **AI summaries**. The picker includes built-in LLM connections and providers from enabled [Spindle extensions](../extensions/index.md#extension-provided-ai-providers).\r
 \r
-- **Emotional signals** \u2014 grief, joy, tension, intimacy, betrayal, and more\r
-- **Narrative flags** \u2014 first meetings, deaths, promises, confessions, departures\r
-- **Dialogue content** \u2014 commitments, revelations, emotional declarations\r
-- **Character actions** \u2014 named characters doing emotionally significant things\r
-- **Milestone markers** \u2014 "for the first time", "nothing would be the same"\r
-- **Information density** \u2014 scenes with many proper nouns and new facts\r
+The sidecar can assist with entities/facts, relationships, importance, color attribution, and consolidation. **Chunks per request** batches analysis; **Parallel requests** controls rebuild concurrency; **Requests per minute** throttles starts (0 disables throttling). **Max output tokens** must accommodate the batch's structured response and, for thinking models, reasoning tokens. Increase this limit or lower reasoning effort if a response ends with \`finish_reason: "length"\`. Consolidation uses this generation budget while requesting the shorter configured summary length. This makes additional model requests, including on rebuild; it is not necessarily one call per chunk.\r
 \r
-High-salience memories resist decay over time. Pivotal moments (score above 0.7 or carrying narrative flags like \`death\` or \`promise\`) are protected as **core memories** \u2014 they decay 5x slower and never drop below a 0.5 retrieval floor.\r
+### Failure Handling and Fallback Connections\r
 \r
-### Entity Tracking\r
+Extraction/query work and memory summarization have independent connection chains. Each tries primary, secondary, and additional fallbacks in order, once per connection. Each connection keeps its own model and credentials.\r
 \r
-The cortex extracts and tracks named entities from your chat across six types:\r
+After the chain fails:\r
 \r
-- **Characters** \u2014 detected by verb adjacency ("Melina sighed"), dialogue attribution, interaction patterns\r
-- **Locations** \u2014 detected by suffixes ("Sixth Street"), locative phrases ("arrived at Dustwell")\r
-- **Factions** \u2014 detected by collective nouns ("Sons of Calydon"), business suffixes ("PubSec")\r
-- **Items** \u2014 detected by weapon/vehicle verbs ("wielding the Starblade")\r
-- **Concepts** \u2014 proper-noun ideas, magic systems, doctrines, named phenomena\r
-- **Events** \u2014 named happenings (battles, ceremonies, festivals) that recur across the story\r
+- **Heuristic fallback** permits heuristic analysis; failed AI consolidation can use extractive summaries.\r
+- **AI Only \u2014 skip chunk, retry on warmup** avoids persisting the failed chunk's analysis and leaves it for a later warmup.\r
 \r
-Each entity accumulates facts, emotional associations, and a salience profile over time. The entity graph handles aliases automatically \u2014 if a character named "Pulchra Fellini" is sometimes called "Pulchra" or "Pul", those references are resolved to the same entity.\r
+**Sidecar Timeout** bounds each call. AI Only with an unavailable sidecar can leave analysis incomplete instead of filling the graph with heuristics.\r
 \r
-You can browse entities in the **Memory panel** (sidebar > Memory > Entities tab). Delete any that were incorrectly extracted.\r
+### Optional Candidate Review\r
 \r
-### Relationship Mapping\r
+In **Advanced \u2192 Candidate review**, enable **Review memory candidates** and explicitly select a **Decision connection**. You must first create a Decision connection in Connections to enable this option. Review is off by default, no connection is selected automatically (including your default Decision connection), and it remains inactive until you choose a connection. Generative LLMs cannot review candidates. Review covers heuristic, AI and provisional entity proposals, relationships, proposed aliases and character color attributions before saving, and adds model requests, including during rebuilds.\r
 \r
-When two named entities appear in the same chunk, the cortex analyzes their interaction:\r
+The model override is optional; leaving it empty uses the explicitly selected connection's saved default without filling in the override. Decision review also works with heuristic extraction and importance scoring. AI extraction, fact curation and summaries still use the generative sidecar. Existing generative reviewer settings are disabled and cleared; existing Decision reviewer selections are preserved.\r
 \r
-- **Verb-mediated** \u2014 "Melina protected Caesar" (ally, positive sentiment)\r
-- **Relational nouns** \u2014 "Melina's brother" near "Caesar" (sibling)\r
-- **Coordinated action** \u2014 "Melina and Caesar fought together" (ally)\r
-- **Terms of address** \u2014 endearments or hostile language in dialogue\r
-- **Physical proximity** \u2014 two characters described near each other\r
+**Minimum confidence** defaults to 0.8. Both the chosen answer's probability and its confidence must meet the threshold; otherwise that candidate is deferred. This is a retention threshold, not a measured guarantee of accuracy. **Review timeout** is capped at 30 seconds per request; **Requests per minute** limits Decision request starts (0 disables throttling).\r
 \r
-Relationships are reinforced each time they're observed, building a strength score over time.\r
+A failed or incomplete review saves no new graph or salience results for that chunk and leaves it pending for a later warmup or rebuild. A complete review can defer individual candidates; those candidates are omitted while the chunk completes. Review failures do not fall back to unreviewed persistence. Failed or uncertain review of a dormant relationship leaves it dormant with pending evidence.\r
 \r
-### Consolidation\r
+If a Decision response contains an individually invalid answer, Cortex keeps the valid answers and retries only the invalid questions once, using the same connection and confidence threshold. Answers that remain invalid are explicitly deferred: new candidates are omitted, and existing records are preserved while the chunk completes. Logs include the affected candidate ID and, for invalid probability totals, the sum and option count. Missing/foreign answer IDs, invalid response metadata, authentication failures and caller cancellation still stop ingestion. Probabilities are never automatically normalized.\r
 \r
-As your chat grows, older chunks are compressed into summaries:\r
+**Prune Graph** also reviews existing records against historical excerpts. Manually edited entities and their manually edited relationships are preserved. Inspect the results; model review can still make mistakes. Reviewer configuration changes invalidate prior chunk coverage so the next warmup can rebuild it; changing a connection's default model alone requires a manual rebuild.\r
 \r
-- **Scene summaries** (Tier 1) \u2014 groups of chunks consolidated into a single paragraph capturing key events\r
-- **Story arcs** (Tier 2) \u2014 groups of scene summaries compressed into high-level arc descriptions\r
-\r
-Consolidation triggers automatically when enough unconsolidated chunks accumulate (configurable threshold). This keeps the memory footprint bounded while preserving narrative continuity.\r
-\r
-You can view consolidations in the **Memory panel** (sidebar > Memory > Stats > Consolidations).\r
-\r
-### Emotional Recall\r
-\r
-When you generate a new message, the cortex analyzes the emotional tone of recent messages and boosts retrieval of memories with matching emotions. A sad scene naturally surfaces memories of past grief and loss. A tense confrontation recalls previous conflicts.\r
-\r
-This "Proustian recall" works alongside semantic similarity \u2014 memories that are both topically relevant *and* emotionally resonant score highest.\r
-\r
----\r
-\r
-## Sidecar LLM (Tier 2)\r
-\r
-For maximum accuracy, you can assign a secondary LLM connection to assist the cortex. This sidecar model handles:\r
-\r
-- **Deeper entity extraction** \u2014 catches entities the heuristic misses\r
-- **Better relationship detection** \u2014 understands implied relationships\r
-- **Calibrated salience scoring** \u2014 judges narrative importance by consequence, not just keyword presence\r
-- **Font color attribution** \u2014 identifies which character owns each HTML color tag\r
-- **Key fact extraction** \u2014 pulls concrete, memorable facts from each passage\r
-- **Generative consolidation** \u2014 produces coherent narrative summaries instead of sentence extractions\r
-\r
-### Setting Up a Sidecar\r
-\r
-1. In **Memory Cortex settings**, select a **Connection Profile** under the Sidecar section\r
-2. Choose a **Model** (smaller, faster models work well here \u2014 the sidecar doesn't need to be creative)\r
-3. Optionally add separate fallback connections for extraction and memory summaries\r
-4. Adjust **Temperature** (0.1 recommended for factual extraction)\r
-5. Set **Parallel Requests** to control how many concurrent LLM calls run during a rebuild\r
-6. Set **Requests Per Minute** to throttle the sidecar against your provider's rate limits (0 = unlimited)\r
-\r
-The connection picker includes both built-in connections and sidecar providers contributed by enabled [Spindle extensions](../extensions/index.md#extension-provided-ai-providers).\r
-\r
-!!! note "Sidecar Costs"\r
-    The sidecar makes one LLM call per chunk during live chat, and one per chunk during rebuilds. A chat with 200 chunks would make 200 API calls on rebuild. Choose an inexpensive model for the sidecar to keep costs reasonable.\r
-\r
-### Failure Handling\r
-\r
-Choose how to handle a failed sidecar call:\r
-\r
-| Setting | Description |\r
-|---------|-------------|\r
-| **Fallback** | \`heuristic\` writes the heuristic result if the sidecar fails; \`skip\` holds the chunk for reprocessing on the next pass. |\r
-| **Sidecar Timeout** | Per-call timeout in milliseconds before the call is abandoned. |\r
-\r
-### Connection Failover\r
-\r
-Memory Cortex keeps two independent ordered chains because extraction and summarization have different workloads:\r
-\r
-- **Extraction secondary / fallbacks** handle query generation, entity extraction, relationships, and related analysis.\r
-- **Summary secondary / fallbacks** handle scene and story-arc consolidation.\r
-\r
-The primary connection is attempted once. Lumiverse does not automatically retry requests against the same connection. If it remains unavailable or times out, Lumiverse tries the corresponding secondary connection and then each additional fallback in order, once per connection. Only after that chain is exhausted does the **Fallback** reliability setting decide whether to use heuristics or leave the work for a later pass.\r
-\r
-Fallback connections keep their own models and credentials. Removing a fallback from one chain does not remove it from the other.\r
-\r
-### Arbitration\r
-\r
-When the sidecar is enabled, two optional behaviors give it authority over heuristic data:\r
-\r
-- **Arbitrates Heuristics** \u2014 the sidecar reviews each heuristic entity before it is persisted and can reject or rename misidentifications (e.g. discarding common words mistakenly extracted as characters).\r
-- **Grades Existing Records** \u2014 periodically re-evaluates already-saved entities and removes ones that have become noise. Useful after a long chat has accumulated mistakes.\r
-\r
-If every configured sidecar connection fails and **Fallback** is set to \`heuristic\`, the heuristic result is used as a safe default.\r
-\r
----\r
+Passage-wide facts now attach only to approved entities explicitly named in each fact, including accepted aliases. Facts with an ambiguous subject are omitted. Stored fact metadata retains source chunk IDs and short evidence excerpts. When Fact Auto-Pilot is enabled, it selects from the full set of source facts before retention trims overflow, preserving their text, importance and branch tags.\r
 \r
 ## Memory Panel\r
 \r
-The sidebar's **Memory** tab gives you a live view of the cortex data for the current chat. It has four tabs:\r
+| Tab | Contents and controls |\r
+|-----|-----------------------|\r
+| **Entities** | Names, types, descriptions, aliases, facts, status, mentions, emotional profiles. Edit mistakes or delete individually/in bulk. |\r
+| **Colors** | Character color attributions and confidence; supplies \`{{characterColors}}\` |\r
+| **Stats** | Total/vectorized chunks, entities, relationships, consolidations, salience. Click cards to inspect records. Also contains the per-chat Cortex toggle. |\r
+| **Links** | Attach vaults/interlinks and manage the Vault Library |\r
 \r
-### Entities Tab\r
-Browse all tracked entities \u2014 characters, locations, items, factions, concepts, events. Each entity card shows:\r
+Stored records are not this generation's retrieved context. Seeing entities here does not mean every entity will appear in \`{{entities}}\`.\r
 \r
-- Type and status (active, inactive, deceased, destroyed, unknown)\r
-- Mention count and salience average\r
-- Description (auto-populated from first appearance)\r
-- Known facts\r
-- Emotional profile (top emotional associations)\r
-- Aliases\r
+### Character Colors\r
 \r
-You can select multiple entities and delete them in bulk, or delete a single incorrectly extracted entity directly from this panel.\r
+Cortex reads colors from \`<font color="...">\` and \`<span style="color: ...">\` markup. Following the roleplay formatting convention, \`*...*\`, \`_..._\`, \`<i>\`, \`<em>\` and configured thought delimiters identify the **thought/italic channel**, including when they wrap the color tag. Quotes inside that channel remain thoughts. Other quoted text is speech, and plain descriptive text is narration. Italics indicate formatting; they do not prove a character's mental state.\r
 \r
-### Colors Tab\r
-Shows font color attributions \u2014 which hex color belongs to which character, with confidence scores. Useful for chats where characters use distinct colors for speech, thought, or narration.\r
+For example, both \`<font color="#abc">*"I should leave."*</font>\` and \`*<font color="#abc">"I should leave."</font>*\` produce thought color \`#aabbcc\`. A character can use the same color for both speech and thoughts; Cortex keeps those usages separately. \`{{characterColors}}\` supplies speech and thought guidance. Narration remains visible in the Colors tab.\r
 \r
-### Stats Tab\r
-Overview of the cortex data:\r
+Ownership uses local attribution and message context. A name addressed inside dialogue is not automatically the speaker, and a shared color does not uniquely identify a character. With candidate review enabled, the reviewer must approve each color, usage and owner claim independently. Unsupported colors and usage types are discarded, and heuristic plus sidecar detections count as one observation per color/owner/usage in a chunk.\r
 \r
-- Memory chunks (total and vectorized)\r
-- Entities (active and archived)\r
-- Relations between entities\r
-- Consolidations (scene summaries and arcs)\r
-- Salience records (sourced from \`heuristic\` or \`sidecar\`)\r
+A standalone first-person thought continues its message's established first-person viewpoint, including sentences beginning with \u201CMy.\u201D Other characters mentioned elsewhere in the message do not remove that evidence. Explicit attribution to another thinker takes precedence. Colors for newly extracted characters are eligible after their identity and color claim pass review.\r
 \r
-Click any stat card to drill down into the raw records.\r
+After updating from older color detection behavior, rebuild Cortex for an existing chat to replace its old color attributions. Warmup also detects the changed rules when enabled.\r
 \r
-### Links Tab\r
-Manages cross-chat memory sharing \u2014 see [Vaults & Interlinks](#vaults-interlinks) below.\r
+### Relationship References\r
 \r
----\r
+AI extraction resolves relationship endpoints from names, message prefixes, aliases and unambiguous pronouns. It requires evidence for the connection; sharing a scene or a room alone does not establish a partnership. Known endpoints omitted from the entity extraction list can still be proposed for review. Rejected or deferred endpoints cannot acquire new relationships, and new aliases redirect endpoints only after approval when review is enabled.\r
+\r
+The **lover** type includes supported love interests, romantic affection, courtship and established partners. Its label records the supported scope, such as \u201Cromantic interest\u201D; it does not imply marriage, exclusivity, sex or reciprocal feelings. A confession or clearly romantic action can establish a connection before a formal partnership. Room-sharing alone cannot.\r
+\r
+Cortex also proposes relationships from clear first-person romantic statements and actions, such as \u201CI have a crush on you\u201D or \u201CI kissed you,\u201D even when AI extraction returns an empty relationship list. Stored message roles and current message prefixes identify the participants. Ambiguous group addressees, negated/hypothetical statements and third-party dialogue do not qualify for this extra detection. With candidate review enabled, these proposals still require approval at the configured confidence threshold.\r
+\r
+Directed types describe the source's role relative to the target: a parent points to their child, a mentor to their student, and a subordinate to the superior they serve. Heuristic extraction remains limited to supported text patterns; Decision review judges supplied candidates. Arbitration logs show relationship extraction, proposal and approval counts to distinguish missing detections from rejected or deferred proposals.\r
 \r
 ## Vaults & Interlinks\r
 \r
-Cortex memory can be shared between chats in two ways. Both are managed from the **Links** tab in the Memory panel.\r
+A **vault** is a frozen snapshot of a chat's memory state for other chats to consume. Use it for a finished campaign or shared backstory. Changes to the original chat do not keep updating the snapshot. Vault embeddings can be rebuilt after changing embedding configuration.\r
 \r
-### Vaults\r
+An **interlink** reads another chat's evolving memory. It can share entities, relationships, and optionally chunks. Links can be directional or bidirectional; the other chat receives your memory only if configured that way.\r
 \r
-A **vault** is a frozen snapshot of a chat's cortex state \u2014 its chunks, entities, and relationships \u2014 packaged into a reusable, read-only knowledge object. You can attach a vault to any number of other chats so the cortex on those chats can retrieve from it during generation.\r
+In **Memory \u2192 Links**, choose **Add Link**, choose **Vault** or **Interlink**, then select the vault or target chat. The **Vault Library** lists saved vaults and consumers. Linked context is retrieved/cached separately and can appear in combined \`{{memories}}\` output; it is not pasted into every prompt in full.\r
 \r
-Typical uses:\r
+## Put Cortex in the Prompt\r
 \r
-- Bottle a finished campaign into a vault, then start a sequel chat that "remembers" the prior arc\r
-- Build a "world bible" vault from a worldbuilding chat and attach it to every chat set in that universe\r
-- Share canonical character history across roleplay branches without re-pasting it\r
+### Combined Context\r
 \r
-Vault chunks are stored alongside chat chunks in the embeddings table (\`source_type='vault_chunk'\`) so semantic search continues to work seamlessly. You can also **rebuild** a vault's embeddings if you change your embedding provider.\r
+Use one enabled system block before Chat History:\r
 \r
-### Interlinks\r
+\`\`\`text\r
+{{memories}}\r
+\`\`\`\r
 \r
-An **interlink** is a live, bidirectional connection between two chats. Each chat can see the other's entities, relationships, and (optionally) chunks in real time. Unlike a vault, an interlink stays in sync \u2014 new entities discovered in either chat become visible to the other on the next generation.\r
+With a usable Cortex result, this supplies combined formatted recall, selected graph/consolidation context, and color guidance. If Cortex falls back to basic recall, it supplies that instead. This is a useful starting point for both systems.\r
 \r
-Use interlinks when two chats are happening in the same continuity and should share evolving memory (e.g. one chat tracks Character A's POV while another tracks Character B's POV in the same scene).\r
+### Individual Cortex Macros\r
 \r
-### Adding a Link\r
+For a custom layout, use individual macros in enabled blocks:\r
 \r
-1. Open the **Memory panel** and switch to the **Links** tab\r
-2. Click **Add Link** and choose **Vault** or **Interlink**\r
-3. Pick an existing vault / a target chat (interlinks can be flipped to bidirectional from the same dialog)\r
-\r
-The **Vault Library** at the bottom of the tab lists all your saved vaults and the chats currently consuming them. Delete a vault from there when you no longer need it.\r
-\r
----\r
-\r
-## Macros\r
-\r
-Memory Cortex data is available in your presets through macros. Add these via **Add Prompt > Memory Cortex** in the preset editor:\r
+\`\`\`text\r
+{{if {{cortexActive}} = yes}}\r
+{{entities}}\r
+{{relationships}}\r
+{{arc}}\r
+{{characterColors}}\r
+{{/if}}\r
+\`\`\`\r
 \r
 | Macro | Returns |\r
 |-------|---------|\r
-| \`{{entities}}\` | Active entity snapshots with facts and relationships |\r
-| \`{{entityFacts::Name}}\` | Facts about a specific entity (e.g., \`{{entityFacts::Melina}}\`) |\r
-| \`{{relationships}}\` | Active relationship edges between entities |\r
-| \`{{arc}}\` | Current narrative arc summary |\r
-| \`{{memorySalience}}\` | The single highest-importance memory from retrieval |\r
-| \`{{cortexActive}}\` | \`"yes"\` or \`"no"\` for conditional blocks |\r
-| \`{{entityCount}}\` | Number of entities in the current context |\r
-| \`{{characterColors}}\` | Character speech / thought / narration color guidance derived from cortex state |\r
+| \`{{entities}}\` | Selected entity snapshots with facts/relationships; \`{{entities::3}}\` limits to three |\r
+| \`{{entityFacts::Name}}\` | Facts for a case-insensitive name match in **retrieved entity context**, not a search of every stored entity |\r
+| \`{{relationships}}\` | Selected relationship edges |\r
+| \`{{arc}}\` | Cortex arc text, not Loom Summary |\r
+| \`{{memorySalience}}\` | One retrieved passage with highest salience, not the complete memory section |\r
+| \`{{characterColors}}\` | Available character color guidance |\r
+| \`{{cortexActive}}\` | \`yes\` when this prompt has Cortex content; otherwise \`no\`. Not simply the master toggle's value. |\r
+| \`{{entityCount}}\` | Retrieved entity count, not total stored entities |\r
 \r
-The standard memory macros (\`{{memories}}\`, \`{{memoriesRaw}}\`, etc.) continue to work alongside cortex macros. When the cortex is enabled, \`{{memories}}\` returns cortex-enhanced results formatted in shadow-prompt style.\r
+Cortex macros return empty content when their data is unavailable. With Cortex off, \`{{memories}}\` can still work while these are empty.\r
 \r
-!!! important "Cortex memories inject automatically too"\r
-    As with [long-term memory](memory.md), the cortex-enhanced memory section injects whenever the cortex is enabled \u2014 the \`{{memories}}\` macro only controls **where** it lands. Remove the macro and the section still injects as a system message before the chat history. To stop it, disable Memory Cortex (and, if you don't want basic recall either, **Vectorise chat messages**). Note that the standalone cortex macros (\`{{entities}}\`, \`{{relationships}}\`, \`{{arc}}\`, etc.) render *only* where you place them \u2014 they have no auto-injection fallback.\r
+### Automatic Injection and Duplicate Content\r
 \r
----\r
+Usable Cortex or linked memory can be inserted as a system message before Chat History if no memory content macro owns placement, **even when shared Injection Strategy is Macro only**. **Disabled** stops that combined injection and \`{{memories}}\`; it does not stop standalone Cortex macros.\r
 \r
-## Configuration Reference\r
+Any applicable enabled block containing \`{{memories}}\` (or aliases), \`{{memoriesRaw}}\`, \`{{entities}}\`, \`{{entityFacts}}\`, \`{{relationships}}\`, \`{{arc}}\`, \`{{memorySalience}}\`, or \`{{characterColors}}\` owns placement and suppresses combined fallback. Status/count macros alone do not.\r
 \r
-### Formatter Mode\r
+A block containing only \`{{entities}}\` therefore does not also receive the rest of the combined section automatically. Add the other content you want explicitly. Conversely, \`{{memories}}\` alongside individual macros can repeat graph/arc content already included in the combined section.\r
 \r
-Controls how retrieved memories are formatted for the prompt:\r
+Macro presence is detected in applicable block source before conditions finish resolving. A false condition around a content macro can suppress fallback even when no memory text is output. Inspect the resolved prompt, not just the diagnostics label.\r
 \r
-| Mode | Style |\r
-|------|-------|\r
-| **Shadow** | Prose-register context with "do not recite" instructions (default) |\r
-| **Attributed** | Each memory labeled with source and salience |\r
-| **Clinical** | Bullet-point factual summaries |\r
-| **Minimal** | Raw content, minimal formatting |\r
+## Formatting and Retrieval Controls\r
 \r
-### Decay Settings\r
+**Use Long-Term Chat Memory formatting** in Cortex settings preserves the Advanced tab's templates for raw chunks. Consolidations, entities, relationships, and arcs still use the selected Cortex formatter. Turning it off uses Cortex formatting for the combined section.\r
 \r
-Memories lose relevance over time through a decay function:\r
+| Formatter | Style |\r
+|-----------|-------|\r
+| **Shadow** | Prose-style continuity context with instructions against reciting it |\r
+| **Attributed** | Memories presented with character perspective and temporal distance |\r
+| **Clinical** | Factual bullets |\r
+| **Minimal** | Memory passages only; omits the formatter's entity/relationship/arc sections |\r
 \r
-| Setting | Description |\r
-|---------|-------------|\r
-| **Half-Life (turns)** | After this many messages, a memory's recency score halves |\r
-| **Reinforcement Weight** | How much retrieval boosts a memory's score (prevents useful memories from decaying) |\r
-| **Core Memory Threshold** | Salience score above which a memory becomes a protected "core memory" |\r
-| **Core Memory Flags** | Narrative flags that automatically mark a memory as core (e.g., death, promise) |\r
+**Context Token Budget** controls Cortex formatting. Choose **Advanced** mode and expand detailed settings to tune emotional resonance, diversity, entity/relationship/arc injection, consolidation thresholds, decay/core-memory protection, and pruning. Pruning can archive stale single-mention entities; protected terms help retain fantasy names extraction might filter.\r
 \r
-### Entity Pruning\r
+## Troubleshooting Cortex\r
 \r
-Keeps the entity graph bounded:\r
+| Symptom | What to check |\r
+|---------|---------------|\r
+| \`{{memories}}\` works with Cortex off | Expected: basic recall is independent. Check Cortex preparation/cache separately. |\r
+| \`{{cortexActive}}\` says \`no\` while enabled | Check global/per-chat switches, recompile, and wait for background processing. Cold-cache prompts can use basic recall while Cortex warms. |\r
+| Stored entities exist but \`{{entities}}\` is empty | The macro uses this prompt's selected cached context. Check entity injection and resolved output. |\r
+| \`{{arc}}\` is empty | Check consolidation/arc injection and whether enough history exists for an arc. A saved Loom Summary does not populate this macro. |\r
+| Everything is heuristic after adding a sidecar | Check extraction/scoring modes, credentials/model, failure policy, and rebuild status. Heuristic fallback can legitimately write heuristic records. |\r
+| No old passages | Check embeddings, **Vectorise chat messages**, chunk/vector counts, exclusion window, and shared Injection Strategy. |\r
+| Conditional block is empty | Check condition/macros in the resolved prompt. Try a simple \`{{memories}}\` block to distinguish combined recall from Cortex-only output. |\r
 \r
-| Setting | Description |\r
-|---------|-------------|\r
-| **Enabled** | Toggle automatic pruning |\r
-| **Stale After (messages)** | Entities not seen for this many messages get archived |\r
-| **Min Confidence** | Minimum extraction confidence to create new entities |\r
-\r
-### Protected Terms\r
-\r
-The **entity whitelist** lets you specify proper nouns that should always be recognized as entities, even if they look like common words. Useful for fantasy names that might be filtered out.\r
-\r
----\r
-\r
-## Tips\r
-\r
-!!! tip "Rebuild after changing settings"\r
-    If you change chunking parameters or enable the sidecar, click **Rebuild** to reprocess all chunks. The cortex detects stale data automatically on the next generation, but a manual rebuild ensures immediate freshness.\r
-\r
-!!! tip "Delete bad entities early"\r
-    If you spot an incorrectly extracted entity (like a common word being tracked as a character), delete it from the Memory panel. This prevents it from accumulating relationships and facts that pollute the graph.\r
-\r
-!!! tip "Pair with Loom Summary"\r
-    The cortex excels at granular recall (specific moments, entity facts, relationships). [Loom Summary](loom-summary.md) provides a structured overview of the whole story. Use both for comprehensive long-term coherence.\r
-\r
-!!! tip "Sidecar model selection"\r
-    For the sidecar, prioritize speed and cost over creativity. Models like Gemini Flash, Haiku, or GPT-4o-mini work well \u2014 the sidecar does structured extraction, not creative writing.\r
-\r
-!!! tip "Check the Stats tab"\r
-    The Stats tab shows whether salience records are sourced from "heuristic" or "sidecar". After a rebuild with a sidecar configured, you should see "sidecar" entries. If everything still shows "heuristic", check that your sidecar connection is configured correctly.\r
+Inspect the prompt breakdown / dry-run for exact text and placement (\`macro\`, \`fallback\`, or \`disabled\`). If rebuilding has finished but output still fails, report app version, mode, global/per-chat switches, chunk/vector counts, sidecar status, and affected preset block. These checks distinguish configuration issues from regressions; a missing macro result alone does not establish the cause.\r
 `,
     "chatting/memory.md": `---\r
 title: Long-Term Memory\r
@@ -14249,122 +14116,131 @@ title: Long-Term Memory\r
 \r
 # Long-Term Memory\r
 \r
-Long-term memory gives the AI the ability to recall relevant moments from earlier in the conversation \u2014 even if those moments have long since scrolled out of the context window. It works by chunking your chat history into vectors and retrieving the most relevant pieces on each generation.\r
+**Chat Memory**, **Long-Term Chat Memory**, and **LTM** refer to the same chat-history recall system. It stores earlier passages as chunks and retrieves context for later replies. **Memory Cortex is optional**: basic Chat Memory works with Cortex disabled.\r
 \r
----\r
+## Which Memory System Am I Using?\r
 \r
-## How It Works\r
+| System | What it supplies | Where to configure it | Prompt macro |\r
+|--------|------------------|-----------------------|--------------|\r
+| **Summary / Loom Summary** | One saved, editable story overview, updated manually or by an LLM | Sidebar **Summary** panel | \`{{loomSummary}}\` |\r
+| **Chat Memory** | Retrieved passages from earlier messages | **Settings \u2192 Advanced \u2192 Long-Term Chat Memory**; enable vectorization in **Settings \u2192 Embeddings** | \`{{memories}}\` |\r
+| **Memory Cortex** | Recall ranked using narrative signals, plus entity facts, relationships, and scene/arc consolidations | **Settings \u2192 Memory Cortex**; inspect this chat in sidebar **Memory** | \`{{memories}}\` for combined context, or individual Cortex macros |\r
 \r
-1. Your chat history is split into **chunks** (groups of messages)\r
-2. Each chunk is converted to a vector embedding (a numerical representation of its meaning)\r
-3. When you generate a new message, recent context is used as a search query\r
-4. The most semantically similar chunks are retrieved and injected into the prompt\r
-5. The AI "remembers" relevant past events, even from hundreds of messages ago\r
+[Summary](loom-summary.md) is independent and does not require embeddings. Cortex adds analysis to chat chunks; it does not replace the Summary panel's saved summary. See [Memory Cortex](memory-cortex.md) for its setup.\r
 \r
-!!! note "Requires Embeddings"\r
-    Long-term memory requires the [Embeddings](../settings/embeddings.md) system to be configured. Without an embedding provider, memory cannot vectorize or search your chat history.\r
+### Stored Chunks Versus Vectorized Chunks\r
 \r
----\r
+A **memory chunk** is stored text from your conversation. A **vectorized chunk** also has an embedding, which lets Lumiverse search by meaning. Sidebar **Memory \u2192 Stats \u2192 Memory chunks** shows the total and how many are vectorized. These are stages of the same system, not separate memory features.\r
 \r
-## Quick Presets\r
+Basic recall normally searches the vector index. While chunks await vectorization, or when an embedding/search request fails, the background refresh can fall back to recent eligible stored chunks. This **recency fallback** does not mean those passages were semantically relevant. Basic recall still requires **Enable embeddings** and **Vectorise chat messages**; switching vectorization off is not a separate non-vector memory mode.\r
 \r
-Choose a preset to auto-configure all memory parameters:\r
+## Set Up Chat Memory Without Cortex\r
 \r
-| Preset | Target Tokens | Max Tokens | Overlap | Exclusion Window | Best For |\r
-|--------|:---:|:---:|:---:|:---:|------------|\r
-| **Conservative** | 600 | 1,200 | 100 | 30 messages | Tight token budgets, focused recall |\r
-| **Balanced** | 800 | 1,600 | 120 | 20 messages | General use (recommended) |\r
-| **Aggressive** | 1,000 | 2,000 | 200 | 15 messages | Long stories where history matters |\r
-| **Manual** | Custom | Custom | Custom | Custom | Full control over every parameter |\r
+1. Create an embedding connection in **Connections \u2192 Embedding Models**. In **Settings \u2192 Embeddings**, enable embeddings, select that connection and model, and run **Test API**. See [Embeddings](../settings/embeddings.md).\r
+2. In the Embeddings tab, enable **Vectorise chat messages**.\r
+3. Open **Settings \u2192 Advanced \u2192 Long-Term Chat Memory**. Choose **Memory Mode \u2192 Balanced**. Conservative, Balanced, Aggressive, and Manual live here; these are separate from Cortex's Simple, Standard, and Advanced modes.\r
+4. Leave **Injection Strategy** at **Macro only**, and add \`{{memories}}\` to an enabled system prompt block in your active preset, usually before Chat History.\r
+5. Open your chat and use **Recompile Memories** in the chat input bar's quick menu to prepare existing history. This works with Cortex disabled. Wait for processing before checking the prompt.\r
 \r
----\r
+**Warm Long-Term Chat Memory when opening a chat** in the Advanced tab enables automatic preparation on chat open. Warmup is opt-in; manual recompilation works while it is off.\r
 \r
-## Chunking Parameters\r
+Retrieval reads a background-maintained cache. A cold cache can return no memories while a refresh is scheduled, so the first prompt after opening or changing a chat may have no recall. Short chats may also have no eligible old passages because of the exclusion window.\r
 \r
-These control how your chat history is divided into pieces:\r
+## Memory Mode and Chunking\r
 \r
-| Parameter | Description |\r
-|-----------|-------------|\r
-| **Target Tokens** | The ideal size for each chunk. The system aims for this length. |\r
-| **Max Tokens** | Hard ceiling \u2014 no chunk exceeds this size. |\r
-| **Overlap Tokens** | How many tokens of context are shared between adjacent chunks. Prevents information from being lost at chunk boundaries. |\r
-| **Max Messages / Chunk** | Cap on messages per chunk (0 = unlimited). |\r
-| **Time Gap Split** | Split chunks when there's a gap of N+ minutes between messages (0 = disabled). |\r
-| **Split on Scene Breaks** | Automatically split at \`---\`, \`***\`, \`===\` markers. |\r
+All settings below are in **Settings \u2192 Advanced \u2192 Long-Term Chat Memory** and save automatically.\r
 \r
-**Example:** With target 800 and overlap 120, a long conversation might produce chunks of ~800 tokens each, where the last ~120 tokens of Chunk 1 also appear at the start of Chunk 2. This overlap ensures the AI can follow context across chunk boundaries.\r
+| Memory Mode | Target Tokens | Max Tokens | Overlap Tokens | Exclusion Window |\r
+|-------------|:-------------:|:----------:|:--------------:|:----------------:|\r
+| **Conservative** | 600 | 1,200 | 100 | 30 messages |\r
+| **Balanced** | 800 | 1,600 | 120 | 20 messages |\r
+| **Aggressive** | 1,000 | 2,000 | 200 | 15 messages |\r
+| **Manual** | Custom | Custom | Custom | Custom |\r
 \r
----\r
+Quick modes set these four values. They do **not** set a similarity threshold or change Top-K. Choose **Manual** to edit chunk sizes and the exclusion window yourself.\r
 \r
-## Retrieval Parameters\r
+| Chunking setting | Meaning |\r
+|------------------|---------|\r
+| **Target Tokens / Max Tokens** | Desired chunk size and maximum size used when splitting text |\r
+| **Overlap Tokens** | Text shared across neighboring chunks to preserve boundary context |\r
+| **Max Messages / Chunk** | Message cap per chunk; 0 removes the cap |\r
+| **Time Gap Split (min)** | Split after an idle gap; 0 disables this rule |\r
+| **Split on scene breaks** | Split at recognized scene markers such as \`---\`, \`***\`, and \`===\` |\r
 \r
-These control what gets pulled from memory on each generation:\r
+Use **Recompile Memories** after changing chunking or the embedding model to prepare the current chat's history again. Retrieval and formatting changes do not require rechunking.\r
 \r
-| Parameter | Description |\r
-|-----------|-------------|\r
-| **Top-K Results** | How many chunks to retrieve (e.g., 4-8). More = broader recall, more tokens used. |\r
-| **Exclusion Window** | Don't retrieve chunks from the last N messages. These messages are already in the direct context \u2014 no need to duplicate them. |\r
-| **Similarity Threshold** | Minimum relevance score. Chunks below this threshold are excluded even if they're in the top-K. Set to 0 to disable filtering. |\r
+## Retrieval and Query\r
 \r
----\r
+| Setting | Meaning |\r
+|---------|---------|\r
+| **Top-K Results** | Maximum number of retrieved passages; default 4 |\r
+| **Exclusion Window** | Exclude chunks touching the last N visible, nonempty messages; default 20. Avoids repeating recent history, but does not automatically match your actual context limit. |\r
+| **Similarity Threshold** | Maximum vector distance allowed. **Lower positive values are stricter**; 0 disables filtering. Keyword-only hits have no vector distance and are excluded when filtering is active. |\r
+| **Query Context Size** | Recent messages used to form the search query; default 6 |\r
+| **Query Max Tokens** | Caps text used as the **search query**, not the retrieved memory section's token budget |\r
 \r
-## Query Strategy\r
+**Query Strategy** controls how search text is built:\r
 \r
-Controls how the search query is built:\r
+- **Recent Messages** uses the last Query Context Size messages.\r
+- **Last User Message** uses the most recent user message.\r
+- **Weighted Recent** uses recent messages and repeats the newest one to emphasize it.\r
 \r
-| Strategy | Description |\r
-|----------|-------------|\r
-| **Recent Messages** | Uses the last N messages as the query \u2014 casts a broad net |\r
-| **Last User Message** | Uses only your most recent message \u2014 very focused recall |\r
-| **Weighted Recent** | Gives more weight to the most recent messages in the query |\r
+Cortex uses shared chunk/query settings and adds its own ranking and **Context Token Budget**. See [Cortex controls](memory-cortex.md#formatting-and-retrieval-controls).\r
 \r
-**Query Context Size** determines how many messages feed into the query (for strategies that use multiple messages).\r
+## Put Memories in the Prompt\r
 \r
-**Query Max Tokens** caps the total token budget for retrieved memories in the assembled prompt.\r
+The simplest enabled system block is:\r
 \r
----\r
+\`\`\`text\r
+{{memories}}\r
+\`\`\`\r
 \r
-## Memory Macros\r
+It is empty when no recall is available. An optional conditional wrapper is:\r
 \r
-Retrieved memories are available in your preset through macros:\r
+\`\`\`text\r
+{{if {{memoriesActive}} = yes}}\r
+{{memories}}\r
+{{/if}}\r
+\`\`\`\r
 \r
 | Macro | Returns |\r
 |-------|---------|\r
-| \`{{memories}}\` | Formatted memory chunks with header template |\r
-| \`{{memoriesRaw}}\` | Raw chunks without formatting |\r
-| \`{{memoriesActive}}\` | \`"yes"\` or \`"no"\` \u2014 for conditional blocks |\r
-| \`{{memoriesCount}}\` | Number of chunks retrieved |\r
+| \`{{memories}}\` | Formatted recall. A usable Cortex result can include graph and arc context too. Aliases: \`{{chatMemory}}\`, \`{{longTermMemory}}\`, \`{{ltm}}\`. |\r
+| \`{{memoriesRaw}}\` | Chunks using Chunk Template and Chunk Separator, **without Header Template**. Not unformatted source text or the full Cortex section. |\r
+| \`{{memoriesActive}}\` | \`yes\` when recall is enabled and has chunks or formatted context; otherwise \`no\` |\r
+| \`{{memoriesCount}}\` | Retrieved chunk count; Cortex can supply graph context even when this is 0 |\r
 \r
-!!! important "The macro controls *placement*, not *whether* memory injects"\r
-    Long-term memory injects automatically whenever it is enabled under **Settings \u2192 Embeddings \u2192 Vectorise chat messages**. The \`{{memories}}\` macro only controls **where** the retrieved context appears:\r
+\`{{memories::2}}\` and \`{{memoriesRaw::2}}\` limit the chunk list to two when more are available; they do not request another search. A reduced \`{{memories::2}}\` is reformatted from chunks. Use plain \`{{memories}}\` for the complete Cortex section.\r
 \r
-    - **With** \`{{memories}}\` in an enabled preset block \u2192 memories render at that exact spot, formatted by your templates.\r
-    - **Without** the macro \u2192 memories are still injected, as a system message inserted just before the chat history (a built-in fallback).\r
+### Injection Strategy\r
 \r
-    Removing the macro therefore does **not** stop injection \u2014 it only changes the placement. To stop memories from being injected at all, **disable "Vectorise chat messages"** (or turn off [Memory Cortex](memory-cortex.md) if that's your source). You can confirm which path is active in the prompt breakdown / dry-run, which reports the injection method as \`macro\`, \`fallback\`, or \`disabled\`.\r
+| Strategy | Behavior |\r
+|----------|----------|\r
+| **Macro only** (default) | Basic Chat Memory appears only where a memory content macro is used. |\r
+| **Automatic fallback** | Without a memory content macro in applicable enabled blocks, insert the section as a system message before Chat History. |\r
+| **Disabled** | Suppress the combined memory section and \`{{memories}}\` output. |\r
 \r
----\r
+**Cortex exception:** usable Cortex or linked memory context can still receive automatic fallback under **Macro only**. A content macro such as \`{{memories}}\`, \`{{entities}}\`, \`{{relationships}}\`, \`{{arc}}\`, or \`{{characterColors}}\` owns placement and prevents that combined fallback. Status/count macros alone do not own placement. See [Cortex prompt placement](memory-cortex.md#put-cortex-in-the-prompt).\r
 \r
-## Formatting Templates\r
+Disabled does not disable standalone Cortex macros. To stop all Cortex output, turn Cortex off globally or for this chat as well. To stop basic recall, turn **Vectorise chat messages** off. Removing a macro alone does not stop every injection path.\r
 \r
-Customize how memories appear in the prompt:\r
+### Formatting Templates\r
 \r
-- **Header Template** \u2014 Wraps the entire memory section (e.g., \`"Relevant past events:\\n{{memories}}"\`)\r
-- **Chunk Template** \u2014 Formats each individual chunk\r
-- **Chunk Separator** \u2014 Divider between chunks\r
+Under **Formatting** in the Advanced tab:\r
 \r
----\r
+- **Header Template** wraps the section; \`{{memories}}\` is replaced with joined chunks.\r
+- **Chunk Template** formats each hit; supports \`{{content}}\`, \`{{score}}\`, \`{{startIndex}}\`, and \`{{endIndex}}\`.\r
+- **Chunk Separator** separates hits.\r
 \r
-## Tips\r
+For example, use a Header Template containing a heading followed by \`{{memories}}\`, and a Chunk Template of \`{{content}}\` for simple labeled passages. A recency or keyword-only hit has no vector score and renders \`{{score}}\` as \`n/a\`.\r
 \r
-!!! tip "Start with Balanced"\r
-    The Balanced preset works well for most conversations. Switch to Aggressive for epic-length stories, or Conservative if you're running tight on tokens.\r
+Cortex's **Use Long-Term Chat Memory formatting** preserves these templates for raw retrieved chunks. Cortex's formatter still handles consolidations, entities, relationships, and arcs.\r
 \r
-!!! tip "Set a reasonable exclusion window"\r
-    The exclusion window prevents the system from "remembering" things that are already visible in the current context. A window of 20 means the last 20 messages won't appear as memories (they're already there as chat history).\r
+## Check What the AI Actually Received\r
 \r
-!!! tip "Pair with Loom Summary"\r
-    Memory and [Loom Summary](loom-summary.md) complement each other. Memory retrieves specific relevant moments; the summary provides a structured overview of the whole story. Use both for the best long-term coherence.\r
+Inspect the resolved prompt in the prompt breakdown / dry-run. Diagnostics report placement as \`macro\`, \`fallback\`, or \`disabled\`; inspect actual text too, especially with conditions.\r
+\r
+If \`{{memories}}\` is empty, check embeddings and chat vectorization, run **Recompile Memories**, wait for background work, and check whether the exclusion window leaves older passages. Turning Cortex off switches retrieval to basic Chat Memory; it does not show that Cortex is required for LTM. See [Troubleshooting Cortex](memory-cortex.md#troubleshooting-cortex) for Cortex-specific checks.\r
 `,
     "chatting/messages-and-swipes.md": `---\r
 title: Messages & Swipes\r
@@ -14424,6 +14300,26 @@ Think of swipes as a deck of cards \u2014 each one is a different take on the sa
 - **Regenerate** to add a new swipe to the deck\r
 - **Edit** any individual swipe\r
 - The currently displayed swipe is what the AI sees as "the message" in subsequent turns\r
+\r
+### Variables and swipes\r
+\r
+Lumiverse saves the starting and resulting macro variables for each newly generated swipe. Regenerating starts from the state before the original reply, so alternative replies apply their variable changes independently. Continuing a reply starts from its current state.\r
+\r
+Switching swipes on the final reply restores that swipe's variables. Switching an older reply leaves the current variables alone until later messages are deleted or you branch the chat at that point. Later manual variable edits are preserved.\r
+\r
+Existing replies without saved variable history cannot have their earlier state reconstructed.\r
+\r
+### Generate while reading\r
+\r
+On the final assistant reply, **Ctrl+click** the right swipe arrow (Windows/Linux)\r
+or **Cmd+click** it (Mac) to generate another swipe while keeping the current\r
+response selected. On mobile, **hold the right swipe arrow** for the same action;\r
+its context menu is suppressed. **Ctrl/Cmd+Right Arrow** also starts a background\r
+swipe when swipe navigation is enabled and you are not editing text. With the\r
+arrow focused, **Ctrl/Cmd+Enter** does the same.\r
+A pulsing dot points toward the generating swipe; it becomes steady when ready.\r
+Click that arrow normally when you want to read the new response. This action\r
+is unavailable while a generation is already running.\r
 \r
 ### Why Swipes Matter\r
 \r
@@ -14491,10 +14387,12 @@ In council mode, individual council members can each contribute their own OOC co
 \r
 ## Enabling OOC\r
 \r
-1. Open the **OOC Panel** (or find it in the Prompt Panel settings)\r
+1. Open **Council \u2192 OOC** in the drawer\r
 2. Toggle **Enable OOC comments** on\r
 3. Select a **display style**\r
 4. Optionally set an **OOC interval**\r
+\r
+When OOC is disabled, the tab shows a short description of the feature. OOC settings are independent of the **Feedback** tab, which shows Council tool results.\r
 \r
 ---\r
 \r
@@ -14652,7 +14550,7 @@ title: Speech-to-Text\r
 \r
 # Speech-to-Text\r
 \r
-Speech-to-Text (STT) lets you dictate a chat message from the input bar instead of typing it. Lumiverse supports the browser's built-in Web Speech API and OpenAI-compatible transcription connections such as Whisper.\r
+Speech-to-Text (STT) lets you dictate a chat message from the input bar instead of typing it. Lumiverse supports the browser's built-in Web Speech API, local Whistle transcription, and OpenAI-compatible transcription connections such as Whisper.\r
 \r
 ---\r
 \r
@@ -14663,6 +14561,7 @@ Open **Settings \u2192 Voice & Speech \u2192 Speech-to-Text** and choose a provi
 | Provider | Best For | Notes |\r
 |----------|----------|-------|\r
 | **Web Speech API** | Fast browser-native dictation | Availability depends on your browser. Chrome and Edge usually work best. The option is greyed out (with "Unavailable") when your browser doesn't support it. |\r
+| **Whistle (on this device)** | Private local dictation without an API key | Prepares automatically from files included with Lumiverse. Audio stays on your device. Supports English, German, French, Spanish, Italian, Dutch, and Polish. |\r
 | **STT Connection** | Whisper and OpenAI-compatible transcription models | Requires an STT connection with an API key and transcription model. |\r
 | **Spindle extension provider** | Extension-specific transcription services | Appears when an enabled extension registers an STT provider and its privileged provider permission has been approved. |\r
 \r
@@ -14679,6 +14578,22 @@ For an STT connection:\r
 \r
 Extension-provided STT options may expose different models or requirements. See the extension's own instructions and [Extension-Provided AI Providers](../extensions/index.md#extension-provided-ai-providers).\r
 \r
+### Using Whistle\r
+\r
+Select **Whistle (on this device)** in Voice & Speech and start dictating with the usual microphone button. There are no keys, accounts, connection profiles, or additional programs to install. Lumiverse prepares Whistle automatically and shows progress. Its roughly 18 MB of files come from your Lumiverse instance and are cached on that device for later use.\r
+\r
+Preparation runs in the background while you use the chat. You can speak as soon as the microphone shows **Recording**, even if Whistle is still preparing. Your opening words are retained locally; the completed transcript may take longer to arrive on first use. Microphone permission and device startup must still finish before recording begins.\r
+\r
+Choose a supported language or **Detect automatically**. If your previous provider used an unsupported language, Whistle switches to automatic detection. Longer recordings are handled automatically; you can keep speaking past 30 seconds.\r
+\r
+Whistle returns completed transcripts instead of live partial words. **Continuous recognition** keeps the mic running across pauses and adds each completed utterance to your dictation. **Auto-submit after silence** ends the session after confirmed speech followed by a sustained pause. You can also click the mic to finish manually, or cancel while Whistle is preparing or processing.\r
+\r
+Cached transcription works without downloading the model again. Browser storage limits or clearing site data can remove the cached files; Lumiverse will prepare them again automatically. The local option requires a modern browser with microphone and WebAssembly support, through HTTPS or localhost. Lumiverse automatically uses an alternative audio capture method when the webview cannot use AudioWorklets. Sending the resulting chat message still uses your normal Lumiverse connection.\r
+\r
+In Lumiverse Desktop, allow microphone access when prompted. macOS requires the desktop application's microphone usage declaration and audio-input entitlement, and Linux requires its WebKitGTK media settings and permission prompt. Those are included in the desktop shell; an older installed shell must be rebuilt or updated and fully restarted to receive them. Reloading the hosted frontend cannot update native app configuration. Windows uses WebView2's microphone permission prompt and Windows microphone privacy settings.\r
+\r
+If Whistle is greyed out, Voice & Speech shows which required capability is missing, even when another STT provider is selected. A microphone capability message means that browser capture is unavailable; it does not mean the model has failed to download.\r
+\r
 ---\r
 \r
 ## Voice & Speech Panel Options\r
@@ -14687,9 +14602,9 @@ The Speech-to-Text section of **Voice & Speech** has several toggles that affect
 \r
 | Setting | What it does |\r
 |---------|--------------|\r
-| **Language** | Recognition language. Eleven locales are built in: English (US/UK), Japanese, Mandarin (Simplified), Spanish, French, German, Italian, Brazilian Portuguese, Korean, and Russian. For STT-connection providers, Lumiverse also normalizes the locale to the ISO country code Whisper expects. |\r
+| **Language** | Recognition language. Whistle offers its seven supported languages and automatic detection. Other providers offer browser locales, including Dutch and Polish. STT connections normalize those locales to the ISO language code Whisper expects. |\r
 | **Continuous recognition** | When on, recognition keeps running across silences instead of stopping at the first pause. Useful for long dictation sessions; pair with the **auto-submit** option below if you want hands-free finishing. |\r
-| **Show interim results** | Displays partial transcriptions in the input bar as you speak. Web Speech only \u2014 Whisper-style connections only return the final transcript. |\r
+| **Show interim results** | Displays partial transcriptions in the input bar as you speak. Web Speech only \u2014 Whistle and Whisper-style connections return completed transcripts. |\r
 | **Auto-submit after silence** | Decides the recording is finished after a sustained pause and either dispatches it (Web Speech) or sends it for transcription (STT connections). See [Auto-Submit After Silence](#auto-submit-after-silence) below. |\r
 | **Show mic button in input bar** | Toggles the microphone shortcut shown next to the message input. Turn it off if you only use the keyboard. |\r
 \r
@@ -14713,7 +14628,7 @@ By default, a completed STT transcript is queued as a user message. If you want 
 \r
 ## Auto-Submit After Silence\r
 \r
-For STT connections, enable **Auto-submit after silence** if you want Lumiverse to stop recording automatically after you finish speaking.\r
+For Whistle or STT connections, enable **Auto-submit after silence** if you want Lumiverse to stop recording automatically after you finish speaking.\r
 \r
 This is useful for Whisper-style providers because they do not stream interim words back to the browser. Lumiverse listens for confirmed speech, then waits for a sustained pause before sending the audio to transcription.\r
 \r
@@ -14744,7 +14659,9 @@ Lumiverse recognizes a small set of spoken commands while normalizing STT transc
 |-----|--------|\r
 | \`send message\` at the end | Sends the dictated message immediately instead of only queueing it |\r
 \r
-\`send message\` only works as a command at the end of the transcript. If you say it in the middle, it remains part of the message text.\r
+\`send message\` only works as a command at the end of the completed transcript. Trailing punctuation is allowed, so \`Send message.\` also works. If you keep speaking afterward, the earlier phrase remains part of the message text. Saying only \`send message\` can also send text already in the input bar.\r
+\r
+This action requires the exact words \`send message\`; similar phrases such as \`sent message\` or \`send massage\` do not trigger it.\r
 \r
 ### Formatting and Punctuation\r
 \r
@@ -14754,10 +14671,13 @@ Lumiverse recognizes a small set of spoken commands while normalizing STT transc
 | \`quote end\` | \`"\` |\r
 | \`open quote\` | \`"\` |\r
 | \`close quote\` | \`"\` |\r
+| \`start quote\` or \`begin quote\` | \`"\` |\r
+| \`end quote\` | \`"\` |\r
 | \`single quote\` | \`'\` |\r
 | \`apostrophe\` | \`'\` |\r
 | \`thought start\` | \`*\` or \`**\` |\r
 | \`begin thought\` | \`*\` or \`**\` |\r
+| \`start thought\` | \`*\` or \`**\` |\r
 | \`thought end\` | \`*\` or \`**\` |\r
 | \`end thought\` | \`*\` or \`**\` |\r
 | \`asterisk\` | \`*\` |\r
@@ -14765,8 +14685,16 @@ Lumiverse recognizes a small set of spoken commands while normalizing STT transc
 \r
 Thought markers nest. The first \`thought start\` inserts \`*\`; a second nested thought inserts \`**\`. Matching \`thought end\` commands unwind that nesting.\r
 \r
+Opening and closing markers attach directly to their contents. Paired \`single quote\` or \`asterisk\` commands also attach correctly. Use \`apostrophe\` for contractions or possessives, such as \`it apostrophe s\` \u2192 \`it's\` and \`James apostrophe book\` \u2192 \`James' book\`.\r
+\r
+Formatting commands tolerate capitalization, plurals, punctuation between command words, and small transcription errors in words such as \`quote\`, \`thought\`, and \`asterisk\`. For example, \`open qoute\`, \`thoughts start\`, and \`M dash\` are recognized. Action words such as \`start\`, \`end\`, \`open\`, and \`close\` must still match; this avoids turning ordinary prose such as \`thought stars\` into formatting. Commands can span recognition results during continuous dictation.\r
+\r
+Punctuation after an opening command is ignored. Sentence punctuation after a closing command is placed inside the closing marker, unless the contents already end with sentence punctuation. Other text keeps its punctuation and line breaks.\r
+\r
 !!! example\r
     Saying \`thought start I should be careful thought end\` becomes \`*I should be careful*\`.\r
+\r
+    Saying \`asterisk I open the door asterisk. Open quote Hello close quote.\` becomes \`*I open the door.* "Hello."\`.\r
 \r
 ---\r
 \r
@@ -14786,6 +14714,9 @@ Thought markers nest. The first \`thought start\` inserts \`*\`; a second nested
 |---------|-------------|\r
 | The microphone button is disabled | Check browser microphone permissions and make sure your selected STT provider is available. |\r
 | Web Speech is unavailable | Switch to an STT connection, or use a browser with Web Speech support. |\r
+| Whistle preparation fails | Check your connection to Lumiverse and choose **Try again**, or click the mic again. No external service setup is needed. |\r
+| Whistle is unavailable | Read the reason shown in Voice & Speech. Use HTTPS or localhost, and update/restart an older desktop shell when microphone or browser capabilities are missing. |\r
+| Whistle uses the wrong language | Select your language explicitly instead of automatic detection. Use another provider for languages outside Whistle's seven supported languages. |\r
 | Whisper transcription fails | Verify the STT connection API key, API URL, and model name. |\r
 | Recording stops too soon | Enable **Auto-submit after silence**, or wait a moment after finishing your sentence before stopping manually. |\r
 | Auto-submit never stops | Check for background noise, move closer to the mic, or stop manually. |\r
@@ -14879,7 +14810,12 @@ Lumiverse can speak assistant replies aloud using a configurable text-to-speech 
 6. Optionally adjust provider-specific parameters (stability, style, output format, \u2026).\r
 7. Save, then click **Test** to confirm the connection.\r
 \r
-Once a connection exists, open **Settings \u2192 Voice & Speech**, turn on **Enable text-to-speech**, and select your connection from the dropdown.\r
+Once a connection exists, open **Settings \u2192 Voice & Speech** and turn on **Enable text-to-speech**. Playback uses the TTS connection marked as default unless you select another connection from the dropdown. Narration and speech use that connection's saved voice unless you set a narrator, character, or chat voice override.\r
+\r
+That enable switch controls chat reading. Extensions such as Desk Companion use\r
+their own speech setting and require the **Media** permission. Their spoken\r
+replies can play while chat reading is disabled, using your configured TTS\r
+connections and shared volume and speed.\r
 \r
 ---\r
 \r
@@ -14897,11 +14833,21 @@ The built-in providers are listed below. Enabled [Spindle extensions](../extensi
 - **Streaming:** Supported. Lumiverse buffers the stream and plays it as a single clip.\r
 - **Output formats:** MP3, Opus, AAC, FLAC, WAV, PCM (default: MP3).\r
 \r
+### OpenRouter TTS\r
+\r
+- **API key:** Required \u2014 your OpenRouter API key.\r
+- **Default URL:** \`https://openrouter.ai/api/v1\`.\r
+- **Models:** Fetched live using OpenRouter's speech-output filter.\r
+- **Voices:** Model-specific; choose a listed voice or enter the model's voice ID.\r
+- **Speech style:** Gemini 3.8 Flash and Flash Lite TTS default to casual, relaxed conversation with natural pacing and understated expression. Edit **Speech style** to adjust delivery, or clear it to use the voice's usual delivery. OpenRouter receives this separately from the transcript as \`instructions\`.\r
+- **Output formats:** Gemini models automatically request PCM, even when MP3 is configured. Lumiverse wraps the PCM as WAV for browser playback. Other models default to MP3 and also support PCM.\r
+- **Streaming:** Supported. PCM responses are buffered and receive one WAV header before playback.\r
+\r
 ### ElevenLabs\r
 \r
 - **API key:** Required (sent as \`xi-api-key\`).\r
 - **Default URL:** \`https://api.elevenlabs.io\`.\r
-- **Voices:** Fetched live from your ElevenLabs account, including any custom voices you've created.\r
+- **Voices:** Fetched live from your ElevenLabs account, including any custom voices you've created. Click **Voice Library** in the connection form or any ElevenLabs voice picker to browse community voices in a modal. Search, filter by language or gender, sort, preview a voice, then click **Use voice**. Library voices can be used directly without saving them to your ElevenLabs account. API use requires a paid ElevenLabs plan; voices with a credit multiplier show it beside their name. See [ElevenLabs' Voice Library guide](https://elevenlabs.io/docs/eleven-creative/voices/voice-library).\r
 - **Models:** Eleven v3 (Most Expressive), Eleven Multilingual v2, Eleven Flash v2.5 (Low Latency).\r
 - **Parameters:**\r
 \r
@@ -14922,9 +14868,10 @@ The built-in providers are listed below. Enabled [Spindle extensions](../extensi
 - **API key:** Required \u2014 plain API key, same as the Gemini text connection.\r
 - **Default URL:** \`https://generativelanguage.googleapis.com\`.\r
 - **Voices:** 30 mapped prebuilt voices (e.g. Kore, Charon, Puck, Zephyr, Fenrir, Leda), each with gender labels.\r
-- **Models:** Fetched live and filtered to TTS/speech models (currently \`gemini-3.1-flash-tts-preview\`, \`gemini-2.5-pro-preview-tts\`, \`gemini-2.5-flash-preview-tts\`), with a static fallback when the API is unreachable.\r
-- **Parameters:** \`language_code\` (optional BCP-47 code) and \`temperature\` (voice variation).\r
-- **Output format:** WAV (Gemini returns raw PCM; Lumiverse wraps it so browsers can play it).\r
+- **Models:** Fetched live and filtered to TTS/speech models, with a static fallback including Gemini 3.8 Flash, Gemini 3.8 Flash Lite, Gemini 3.1 Flash Preview, and Gemini 2.5 Pro Preview TTS when the API is unreachable.\r
+- **Speech style:** Gemini 3.8 models default to casual, relaxed conversation with natural pacing and understated expression. Edit **Speech style** to adjust delivery, or clear it to use the voice's usual delivery. The guidance is sent in \`speech_metadata.style\`, separately from the transcript and inline vocal cues. Earlier models do not receive this metadata.\r
+- **Parameters:** \`speech_style\` (Gemini 3.8 delivery guidance), \`language_code\` (optional BCP-47 code), and \`temperature\` (voice variation).\r
+- **Output format:** WAV. Native WAV output is preserved; raw PCM is wrapped for browser playback.\r
 - **Streaming:** Supported.\r
 \r
 ### Google Vertex TTS\r
@@ -14959,6 +14906,20 @@ The built-in providers are listed below. Enabled [Spindle extensions](../extensi
 - **Language:** Defaults to English (\`en\`) for synthesis.\r
 - **Output format:** WAV.\r
 - **Streaming:** Lumiverse currently uses OpenVox's buffered speech response.\r
+\r
+### Fish Audio\r
+\r
+- **API key:** Required \u2014 your Fish Audio API key (\`Bearer\` token).\r
+- **Default URL:** \`https://api.fish.audio\`.\r
+- **Models:** Static list including \`s2.1-pro\` (Recommended), \`s2.1-pro-free\` (Zero-cost tier), \`s2-pro\`, \`s1\`, and \`drama-3-preview\`.\r
+- **Voices:** Fetched dynamically from your account's created voice models (\`GET /model?self=true\`), falling back to public library models. You can also paste any voice ID directly into the voice field as a reference voice.\r
+- **Settings:** The connection form groups voice and delivery, sampling, audio output, advanced generation, and pronunciation settings. It uses sliders, inputs, selects, and toggles; untouched settings use Fish's defaults.\r
+- **Delivery:** Optional plain-language voice direction for S2/Drama, speed (0.5 \u2013 2.0\xD7), volume in dB, and S2 loudness normalization. A saved Fish connection speed takes precedence over the global speed; a character/narrator speed override takes precedence over both.\r
+- **Sampling and generation:** Temperature, top-p, repetition penalty, chunk lengths, maximum audio tokens, previous-chunk context, early stopping, text normalization, and optional quality guard.\r
+- **Output:** MP3, WAV, and Opus for app playback, with format-specific sample rates and bitrates. Raw PCM remains available through the API for external playback. Latency can be normal, balanced, or low; Fish audio is buffered before playback in the app.\r
+- **Pronunciation:** Supply a published Fish dictionary ID and its explicit version ID to apply recurring name/term pronunciations.\r
+- **Inline directions:** S2/Drama square-bracket directions stay with the following spoken text. Drama also preserves paired delivery tags such as \`<whisper>\u2026</whisper>\` and experimental language tags through speech/narration parsing. Other voices retain the enclosed words while removing unsupported wrappers.\r
+- **Streaming:** Supported.\r
 \r
 ---\r
 \r
@@ -15023,12 +14984,48 @@ The segments tagged _Skip_ are dropped before the request hits the provider, whi
 \r
 | Problem | What to try |\r
 |---------|-------------|\r
-| **Test button is disabled** | Pick a TTS connection in **Voice & Speech** first. |\r
+| **Test button is disabled** | Mark a TTS connection as default or pick one in **Voice & Speech**. |\r
 | **"TTS error 401" on test** | API key is missing or invalid for that provider's connection. |\r
 | **Auto-play fires but no sound** | Volume slider is at 0%, the OS is muted, or the browser has tab audio blocked. |\r
 | **Kokoro returns 5xx** | The local server is unreachable \u2014 confirm the API URL and that the container is running. |\r
 | **ElevenLabs voices list is empty** | Your account has no voices visible \u2014 open the ElevenLabs dashboard, ensure at least one voice is enabled, then click the refresh button on the Voice field. |\r
 | **OpenAI \`instructions\` field is ignored** | Only \`gpt-4o-mini-tts\` honors style instructions. Switch models or remove the field. |\r
+`,
+    "connections/decisions.md": `# Decision models\r
+\r
+Decision models answer structured questions about text or JSON: choose an option, score against an ordered rubric, or estimate the probability of yes. Spindle extensions can use these answers for routing, scene changes, and other features.\r
+\r
+## Add a connection\r
+\r
+1. Open **Connections \u2192 Decision Models**.\r
+2. Select **New Connection** and give it a name.\r
+3. Choose **OpenRouter**, **NanoGPT**, or **TypeSafe**. You can enter that provider's API key or use **Sign in with OpenRouter** / **Sign in with NanoGPT** with the provider's default API URL.\r
+4. Select a model from the model picker or enter its exact ID. OpenRouter suggests \`~typesafe/jev-latest\`; NanoGPT suggests \`typesafe/jev-latest\`; TypeSafe suggests \`jev-latest\`.\r
+5. Enable **Set as default** if extensions should use this connection when they do not select one explicitly, then save or sign in. Sign-in creates the connection after you authorize it and stores the key securely. Cancelling before authorization creates no connection.\r
+\r
+To replace a key on an existing OpenRouter or NanoGPT connection, edit it and use **Sign in**. Save any provider or API URL changes first. After signing in, save any other edits you made to the connection.\r
+\r
+The API URL can remain blank for the provider's default. A custom URL should be a versioned base URL, such as \`https://proxy.example/v1\`. Changing the provider or endpoint clears the previous credential unless you enter a replacement key. **Remove saved API key** clears a stored key explicitly.\r
+\r
+Saved model IDs remain available even when the provider's model picker no longer lists them. You can duplicate, reorder, edit, or delete connections independently of your chat model connections.\r
+\r
+## Check the connection\r
+\r
+**Test connection** checks access to the provider's model catalog and does not run a decision. NanoGPT returns its public catalog even for an invalid key, so use **Run sample decision** to verify that credential.\r
+\r
+**Run sample decision (uses provider credits)** sends a small evaluation to the saved model. This checks that the selected model accepts the Decision protocol. Models that require another protocol, including Together's Tev1, are excluded from the picker.\r
+\r
+## Memory Cortex candidate review\r
+\r
+Candidate review is optional and off by default. Enable **Memory Cortex \u2192 Candidate review \u2192 Review memory candidates**, choose **Decision model**, and select your Decision connection to use it.\r
+\r
+Set **Reviewer input limit (tokens)** to the effective limit of your deployed server, including any separate question-token limit. It defaults to 16,384. Cortex reserves headroom for tokenizer differences and splits candidates into smaller batches; if the server still reports a context overflow, Cortex retries smaller groups. Each group retains the complete passage and its candidates' evidence and canonical targets. If one candidate cannot fit, the chunk remains pending with guidance to reduce the memory chunk size or increase the server's context window and reviewer input limit.\r
+\r
+Jev-compatible endpoints can enforce different context limits from the hosted model or the model catalog. Check the actual endpoint rather than assuming that quantization, a model name, or an advertised context window determines every request limit.\r
+\r
+## Use from extensions\r
+\r
+Grant an extension its **Decisions** permission in the Extensions panel when you want it to inspect or use these connections. Extensions receive the results without receiving your API key. This release supports text and JSON input. Each extension determines how probabilities and confidence affect its behavior.\r
 `,
     "connections/index.md": `---\r
 title: Connections\r
@@ -15086,7 +15083,7 @@ Lumiverse supports 21 AI providers out of the box. Each provider has its own mod
 | **Fireworks** | Yes | Fast inference for open models |\r
 | **ElectronHub** | Yes | Model aggregator |\r
 | **SiliconFlow** | Yes | Chinese and international models |\r
-| **NanoGPT** | Yes | Pay-per-token aggregator (shows subscription usage in the connection card) |\r
+| **NanoGPT** | Yes | Pay-per-token aggregator with PAYG provider routing, balance, and subscription usage |\r
 | **Infermatic** | Yes | TotalGPT \u2014 uncensored open-weights hosting (\`https://api.totalgpt.ai/v1\`) |\r
 | **Chutes** | Yes | Model hosting platform |\r
 | **Z.AI** | Yes | Standard and Coding Plan endpoints |\r
@@ -15141,6 +15138,13 @@ The OpenRouter connection form has two extra sections beyond the basics:\r
 | **Plugins** | Toggle OpenRouter-side features for this connection: **Web Search** (provider-side search augmentation, distinct from [Lumiverse Web Search](../settings/web-search.md)), **Response Healing** (auto-fixes malformed JSON on non-streaming responses), and **Context Compression** (middle-out compression when prompts exceed the model's limit). |\r
 \r
 The connection card also shows your live OpenRouter **credit balance** \u2014 handy as a usage gauge.\r
+\r
+To use **Flex**, save your connection with an API key, select a model, and expand **Provider Routing**. The provider pickers include that model's exact endpoints, such as **OpenAI \u2014 Flex** or regional variants. Availability depends on the model.\r
+\r
+- Choose Flex under **Only These Providers** to restrict requests and fallbacks to the selected Flex endpoints. Leave this list empty to allow other providers.\r
+- Choose Flex under **Preferred Providers** to try it first. With **Allow fallback providers** enabled, another provider can serve the request at its own rate, including standard pricing.\r
+\r
+Selecting the base **OpenAI** provider does not opt into Flex. Flex offers lower pricing in exchange for higher latency and lower availability. Routing restrictions belong to the connection and remain in place if you change its model. [OpenRouter service tiers](https://openrouter.ai/docs/guides/features/service-tiers)\r
 \r
 ---\r
 \r
@@ -15220,7 +15224,11 @@ Only managed API (MaaS) models can be called directly by this connection. A self
 \r
 ## NanoGPT Usage\r
 \r
-NanoGPT connections show a **subscription usage** card directly on the connection profile, similar to the credits readout on OpenRouter. Use it to watch your remaining quota without leaving Lumiverse.\r
+The active NanoGPT connection shows your **PAYG account balance**, today's spend, this month's spend, and any available subscription quotas. Spend is net of refunds for **this connection's API key** and follows **UTC** dates. Other API keys' usage is not included. Unavailable account data appears as Unknown; refresh the card to retry. [NanoGPT Usage API](https://docs.nano-gpt.com/api-reference/endpoint/usage)\r
+\r
+Edit the connection and select a model to discover its available upstream providers and prices. Routing preferences are saved per model on that connection. **Preferred providers** specifies a soft order; **Allowed providers** restricts requests to that list; **Excluded providers** blocks selected providers. You can also choose a price, speed, throughput, or latency routing goal and control fallback. Displayed rates use USD per million tokens and already include provider-selection markup. [Provider selection](https://docs.nano-gpt.com/api-reference/miscellaneous/provider-selection)\r
+\r
+Explicit provider selection can bypass subscription coverage and use your PAYG balance. **Always use pay-as-you-go** also forces balance billing when no provider is selected. Your NanoGPT API key must permit paid usage. **Use Subscription API** keeps these PAYG settings inactive until you turn it off. [Billing override](https://docs.nano-gpt.com/api-reference/miscellaneous/billing-override)\r
 \r
 ---\r
 \r
@@ -15423,6 +15431,8 @@ Lumiverse ships with **17 built-in tools** across 5 categories.\r
 \r
 Packs can include custom **Loom Tools** that extend the built-in tool set. These work identically to built-in tools but are defined by pack creators.\r
 \r
+To create one, use **+ Create tool** in **Council \u2192 Setup**, either in Tools Configuration or beside a member's tool assignments. The existing tool editor opens directly. Use **Open Workshop** for broader pack and asset editing.\r
+\r
 Each Loom Tool has:\r
 - **Tool Name** \u2014 Technical identifier\r
 - **Display Name** \u2014 What you see in the UI\r
@@ -15434,9 +15444,26 @@ Each Loom Tool has:\r
 \r
 ---\r
 \r
+## MCP Tools\r
+\r
+Connect a server in **Settings \u2192 MCP Servers** to make its tools available to the main model when **Enable Function Calling** is enabled in the active preset. A successful **Test Connection** only checks the server; use **Connect** to keep it connected. **Auto-connect on startup** reconnects it when Lumiverse starts.\r
+\r
+To include the callable tool names and descriptions in the prompt, put \`{{mcpTools}}\` in a preset block. The block's role, position, and depth control where the list appears. The list is empty when no MCP tools are available, function calling is disabled, or you are generating an impersonation.\r
+\r
+\`\`\`text\r
+{{if::{{mcpToolsActive}}}}\r
+Use these tools when they help answer the user's request:\r
+{{mcpTools}}\r
+{{/if}}\r
+\`\`\`\r
+\r
+The native function definitions are sent automatically with the model request. You can also assign MCP tools to Council members for Council execution.\r
+\r
+---\r
+\r
 ## Assigning Tools to Members\r
 \r
-1. Open the Council panel\r
+1. Open **Council \u2192 Setup**\r
 2. Select a member\r
 3. Check the tools you want them to use\r
 \r
@@ -15453,7 +15480,7 @@ Each assigned member/tool pair can retain a small number of prior successful del
 \r
 To enable it:\r
 \r
-1. Open the **Council** panel\r
+1. Open **Council \u2192 Setup**\r
 2. Expand a council member\r
 3. Assign one or more tools\r
 4. Under the assigned tool list, set **Historical deliberations retained** above \`0\`\r
@@ -15477,6 +15504,8 @@ When history is enabled, Lumiverse sends it as a clearly labeled **historical ba
 \r
 ## Tool Results\r
 \r
+Open **Council \u2192 Feedback** to inspect the latest results, grouped by council member. The middle tab shows a green dot while Council is enabled, a spinner during execution, and a count when tool results are available. Without results, it shows whether Council is waiting for feedback. Use **Setup** to change members or tool assignments; use **OOC** to configure commentary alongside the story.\r
+\r
 Tool results are available in the prompt through macros:\r
 \r
 | Macro | Returns |\r
@@ -15495,6 +15524,20 @@ title: Council\r
 The **Council** is Lumiverse's multi-persona deliberation system. Before the AI generates a response, a panel of AI personas can analyze the scene, suggest directions, and provide guidance \u2014 all feeding into the final output.\r
 \r
 **Lumia** refers to the AI personas that make up the council. Each Lumia has a defined personality, behavior, and set of tools it can use.\r
+\r
+## Navigating Council\r
+\r
+Open **Council** in the drawer. Its three internal tabs are **Setup \xB7 Feedback \xB7 OOC**; each keeps its own scroll position as you switch between them.\r
+\r
+| Tab | What it does |\r
+|-----|--------------|\r
+| **Setup** | Enable Council, choose its profile or loadout, select Lumia, configure the sidecar and tool mode, and add members with their tool assignments and context settings. **+ Create tool** opens the tool editor directly; **Open Workshop** opens the general asset workshop. |\r
+| **Feedback** | Review the latest Council tool results grouped by member, including completion status and duration. A green dot on the tab means Council is enabled and feedback is active. During execution it shows a spinner; after tools return results it shows their count. An enabled Council with no results yet shows a waiting state. |\r
+| **OOC** | Enable out-of-character comments and choose their display style and interval. When comments are disabled, this tab explains what they do. OOC comments appear alongside the story; Feedback contains tool execution results. |\r
+\r
+Start in **Setup**, switch to **Feedback** to inspect what your members' tools returned during generation, and use **OOC** to configure commentary in chat. Council needs participating members with assigned tools to produce tool feedback.\r
+\r
+**Composition** is a separate drawer destination for Loom Content, Sovereign Hand, and Context Filters. These configure the broader generation prompt and are available independently of Council. **Creator Workshop** and **Pack Browser** also remain independently accessible.\r
 \r
 ---\r
 \r
@@ -15536,6 +15579,7 @@ An alternative to traditional council \u2014 instead of separate members advisin
 |-------|-------------------|\r
 | [Setting Up Council](setting-up-council.md) | Configure members and their roles |\r
 | [Council Tools](council-tools.md) | What tools are available and how they work |\r
+| [OOC Comments](../chatting/ooc.md) | Enable and style commentary alongside the story |\r
 `,
     "council/setting-up-council.md": `---\r
 title: Setting Up Council\r
@@ -15549,8 +15593,8 @@ This guide walks you through configuring the council for AI-assisted tool feedba
 \r
 ## Enabling Council Mode\r
 \r
-1. Open the **Council** panel (or find it in Settings)\r
-2. Toggle **Council Mode** on\r
+1. Open **Council \u2192 Setup** in the drawer\r
+2. Enable Council using the toggle at the top\r
 3. Add members (you need at least one)\r
 \r
 ---\r
@@ -15558,6 +15602,9 @@ This guide walks you through configuring the council for AI-assisted tool feedba
 ## Adding Members\r
 \r
 Each council member is based on a **Lumia item** from an installed pack.\r
+\r
+\r
+You can download these packs in the Pack-Browser tab. \r
 \r
 1. Click **Add Member**\r
 2. Select a Lumia from your installed packs\r
@@ -15585,9 +15632,7 @@ Setting chance below 100% adds variety \u2014 not every member speaks on every t
 \r
 Council tools need an AI model to run their analysis. This is the **sidecar connection** \u2014 a separate model (usually smaller and cheaper) used for background tasks.\r
 \r
-Configure the sidecar in:\r
-- **Sidecar Settings** in the Settings panel\r
-- Or legacy: **Council Settings > Tools Settings > Sidecar**\r
+Configure the connection profile, model, and sampling controls under **Council \u2192 Setup \u2192 Sidecar LLM**. Choose **Sidecar** or **Inline** under **Tools Configuration**.\r
 \r
 !!! tip "Use a fast, cheap model"\r
     The sidecar handles quick analysis tasks, not full creative writing. A smaller model (like Haiku, Flash, or GPT-4o-mini) works well and keeps costs low.\r
@@ -15640,7 +15685,14 @@ Lumiverse labels historical deliberations as continuity context only. They are n
 \r
 After a generation completes, you can view the council's deliberation in the message metadata. This shows what each member analyzed, what tools they ran, and what guidance they provided.\r
 \r
-The \`{{lumiaCouncilDeliberation}}\` macro contains the full deliberation results, which are injected into the prompt for the main generation.\r
+---\r
+\r
+## Injecting Council results into your prompt\r
+\r
+To inject the results for the main generation you need to add the macro \`{{lumiaCouncilDeliberation}}\` to your preset by either copy pasting the macro into your existing preset or adding a prompt block template. \r
+Inside the Preset tab -> *+ Add Prompt* -> *Lumiverse Council* -> click *Council Deliberation* \r
+\r
+Without this step your main LLM will not "see" the results and can't use them for generating a response. \r
 `,
     "customization/display-modes.md": `---\r
 title: Display Modes\r
@@ -15742,6 +15794,7 @@ Current time: 14:30 on Wednesday.\r
 | **Logic** | \`{{switch}}\`, \`{{case}}\`, \`{{default}}\`, \`{{and}}\`, \`{{not}}\`, \`{{matches}}\` | [Logic macros](../presets/macros-reference.md#logic-comparisons) |\r
 | **Random** | \`{{random::1::100}}\`, \`{{pick::a::b::c}}\`, \`{{roll::2d6}}\` | [Entropy macros](../presets/macros-reference.md#random-entropy) |\r
 | **Variables** | \`{{.var}}\` (local), \`{{@var}}\` (chat-persisted), \`{{$var}}\` (global) | [Variable macros](../presets/macros-reference.md#variables) |\r
+| **JSON** | \`{{jsonGet}}\`, \`{{jsonSet}}\`, \`{{jsonBlock}}\`, \`{{getchatvarkey::state::party[0].hp}}\` | [JSON macros](../presets/macros-reference.md#json) |\r
 | **Prompt Variables** | \`{{var::tone}}\`, \`{{varDefault::tone}}\` | [Prompt variable macros](../presets/macros-reference.md#prompt-variables-preset-inputs) |\r
 | **Conditionals** | \`{{if .var == 5}}...{{elseif::...}}...{{else}}...{{/if}}\`, \`{{unless}}\` | [Core macros](../presets/macros-reference.md#core-macros) |\r
 | **Memory & Retrieval** | \`{{memories}}\`, \`{{databank}}\`, \`{{entities}}\` | [Memory macros](../presets/macros-reference.md#memory) |\r
@@ -15757,6 +15810,8 @@ title: Productivity & Quick Toolbar\r
 # Productivity & Quick Toolbar\r
 \r
 The **Lumiverse Suite** extension adds a Productivity settings workspace for arranging common actions and tailoring several interface surfaces. When the suite is enabled, open **Settings \u2192 Productivity**. By default, this tab appears immediately after **Display & Layout**.\r
+\r
+Suite features require the extension to be installed and enabled. Disabling or removing it hides its surfaces and actions and stops its saved active-connection override from applying. Saved preferences remain available when you enable it again. Composer icon organization is a standard Lumiverse feature and remains available without Suite.\r
 \r
 ---\r
 \r
@@ -15867,7 +15922,6 @@ Changing a picker layout does not change the active connection by itself. Your s
 | An action is missing from the toolbar | Search **Visible icons and order**, make sure it is enabled, and confirm that its contributing extension is running. |\r
 | The toolbar covers chat text | Enable an opaque backdrop, use the chat-top dock, or turn on **Hide when overlaid**. |\r
 | Embedding or Cortex fallback controls are missing | Re-enable the corresponding option under **Optional surfaces & navigation**. |\r
-\r
 `,
     "customization/regex-scripts.md": `---\r
 title: Regex Scripts\r
@@ -15910,6 +15964,14 @@ Regex scripts are text transformation rules that automatically find and replace 
 **Flags:** \`g\`\r
 \r
 This converts \`*italic text*\` into \`<em>italic text</em>\`.\r
+\r
+---\r
+\r
+## Organizing Scripts in Folders\r
+\r
+Folders start collapsed when you open the Regex Scripts panel. Click or tap a folder header to expand it.\r
+\r
+Right-click a folder header, or press and hold it on touch devices, to rename the folder, enable or disable its scripts, export them, or delete them. When a Loom preset is selected, the menu also offers preset binding. Renaming updates every script in the folder, including scripts hidden by the current scope filter. Press Enter or click the checkmark to save the name; press Escape or click the cancel button to cancel.\r
 \r
 ---\r
 \r
@@ -16229,7 +16291,17 @@ Adjusts the global text size. Useful for accessibility or personal preference.\r
 \r
 ### UI Scale\r
 \r
-Scales every UI element \u2014 panels, controls, chrome \u2014 proportionally between 0.8\xD7 and 1.5\xD7. Where **Font Scale** only resizes text, **UI Scale** zooms the entire interface, which is handy on very high-density displays or for people who like a more compact (or more spacious) layout overall.\r
+Scales every UI element \u2014 panels, controls, chrome \u2014 proportionally between 0.5\xD7 and 1.5\xD7. Where **Font Scale** only resizes text, **UI Scale** zooms the entire interface, which is handy on very high-density displays or for people who like a more compact (or more spacious) layout overall.\r
+\r
+### Device-specific controls\r
+\r
+Expand **Device-specific controls** in the Controls section and enable **Use device-specific controls** to keep Corner Radius, Font Scale, UI Scale, and Glass effects local to your current browser or app and signed-in account. The existing sliders and checkbox then edit your device values. These values survive reloads and theme changes without changing the theme on your other devices.\r
+\r
+- **Copy device controls into theme** copies all four values into the theme. Use this before saving, updating, or exporting a theme if you want those values baked into it.\r
+- **Reset device controls from theme** replaces your local values with the current theme's values.\r
+- Disable **Use device-specific controls** to follow the theme again. Your previous local values are remembered for next time.\r
+\r
+Different browsers, browser profiles, and site addresses have separate local storage. Clearing that storage removes the device preferences. Desktop-only background and rendering settings continue to belong to the theme.\r
 \r
 ### Glass Effect\r
 \r
@@ -16237,6 +16309,18 @@ Enables a frosted-glass look with backdrop blur on panels, modals, and headers. 
 \r
 !!! note "Performance"\r
     Glass effects use CSS \`backdrop-filter: blur()\`, which can be GPU-intensive. If you notice performance issues (especially on older devices), disable glass effects.\r
+\r
+### Liquid Glass\r
+\r
+Enable **Liquid glass** in the Controls section to add refraction and highlights to glass surfaces and slider thumbs. It is off by default and requires **Glass effects**. Efficiency rendering and the system's reduced-motion preference disable the effect. Browsers without SVG backdrop refraction retain the frosted appearance.\r
+\r
+Liquid glass belongs to the saved theme. Turning off **Glass effects** with device-specific controls enabled pauses the effect on that device without changing the saved theme or other devices.\r
+\r
+---\r
+\r
+## Locking Theme Sliders\r
+\r
+Use **Lock controls** in the Theme Panel to prevent accidental changes to Corner Radius, Hue, Saturation, Luminance, Font Scale, UI Scale, accent swatches, and Base Colors (including Primary) while scrolling. A lock/unlock button appears in each of the Accent Color, Base Colors, and Controls sections; all three buttons share the same lock state. Touch devices start locked when the panel opens. Click **Unlock controls** beside the values you want to adjust, then lock them again when finished. Desktop controls start unlocked.\r
 \r
 ---\r
 \r
@@ -16358,6 +16442,8 @@ Theme Packs travel with their assets, so a recipient sees exactly what you see w
 ### Safe theme recovery\r
 \r
 If custom CSS or a component override makes the interface inaccessible, open Lumiverse with \`?safe-theme=1\` appended to its URL, for example \`https://lumiverse.example.com/?safe-theme=1\`. This suppresses custom CSS and component CSS/TSX overrides for that browser session without deleting them. Remove the query parameter and reload when the theme has been repaired.\r
+\r
+In the iOS app, hold two fingers still on the screen for just over half a second to open the native app controls, then choose **Disable custom theme**. VoiceOver and Switch Control users can use the **App controls** button. This reloads the current page in safe theme mode so you can repair or disable the saved overrides, even when the themed interface is inaccessible. Choose **Restore custom theme** to remove the recovery query and reload; any server-wide safe theme setting still applies. Recovery lasts for the loaded frontend session, so repair the saved overrides before reconnecting or loading a page without the query.\r
 \r
 Server operators and theme developers can also start Lumiverse with safe theme mode enabled:\r
 \r
@@ -16585,6 +16671,108 @@ What it **cannot** protect:\r
 !!! warning "Re-issuing a ticket means re-exporting"\r
     Each export has a unique ticket. You can't "regenerate" a ticket for an existing archive \u2014 you'd run a fresh export, which produces a new archive with its own paired ticket.\r
 `,
+    "data-portability/character-library.md": `---\r
+title: Migrating from CharacterLibrary\r
+---\r
+\r
+# Migrating from CharacterLibrary\r
+\r
+Import a **SillyTavern CharacterLibrary full bundle** into your own Lumiverse account using the CLI. The server receives the ZIP, shows an inventory, imports in the background, and retains the original archive and a result report. Lumiverse must be running with the CharacterLibrary migration endpoint available.\r
+\r
+## Export from SillyTavern\r
+\r
+In CharacterLibrary, select the characters, choose **Export \u2192 Full bundle (.zip)**, and keep **Include linked lorebooks** enabled. A bundle contains \`manifest.json\`, \`cards/\`, \`gallery/\`, \`chats/\`, and optional \`worlds/\`. A SillyTavern user-folder backup or a ZIP containing only PNGs uses a different import flow.\r
+\r
+The current v1 bundle does not export expression images, external extension script files, or regex permission settings. Keep your original SillyTavern data for those items. The transfer cannot restore files that were never included in the bundle.\r
+\r
+## Run the CLI\r
+\r
+From the \`Lumiverse-Backend\` directory, first review the archive:\r
+\r
+\`\`\`sh\r
+bun run migrate:cl --bundle ~/Downloads/cl-bundle.zip --dry-run\r
+\`\`\`\r
+\r
+The CLI asks for your Lumiverse username/email and prompts privately for the password. Use \`--url https://your-lumiverse-host\` for a remote instance. Accounts that use SSO can supply their existing session cookie through \`LUMIVERSE_MIGRATION_COOKIE\`; this is the full Cookie header value, including the session cookie name. Do not put a password or session cookie in a command-line argument.\r
+\r
+Preflight uploads and extracts the archive to validate paths, integrity, and inventory. It creates no characters and discards its temporary server staging afterward. It does not test every card, regex, or chat conversion. Use \`--report ./preview.json\` to save the preview.\r
+\r
+Start an import:\r
+\r
+\`\`\`sh\r
+bun run migrate:cl --bundle ~/Downloads/cl-bundle.zip --report ./cl-report.json\r
+\`\`\`\r
+\r
+Review the counts and warnings, then confirm the import. \`--yes\` skips this review prompt. Noninteractive use requires the session-cookie environment variable and \`--yes\` (or \`--dry-run\`).\r
+\r
+Regex scripts are imported **disabled** by default because the bundle omits the source account's permission state. To opt in during the initial import, add \`--enable-regex\`. Scripts disabled in the source stay disabled. Unsupported ST placements stay disabled and are reported. You can also review and enable supported scripts in Lumiverse afterward; retries preserve that decision.\r
+\r
+Exit codes are \`0\` for a completed import or successful preflight, \`2\` for a partial/failed import or preflight inventory errors, and \`1\` for CLI/authentication/request failures. A completed import can still have compatibility warnings; inspect the report.\r
+\r
+## What is transferred\r
+\r
+| Source data | Destination behavior |\r
+| --- | --- |\r
+| Card PNG and avatar | New character in your private library; original PNG retained |\r
+| Same-name characters | Separate identities based on source avatar filenames |\r
+| Primary and additional external lorebooks | Separate source file identities, linked to the correct characters |\r
+| Chat-bound lorebooks | Mapped to native chat world-book IDs |\r
+| Embedded lorebook snapshot | Preserved as a separate character-managed book; not automatically activated alongside an external book |\r
+| Gallery files | User-owned assets with per-character gallery associations; shared folders upload each path once |\r
+| Local \`/user/images/<folder>/<file>\` paths | Converted in standard card text, regex replacements, chat messages and swipes; images use native gallery references and other media use authenticated image URLs |\r
+| Remote media URLs and lorebook media | Original text and downloaded bytes retained; historical localization associations are not inferred |\r
+| Character regex | Bound to the destination character, normalized through the existing ST importer; disabled unless explicitly opted in |\r
+| Chats | Native messages, swipes, supported extras, and chat-header metadata; original JSONL retained |\r
+| Favorites and creation dates | Native favorites and character creation timestamps |\r
+| Source active chat | Saved as migration provenance; does not select a chat in the UI |\r
+| Unmodeled card/message fields and other ZIP members | Original ZIP remains available; no claim of native runtime compatibility |\r
+| Expressions and external scripts absent from v1 | Reported as unknown inventories; require a future richer export |\r
+\r
+Local reference replacement covers exact known paths, including URL-encoded filenames. It does not rewrite remote hosts that happen to contain the same path. Media rendering remains subject to Lumiverse's supported formats and HTML/CSS contexts. Source lorebook settings pass through the existing normalizer; activation behavior is not guaranteed to be identical to SillyTavern.\r
+\r
+## Retry and source identity\r
+\r
+The CLI prints a job ID as soon as staging finishes. If the client disconnects, the server continues. To poll a running job or retry an interrupted/partial import:\r
+\r
+\`\`\`sh\r
+bun run migrate:cl --resume JOB_ID --report ./cl-report.json\r
+\`\`\`\r
+\r
+Use the same \`--url\` and account as the upload. Completed items are reused rather than duplicated. Existing character edits, avatar changes, and regex enablement are preserved. Missing native files can be repaired. An unfinished book from an interrupted chunked import is rebuilt.\r
+\r
+By default the exact archive's SHA-256 is its source namespace. Re-uploading the same bytes reuses completed items on the same instance and account. A newly generated export normally has a new digest and imports as a separate source.\r
+\r
+For repeated exports from one SillyTavern installation, optionally choose a stable identifier such as \`--source-id my-st-installation\`. Unchanged source filenames and contents are reused; changed contents at a previously imported identity are reported as conflicts. This first version does not overwrite those existing entities or adopt older ST imports. Use a different source ID to intentionally import a separate copy. Keep stable identifiers distinct between unrelated libraries. Filename renames are new identities.\r
+\r
+## Originals and cleanup\r
+\r
+The CLI prints an authenticated download URL:\r
+\r
+\`\`\`text\r
+/api/v1/cl-migration/jobs/JOB_ID/source\r
+\`\`\`\r
+\r
+Open it while signed in to the same account. The archive preserves every original ZIP member, including fields and files that have no native representation. Keep your own copy and save the JSON report.\r
+\r
+Migration sources and receipts remain local to this Lumiverse instance. They are excluded from normal \`.lvbak\` account backups; imported native characters, books, chats, regex and gallery assets are included in those backups. Download the original ZIP separately before moving servers. Reimporting it on a different instance does not inherit the first instance's retry receipts.\r
+\r
+\`DELETE /api/v1/cl-migration/jobs/JOB_ID\` deletes a stopped job and its retained source/staging. It leaves imported data and local retry receipts intact. There is no import rollback or migration UI in this first CLI release.\r
+\r
+## HTTP entrypoint\r
+\r
+All routes require an authenticated Lumiverse session and operate on that account. The API accepts no destination account override or arbitrary filesystem path.\r
+\r
+| Method and path (under \`/api/v1/cl-migration\`) | Result |\r
+| --- | --- |\r
+| \`PUT /bundles?filename=NAME&sourceId=OPTIONAL\` | Stream a raw ZIP body; return \`201\` with inventory, issues and \`jobId\` |\r
+| \`POST /jobs/JOB_ID/execute\` | JSON \`{ "enableRegex": false }\`; return \`202\` and start/resume execution |\r
+| \`GET /jobs/JOB_ID\` | Status, phase progress, preview and final per-item report |\r
+| \`GET /jobs\` | Most recent 50 jobs for this account |\r
+| \`GET /jobs/JOB_ID/source\` | Download original ZIP |\r
+| \`DELETE /jobs/JOB_ID\` | Remove stopped job and retained files |\r
+\r
+Limits: 5 GB compressed upload, 20 GB selected decompressed payloads (duplicate gallery copies also count), 16 MB manifest, and 128 MB per processed card/chat/book/asset. ZIP64, STORE and DEFLATE are supported. Traversal paths, conflicting duplicate members, encrypted entries and unsupported bundle versions are rejected. Files absent from the manifest stay in the original ZIP without being extracted or executed.\r
+`,
     "data-portability/exporting.md": `---\r
 title: Exporting Your Data\r
 ---\r
@@ -16740,18 +16928,27 @@ This means re-importing the same archive is safe: nothing duplicates, nothing is
 \r
 ## What Happens During Import\r
 \r
-The import runs as a background job. You can keep using Lumiverse while it runs, but **don't close the tab** until you see the completion summary.\r
+The import runs as a server background job. You can keep using Lumiverse while it runs. After the upload finishes, closing the settings panel or reopening the app does not lose its progress.\r
+\r
+### Android local hosting\r
+\r
+The Android app keeps a local backup restore running when you switch apps or turn the screen off. Its **Backup restores** notification shows progress and offers **Cancel restore**. Allow notifications when prompted to see these controls. Tap the notification to return to Data Portability on your local server.\r
+\r
+If Android stops the process, you force-stop the app, or the device restarts, reopen **Settings \u2192 Data Portability** and choose **Resume import**. Lumiverse reprocesses the saved archive and keeps data already restored. You do not need to upload it again. An interrupted upload must be selected again because the archive was not fully received.\r
+\r
+Resuming can repeat extraction, so allow enough free storage for both the archive and its extracted contents. Decryption tickets are kept only in memory; provide the ticket again after a restart if you want to restore API keys. Android also limits background processing time; a restore interrupted by that limit can be resumed after reopening the app.\r
 \r
 ### Phases\r
 \r
 1. **Uploading** \u2014 the archive streams from your browser to the server's import staging directory.\r
 2. **Verifying archive** \u2014 the server checks the ZIP magic bytes during upload, then reads only the manifest entry to confirm it's a real Lumiverse archive (this is fast \u2014 milliseconds, even for multi-GB files).\r
-3. **Awaiting ticket** *(optional)* \u2014 if the archive carries encrypted secrets, the import pauses for you to upload the matching decryption ticket. See [API Keys & Tickets](api-keys-and-tickets.md).\r
-4. **Applying rows** \u2014 database rows are inserted in topological order so foreign keys resolve cleanly.\r
+3. **Extracting archive** \u2014 files are verified and extracted with progress measured in bytes. Large archives can spend most of their time here.\r
+4. **Awaiting ticket** *(optional)* \u2014 if the archive carries encrypted secrets, the import pauses for you to upload the matching decryption ticket. See [API Keys & Tickets](api-keys-and-tickets.md).\r
 5. **Restoring files** \u2014 images, thumbnails, avatars, theme assets, databank documents, and your notification sound are copied into place.\r
-6. **Restoring vectors** *(if present)* \u2014 LanceDB vectors are restored when the embedding config matches; otherwise marked for re-vectorization.\r
-7. **Restoring secrets** *(if a ticket was provided)* \u2014 encrypted secrets are decrypted with the ticket, then re-encrypted under your instance's identity key.\r
-8. **Complete** \u2014 summary shown in the panel.\r
+6. **Applying rows** \u2014 database rows are inserted in topological order so foreign keys resolve cleanly.\r
+7. **Restoring vectors** *(if present)* \u2014 LanceDB vectors are restored when the embedding config matches; otherwise marked for re-vectorization.\r
+8. **Restoring secrets** *(if a ticket was provided)* \u2014 encrypted secrets are decrypted with the ticket, then re-encrypted under your instance's identity key.\r
+9. **Complete** \u2014 summary shown in the panel.\r
 \r
 ### Cancellation\r
 \r
@@ -16774,12 +16971,11 @@ A few things to verify:\r
 \r
 | Cap | Value |\r
 |-----|-------|\r
-| Maximum compressed archive size | 5 GB |\r
-| Maximum decompressed size during import | 20 GB |\r
+| Archive and total extracted size | Available disk space, within the supported safe integer range |\r
 | Maximum NDJSON record size | 64 MiB |\r
 | Maximum entries in the archive | 500 000 |\r
 \r
-These caps protect against zip bombs and malformed archives. Real archives, including 1.9 GB galleries with vectors, comfortably fit.\r
+The importer bounds memory use while reading the archive, verifies file sizes and checksums, and rejects malformed paths. A valid multi-GB archive still needs enough free disk space for staging and the restored data.\r
 \r
 ### What Gets Rejected\r
 \r
@@ -16789,7 +16985,7 @@ These caps protect against zip bombs and malformed archives. Real archives, incl
 | Archive exceeds compressed cap | 413 \u2014 rejected before processing |\r
 | Archive contains \`..\` or absolute paths in entry names | Entire import aborted |\r
 | Manifest claims a different producer or unsupported version | 422 \u2014 rejected during verify |\r
-| Decompressed size exceeds 20 GB | Aborted mid-extraction |\r
+| A file's extracted size or checksum does not match the ZIP directory | Aborted during extraction |\r
 \r
 ---\r
 \r
@@ -16854,6 +17050,7 @@ These never leave your instance:\r
 - **System / auth tables** \u2014 your account row, sessions, OAuth tokens\r
 - **Operator-installed extensions** \u2014 only user-installed ones travel\r
 - **Runtime caches** \u2014 query vector cache, embedding cache (regenerated on demand)\r
+- **CharacterLibrary migration sources and receipts** \u2014 download the original ZIP separately; imported native data is included\r
 \r
 ---\r
 \r
@@ -16862,6 +17059,7 @@ These never leave your instance:\r
 | Use Case | Read |\r
 |----------|------|\r
 | Moving to a new server / fresh install | [Exporting Your Data](exporting.md) \u2192 [Importing an Archive](importing.md) |\r
+| Importing a SillyTavern CharacterLibrary bundle | [Migrating from CharacterLibrary](character-library.md) |\r
 | Periodic backup | [Exporting Your Data](exporting.md) (run on a schedule) |\r
 | Migrating between two of your own accounts | Export from source \u2192 Import into target |\r
 | Including API keys for a true 1:1 restore | [API Keys & Tickets](api-keys-and-tickets.md) |\r
@@ -16897,6 +17095,8 @@ Lumiverse supports extensions through **Spindle**, an isolated extension runtime
 - Read and write persistent and ephemeral storage (with per-extension quotas)\r
 - Access the LLM generation pipeline (raw, batch, streaming, dry-run, observe)\r
 - Register embedding, text-to-speech, speech-to-text, and sidecar providers that appear in Lumiverse's native settings\r
+- Use the host speech-to-text API, including bundled on-device Whistle, with the \`media\` permission\r
+- Speak text or chat messages through your TTS connections with the \`media\` permission\r
 - Register **council tools** that show up in the Lumia Council\r
 - Register **command palette** entries scoped to global, chat, character, or landing contexts\r
 - Open **modal dialogs** (confirm, text input, custom) using Lumiverse's shared component library\r
@@ -16948,6 +17148,12 @@ From the Spindle Panel:\r
 - **Update** \u2014 Pull the latest source and rebuild\r
 - **Uninstall** \u2014 Remove the extension, its storage, and its grants\r
 \r
+Use **All**, **Active**, **Inactive**, and **Updates** above the installed list to filter extensions. Active and Inactive follow the enable toggle, including enabled extensions whose workers are stopped or have errors. Counts cover the installed list before search; search and sorting apply within the selected filter in both card and list views.\r
+\r
+**Updates** shows notices from the existing update monitor. Automatic detection currently checks enabled, git-sourced extensions only, excluding development-mode extensions. Disabling an extension clears its notice, and enabling it schedules a new check. Disabled extensions can still be updated with **Update** or **Update All**.\r
+\r
+Manual dragging is available when **All** is selected and search is empty. **Show all extensions** in an empty result clears both controls and restores the full list.\r
+\r
 ---\r
 \r
 ## Permissions\r
@@ -16984,6 +17190,7 @@ These can read sensitive data, modify pipeline behavior, or reach outside the sa
 | \`push_notification\` | Send push notifications to the user |\r
 | \`image_gen\` | Drive the image-generation pipeline |\r
 | \`images\` | Read and write the user's stored images |\r
+| \`media\` | Use media conversion, host speech-to-text and text-to-speech; recording also requires microphone permission |\r
 | \`web_search\` | Read the user's configured web-search provider |\r
 | \`characters\` | Read and write character cards |\r
 | \`chats\` | Read and write chats and chat metadata |\r
@@ -17065,381 +17272,425 @@ Extensions can also mount native Lumiverse form components (text inputs, selects
 \r
 If you want to build your own extensions, see the [Spindle developer docs](https://docs.lumiverse.chat){:target="_blank"} for the full API reference, including the manifest schema, RPC bridge, storage tiers, generation APIs, and example extensions.\r
 `,
+    "getting-started/android-installation.md": `---\r
+title: Android / Termux Walkthrough\r
+---\r
+\r
+# Android / Termux Walkthrough\r
+\r
+Use this walkthrough to run Lumiverse on your Android device. If Lumiverse already runs on a computer and you only want to use it from your phone, follow [Remote Access with Tailscale](tailscale.md) instead.\r
+\r
+## 1. Install Termux\r
+\r
+Install Termux from [F-Droid](https://f-droid.org/en/packages/com.termux/) or the [official Termux GitHub releases](https://github.com/termux/termux-app/releases). On the F-Droid page, **Download APK** installs Termux directly; installing the F-Droid client is optional.\r
+\r
+Keep Termux and any Termux add-ons from the same distribution source. See the [Termux installation documentation](https://github.com/termux/termux-app#installation) for supported versions and source compatibility.\r
+\r
+## 2. Update packages\r
+\r
+Open Termux and run these commands one at a time. Wait for each command to finish before continuing.\r
+\r
+\`\`\`bash\r
+pkg update\r
+pkg upgrade\r
+pkg install git nodejs-lts nano\r
+\`\`\`\r
+\r
+Accept package installation prompts. If the mirror is unreachable, run \`termux-change-repo\`, choose a working mirror, and retry the update.\r
+\r
+## 3. Download and start Lumiverse\r
+\r
+\`\`\`bash\r
+cd ~\r
+git clone https://github.com/prolix-oc/Lumiverse.git\r
+cd Lumiverse\r
+chmod +x start.sh\r
+./start.sh\r
+\`\`\`\r
+\r
+The launcher detects Termux, installs its runtime prerequisites, and checks the Bun execution path before setup. It also handles frontend native dependency repair. You do not need to install glibc manually before your first attempt.\r
+\r
+Follow the setup wizard, then open \`http://localhost:7860\` in your Android browser. Use your chosen port if you changed it. Keep Termux running while using Lumiverse; Android battery restrictions can interrupt a background server.\r
+\r
+Continue with [First Steps](first-steps.md) to connect an AI provider and import a character.\r
+\r
+## 4. Open it again later\r
+\r
+In Termux:\r
+\r
+\`\`\`bash\r
+cd ~/Lumiverse\r
+./start.sh\r
+\`\`\`\r
+\r
+You do not need to clone again. For updates, use the [Operator Panel or command-line update flow](installation.md#updating).\r
+\r
+## Optional: add launch shortcuts\r
+\r
+If you use Termux's default Bash shell, open its configuration:\r
+\r
+\`\`\`bash\r
+nano ~/.bashrc\r
+\`\`\`\r
+\r
+Add these lines once:\r
+\r
+\`\`\`bash\r
+alias lumi='cd ~/Lumiverse && ./start.sh'\r
+alias lumiup='cd ~/Lumiverse && git pull --ff-only && ./start.sh -b'\r
+\`\`\`\r
+\r
+Save with **Ctrl+X**, **Y**, then **Enter**, and reload:\r
+\r
+\`\`\`bash\r
+source ~/.bashrc\r
+\`\`\`\r
+\r
+Run \`lumi\` to start or \`lumiup\` to update and rebuild. Adjust the aliases if your checkout is elsewhere.\r
+\r
+## If setup fails\r
+\r
+See [Termux Troubleshooting](../reference/termux-troubleshooting.md) for runtime errors, build failures, the Ubuntu/proot-distro fallback, and reinstalling while preserving data.\r
+`,
+    "getting-started/desktop-installation.md": `---\r
+title: Desktop Installation Walkthrough\r
+---\r
+\r
+# Desktop Installation Walkthrough\r
+\r
+This walkthrough takes you from installing Git to opening Lumiverse on Windows or macOS. For Linux, Docker, and the full configuration reference, see [Installation](installation.md). For Android, use the [Termux walkthrough](android-installation.md).\r
+\r
+For the bundled native desktop app, download the matching installer from the\r
+[official releases](https://github.com/prolix-oc/Lumiverse/releases) and follow\r
+[Experimental Lumiverse Desktop](desktop-tray.md). Bundled releases include the\r
+server and Bun and offer built-in, existing-checkout and remote HTTPS choices.\r
+Linux releases are AppImages.\r
+\r
+The walkthrough below installs a **source checkout** and opens it in your web\r
+browser. That path installs Bun and dependencies and keeps its server data in\r
+the checkout unless configured otherwise. It can also be selected later under\r
+Desktop's **Browser \u2192 Instance Connection\u2026 \u2192 Existing checkout**.\r
+\r
+## 1. Install Git\r
+\r
+=== "Windows"\r
+\r
+    Open **PowerShell** in Windows Terminal. Use PowerShell throughout this walkthrough.\r
+\r
+    \`\`\`powershell\r
+    winget install --id Git.Git -e --source winget\r
+    \`\`\`\r
+\r
+    If \`winget\` is unavailable, download the installer from [Git for Windows](https://gitforwindows.org/).\r
+\r
+    Close PowerShell completely, reopen it, and check:\r
+\r
+    \`\`\`powershell\r
+    git --version\r
+    \`\`\`\r
+\r
+=== "macOS"\r
+\r
+    Open **Terminal** and check:\r
+\r
+    \`\`\`bash\r
+    git --version\r
+    \`\`\`\r
+\r
+    If Git is missing, install Apple's command-line tools and wait for installation to finish:\r
+\r
+    \`\`\`bash\r
+    xcode-select --install\r
+    \`\`\`\r
+\r
+    Run \`git --version\` again before continuing.\r
+\r
+## 2. Choose a folder and download Lumiverse\r
+\r
+Choose a folder you own and can write to. Keep the checkout out of Windows system folders such as \`C:\\Windows\\System32\`. The commands below create a \`Lumiverse\` folder inside your home folder.\r
+\r
+=== "Windows"\r
+\r
+    \`\`\`powershell\r
+    Set-Location $HOME\r
+    git clone https://github.com/prolix-oc/Lumiverse.git\r
+    Set-Location Lumiverse\r
+    \`\`\`\r
+\r
+=== "macOS"\r
+\r
+    \`\`\`bash\r
+    cd ~\r
+    git clone https://github.com/prolix-oc/Lumiverse.git\r
+    cd Lumiverse\r
+    \`\`\`\r
+\r
+If you already have a checkout, open your terminal in that folder instead of cloning again.\r
+\r
+## 3. Start Lumiverse\r
+\r
+=== "Windows"\r
+\r
+    If PowerShell blocks script execution, run:\r
+\r
+    \`\`\`powershell\r
+    Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser\r
+    \`\`\`\r
+\r
+    Then launch from the Lumiverse folder:\r
+\r
+    \`\`\`powershell\r
+    .\\start.ps1\r
+    \`\`\`\r
+\r
+=== "macOS"\r
+\r
+    \`\`\`bash\r
+    chmod +x start.sh\r
+    ./start.sh\r
+    \`\`\`\r
+\r
+The launcher installs Bun if needed, installs dependencies, and opens the first-run setup wizard. Follow its prompts to create your owner account and configure the server. Leave the terminal running while using Lumiverse.\r
+\r
+## 4. Open Lumiverse\r
+\r
+Open \`http://localhost:7860\` in your browser. If you selected a different port during setup, use that port instead. Sign in with the account you created, then follow [First Steps](first-steps.md) to connect an AI provider and start a chat.\r
+\r
+## Open it again later\r
+\r
+Open a terminal in the same Lumiverse folder and run the same start command. You do not need to clone again or repeat setup.\r
+\r
+On Windows, you can also save this as \`Start Lumiverse.bat\`. It assumes the home-folder location used above; change the path if you installed elsewhere.\r
+\r
+\`\`\`bat\r
+@echo off\r
+cd /d "%USERPROFILE%\\Lumiverse" || exit /b 1\r
+powershell -File .\\start.ps1\r
+pause\r
+\`\`\`\r
+\r
+For an optional tray application, see [Experimental Lumiverse Desktop](desktop-tray.md).\r
+\r
+## Update, migrate, or try staging\r
+\r
+- [Updating Lumiverse](installation.md#updating) covers the Operator Panel and terminal commands.\r
+- [Migrating from SillyTavern](installation.md#migrating-from-sillytavern) covers importing your existing characters, chats, world books, and personas.\r
+- [Switching Branches](installation.md#switching-branches) explains the stable \`main\` branch and optional \`staging\` preview.\r
+- [Start Script Options](installation.md#start-script-options) lists build, setup, password-reset, and other launcher options.\r
+`,
     "getting-started/desktop-tray.md": `---\r
 title: Experimental Lumiverse Desktop\r
 ---\r
 \r
 # Experimental Lumiverse Desktop\r
 \r
-Lumiverse Desktop is an experimental Tauri-powered integrated browser with a\r
-macOS menu bar, Windows system tray, and Linux StatusNotifier (AppIndicator)\r
-icon. It runs a local Lumiverse checkout without leaving a terminal open and\r
-opens Lumiverse in its native desktop window. The tray keeps server controls,\r
-status, and update actions within reach.\r
+Lumiverse Desktop opens Lumiverse in an integrated native browser and keeps\r
+server controls, connection status and updates in the macOS menu bar, Windows\r
+notification area or Linux StatusNotifier tray. Choose a built-in server, an\r
+existing checkout or a remote HTTPS instance.\r
 \r
-It is intended for people running Lumiverse from a local clone. It does not\r
-support Termux, Docker, or a remote Lumiverse server.\r
+## Download and install\r
 \r
-!!! warning "Experimental desktop app"\r
-    Lumiverse Desktop is experimental. Use the normal browser experience if\r
-    you need the most established path while the integrated Tauri browser\r
-    continues to evolve.\r
+Download the architecture-matched desktop installer from the official\r
+[Lumiverse releases](https://github.com/prolix-oc/Lumiverse/releases). Stable and\r
+nightly desktop releases include the server and its Bun runtime. They do not\r
+require a checkout, an installed Bun runtime or Rust.\r
 \r
-!!! note "Optional companion"\r
-    The standard \`./start.sh\` and \`./start.ps1\` launchers remain the normal\r
-    way to run Lumiverse. They do not install or open the tray app\r
-    automatically.\r
+| Platform | Release format |\r
+| --- | --- |\r
+| macOS Apple Silicon / Intel | \`.dmg\` |\r
+| Windows x64 / ARM64 | NSIS \`.exe\` |\r
+| Linux x86_64 / aarch64 | \`.AppImage\` |\r
 \r
----\r
+Feature-branch artifacts from the\r
+[Build Desktop workflow](https://github.com/prolix-oc/Lumiverse/actions/workflows/desktop-build.yml)\r
+can be checkout-only companions. Their existing-checkout path requires Bun\r
+1.4.4 or later, the checkout and its dependencies. Source builds also require\r
+Rust and the native build libraries in the [desktop README](https://github.com/prolix-oc/Lumiverse/blob/staging/desktop/README.md#source-build-prerequisites).\r
 \r
-## Before you begin\r
+Windows requires WebView2. Official Linux AppImages bundle GTK 3, WebKitGTK 4.1\r
+and GStreamer media plugins; do not delete bundled libraries or install\r
+WebKitGTK 6.0 as a substitute. An unpackaged binary or distro-native package\r
+uses its matching system runtime. GNOME needs an AppIndicator/KStatusNotifier\r
+extension for the tray; KDE displays it natively.\r
 \r
-Start Lumiverse normally once before setting up the tray. This lets the normal\r
-launcher install Bun, install backend dependencies, and run the first-time\r
-setup wizard.\r
+On Linux, mark the downloaded file executable and run it:\r
 \r
-The tray app uses the same Bun version as Lumiverse: Bun 1.4.0 or later.\r
-Pre-built installers contain the desktop companion, **not** the Lumiverse\r
-server or Bun. You still need your local Lumiverse checkout.\r
-\r
-## Download Lumiverse Desktop\r
-\r
-Pre-built installers are available from the\r
-[Build Desktop workflow](https://github.com/prolix-oc/Lumiverse/actions/workflows/desktop-build.yml).\r
-You do not need Rust or the platform build tools to install a pre-built app.\r
-\r
-1. Sign in to GitHub and open a successful workflow run for the branch you use\r
-   (for example, \`staging\`).\r
-2. Scroll to **Artifacts** and download the \`desktop-...\` artifact matching\r
-   your operating system, processor, and preferred installer format.\r
-3. Extract the downloaded ZIP, then install the file inside:\r
-\r
-| Platform | Processor | Installer |\r
-|----------|-----------|-----------|\r
-| macOS | Apple Silicon (\`aarch64\`) or Intel (\`x64\`) | \`.dmg\` \u2014 open it and copy the app to Applications |\r
-| Windows | Intel/AMD (\`x64\`) | NSIS \`.exe\` or \`.msi\` \u2014 run the installer |\r
-| Windows | ARM64 | NSIS \`.exe\` \u2014 run the installer |\r
-| Linux | Intel/AMD (\`amd64\`) or ARM64 (\`arm64\` / \`aarch64\`) | \`.deb\` \u2014 install with your package manager; or \`.AppImage\` \u2014 mark executable and launch |\r
-\r
-Workflow artifacts expire according to GitHub's retention policy. If a\r
-download has expired, choose a newer successful run. These are branch builds,\r
-not necessarily a published release. Published desktop installers are attached\r
-to **Lumiverse Desktop** releases tagged \`desktop-v...\` on the\r
-[Releases page](https://github.com/prolix-oc/Lumiverse/releases) when available.\r
-\r
-!!! warning "Unsigned installers"\r
-    Windows installers are unsigned, and macOS builds use ad-hoc signing\r
-    without Apple notarization. SmartScreen or Gatekeeper may warn or block\r
-    installation or launch. Only install downloads from the official repository\r
-    that you trust; do not disable system-wide security protections.\r
-\r
-Windows needs WebView2 (included with most Windows 11 installations). Linux\r
-still needs the matching WebKitGTK 4.1 and AppIndicator runtime libraries;\r
-an AppImage does not remove every system dependency. GNOME Shell also needs\r
-an AppIndicator/KStatusNotifier extension for the tray icon to appear.\r
-\r
-After installation, skip to [Connect Lumiverse Desktop to Lumiverse](#connect-lumiverse-desktop-to-lumiverse).\r
-\r
-## Build from source (optional)\r
-\r
-Build locally if you prefer, or if no suitable pre-built installer is available.\r
-Only this path requires the following build tools:\r
-\r
-| Platform | Required tools |\r
-|----------|----------------|\r
-| macOS | [Rust](https://rustup.rs/) stable and Xcode Command Line Tools (\`xcode-select --install\`) |\r
-| Windows | [Rust](https://rustup.rs/) stable, the Microsoft C++ Build Tools, and WebView2 (included with most Windows 11 installations) |\r
-| Linux | [Rust](https://rustup.rs/) stable plus the GTK/WebKitGTK and AppIndicator packages listed below |\r
-\r
-### Linux build dependencies\r
-\r
-The Linux tray icon uses the StatusNotifierItem/AppIndicator D-Bus protocol.\r
-Install the required native packages before building the app:\r
-\r
-=== "Debian / Ubuntu"\r
-\r
-    \`\`\`bash\r
-    sudo apt install build-essential curl wget file libssl-dev \\\r
-      libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \\\r
-      librsvg2-dev libxdo-dev\r
-    \`\`\`\r
-\r
-=== "Fedora"\r
-\r
-    \`\`\`bash\r
-    sudo dnf install gcc gcc-c++ make curl wget file openssl-devel \\\r
-      webkit2gtk4.1-devel libappindicator-gtk3-devel \\\r
-      librsvg2-devel libxdo-devel\r
-    \`\`\`\r
-\r
-=== "Arch Linux"\r
-\r
-    \`\`\`bash\r
-    sudo pacman -S --needed base-devel curl wget file openssl \\\r
-      webkit2gtk-4.1 libappindicator-gtk3 librsvg libxdo\r
-    \`\`\`\r
-\r
-Package names vary by distribution. If your distribution does not provide\r
-\`libayatana-appindicator3-dev\`, use its \`libappindicator\` development package\r
-instead. An unpackaged Linux build also needs the matching AppIndicator\r
-runtime library on the computer where it runs.\r
-\r
-KDE Plasma displays these tray items natively. GNOME Shell needs an\r
-AppIndicator/KStatusNotifier extension, such as **AppIndicator and\r
-KStatusNotifierItem Support**, before the icon will appear.\r
-\r
----\r
-\r
-### Build Lumiverse Desktop\r
-\r
-From the root of your Lumiverse checkout, run:\r
-\r
-\`\`\`bash\r
-cd desktop\r
-bun install\r
-bun run tauri build\r
+\`\`\`sh\r
+chmod +x Lumiverse*.AppImage\r
+./Lumiverse*.AppImage\r
 \`\`\`\r
 \r
-The finished app and installer files are placed under\r
-\`desktop/src-tauri/target/release/bundle/\`.\r
+If FUSE is unavailable, use the AppImage runtime's fallback:\r
 \r
-=== "macOS"\r
+\`\`\`sh\r
+APPIMAGE_EXTRACT_AND_RUN=1 ./Lumiverse*.AppImage\r
+\`\`\`\r
 \r
-    Open the generated \`.app\` or install from the generated \`.dmg\`.\r
-\r
-=== "Windows"\r
-\r
-    Run the generated \`.msi\` or \`.exe\` installer, then open **Lumiverse Desktop**\r
-    from the Start menu.\r
-\r
-=== "Linux"\r
-\r
-    Install the generated package for your distribution (\`.deb\` or \`.rpm\`) or\r
-    run the generated \`.AppImage\`, then open **Lumiverse Desktop** from your\r
-    desktop's application launcher.\r
-\r
-!!! tip "Building from a checkout"\r
-    When you run a build directly from your Lumiverse checkout, the tray can\r
-    usually find that checkout automatically. If you install the app elsewhere\r
-    or move the checkout later, configure it manually as described below.\r
-\r
----\r
+Windows installers may produce SmartScreen warnings; macOS builds may use\r
+ad-hoc signing without notarization. Use official downloads you trust.\r
 \r
 ## Connect Lumiverse Desktop to Lumiverse\r
 \r
-1. Open **Lumiverse Desktop**. Its icon appears in the macOS menu bar, Windows\r
-   notification area, or Linux desktop's status area. On GNOME, first enable\r
-   an AppIndicator/KStatusNotifier extension as described above.\r
-2. Open the tray menu and choose **Set Lumiverse Folder\u2026**.\r
-3. Select the root folder of your Lumiverse clone\u2014the folder containing\r
-   \`start.sh\`, \`start.ps1\`, and \`scripts/\`.\r
-4. The tray finds Bun automatically. If it cannot, install or update Bun with\r
-   the normal Lumiverse launcher, then reopen the tray app.\r
-5. Choose **Start Server**. Lumiverse opens in the experimental integrated\r
-   browser when the local server is ready.\r
-\r
-The **Start Server at Launch** option is enabled by default. Disable it if you\r
-want the tray icon to open without starting Lumiverse. You can also enable\r
-**Launch at Login** from the tray menu.\r
-\r
----\r
-\r
-## Using Lumiverse Desktop\r
-\r
-The menu provides:\r
-\r
-- **Start Server / Stop Server** \u2014 controls the Lumiverse process owned by the tray app.\r
-- **Open Lumiverse** \u2014 opens or closes the integrated browser. Its submenu\r
-  can reload that browser or open the same address in your default browser.\r
-- **Serving Stats** \u2014 shows the port, process ID, uptime, branch, and version.\r
-- **Check for Updates / Apply Update** \u2014 uses Lumiverse's normal Git-based update flow.\r
-\r
-Closing the tray app stops the runner and the server it started. If Lumiverse\r
-was started separately from a terminal, the tray can show that it is running,\r
-but it does not take ownership of or stop that process.\r
-\r
-### Native notifications\r
-\r
-Enable notifications from **Settings > Notifications** inside the integrated\r
-browser to register Lumiverse Desktop as a native notification destination.\r
-The tray keeps a notification-only connection while the server is available,\r
-including when the integrated browser is closed or its login session has\r
-expired. Its device identity and revocable credential live in the standard\r
-per-app configuration directory, so rebuilding the desktop app does not\r
-silently unregister it. The credential is pinned to that server's origin and\r
-identity. Removing the destination in Settings revokes it.\r
-\r
----\r
-\r
-## Uninstalling\r
-\r
-Lumiverse is self-contained: the folder you cloned **is** the install. The\r
-server never writes configuration, databases, or services anywhere else on\r
-your system, so removing it is mostly a matter of deleting that one folder.\r
-\r
-This page covers the server, the optional Experimental Lumiverse Desktop, and the\r
-shared tools that Lumiverse installs but does not own.\r
-\r
-!!! warning "Your data lives in the folder"\r
-    The \`data/\` directory inside your Lumiverse folder holds your characters,\r
-    chats, world books, and accounts. Deleting the folder deletes all of it.\r
-    If you want to keep anything, [export it first](../data-portability/exporting.md).\r
-\r
----\r
-\r
-### Uninstall the Lumiverse server\r
-\r
-1. Stop the server (**Ctrl + C** in its terminal, or **Stop Server** in the\r
-   tray app).\r
-2. Delete the folder you cloned:\r
-\r
-=== "macOS"\r
-\r
-    \`\`\`bash\r
-    rm -rf /path/to/Lumiverse\r
-    \`\`\`\r
-\r
-=== "Windows"\r
-\r
-    \`\`\`powershell\r
-    Remove-Item -Recurse -Force C:\\path\\to\\Lumiverse\r
-    \`\`\`\r
-\r
-That is the entire server uninstall. There are no launch daemons, registry\r
-entries, or hidden data directories to clean up \u2014 everything lived in the\r
-folder.\r
-\r
-!!! tip "Resetting instead of uninstalling"\r
-    To start fresh without removing Lumiverse, delete just \`data/\` and \`.env\`\r
-    inside the folder, then run the setup wizard again.\r
-\r
----\r
-\r
-### Uninstall Lumiverse Desktop\r
-\r
-Skip this section if you never built or installed\r
-[Lumiverse Desktop](desktop-tray.md).\r
-\r
-#### 1. Turn off Launch at Login, then quit\r
-\r
-If you enabled **Launch at Login**, turn it off from the tray menu before\r
-quitting \u2014 the app removes its own login item. Then choose **Quit** (this\r
-also stops any server the tray started).\r
-\r
-#### 2. Remove the app\r
-\r
-=== "macOS"\r
-\r
-    Delete **Lumiverse Desktop.app** from \`/Applications\` (or wherever you put\r
-    it). Builds you never installed live inside the Lumiverse folder under\r
-    \`desktop/src-tauri/target/\` and are removed along with it.\r
-\r
-=== "Windows"\r
-\r
-    Uninstall **Lumiverse Desktop** from **Settings \u2192 Apps**. If you ran the\r
-    portable \`.exe\` instead of an installer, just delete it.\r
-\r
-#### 3. Remove the tray app's data\r
-\r
-The tray stores its settings, logs, notification device identity, and revocable\r
-notification credential in the standard per-app locations:\r
-\r
-=== "macOS"\r
-\r
-    \`\`\`bash\r
-    rm -rf ~/Library/{Application\\ Support,Caches,WebKit}/chat.lumiverse.tray \\\r
-           ~/Library/{Caches,WebKit}/lumiverse-tray\r
-    \`\`\`\r
-\r
-=== "Windows"\r
-\r
-    \`\`\`powershell\r
-    Remove-Item -Recurse -Force $env:APPDATA\\chat.lumiverse.tray,\r
-        $env:LOCALAPPDATA\\chat.lumiverse.tray -ErrorAction SilentlyContinue\r
-    \`\`\`\r
-\r
-#### 4. Check for a leftover login item\r
-\r
-Only present if **Launch at Login** was enabled and step 1 was skipped:\r
-\r
-=== "macOS"\r
-\r
-    The login item is a LaunchAgent plist in \`~/Library/LaunchAgents\`:\r
-\r
-    \`\`\`bash\r
-    ls ~/Library/LaunchAgents | grep -i lumiverse\r
-    \`\`\`\r
-\r
-    If one is listed, unregister and delete it (substitute the name you found):\r
-\r
-    \`\`\`bash\r
-    launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/chat.lumiverse.tray.plist\r
-    rm -f ~/Library/LaunchAgents/chat.lumiverse.tray.plist\r
-    \`\`\`\r
-\r
-=== "Windows"\r
-\r
-    The login item is a per-user registry value (no admin rights involved):\r
-\r
-    \`\`\`powershell\r
-    reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v "Lumiverse Desktop" /f\r
-    \`\`\`\r
-\r
-Nothing tray-related is ever installed system-wide: no \`/Library/LaunchDaemons\`\r
-entries on macOS, no HKLM registry keys or services on Windows.\r
-\r
----\r
-\r
-### Shared tools Lumiverse does not own\r
-\r
-These are general-purpose tools that remain installed. Keep them if any other\r
-software uses them; otherwise they have their own uninstall paths:\r
-\r
-| Tool | Why it's there | Where it lives | How to remove |\r
-|------|----------------|----------------|---------------|\r
-| **Bun** | Runs the server; auto-installed by \`start.sh\` / \`start.ps1\` if missing | \`~/.bun\` | Delete \`~/.bun\` and remove the \`BUN_INSTALL\` lines from your shell profile |\r
-| **Rust toolchain** | Only needed if you built the tray app yourself | \`~/.cargo\`, \`~/.rustup\` | \`rustup self uninstall\` |\r
-| **Git** | Cloning and updates | System package | Leave it \u2014 nearly everything uses Git |\r
-\r
----\r
-\r
-## Troubleshooting\r
-\r
-### The tray says no Lumiverse folder is configured\r
-\r
-Choose **Set Lumiverse Folder\u2026** and select the root of the clone, not the\r
-\`desktop\` subfolder. The selected folder must contain \`scripts/runner.ts\`.\r
-\r
-### The tray cannot find Bun\r
-\r
-Run the normal launcher from the Lumiverse root once:\r
-\r
-=== "macOS"\r
-\r
-    \`\`\`bash\r
-    ./start.sh\r
-    \`\`\`\r
-\r
-=== "Windows"\r
-\r
-    \`\`\`powershell\r
-    .\\start.ps1\r
-    \`\`\`\r
-\r
-=== "Linux"\r
-\r
-    \`\`\`bash\r
-    ./start.sh\r
-    \`\`\`\r
-\r
-Then quit and reopen Lumiverse Desktop.\r
-\r
-### The build fails\r
-\r
-Confirm that Rust stable and the platform build tools listed above are\r
-installed, then run the build commands again from \`desktop/\`. The tray is a\r
-native app, so it needs those tools even though the Lumiverse server itself\r
-does not.\r
+On first launch, select a connection. Later, use **Browser \u2192 Instance\r
+Connection\u2026**. This resizable window scrolls on smaller or scaled displays.\r
+\r
+- **Built-in server:** create the owner account, select storage and review the\r
+  settings in the first-run wizard. Desktop manages the bundled server.\r
+- **Existing checkout:** choose the Lumiverse folder containing\r
+  \`scripts/runner.ts\`. This uses that folder's configuration, accounts and data\r
+  and requires installed Bun. Desktop observes an already-running server\r
+  without taking ownership of it.\r
+- **Remote instance:** enter its HTTPS origin and complete desktop authorization\r
+  in the system browser. No local server starts in this mode.\r
+\r
+**Start Local Server at Launch** controls automatic startup. **Launch at Login**\r
+registers the desktop app as a login item. Quitting stops only the server\r
+processes Desktop owns. Closing the integrated browser closes its floating\r
+widgets, while the tray stays available.\r
+\r
+### Connect to a remote instance\r
+\r
+1. Configure HTTPS for the server. LAN/private IP addresses also require HTTPS;\r
+   HTTP is allowed only for loopback development such as \`http://localhost:7860\`.\r
+2. Use a certificate chain trusted by both the native desktop client and its\r
+   WebView. The certificate must contain the chosen DNS name or IP address in\r
+   its Subject Alternative Names. Trusting a browser warning alone does not\r
+   configure the native client's certificate trust.\r
+3. Add the exact origin, including a non-default port, under **Settings \u2192\r
+   Operator \u2192 Trusted Hostnames**, then restart the server.\r
+4. Choose **Remote instance** under **Browser \u2192 Instance Connection\u2026**. Enter\r
+   that origin and save. Use **Browser \u2192 Authorize Desktop\u2026** to sign in again.\r
+\r
+For example, a server with a trusted certificate for \`chat.home.arpa\` can\r
+terminate TLS directly:\r
+\r
+\`\`\`dotenv\r
+PORT=7860\r
+LUMIVERSE_TLS_CERT_FILE=/etc/lumiverse/tls/fullchain.pem\r
+LUMIVERSE_TLS_KEY_FILE=/etc/lumiverse/tls/privkey.pem\r
+\`\`\`\r
+\r
+Point \`chat.home.arpa\` to the server on your LAN, provision a certificate for\r
+that name, and install its issuing CA in each client's trust store if it is\r
+private. Add \`https://chat.home.arpa:7860\` to Trusted Hostnames, restart, then\r
+select that same origin in Desktop. See [direct HTTPS configuration](installation.md#direct-tls-and-custom-certificates)\r
+and [Tailscale remote access](tailscale.md) for more setup options.\r
+\r
+A reverse proxy may manage TLS instead. Preserve the incoming \`Host\`. If it\r
+replaces that header, forward \`X-Forwarded-Host\` and \`X-Forwarded-Proto\` and set\r
+\`TRUSTED_PROXIES\` to the proxy IP/CIDR in the backend environment. For a proxy\r
+on the same machine, that might be \`127.0.0.1\`. These forwarded headers are\r
+needed only when TLS terminates at a configured proxy.\r
+\r
+If discovery reports a different OAuth issuer, compare the selected origin\r
+with the advertised issuer. Check Trusted Hostnames and restart the server.\r
+Remove or correct a conflicting \`AUTH_BASE_URL\` override; it is optional and\r
+selects one canonical auth origin. Desktop keeps certificate validation and\r
+same-origin issuer and endpoint checks enabled.\r
+\r
+### Desktop authorization and browser login\r
+\r
+The integrated browser's login controls its web session. Desktop separately\r
+uses authorization-code PKCE for native status and integrations. Seeing chats\r
+in the browser does not mean that native authorization completed.\r
+\r
+The local authorization window shows progress, **Retry**, **Cancel**, and a\r
+private temporary link to copy manually if no browser appears. Complete\r
+consent in that system browser within five minutes. Retry starts a new attempt;\r
+cancelling or changing instances closes the previous callback listener. No\r
+access token or PKCE verifier is passed into the remote WebView.\r
+\r
+The operating system credential store retains the refresh credential. If it is\r
+locked or unavailable, Desktop reports a separate persistence warning: the\r
+current session can work, but a restart may require sign-in again. The tray\r
+restores saved credentials when available. Explicit remote sign-out removes\r
+the saved credential; switching to local retains it.\r
+\r
+All accounts can see instance identity and their own role. Server status is\r
+restricted to administrators and owners. Local server and checkout controls\r
+are disabled while a remote instance is selected.\r
+\r
+## Menu and updates\r
+\r
+- **Start Server / Stop Server** controls Desktop's local server.\r
+- **Browser** opens, closes or reloads the integrated browser, opens the system\r
+  browser, changes the connection and manages desktop authorization.\r
+- **Serving Stats** reports the port, PID, uptime, branch and version when allowed.\r
+- **Check for Updates / Apply Update** updates an existing checkout through Git.\r
+- **Desktop Updates** installs a signed update of the entire bundled app after\r
+  you choose **Update and restart**.\r
+- **Open Lumiverse Data Folder** opens the selected local server's storage.\r
+\r
+Back up or export data before removing it. A checkout keeps its server data in\r
+that folder or its configured \`DATA_DIR\`. The built-in server uses app-managed\r
+storage unless you chose another location; use **Open Lumiverse Data Folder**\r
+to find it. Uninstalling the app does not transfer or automatically erase this\r
+data. Disable **Launch at Login**, quit, and remove the app using your platform's\r
+normal uninstall process. Bun and Rust installed for checkout/source work are\r
+shared tools and can be kept for other projects.\r
+\r
+## Linux graphics and browser troubleshooting\r
+\r
+Use **Browser \u2192 Linux Graphics & Diagnostics\u2026** to choose a backend/rendering\r
+mode, create opaque diagnostic windows or copy a redacted runtime report.\r
+Changes take effect after quitting and reopening Desktop. Explicit launch\r
+environment values take priority over saved choices.\r
+\r
+The automatic policy starts natively when only Wayland is available. If the\r
+desktop also provides XWayland, test **Native Wayland** explicitly. For NVIDIA,\r
+test **disable explicit sync only** before the slower DMABUF/compositing\r
+compatibility modes. These modes are recovery and diagnostic choices; a stable\r
+software fallback does not establish restored graphics performance.\r
+\r
+Equivalent engineering launch controls are:\r
+\r
+\`\`\`sh\r
+LUMIVERSE_GDK_BACKEND=wayland __NV_DISABLE_EXPLICIT_SYNC=1 ./Lumiverse.AppImage\r
+LUMIVERSE_GDK_BACKEND=x11 ./Lumiverse.AppImage\r
+LUMIVERSE_LINUX_OPAQUE=1 ./Lumiverse.AppImage\r
+\`\`\`\r
+\r
+If a system browser does not appear, check the desktop's HTTP/HTTPS default\r
+handler. Desktop tries the OpenURI portal, then a host launcher when no portal\r
+request was dispatched. A cancelled or ambiguous portal request does not\r
+silently launch a second browser. Use the manual sign-in link or Retry.\r
+\r
+Official AppImages include their GStreamer audio plugins. Installing host\r
+plugins does not repair an older incomplete bundle; download a current build.\r
+Distro-native packages and raw binaries need their own matching GTK/WebKitGTK\r
+and GStreamer base/good runtime packages.\r
+\r
+## Share screenshots and clips with extensions\r
+\r
+On macOS and Windows, enable **Let Extensions Capture the Screen** in the root\r
+tray menu beside system audio. You can also select **Set Up Screen Capture** in\r
+an extension's permissions to enable the same toggle. Desktop asks you to\r
+authorize the selected Lumiverse instance if needed. The toggle stays on across\r
+restarts until you turn it off.\r
+The extension also needs its screen capture or screen recording permission.\r
+\r
+When the extension requests a screenshot or clip, choose a display or window in\r
+native source selection. Selecting it starts capture immediately, with no Capture & Send\r
+window or extra Send button. Desktop remembers that source for future requests from this\r
+extension to the same destination until capture is turned off. Images and video have\r
+separate approval. On macOS, remembering a source requires screen recording\r
+permission; audio-only permission does not include your screen. macOS asks for\r
+missing permission directly.\r
+\r
+A remembered macOS display can restore after restarting Desktop. macOS window\r
+choices and Windows capture items need a fresh choice after Desktop restarts;\r
+closing the source can also require a fresh choice. Desktop never substitutes a\r
+different source automatically.\r
+\r
+Uncheck **Let Extensions Capture the Screen** to stop capture and forget saved\r
+sources and approvals. Canceling a capture keeps the toggle and saved permissions\r
+on. On macOS, use **Cancel This Capture** in the capture indicator to discard just\r
+the current request. When you turn capture off, it stays off after restarting\r
+Desktop. Enable it again when you want to share; the next request asks for a new source choice.\r
+\r
+Screen capture on Linux is not available yet. Capture does not include system\r
+audio or microphone audio, and no background recording buffer is maintained.\r
 `,
     "getting-started/first-steps.md": `---\r
 title: First Steps\r
@@ -17448,6 +17699,8 @@ title: First Steps\r
 # First Steps\r
 \r
 This guide walks you through everything you need to go from a fresh install to your first conversation.\r
+\r
+The login page detects your browser language and has its own language picker. Your choice there is remembered in that browser. After signing in, **Settings \u2192 Language** saves your interface language to your account, so the same choice follows you across devices. Accounts without a saved language start in English, including accounts that previously kept their language only in browser storage.\r
 \r
 ---\r
 \r
@@ -17532,16 +17785,21 @@ Lumiverse runs on your own machine. It needs **Bun** (a fast JavaScript runtime)
 \r
 ## Requirements\r
 \r
-- **Bun** v1.4.0 or later \u2014 [Install Bun](https://bun.sh) (the start scripts auto-install Bun if missing and auto-upgrade older versions to latest stable)\r
+- **Bun** v1.4.4 or later \u2014 [Install Bun](https://bun.sh) (the start scripts auto-install Bun if missing and auto-upgrade older versions to latest stable)\r
 - A modern web browser (Chrome, Firefox, Edge, Safari)\r
 - An API key from at least one AI provider (OpenAI, Anthropic, Google, etc.)\r
 \r
 !!! note "Operating Systems"\r
     Lumiverse works on **macOS**, **Linux**, **Windows**, and **Termux** (Android).\r
 \r
+!!! note "Linux desktop audio"\r
+    If you use Lumiverse Desktop on Linux, see [Linux audio setup](desktop-tray.md#audio-is-silent-on-linux) for the GStreamer plugin installation commands for Debian/Ubuntu, Fedora, and Arch Linux.\r
+\r
 ---\r
 \r
 ## Install & Run\r
+\r
+For a step-by-step walkthrough, see [Desktop Installation](desktop-installation.md) or [Android / Termux](android-installation.md).\r
 \r
 ### 1. Clone the repository\r
 \r
@@ -17591,9 +17849,11 @@ After the shell opens, continue with the normal startup command below.\r
     ./start.sh\r
     \`\`\`\r
 \r
-    The script auto-detects Termux and installs required packages (\`glibc-repo\`, \`glibc-runner\`, \`proot\`). It uses a three-tier execution strategy to find the best way to run Bun on your device, then validates the exact \`proot\`-wrapped path it will later use for \`bun install\`. If Bun is older than 1.4.0, startup uses the \`bun-termux\` manager to atomically update both the Bun runtime and its wrapper before continuing.\r
+    The script auto-detects Termux and installs required packages (\`glibc-repo\`, \`glibc-runner\`, \`proot\`). It uses a three-tier execution strategy to find the best way to run Bun on your device, then validates the exact \`proot\`-wrapped path it will later use for \`bun install\`. If Bun is older than 1.4.4, startup uses the \`bun-termux\` manager to atomically update both the Bun runtime and its wrapper before continuing.\r
 \r
     If \`grun bun --version\` works but the native Termux install path is still broken, \`start.sh\` now attempts a \`bun-termux\` rebuild before it lets first-run setup continue.\r
+\r
+    For persistent runtime or build errors, see [Termux Troubleshooting](../reference/termux-troubleshooting.md), including the Ubuntu fallback.\r
 \r
 === "Docker"\r
 \r
@@ -17645,7 +17905,7 @@ The start scripts accept flags to control behavior:\r
 \r
     | Flag | Description |\r
     |------|-------------|\r
-    | *(no flags)* | Start normally; auto-upgrade Bun to latest stable when below 1.4.0 |\r
+    | *(no flags)* | Start normally; auto-upgrade Bun to latest stable when below 1.4.4 |\r
     | \`-b\`, \`--build\` | Rebuild frontend before starting |\r
     | \`--build-only\` | Rebuild frontend only, don't start |\r
     | \`--backend-only\` | Start backend only, skip frontend |\r
@@ -17660,15 +17920,15 @@ The start scripts accept flags to control behavior:\r
     !!! note "Termux behavior"\r
         Bun's built-in \`bun upgrade\` command does not work on native Termux \u2014 it aborts with \`'bun upgrade' is unsupported on systems without ld\` because Termux uses Android's bionic libc, not glibc. On Termux:\r
 \r
-        * \`--upgrade-bun\` updates the Bun runtime and rebuilds the [\`bun-termux\`](https://github.com/Happ1ness-dev/bun-termux) wrapper at \`$HOME/.bun-termux\`. The upstream manager installs both through atomic renames, so an already-running wrapper does not cause Android's \`Text file busy\` error.\r
-        * \`--upgrade-bun-canary\` is **not supported** \u2014 bun-termux only packages stable releases. The start script will skip the upgrade and continue with the existing binary. If you specifically need canary, run Lumiverse inside a [proot-distro Linux](https://github.com/termux/proot-distro) environment, where standard \`bun upgrade --canary\` works normally.\r
-        * If native Termux reports a broken install path before first run, the fastest repair is usually \`./start.sh --upgrade-bun\`, which updates the runtime and wrapper in place.\r
+        * \`--upgrade-bun\` updates the Bun runtime through [\`bun-termux\`](https://github.com/Happ1ness-dev/bun-termux), which downloads binaries directly from the [official Bun releases](https://github.com/oven-sh/bun/releases). There is no separate Termux Bun release to wait for. If the installed Bun version actually changes, Lumiverse then rebuilds the wrapper at \`$HOME/.bun-termux\`; if Bun is already current, the working wrapper is left untouched. The upstream manager installs updates through atomic renames, so an already-running wrapper does not cause Android's \`Text file busy\` error. Startup stops if the update fails to reach Bun 1.4.4 or later.\r
+        * \`--upgrade-bun-canary\` is **not supported** by Lumiverse's native Termux path. The start script skips that upgrade, then enforces the same Bun 1.4.4 minimum using stable releases. If you specifically need canary, run Lumiverse inside a [proot-distro Linux](https://github.com/termux/proot-distro) environment, where standard \`bun upgrade --canary\` works normally.\r
+        * If native Termux reports a broken install path, launcher validation attempts a wrapper rebuild automatically before failing the install path.\r
 \r
 === "Windows (\`start.ps1\`)"\r
 \r
     | Flag | Description |\r
     |------|-------------|\r
-    | *(no flags)* | Start normally; auto-upgrade Bun to latest stable when below 1.4.0 |\r
+    | *(no flags)* | Start normally; auto-upgrade Bun to latest stable when below 1.4.4 |\r
     | \`-Build\` or \`-b\` | Rebuild frontend before starting |\r
     | \`-Mode build-only\` | Rebuild frontend only |\r
     | \`-Mode backend-only\` | Start backend only |\r
@@ -17803,7 +18063,12 @@ If you'd rather throw away the cache entirely (slower, but belt-and-braces), pas
 | \`TRUST_ANY_ORIGIN\` | \`true\` | Accept requests from any origin |\r
 | \`LUMIVERSE_SAFE_THEME\` | \`false\` | Temporarily suppress custom CSS and component overrides for emergency recovery |\r
 | \`TRUSTED_ORIGINS\` | \u2014 | Comma-separated allowed origins (for production) |\r
-| \`TRUSTED_PROXIES\` | \u2014 | Reverse proxies trusted to supply client IPs (\`X-Forwarded-For\`/\`Forwarded\`/\`X-Real-IP\`), as IPs or CIDRs. Unset = trust only private-range peers; when set, only listed proxies are trusted (use this for cloud proxies with public addresses) |\r
+| \`TRUSTED_PROXIES\` | \u2014 | Proxy IPs/CIDRs allowed to supply external host/protocol headers for dynamic auth origins and client-IP headers. Host/protocol forwarding requires this explicit list. |\r
+| \`AUTH_BASE_URL\` | request origin | Optional single-origin auth/OAuth override; normally use Operator \u2192 Trusted Hostnames. |\r
+| \`LUMIVERSE_TLS_CERT_FILE\` | \u2014 | PEM certificate/full-chain file for direct HTTPS; set together with \`LUMIVERSE_TLS_KEY_FILE\`. |\r
+| \`LUMIVERSE_TLS_KEY_FILE\` | \u2014 | PEM private key paired with \`LUMIVERSE_TLS_CERT_FILE\`. |\r
+| \`LUMIVERSE_TLS_KEY_PASSPHRASE_FILE\` | \u2014 | Optional file containing the encrypted private key's passphrase. |\r
+| \`LUMIVERSE_TLS_CONFIG_FILE\` | \u2014 | JSON certificate manifest for multi-certificate SNI. |\r
 | \`AUTH_SECRET\` | auto-derived | Explicit auth signing secret; usually leave unset |\r
 | \`ENCRYPTION_KEY\` | auto-generated | Legacy/manual encryption key override; usually leave unset |\r
 | \`SPINDLE_EPHEMERAL_GLOBAL_MAX_BYTES\` | \`524288000\` | Total extension storage limit in bytes |\r
@@ -17856,14 +18121,16 @@ The Docker setup uses a named volume (\`lumiverse-data\`) mounted at \`/app/data
 \r
 ## Configuration\r
 \r
-Lumiverse uses a \`.env\` file for runtime configuration (created by the setup wizard). Common options:\r
+For a step-by-step remote-access and mobile PWA setup, see [Remote Access with Tailscale](tailscale.md).\r
+\r
+Lumiverse uses a \`.env\` file for runtime configuration (created by the setup wizard). See [Environment Variables (.env)](../reference/environment-variables.md) for editing instructions, defaults, and additional settings. Common options:\r
 \r
 | Variable | Default | Description |\r
 |----------|---------|-------------|\r
 | \`PORT\` | \`7860\` | Server port |\r
 | \`DATA_DIR\` | \`./data\` | Override the data directory location |\r
 | \`TRUSTED_ORIGINS\` | \u2014 | CORS origins (comma-separated) |\r
-| \`TRUSTED_PROXIES\` | \u2014 | Reverse proxies trusted to supply client IPs (\`X-Forwarded-For\`/\`Forwarded\`/\`X-Real-IP\`), as IPs or CIDRs. Unset = trust only private-range peers; when set, only listed proxies are trusted (use this for cloud proxies with public addresses) |\r
+| \`TRUSTED_PROXIES\` | \u2014 | Proxy IPs/CIDRs allowed to supply external host/protocol headers for dynamic auth origins and client-IP headers. Host/protocol forwarding requires this explicit list. |\r
 | \`TRUST_ANY_ORIGIN\` | \`false\` | Accept requests from any origin |\r
 | \`LUMIVERSE_SAFE_THEME\` | \`false\` | Temporarily suppress custom CSS and component overrides for emergency recovery |\r
 | \`FRONTEND_DIR\` | \u2014 | Custom path to frontend dist folder |\r
@@ -17872,9 +18139,64 @@ Lumiverse uses a \`.env\` file for runtime configuration (created by the setup w
 | \`SPINDLE_EPHEMERAL_EXTENSION_MAX_OVERRIDES\` | \u2014 | Per-extension storage overrides as \`extension.id:maxBytes,...\` |\r
 | \`SPINDLE_EPHEMERAL_RESERVATION_TTL_MS\` | \`600000\` | Extension storage reservation TTL in milliseconds |\r
 | \`AUTH_SECRET\` | auto-derived | Explicit auth signing secret |\r
+| \`AUTH_BASE_URL\` | request origin | Optional single-origin auth/OAuth override; normally use Operator \u2192 Trusted Hostnames. |\r
+| \`LUMIVERSE_TLS_CERT_FILE\` | \u2014 | PEM certificate/full-chain file for direct HTTPS; set together with \`LUMIVERSE_TLS_KEY_FILE\`. |\r
+| \`LUMIVERSE_TLS_KEY_FILE\` | \u2014 | PEM private key paired with \`LUMIVERSE_TLS_CERT_FILE\`. |\r
+| \`LUMIVERSE_TLS_KEY_PASSPHRASE_FILE\` | \u2014 | Optional file containing the encrypted private key's passphrase. |\r
+| \`LUMIVERSE_TLS_CONFIG_FILE\` | \u2014 | JSON certificate manifest for multi-certificate SNI. |\r
 | \`ENCRYPTION_KEY\` | auto-generated | Legacy/manual encryption key override |\r
 \r
 API keys and account passwords are stored encrypted in the \`data/\` directory rather than in \`.env\`. Leave \`AUTH_SECRET\` and \`ENCRYPTION_KEY\` unset unless you are intentionally carrying forward an existing install.\r
+\r
+### Direct TLS and custom certificates\r
+\r
+Lumiverse can terminate TLS directly in Bun before requests reach Hono. Direct TLS negotiates HTTP/2 or HTTP/1.1 on the same port; WebSocket clients continue to use HTTP/1.1 upgrades. A reverse proxy remains a good choice when it already manages ACME issuance and renewal, but it is no longer required when you have your own certificate.\r
+\r
+For one certificate, set a PEM full chain and matching private key:\r
+\r
+\`\`\`dotenv\r
+PORT=7860\r
+LUMIVERSE_TLS_CERT_FILE=/etc/lumiverse/tls/fullchain.pem\r
+LUMIVERSE_TLS_KEY_FILE=/etc/lumiverse/tls/privkey.pem\r
+\`\`\`\r
+\r
+The certificate can contain multiple DNS SANs; the same Hono application is served for all of them. Direct TLS makes this listener HTTPS-only, so use \`https://\` for clients and health probes. Add every public HTTPS origin under **Settings \u2192 Operator \u2192 Trusted Hostnames** and restart Lumiverse. \`AUTH_BASE_URL\` can still pin authentication to one origin when that is preferable. It also gives the launcher a safe SAN-covered URL for the \`--auto-open\` option and the runner's **O** shortcut; without it, open the desired HTTPS hostname manually.\r
+\r
+For distinct certificates on one port, set only \`LUMIVERSE_TLS_CONFIG_FILE\`. Its JSON manifest maps each certificate to the exact hostnames clients send through SNI:\r
+\r
+\`\`\`json\r
+{\r
+  "certificates": [\r
+    {\r
+      "certFile": "./customer-a/fullchain.pem",\r
+      "keyFile": "./customer-a/privkey.pem",\r
+      "serverNames": ["chat.customer-a.example"]\r
+    },\r
+    {\r
+      "certFile": "./customer-b/fullchain.pem",\r
+      "keyFile": "./customer-b/privkey.pem",\r
+      "keyPassphraseFile": "./customer-b/passphrase",\r
+      "serverNames": ["chat.customer-b.example", "alt.customer-b.example"]\r
+    }\r
+  ]\r
+}\r
+\`\`\`\r
+\r
+Certificate, key, and passphrase paths in a manifest are resolved relative to the manifest. Each \`serverNames\` value must be an exact DNS hostname covered by that certificate's SAN; wildcard SAN certificates still list the concrete SNI hostnames they should answer. A manifest containing one certificate may omit \`serverNames\`, making it the default certificate just like the simple environment-variable form.\r
+\r
+Lumiverse validates the PEM files, private-key match, SAN mappings, and duplicate SNI names before starting. Certificate changes require a Lumiverse restart because Bun does not hot-reload listener TLS settings. Keep private keys and passphrase files read-only to the account running Lumiverse.\r
+\r
+For Docker, bind-mount the certificate directory read-only and use container paths:\r
+\r
+\`\`\`yaml\r
+services:\r
+  lumiverse:\r
+    environment:\r
+      - LUMIVERSE_TLS_CERT_FILE=/run/lumiverse-tls/fullchain.pem\r
+      - LUMIVERSE_TLS_KEY_FILE=/run/lumiverse-tls/privkey.pem\r
+    volumes:\r
+      - ./certs:/run/lumiverse-tls:ro\r
+\`\`\`\r
 \r
 ---\r
 \r
@@ -18167,6 +18489,8 @@ Lumiverse's interface is built around a central chat view with a tabbed drawer t
 \r
 Drawer panels can be docked to the opposite edge using the [Spindle](../extensions/index.md) **dockPanels** system, and on mobile the drawer slides in as a sheet.\r
 \r
+In the iOS app on iPhone Duo, unfolding keeps the drawer visible in a separate pane by default. Go to **Settings \u2192 Display \u2192 Drawer** and turn off **Always show drawer when unfolded (iPhone Duo)** to use the standard drawer that you open and close as needed. This preference is saved with your drawer settings and can also be changed while the Duo is folded. The composer keeps its straight edge beside the Duo's status area in either mode.\r
+\r
 ---\r
 \r
 ## Drawer Tabs\r
@@ -18321,6 +18645,73 @@ Click the gear icon (or open the Command Palette and search "Settings") to open 
 !!! tip "Mobile"\r
     On smaller screens, the drawer becomes a slide-in sheet. Swipe from the edge, tap any pinned tab icon, or use the Command Palette to navigate. Lumiverse also supports PWA installs \u2014 add it to your home screen for an app-like experience.\r
 `,
+    "getting-started/tailscale.md": `---\r
+title: Remote Access with Tailscale\r
+---\r
+\r
+# Remote Access with Tailscale\r
+\r
+This walkthrough connects a phone or another computer to Lumiverse running on your host machine, using an HTTPS address suitable for installing the mobile PWA. Get [Lumiverse running locally](desktop-installation.md) first.\r
+\r
+## 1. Connect your devices\r
+\r
+Install [Tailscale](https://tailscale.com/download) on the host and client devices, then sign in to the same tailnet. For Android and iOS, use the corresponding app store download. Keep Tailscale connected on both devices.\r
+\r
+## 2. Check the local server\r
+\r
+Start Lumiverse normally and open \`http://localhost:7860\` on the host. If you configured another port, substitute it in the commands below. Leave Lumiverse running.\r
+\r
+## 3. Enable HTTPS\r
+\r
+In the [Tailscale DNS settings](https://login.tailscale.com/admin/dns), enable **MagicDNS** and **HTTPS Certificates**. Check the host's full \`.ts.net\` name in the Tailscale admin console.\r
+\r
+On the host, run:\r
+\r
+\`\`\`bash\r
+tailscale serve --bg --https=443 http://127.0.0.1:7860\r
+tailscale serve status\r
+\`\`\`\r
+\r
+Follow any enablement prompt. The status output gives the HTTPS address. Serve shares it within your tailnet; the \`--bg\` setting resumes after a Tailscale restart or host reboot. Lumiverse must also be started after reboot. See the [Tailscale Serve reference](https://tailscale.com/docs/reference/tailscale-cli/serve).\r
+\r
+## 4. Configure Lumiverse for the HTTPS address\r
+\r
+In the local Lumiverse browser:\r
+\r
+1. Open **Settings \u2192 Operator \u2192 Trusted Hostnames**.\r
+2. Choose **Add manually** and enter the full HTTPS origin, such as \`https://your-device.your-tailnet.ts.net\`.\r
+3. Add it, then configure the local proxy below before restarting Lumiverse.\r
+\r
+For this HTTP reverse proxy, edit the host's \`.env\` so Lumiverse trusts the local proxy's forwarded host and protocol:\r
+\r
+\`\`\`dotenv\r
+TRUSTED_PROXIES=127.0.0.1\r
+\`\`\`\r
+\r
+If \`TRUSTED_PROXIES\` already contains other proxies, append \`127.0.0.1\` to its comma-separated list. Restart after saving. Use [Start Script Options](installation.md#start-script-options) for the environment editor, or edit \`.env\` directly.\r
+\r
+Use the full HTTPS origin without a path or \`:7860\`. A bare hostname defaults to Lumiverse's backend port, which differs from Serve's HTTPS port. Broad **Remote Mode** is not required for this named-host setup.\r
+\r
+## 5. Open from your other device\r
+\r
+With Tailscale connected, open the HTTPS address shown by \`tailscale serve status\`. Do not append \`:7860\`: that is the local backend port. Sign in to Lumiverse.\r
+\r
+For the mobile PWA, install from this HTTPS address using your browser's **Install app** or **Add to Home Screen** action. On iPhone, use Safari's share menu and **Add to Home Screen**. Open the installed app and confirm you can sign in and reach your chats.\r
+\r
+## Troubleshooting\r
+\r
+- **Localhost fails on the host:** fix the local server first; confirm the port and terminal output.\r
+- **The remote address does not open:** check both Tailscale connections, tailnet access rules, and \`tailscale serve status\`.\r
+- **The host is rejected or sign-in fails:** recheck the trusted hostname, local proxy setting, and restart. See [Configuration](installation.md#configuration) for auth-origin overrides.\r
+- **The browser works but the installed app fails:** open the same HTTPS address in the browser, then reinstall the PWA from that address if its shortcut points elsewhere. Clear site data only if needed; this signs you out and removes browser-local state.\r
+- **The app looks stale after an update:** rebuild through the Operator Panel or [update command](installation.md#updating), reload in the browser, then reopen the PWA.\r
+\r
+To stop this HTTPS mapping on the host:\r
+\r
+\`\`\`bash\r
+tailscale serve --https=443 off\r
+\`\`\`\r
+`,
     "image-generation/index.md": `---\r
 title: Image Generation\r
 ---\r
@@ -18331,17 +18722,21 @@ Lumiverse generates scene illustrations, character shots, and chat attachments f
 \r
 ---\r
 \r
-## What's New\r
+## Finding the controls\r
 \r
-The image generation system was substantially rebuilt. If you used Lumiverse before this release, the parts you'll notice first:\r
+Open **Image Gen** in the sidebar. The drawer keeps the choices for your next generation together: connection, mode, output, active main prompt preset (in Custom or Chat-aware Custom mode), active LoRA preset, and **Quick Behavior**. Progress, the last scene, previews, **Generate Now**, and **Force Generate** stay here too.\r
 \r
-- **Three prompt modes** \u2014 _Scene tool_, _Custom prompt_, and _Chat-aware custom_ (your instructions, but applied to the live chat context by a parser LLM).\r
-- **Prompt presets** with per-character and per-persona **bindings** \u2014 splice character or persona snippets into a main preset with \`{{character_prompt}}\` / \`{{persona_prompt}}\`.\r
-- **Output targets** \u2014 send the result to the chat background, insert it as a new chat image, or attach it to the most recent message.\r
-- **Prompt preview** \u2014 see (and optionally edit) the resolved prompt before the image provider is called.\r
-- **Six providers** \u2014 ComfyUI and SwarmUI for local generation, plus Google Gemini, NovelAI, NanoGPT, and Pollinations in the cloud.\r
-- **Configurable timeouts** \u2014 separate limits for the parser/scene LLM and for the image provider itself.\r
-- **Gallery integration** \u2014 generated images can be auto-added to the active character's gallery and (optionally) re-sent to the LLM as multimodal context.\r
+Deep editing opens in a modal:\r
+\r
+| Entry point | What it contains |\r
+|-------------|------------------|\r
+| **Edit** beside the prompt preset / **Prompt Studio\u2026** in Scene mode | Main, Character, and Persona preset editors, a shared Parser tab, and separate Captioning preset/parser controls. |\r
+| **Edit** beside the LoRA preset | **LoRA Studio**: ordered LoRA rows, strengths, base tags, preset save/delete, bypass controls, and strength scale. |\r
+| **Configure Generation\u2026** | **Generation Settings**: provider parameters and models, source images where supported, automation, background display, and timeouts. |\r
+| **Caption Image** | Upload an image to generate descriptive tags with the existing captioner. |\r
+| **Export / Import** | Import or export image-generation configuration from the centered utility row beside **Caption Image**. Available even while image generation is disabled. |\r
+\r
+**Done** closes an editor. Provider parameters and behavior settings persist as you change them; Done does not perform a separate save. Prompt and LoRA presets have their own explicit save actions. Closing and reopening a studio while the drawer remains mounted preserves its current draft.\r
 \r
 ---\r
 \r
@@ -18352,7 +18747,7 @@ The image generation system was substantially rebuilt. If you used Lumiverse bef
 3. The active **image-gen connection** generates the image.\r
 4. The result is routed to the **output target** you chose \u2014 background, new chat image, or attached to the last message \u2014 and optionally linked into the character gallery.\r
 \r
-In Scene mode the cycle is automatic: each new reply is checked against the previous scene, and a new image is generated only when enough fields have changed (you control the sensitivity). In Custom and Chat-aware modes you trigger generation yourself with the **Generate** button.\r
+**Auto-Generate On Reply** triggers generation after replies using the selected mode. In Scene mode, the scene-change check can skip an image when too little has changed. Turn auto-generation off for manual control with **Generate Now**; **Force Generate** bypasses scene detection for one request.\r
 \r
 ---\r
 \r
@@ -18386,11 +18781,14 @@ Generated images are persisted with thumbnails and a public URL, are addressable
 | Provider | Runs | Strength |\r
 |----------|------|----------|\r
 | **ComfyUI** | Local | Bring-your-own workflow. Full control over samplers, schedulers, checkpoints, and any custom node graph you've already built. |\r
-| **SwarmUI** | Local | Friendlier wrapper around Comfy with built-in model browsing and component overrides (VAE, text encoders). |\r
+| **SwarmUI** | Local | Model browsing and component overrides (VAE, text encoders). |\r
+| **SD API** | Local | Connect to a supported stable-diffusion.cpp / A1111 API. |\r
 | **Google Gemini** | Cloud | Prose prompts, multiple aspect ratios, up to 4K. |\r
 | **NovelAI** | Cloud | Anime/illustration with Danbooru-style tags and **director reference images** (character / persona avatars or your own uploads). |\r
 | **NanoGPT** | Cloud | Aggregator \u2014 access to Flux, HiDream, DALL\xB7E 3, Imagen 4, Midjourney, Recraft, SDXL, SD 3.5, Reve, and others under one key. |\r
 | **Pollinations** | Cloud | Lightweight provider with optional \`enhance\`, transparency, and quality tiers. |\r
+| **OpenRouter** | Cloud | Use image-capable models through an OpenRouter connection. |\r
+| **OpenAI** | Cloud | Use an OpenAI image-generation connection. |\r
 \r
 See [Setup & Providers](setup.md) for connection setup and per-provider quirks.\r
 \r
@@ -18416,7 +18814,7 @@ Lumiverse builds the final image prompt from three things: the **prompt mode** y
 \r
 ## Prompt Modes\r
 \r
-Set the mode under **Image Generation \u2192 Prompt Mode**.\r
+Set **Mode** directly in the **Image Gen** drawer. Select the active main preset there when using Custom or Chat-aware Custom mode. Choose **Edit** to open **Prompt Studio**; Scene mode has a **Prompt Studio\u2026** button instead.\r
 \r
 ### Scene tool\r
 \r
@@ -18453,7 +18851,7 @@ For example, a parser instruction like:\r
 \r
 ## Picking the Parser LLM\r
 \r
-Scene and Chat-aware Custom both need a parser LLM. By default Lumiverse uses the **Council sidecar**, but you can override it under **Prompt Parser**:\r
+Scene and Chat-aware Custom both need a parser LLM. By default Lumiverse uses the **Council sidecar**, but you can override it in **Prompt Studio \u2192 Parser**:\r
 \r
 | Field | Purpose |\r
 |-------|---------|\r
@@ -18469,15 +18867,18 @@ The parser is short-lived per request and only runs for Scene and Chat-aware Cus
 \r
 ## Prompt Presets\r
 \r
-Custom and Chat-aware prompts can be saved as **presets** and reloaded later. Presets come in three kinds:\r
+Custom and Chat-aware prompts can be saved as **presets** and reloaded later. Presets come in four kinds:\r
 \r
 | Kind | Purpose |\r
 |------|---------|\r
 | **Main preset** | The full prompt that's actually sent / parsed. There is one active main preset at a time. |\r
 | **Character preset** | A snippet that fills \`{{character_prompt}}\` (and \`{{character_negative_prompt}}\`) in whichever main preset is active. |\r
 | **Persona preset** | A snippet that fills \`{{persona_prompt}}\` (and \`{{persona_negative_prompt}}\`) in the main preset. |\r
+| **Captioning preset** | Instructions used by **Caption Image** when describing an uploaded image. |\r
 \r
-Use the **Editing** picker in the panel to switch which kind you're editing. Save, rename, and delete buttons sit underneath the editor.\r
+**Prompt Studio** has **Main**, **Character**, **Persona**, **Parser**, and **Captioning** views. Main, Character, and Persona share the generation parser configured in **Parser**. Switching or saving their presets does not replace that connection, model, or sampling settings. Captioning stays last and has its own parser controls saved with each captioning preset. The preset views list only their own presets. Edit the prompt and name, then use **Save Changes** to update a loaded preset or **Save As New** to create one. Delete requires confirmation. **Preset Negative Prompt** belongs to the prompt preset; **Provider Negative Prompt** in Generation Settings is a separate connection parameter.\r
+\r
+The main prompt draft is saved to settings after a short typing pause and flushed before manual generation. Saving a preset is a separate action. Closing the studio preserves the draft for the current mounted drawer session.\r
 \r
 ### Bindings\r
 \r
@@ -18492,7 +18893,7 @@ A small banner under the editor confirms what the current preset is bound to. Bi
 \r
 When generation runs, Lumiverse resolves the prompt in this order:\r
 \r
-1. The **main preset** (or the inline panel text if no preset is loaded) is taken as the template.\r
+1. The **main preset** (or the current Main draft if no preset is loaded) is taken as the template.\r
 2. Any \`{{character_prompt}}\` / \`{{character_negative_prompt}}\` macro is replaced by the snippet from the character bound to the active chat \u2014 if one is bound.\r
 3. Any \`{{persona_prompt}}\` / \`{{persona_negative_prompt}}\` macro is replaced by the snippet from the persona bound to your user \u2014 if one is bound.\r
 4. Standard macros (\`{{user}}\`, \`{{char}}\`, etc.) are evaluated.\r
@@ -18537,7 +18938,7 @@ Swap to a different persona or character mid-chat and the splices update automat
 ---\r
 ## LoRA Presets\r
 \r
-**Image Generation \u2192 LoRA Presets** saves an ordered stack of LoRA filenames, strengths, and optional base tags. Load a preset from **Active LoRA Preset**, then add rows or edit its name before saving. Base tags are prepended to the generated prompt only while that preset is active and not bypassed.\r
+**LoRA Studio** saves an ordered stack of LoRA filenames, strengths, and optional base tags. Switch **Active LoRA Preset** in the drawer, then choose its **Edit** button to add rows or edit its name in LoRA Studio before saving. Base tags are prepended to the generated prompt only while that preset is active and not bypassed.\r
 \r
 When the active connection supports model discovery (**ComfyUI**, **SwarmUI**, or **SD API**), the filename picker offers its available LoRAs. Selecting an option stores its exact provider filename. You can always type a filename manually instead\u2014useful for a new file that has not appeared in a model list yet. A failed lookup remains visible with **Retry** and never locks the manual filename field.\r
 \r
@@ -18553,7 +18954,7 @@ For SwarmUI, the ordered names and model strengths are sent as matching \`loras\
 \r
 ### Layer Controls\r
 \r
-Under **LoRA Controls**:\r
+In **LoRA Studio \u2192 LoRA Controls**:\r
 \r
 - **Bypass Character LoRA** skips only the active chat character's configured layer and its base tags; raw provider-supplied LoRAs stay prepended and are not scaled or bypassed.\r
 - **Bypass Active LoRA Preset** skips only the selected preset's rows and base tags. A bypassed preset's base tags are not applied; raw provider-supplied LoRAs stay prepended and are not scaled or bypassed.\r
@@ -18564,9 +18965,9 @@ Under **LoRA Controls**:\r
 \r
 ## Prompt Preview\r
 \r
-Turn on **Preview prompt before generating** (under **Scene Settings**) to inspect the resolved prompt before the image provider is called.\r
+Turn on **Preview prompt before generating** (in the drawer\u2019s **Quick Behavior** section) to inspect the resolved prompt before the image provider is called.\r
 \r
-When enabled, hitting **Generate** opens the **Prompt Preview** modal showing the final prompt and negative prompt \u2014 fully macro-resolved and (for Scene / Chat-aware modes) already passed through the parser LLM. From there you can:\r
+When enabled, hitting **Generate Now** opens the **Prompt Preview** modal showing the final prompt and negative prompt \u2014 fully macro-resolved and (for Scene / Chat-aware modes) already passed through the parser LLM. From there you can:\r
 \r
 - **Edit** the prompt and negative prompt directly.\r
 - **Generate** \u2014 sends the (possibly edited) prompt straight to the image provider, skipping the parser this time.\r
@@ -18582,9 +18983,9 @@ You can also preview without ever generating an image by setting the **Output** 
 \r
 | Button | Behaviour |\r
 |--------|-----------|\r
-| **Generate** | Generates using the current settings. Respects scene-change detection unless **Ignore Scene Change Detection** is on. |\r
+| **Generate Now** | Generates using the current settings. Respects scene-change detection unless **Ignore Scene Change Detection** is on. |\r
 | **Force Generate** | Bypasses scene-change detection for a single shot. |\r
-| **Auto-Generate On Reply** | When enabled, every new assistant message triggers a Scene-mode generation. Off for manual-only chats. |\r
+| **Auto-Generate On Reply** | When enabled, every new assistant reply triggers generation using the selected prompt mode. Off for manual-only chats. |\r
 \r
 Generation runs cooperatively \u2014 a new request for the same chat aborts the in-flight one, so you can change your mind without waiting for the previous image to finish.\r
 \r
@@ -18598,8 +18999,8 @@ Generation runs cooperatively \u2014 a new request for the same chat aborts the 
 !!! tip "Character snippets beat huge main presets"\r
     A main preset shouldn't describe specific characters \u2014 keep it generic and put character details in a bound character snippet. You can then reuse the same main preset across every chat.\r
 \r
-!!! tip "Preview is free"\r
-    Previewing the prompt runs the parser LLM but not the image provider. Use it freely to iterate on parser instructions before you spend a generation credit.\r
+!!! tip "Inspect prompts before generating"\r
+    Previewing the prompt runs the parser LLM but not the image provider. Parser calls may still incur LLM costs. Use the prompt preview to iterate before running the image provider. **Output \u2192 Preview only** still generates an image; it controls placement of the result.\r
 `,
     "image-generation/scene-and-output.md": `---\r
 title: Scene, Output & Timeouts\r
@@ -18607,7 +19008,7 @@ title: Scene, Output & Timeouts\r
 \r
 # Scene, Output & Timeouts\r
 \r
-How Lumiverse decides _when_ to generate, _where_ the result goes, and how long it's allowed to take.\r
+How Lumiverse decides _when_ to generate, _where_ the result goes, and how long it's allowed to take. **Mode**, **Output**, and the four **Quick Behavior** toggles stay in the Image Gen drawer. Open **Configure Generation\u2026 \u2192 Automation** for scene sensitivity, context limits, gallery and recycling behavior; open **Advanced** for timeouts.\r
 \r
 ---\r
 \r
@@ -18617,10 +19018,11 @@ When **Prompt Mode** is set to **Scene tool**, every new assistant message trigg
 \r
 | Setting | Default | What it does |\r
 |---------|---------|--------------|\r
-| **Auto-Generate On Reply** | On | When on, every reply triggers a scene parse + (possibly) a generation. When off, Scene mode is manual-only \u2014 useful when you want to choose when to refresh the background. |\r
+| **Auto-Generate On Reply** | On | Triggers the selected mode after replies. In Scene mode, this parses the scene and may generate an image. When off, use the manual generation buttons. |\r
 | **Scene Change Sensitivity** | 2 | Minimum number of scene fields that must change before a new image is generated. Lower = more frequent regenerations. |\r
 | **Ignore Scene Change Detection** | Off | Bypass the cache entirely. Every reply generates a new image. |\r
-| **Include Characters and Persona** | Off | When on, the parser additionally extracts visible characters, appearances, and composition tags. Required to get NovelAI character tags or character-aware Gemini / NanoGPT / Pollinations prompts. |\r
+| **Include Characters / Include Persona** | Off | These separate Quick Behavior toggles control whether the parser additionally extracts visible characters, appearances, and composition tags. Required to get NovelAI character tags or character-aware Gemini / NanoGPT / Pollinations prompts. |\r
+| **Describe Character / Persona Avatar** | Off | Captions the active character or persona avatar with the vision prompt parser and feeds that appearance into **Scene** / **Chat-aware Custom** prompt generation as an identity lock (face, hair, eyes, body, style). Clothing follows the current chat/scene when RP changed the outfit \u2014 portrait clothes are only a fallback. It does **not** dump the caption as a prefix on the final prompt. Captions are cached per avatar (and caption preset) so repeat gens skip the caption LLM. Separate from **Include Characters** (card text) and from **Configure Generation \u2192 Sources** avatar image refs (pixel attach / img2img). Pure Custom mode skips the prompt parser, so these toggles have no effect there. When either toggle is on, an optional **Avatar Captioning Preset** appears; leave it on None to use the Caption Image prompt and the global prompt parser. |\r
 \r
 The compared fields are: \`environment\`, \`time_of_day\`, \`weather\`, \`mood\`, and \`focal_detail\`. Character and composition fields don't currently affect the change check \u2014 they're extracted for richer prompts but won't trigger a regeneration on their own.\r
 \r
@@ -18628,7 +19030,7 @@ The compared fields are: \`environment\`, \`time_of_day\`, \`weather\`, \`mood\`
 \r
 ## Output Targets\r
 \r
-Pick where the result goes under **Prompt Mode \u2192 Output**.\r
+Pick where the result goes using **Output** in the drawer.\r
 \r
 | Target | What happens |\r
 |--------|--------------|\r
@@ -18639,7 +19041,7 @@ Pick where the result goes under **Prompt Mode \u2192 Output**.\r
 \r
 ### Background display\r
 \r
-Two settings control how a background image is shown:\r
+Choose **Set as background**, then open **Configure Generation\u2026 \u2192 Automation \u2192 Background Display**. Two settings control how the background is shown:\r
 \r
 | Setting | Default | What it does |\r
 |---------|---------|--------------|\r
@@ -18666,7 +19068,7 @@ Right-click (or long-press on touch) an attached image inside a message to bring
 \r
 ## Timeouts\r
 \r
-Image generation has **two independent timeouts** so a slow parser doesn't block a fast provider (and vice versa).\r
+Under **Configure Generation\u2026 \u2192 Advanced**, image generation has **two independent timeouts** so a slow parser doesn't block a fast provider (and vice versa).\r
 \r
 | Setting | Default | What it covers |\r
 |---------|---------|----------------|\r
@@ -18729,6 +19131,17 @@ You can duplicate a connection to keep variant presets (for example, two SwarmUI
     Keys are stored in the Lumiverse identity vault (AES-256-GCM). They never leave your instance unless you opt into an [API Keys decryption ticket](../data-portability/api-keys-and-tickets.md) during data export.\r
 \r
 ---\r
+\r
+## Generation Settings\r
+\r
+Keep connection selection in the **Image Gen** drawer. Open **Configure Generation\u2026** for deeper controls:\r
+\r
+- **Generation** contains the provider\u2019s main parameters, collapsed **Model Overrides**, and ComfyUI workflow status and custom mapped fields. Expand **Model Overrides** to change individual model components.\r
+- **Sources** appears when the connection supports reference images, source images, or source-related schema parameters. Upload up to 14 reference images, remove them, or include character/persona avatars where supported. References are saved on the selected connection.\r
+- **Automation** contains scene sensitivity, context limits, image recycling, gallery behavior, and background display when the output is Set as background.\r
+- **Advanced** contains advanced parameters, additional provider groups, and the two generation timeouts.\r
+\r
+The fields follow the selected provider\u2019s capability schema. Switching connections updates the available controls. Parser settings are in **Prompt Studio**, and LoRA layers are in **LoRA Studio**.\r
 \r
 ## Provider-Specific Setup\r
 \r
@@ -18795,14 +19208,14 @@ ComfyUI doesn't have fixed parameters \u2014 your workflow defines what's adjust
 \r
 ### Importing\r
 \r
-1. In the ComfyUI panel of your connection, choose **Import workflow** and upload a workflow JSON (either the editor's "graph" format or the "API" format).\r
+1. In **Configure Generation\u2026 \u2192 Generation**, choose **Import Workflow** (or **Edit Workflow** for an existing workflow) and upload a workflow JSON (either the editor's "graph" format or the "API" format).\r
 2. Lumiverse parses the graph and auto-detects the nodes that should receive standard parameters (positive prompt, negative prompt, sampler, steps, CFG, seed, width, height, checkpoint).\r
 3. Review the detected **field mappings** \u2014 every parameter is shown alongside the node and field it routes to. Adjust mappings if Lumiverse picked the wrong node.\r
 4. Save. The workflow JSON and your mappings live on the connection.\r
 \r
 ### Custom Fields\r
 \r
-If your workflow has parameters that aren't in the standard set (for example, a LoRA strength or a custom sampler choice), expose them as **custom fields**. They appear in the panel's Advanced section and override the matching node value at generation time.\r
+If your workflow has parameters that aren't in the standard set (for example, a LoRA strength or a custom sampler choice), expose them as **custom fields**. They appear in **Generation Settings \u2192 Generation**, under the workflow and override the matching node value at generation time.\r
 \r
 ### Capabilities Discovery\r
 \r
@@ -18810,15 +19223,11 @@ The connection's **Capabilities** button queries the live ComfyUI server for ava
 \r
 ---\r
 \r
-## Connection Defaults vs. Live Parameters\r
+## Connection Parameter Persistence\r
 \r
-Every numeric/select parameter shown in the panel can be set at three levels:\r
+Provider controls in **Generation Settings** update the active connection\u2019s **default parameters** immediately. Those settings are reused whenever that connection is selected, including other chats. Clearing an override allows the provider/schema default to apply where supported.\r
 \r
-1. **Connection default** \u2014 set on the connection itself, applied to every generation.\r
-2. **Panel override** \u2014 temporary, lives in the open Image Generation panel.\r
-3. **Provider-level fallback** \u2014 the provider's own default if neither of the above is set.\r
-\r
-Lower levels override higher ones, so anything you change in the panel only affects the current chat session unless you explicitly save it back to the connection.\r
+**Done** closes the modal; it does not save or cancel a staged transaction. To keep separate parameter configurations, duplicate the connection and switch between profiles from the drawer.\r
 \r
 ---\r
 \r
@@ -18830,8 +19239,8 @@ If you ran a previous version of Lumiverse that stored Gemini / NanoGPT / NovelA
 \r
 ## Tips\r
 \r
-!!! tip "Test before saving defaults"\r
-    Run a generation with a one-off panel value first; once you're happy with the result, copy it back to the connection's default parameters so future chats pick it up automatically.\r
+!!! tip "Keep experiments in a separate connection"\r
+    Duplicate a connection before trying a different set of parameters. Generation Settings writes changes to the active profile immediately.\r
 \r
 !!! tip "Pre-warm slow connections"\r
     For ComfyUI / SwarmUI with large models, the first generation after a server restart can be slow while the checkpoint loads. Either bump the **Image Generation Timeout** (see [Scene, Output & Timeouts](scene-and-output.md)) or run a quick test from your server's UI first.\r
@@ -19897,7 +20306,7 @@ Lumiverse parses SillyTavern-style macro prefixes. The currently user-relevant o
 | \`?\` | \`{{?macro}}\` | Parsed for delayed/compatibility-prefixed macros |\r
 | \`~\` | \`{{~macro}}\` | Parsed for reevaluate-style compatibility |\r
 | \`>\` | \`{{>macro}}\` | Parsed for filter-style compatibility |\r
-| \`#\` | \`{{#trim}}...{{/trim}}\` | Preserve whitespace for macros that support it (\`trim\` is the main built-in example) |\r
+| \`#\` | \`{{#trim}}...{{/trim}}\` | Preserve whitespace for macros that support it (\`trim\`, and the list loops \`foreach\`, \`map\`, \`filter\`, \`some\`, \`every\`) |\r
 \r
 Closing scoped macros use \`/\`, like \`{{/if}}\`, \`{{/trim}}\`, or \`{{/numbered}}\`.\r
 \r
@@ -19992,7 +20401,7 @@ Only include this in group chats.\r
 \r
 ### \`{{foreach}}\`\r
 \r
-Repeat a block of content once for each item in a list \u2014 the macro equivalent of a JavaScript \`forEach\`. The list is a single string that is split on a delimiter (\`,\` by default); each item is trimmed and blank items are dropped.\r
+Repeat a block of content once for each item in a list \u2014 the macro equivalent of a JavaScript \`forEach\`. The list is a single string that is split on a delimiter (\`,\` by default); each item is trimmed and blank items are dropped. Write \`{{#foreach}}\` to keep every item exactly as split, spacing and blank items included.\r
 \r
 \`\`\`\r
 {{foreach::apple, banana, cherry}}\r
@@ -20645,9 +21054,14 @@ Local variables live for the duration of a single evaluation pass. They are usef
 | \`{{decvar::key}}\` | Decrement by 1 (returns new value) | Variable name |\r
 | \`{{hasvar::key}}\` | Check if variable exists (\`"true"\` / \`"false"\`) | Variable name |\r
 | \`{{deletevar::key}}\` | Delete a variable | Variable name |\r
+| \`{{getvarkey::key::path}}\` | Read a value inside a JSON variable (empty when the variable or path is missing) | Variable name, optional [path](#json-paths) |\r
+| \`{{setvarkey::key::path::value}}\` | Write a value inside a JSON variable (returns nothing). Scoped form: \`{{setvarkey::key::path}}value{{/setvarkey}}\` | Name, path, value |\r
+| \`{{addvarkey::key::path::value}}\` | Add a number to a value inside a JSON variable (returns new value) | Name, path, number |\r
+| \`{{hasvarkey::key::path}}\` | Check if a path exists (\`"true"\` / \`"false"\`) | Name and path |\r
+| \`{{deletevarkey::key::path}}\` | Remove the value at a path | Name and path |\r
 | \`{{let::key::value}}...{{/let}}\` | Temporarily bind local variables for the scoped body, then restore previous values | Pairs of name/value arguments |\r
 \r
-Aliases: \`{{varexists}}\` for \`{{hasvar}}\`, \`{{flushvar}}\` for \`{{deletevar}}\`, \`{{withVar}}\` / \`{{scope}}\` for \`{{let}}\`\r
+Aliases: \`{{varexists}}\` for \`{{hasvar}}\`, \`{{flushvar}}\` for \`{{deletevar}}\`, \`{{withVar}}\` / \`{{scope}}\` for \`{{let}}\`, \`{{getvarindex}}\` for \`{{getvarkey}}\`, \`{{setvarindex}}\` for \`{{setvarkey}}\`\r
 \r
 **Shorthand:** \`.\` prefix \u2014 \`{{.myVar}}\`, \`{{.score = 100}}\`, \`{{.counter++}}\`\r
 \r
@@ -20674,6 +21088,11 @@ Chat-persisted variables are **automatically saved** to the chat after each gene
 | \`{{decchatvar::key}}\` | Decrement by 1 (returns new value) | Variable name |\r
 | \`{{haschatvar::key}}\` | Check if exists (\`"true"\` / \`"false"\`) | Variable name |\r
 | \`{{deletechatvar::key}}\` | Delete a persisted variable | Variable name |\r
+| \`{{getchatvarkey::key::path}}\` | Read a value inside a JSON variable (empty when the variable or path is missing) | Variable name, optional [path](#json-paths) |\r
+| \`{{setchatvarkey::key::path::value}}\` | Write a value inside a JSON variable (returns nothing). Scoped form: \`{{setchatvarkey::key::path}}value{{/setchatvarkey}}\` | Name, path, value |\r
+| \`{{addchatvarkey::key::path::value}}\` | Add a number to a value inside a JSON variable (returns new value) | Name, path, number |\r
+| \`{{haschatvarkey::key::path}}\` | Check if a path exists (\`"true"\` / \`"false"\`) | Name and path |\r
+| \`{{deletechatvarkey::key::path}}\` | Remove the value at a path | Name and path |\r
 \r
 Alias: \`{{flushchatvar}}\` for \`{{deletechatvar}}\`\r
 \r
@@ -20728,10 +21147,42 @@ Global variables persist across all chats for the current user. Useful for prefe
 | \`{{decgvar::key}}\` | Decrement by 1 (returns new value) | Variable name |\r
 | \`{{hasgvar::key}}\` | Check if exists (\`"true"\` / \`"false"\`) | Variable name |\r
 | \`{{deletegvar::key}}\` | Delete a global variable | Variable name |\r
+| \`{{getgvarkey::key::path}}\` | Read a value inside a JSON variable (empty when the variable or path is missing) | Variable name, optional [path](#json-paths) |\r
+| \`{{setgvarkey::key::path::value}}\` | Write a value inside a JSON variable (returns nothing). Scoped form: \`{{setgvarkey::key::path}}value{{/setgvarkey}}\` | Name, path, value |\r
+| \`{{addgvarkey::key::path::value}}\` | Add a number to a value inside a JSON variable (returns new value) | Name, path, number |\r
+| \`{{hasgvarkey::key::path}}\` | Check if a path exists (\`"true"\` / \`"false"\`) | Name and path |\r
+| \`{{deletegvarkey::key::path}}\` | Remove the value at a path | Name and path |\r
 \r
 Aliases: \`{{getglobalvar}}\`, \`{{setglobalvar}}\`, \`{{addglobalvar}}\`, \`{{incglobalvar}}\`, \`{{decglobalvar}}\`, \`{{hasglobalvar}}\`, \`{{gvarexists}}\`, \`{{flushgvar}}\`, \`{{flushglobalvar}}\`, \`{{deleteglobalvar}}\`\r
 \r
+Path aliases: \`{{getglobalvarkey}}\` / \`{{getglobalvarindex}}\` for \`{{getgvarkey}}\`, \`{{setglobalvarkey}}\` / \`{{setglobalvarindex}}\` for \`{{setgvarkey}}\`, \`{{addglobalvarkey}}\` for \`{{addgvarkey}}\`, \`{{hasglobalvarkey}}\` for \`{{hasgvarkey}}\`, \`{{deleteglobalvarkey}}\` for \`{{deletegvarkey}}\`\r
+\r
 **Shorthand:** \`$\` prefix \u2014 \`{{$theme}}\`, \`{{$theme = dark}}\`\r
+\r
+### Variable Paths\r
+\r
+The \`\u2026varkey\` macros above work inside a variable that holds [JSON](#json), so one variable can carry a whole structure \u2014 an inventory, a party roster, a set of quest flags \u2014 instead of many separate variables. They use the same [path syntax](#json-paths) as the JSON macros.\r
+\r
+\`\`\`\r
+{{setchatvar::party}}{"leader": "Aria", "members": [{"name": "Aria", "hp": 30}]}{{/setchatvar}}\r
+{{getchatvarkey::party::members[0].name}}        \u2014 "Aria"\r
+{{addchatvarkey::party::members[0].hp::-5}}      \u2014 "25"\r
+{{setchatvarkey::party::members[]}}{"name": "Bram", "hp": 24}{{/setchatvarkey}}\r
+{{haschatvarkey::party::members[1]}}             \u2014 "true"\r
+{{deletechatvarkey::party::members[0]}}          \u2014 removes Aria; Bram becomes members[0]\r
+\`\`\`\r
+\r
+- A variable that is missing or empty has no document yet. The first write creates it, along with any objects and arrays on the path: \`{{setchatvarkey::stats::str::12}}\` on an unset variable stores \`{"str":12}\`.\r
+- A variable that holds text that isn't valid JSON is never overwritten. The macro reports a diagnostic naming itself and leaves the variable alone. An empty variable name does the same.\r
+- Writes store compact JSON and type the value automatically \u2014 \`12\` is stored as a number, \`rope\` as a string. See [Writing Values](#writing-values).\r
+- \`add\u2026varkey\` treats a missing or \`null\` target as \`0\`. If the target is not a number (for example a string or an object), or the amount isn't a finite number, it reports a diagnostic, leaves the variable unchanged, and returns nothing.\r
+- Shorthand (\`{{.x}}\`, \`{{@x}}\`, \`{{$x}}\`, and the same forms in conditions) always reads or writes the whole variable. Use \`get\u2026varkey\` to read a single value by path.\r
+\r
+!!! note "Coming from SillyTavern"\r
+    - The \`getvarkey\` / \`getvarindex\` / \`getglobalvarkey\` / \`getglobalvarindex\` names and their \`set\u2026\` counterparts are accepted, but Lumiverse paths can reach nested values (\`party.members[0].hp\`) and written values are auto-typed.\r
+    - Lumiverse local variables (\`.\`) last for a single generation. The chat scope (\`@\`) is the persistent equivalent of SillyTavern's local variables, so use \`getchatvarkey\` / \`setchatvarkey\` where a SillyTavern preset expected a local value to stick around.\r
+    - The chat-scope path macros (\`getchatvarkey\`, \`setchatvarkey\`, \`addchatvarkey\`, \`haschatvarkey\`, \`deletechatvarkey\`) are Lumiverse additions.\r
+    - \`{{addvar}}\`, \`{{addchatvar}}\`, and \`{{addgvar}}\` stay numeric; they never append to text or arrays. To append, write to a \`[]\` path: \`{{setchatvarkey::log::[]::arrived at the temple}}\`.\r
 \r
 ### Variable Scope Summary\r
 \r
@@ -20791,6 +21242,203 @@ Style guidelines:\r
 Stay tight and respectful \u2014 no throat-clearing.\r
 {{/if}}\r
 \`\`\`\r
+\r
+---\r
+\r
+## JSON\r
+\r
+Read and edit JSON \u2014 structured data such as objects (\`{"hp": 30}\`) and arrays (\`["torch", "rope"]\`) \u2014 held in variables, produced by other macros, or written by the model into chat messages. Every JSON macro takes JSON text and returns text, so the family composes with variables, lists, and iteration. To work directly on a variable, use the [variable path macros](#variable-paths).\r
+\r
+| Macro | Aliases | Returns |\r
+|-------|---------|---------|\r
+| \`{{jsonGet::json::path}}\` | \`{{json_get}}\` | The value at \`path\`, or the whole value when \`path\` is omitted (see [Reading Values](#reading-values)). Empty when the path is missing |\r
+| \`{{jsonSet::json::path::value}}\` | \`{{json_set}}\` | The JSON with \`value\` written at \`path\`. Scoped form: \`{{jsonSet::json::path}}value{{/jsonSet}}\`. On any failure, the original JSON unchanged |\r
+| \`{{jsonDelete::json::path}}\` | \`{{json_delete}}\` | The JSON with the value at \`path\` removed (later array items move up). The original JSON when the path doesn't exist |\r
+| \`{{jsonHas::json::path}}\` | \`{{json_has}}\` | \`"true"\` / \`"false"\` \u2014 whether the path exists, even when its value is \`null\`, \`false\`, \`0\`, or \`""\` (condition-compatible) |\r
+| \`{{jsonKeys::json::path}}\` | \`{{json_keys}}\` | An object's keys, or an array's indexes (\`0, 1, 2\`), as a comma-separated list. Empty for any other value |\r
+| \`{{jsonLength::json::path}}\` | \`{{json_length}}\` | Number of array items, object keys, or string characters. \`0\` for any other value or a missing path |\r
+| \`{{jsonEscape::text}}\` | \`{{json_escape}}\` | \`text\` escaped for use inside a JSON string, without the surrounding quotes. Scoped form: \`{{jsonEscape}}text{{/jsonEscape}}\` |\r
+| \`{{jsonPretty::json}}\` | \`{{json_pretty}}\` | The JSON indented with two spaces, for display |\r
+| \`{{jsonBlock::text::index}}\` | \`{{json_block}}\` | The JSON inside the \`index\`-th valid \`<json>\u2026</json>\` block in \`text\` (0-based, default \`0\`, negative counts from the end). Empty when there is no such block |\r
+\r
+**Examples:**\r
+\r
+\`\`\`\r
+{{jsonGet::{{getchatvar::tracker}}::gold}}                    \u2014 "10"\r
+{{jsonSet::{{getchatvar::tracker}}::gold::25}}                \u2014 the tracker with gold set to 25 (not stored)\r
+{{jsonHas::{{getchatvar::tracker}}::flags.met_guard}}         \u2014 "true" / "false"\r
+{{jsonLength::{{getchatvar::tracker}}::inventory}}            \u2014 number of items\r
+{{jsonPretty::{{getchatvar::tracker}}}}                       \u2014 readable, indented copy\r
+{{jsonBlock::{{lastCharMessage}}}}                            \u2014 the JSON block in the last reply\r
+\`\`\`\r
+\r
+When the JSON input is invalid, the macro reports a diagnostic. \`jsonGet\`, \`jsonKeys\`, and \`jsonLength\` then return nothing, \`jsonHas\` returns \`"false"\`, and \`jsonSet\`, \`jsonDelete\`, and \`jsonPretty\` return their input unchanged.\r
+\r
+### JSON Paths\r
+\r
+A path picks one value inside JSON. Chain object keys with \`.\` and array positions with \`[n]\`:\r
+\r
+| Path | Selects |\r
+|------|---------|\r
+| \`gold\` | The \`gold\` key |\r
+| \`party[0].name\` | \`name\` of the first item in the \`party\` array |\r
+| \`items[-1]\` | The last item (negative positions count from the end) |\r
+| \`items.0\` | Same as \`items[0]\` |\r
+| \`["key.with.dots"]\` or \`['key']\` | A key written in quotes, which may contain \`.\`, \`[\`, or \`]\`. Inside the quotes, use \`\\"\`, \`\\'\`, and \`\\\\\` for a literal quote or backslash |\r
+| \`items[]\` | A new item appended to the end of \`items\` \u2014 only for writes, and only at the end of a path |\r
+| *(empty)* | The whole value |\r
+\r
+A segment that is a whole number (\`0\`, \`-1\`) selects an array position; on an object it is an ordinary key, so \`scores.2024\` reads the key \`"2024"\`. A quoted key is always an object key. Arrays answer only to positions, so \`items.name\` on an array is treated as missing. A path can have at most 64 segments; a path that breaks these rules is reported as invalid and nothing is changed.\r
+\r
+### Reading Values\r
+\r
+| Value at the path | Result |\r
+|-------------------|--------|\r
+| String | The text, without quotes |\r
+| Number or boolean | The value as text (\`42\`, \`true\`) |\r
+| \`null\`, or a missing path | Empty |\r
+| Object or array | Compact JSON |\r
+\r
+### Writing Values\r
+\r
+Values written by \`jsonSet\` and the \`set\u2026varkey\` macros are typed automatically. Surrounding spaces are ignored when checking whether a value is JSON; a value stored as text keeps them.\r
+\r
+| You write | Stored as |\r
+|-----------|-----------|\r
+| \`10\`, \`-2.5\` | Number |\r
+| \`true\`, \`false\` | Boolean |\r
+| \`null\` | \`null\` |\r
+| \`{"stage": 1}\`, \`["a", "b"]\` | Object or array |\r
+| \`"10"\` | The string \`10\` (use quotes to keep number-like text as a string) |\r
+| *(empty)* | An empty string |\r
+| Anything else, such as \`rope\` | A string |\r
+\r
+If a value starts with \`{\` or \`[\` but isn't valid JSON, it is stored as a string and a diagnostic says it looks like JSON but failed to parse. The usual cause is an inline argument that was cut short \u2014 see [Supplying JSON](#supplying-json).\r
+\r
+- Missing objects and arrays along the path are created: when the next segment is a number or \`[]\`, an array; otherwise, an object. A \`null\` along the path counts as missing, and so does a missing or empty document.\r
+- A write never passes through a string, number, or boolean: \`gold.copper\` fails when \`gold\` is \`10\`, and the JSON is left unchanged.\r
+- In arrays, writing at the position just past the last item appends. A position further out fails (arrays never get gaps), and a negative position must point at an existing item.\r
+- Deleting an array item moves the later items up. Deleting a path that doesn't exist changes nothing.\r
+\r
+### Supplying JSON\r
+\r
+An argument separated by \`::\` ends at the first \`}}\`, and \`::\` always starts a new argument, even inside JSON quotes. JSON typed straight into an argument therefore breaks as soon as it contains \`}}\` (any nested object at the end) or \`::\`. Bring JSON in another way:\r
+\r
+- **Scoped body** \u2014 the text between the opening and closing tags is ordinary text, so braces are safe there. Macros inside the body run before the value is used.\r
+\r
+    \`\`\`\r
+    {{setchatvar::tracker}}{"gold": 10, "quests": {"temple": {"stage": 1}}}{{/setchatvar}}\r
+    {{setchatvarkey::tracker::quests.temple}}{"stage": 2, "done": false}{{/setchatvarkey}}\r
+    \`\`\`\r
+\r
+- **A variable, through a nested macro** \u2014 text produced by a nested macro is passed as one argument, whatever it contains: \`{{jsonGet::{{getchatvar::tracker}}::quests.temple.stage}}\`.\r
+- **Simple inline values** \u2014 numbers, \`true\`, plain words, and flat JSON with no \`}}\` or \`::\` are fine inline: \`{{setchatvarkey::tracker::tags::["calm","wary"]}}\`.\r
+\r
+For example, \`{{setchatvarkey::tracker::quests.temple::{"stage": {"n": 1}}}}\` ends at the first \`}}\`, so the value is cut off, stored as text, and reported as failed JSON. Use the scoped form instead.\r
+\r
+JSON sources and written values may also be wrapped in a single \`<json>\u2026</json>\` block (tags in any letter case, surrounding whitespace allowed). The wrapper is removed before parsing, so a block copied out of a message works as-is.\r
+\r
+### JSON Is Data\r
+\r
+Text stored inside JSON strings is data, never a macro. When a JSON macro reads a string value, any \`{{\u2026}}\` macro text inside it \u2014 for example a \`{{char}}\` the model wrote into a \`<json>\` block \u2014 appears exactly as written and never runs, either then or in a later evaluation pass.\r
+\r
+When the JSON comes straight from a variable getter (\`{{getvar::x}}\`, \`{{getchatvar::x}}\`, \`{{getgvar::x}}\`, or the \`.x\`, \`@x\`, and \`$x\` shorthand) or from a message macro (\`{{lastMessage}}\`, \`{{lastUserMessage}}\`, \`{{lastCharMessage}}\`, \`{{rejectedSwipe}}\`, \`{{input}}\`, \`{{messageAt::n}}\`, and the Loom equivalents), the JSON macro reads the stored text directly instead of evaluating it, so macro text anywhere in that data never runs. Any other nested macro is evaluated first, as usual.\r
+\r
+When Lumiverse writes JSON, \`{\`, \`}\`, and \`<\` inside string values are written as \`\\u007b\`, \`\\u007d\`, and \`\\u003c\`. The result is still standard JSON \u2014 any JSON reader turns these back into the original characters \u2014 and it can pass through later macro passes without anything inside it running. \`{{jsonEscape}}\` uses the same encoding, which makes it the safe way to place arbitrary text inside a JSON string you build yourself:\r
+\r
+\`\`\`\r
+{{setchatvarkey::tracker::last_words}}"{{jsonEscape::{{input}}}}"{{/setchatvarkey}}\r
+\`\`\`\r
+\r
+Because the value is quoted, it is always stored as a string, even when the user's message is a number or starts with \`{\`. Use the inline form shown here: the body of the scoped form, \`{{jsonEscape}}\u2026{{/jsonEscape}}\`, is evaluated like any other template first.\r
+\r
+Plain text read out of JSON keeps its braces literal from then on, including when a resolved chat message is saved and used in later history. String operations such as \`upper\`, \`lower\`, \`len\`, and \`substr\` work on the actual text while keeping macro-looking data inert; legacy \`<user>\` and \`<char>\` tags in plain text are replaced like anywhere else.\r
+\r
+### Limits\r
+\r
+- JSON text and written values are limited to 1,000,000 characters; larger input is rejected with a diagnostic.\r
+- Paths are limited to 64 segments.\r
+- \`{{jsonKeys}}\` lists at most 1000 keys, like other list macros, and reports a diagnostic when it cuts the list short.\r
+- Every write reserializes the whole document as compact JSON: the original spacing and indentation are not kept. Use \`{{jsonPretty}}\` when you want a readable copy.\r
+- Numbers follow standard double-precision rules: \`1.0\` is stored as \`1\`, and whole numbers larger than 9,007,199,254,740,991 may lose precision. Numbers outside that range, such as \`1e999\`, are rejected rather than silently turned into \`null\`.\r
+- Object keys keep the order they were added in, except keys that look like non-negative whole numbers (\`"2"\`, \`"10"\`), which always come first in ascending order.\r
+- Finding \`<json>\` blocks stops after 256 \`<json>\` tags that turn out not to start a valid block. \`{{jsonBlock}}\` doesn't look past that point, and a chat message that reaches the limit is kept exactly as written, with none of its macros evaluated.\r
+\r
+### \`<json>\` Blocks in Chat Messages\r
+\r
+Valid JSON inside \`<json>\u2026</json>\` in a chat message is kept exactly as written. Macros inside it don't run, \`<user>\`/\`<char>\` placeholders aren't replaced, and formatting cleanup skips it. The block reaches the model unchanged unless a regex script changes it \u2014 regex scripts and scoped regex macros still see the real text, so they can hide or remove the block as usual.\r
+\r
+A block that isn't valid JSON yet, such as \`<json>{{getchatvar::state}}</json>\`, is filled in normally. Preset and lorebook text work as before; this protection applies only to chat message content. If malformed variable shorthand before a block makes macro boundaries uncertain, the whole message is kept as written without running macros. The opening tag must be exactly \`<json>\` (any letter case, no attributes). A block ends at the first \`</json>\` outside a JSON string, so strings inside the JSON may mention \`<json>\` or \`</json>\` freely.\r
+\r
+The protection covers blocks in the message's own text. A block written inside a macro's arguments, such as \`{{setchatvar::state::<json>\u2026</json>}}\`, belongs to that macro and follows the normal macro rules, so a \`}}\` inside it ends the macro early. To store a block from a message, use a scoped setter instead: \`{{setchatvar::state}}<json>{"hp": 3}</json>{{/setchatvar}}\`. The variable then holds the block with the same escaping JSON macros use, so reading it later never runs macro text from it.\r
+\r
+Quoting a message with \`{{lastCharMessage}}\` or a similar macro works as before: the quoted text is a template, so macros in it run. To read a block's JSON as data, use \`{{jsonBlock}}\`, which reads the stored message directly:\r
+\r
+\`\`\`\r
+{{jsonBlock::{{lastCharMessage}}}}            \u2014 first valid block in the last reply\r
+{{jsonBlock::{{lastCharMessage}}::-1}}        \u2014 last valid block\r
+\`\`\`\r
+\r
+### Example: Story Tracker\r
+\r
+One chat variable holds the whole state.\r
+\r
+**Create it once**, at the top of a preset block:\r
+\r
+\`\`\`\r
+{{unless::{{haschatvar::tracker}}}}{{setchatvar::tracker}}{"gold": 10, "inventory": ["torch"], "quests": {}, "flags": {}}{{/setchatvar}}{{/unless}}\r
+\`\`\`\r
+\r
+**Read values:**\r
+\r
+\`\`\`\r
+Gold: {{getchatvarkey::tracker::gold}}\r
+Carrying {{jsonLength::{{getchatvar::tracker}}::inventory}} items; the newest is {{getchatvarkey::tracker::inventory[-1]}}.\r
+\`\`\`\r
+\r
+**Update it:**\r
+\r
+\`\`\`\r
+{{setchatvarkey::tracker::inventory[]::rope}}\r
+{{setchatvarkey::tracker::quests.temple}}{"stage": 1, "done": false}{{/setchatvarkey}}\r
+{{setchatvarkey::tracker::flags.met_guard::true}}\r
+Gold after the toll: {{addchatvarkey::tracker::gold::-3}}\r
+\`\`\`\r
+\r
+\`rope\` is appended as a string, the quest is stored as an object, \`true\` becomes a boolean, and \`addchatvarkey\` prints the new total (\`7\`).\r
+\r
+**List the quests:**\r
+\r
+\`\`\`\r
+{{foreach::{{jsonKeys::{{getchatvar::tracker}}::quests}}::q}}\r
+- {{.q}}: stage {{getchatvarkey::tracker::quests.{{.q}}.stage}}\r
+{{/foreach}}\r
+\`\`\`\r
+\r
+**Branch on it:**\r
+\r
+\`\`\`\r
+{{if::{{haschatvarkey::tracker::quests.temple}}}}The temple quest is underway.{{/if}}\r
+{{if::{{getchatvarkey::tracker::flags.met_guard}}}}The guard recognizes {{user}}.{{/if}}\r
+\`\`\`\r
+\r
+\`haschatvarkey\` checks whether a value exists at all; reading the value tests what it is, so a stored \`false\` is falsy.\r
+\r
+**Sync from the model's reply.** Ask the model to end each reply with the updated tracker:\r
+\r
+\`\`\`\r
+End every reply with the updated tracker inside <json></json> tags. Current tracker:\r
+<json>{{getchatvar::tracker}}</json>\r
+\`\`\`\r
+\r
+Then, before any block that reads the tracker, copy the reply's block back into the variable:\r
+\r
+\`\`\`\r
+{{setvar::synced}}{{jsonBlock::{{lastCharMessage}}}}{{/setvar}}\r
+{{if::{{len::{{.synced}}}}}}{{setchatvar::tracker::{{.synced}}}}{{/if}}\r
+\`\`\`\r
+\r
+The \`{{if}}\` keeps the current tracker when the reply has no valid block. Add a regex script if you want to hide the block from the chat display.\r
 \r
 ---\r
 \r
@@ -20867,7 +21515,9 @@ Long-term memory and retrieval macros from Lumiverse's memory systems.\r
 | \`{{memories}}\` | \`{{longTermMemory}}\`, \`{{chatMemory}}\`, \`{{ltm}}\` | Formatted memory chunks with header | Optional: \`{{memories::count}}\` to override chunk count |\r
 | \`{{memoriesActive}}\` | \u2014 | \`"yes"\` / \`"no"\` \u2014 whether memories were retrieved (condition-compatible) | \u2014 |\r
 | \`{{memoriesCount}}\` | \u2014 | Number of memory chunks retrieved | \u2014 |\r
-| \`{{memoriesRaw}}\` | \u2014 | Raw memory chunks without header formatting | Optional: \`{{memoriesRaw::count}}\` to override chunk count |\r
+| \`{{memoriesRaw}}\` | \u2014 | Chunks using Chunk Template and Chunk Separator, without Header Template | Optional: \`{{memoriesRaw::count}}\` to limit chunk count |\r
+\r
+Configure Chat Memory in **Settings \u2192 Advanced \u2192 Long-Term Chat Memory**, and enable **Vectorise chat messages** in **Settings \u2192 Embeddings**. Cortex is optional. \`{{memories}}\` can return combined Cortex context when available; \`{{memoriesCount}}\` can be 0 even when graph context is present. Count arguments limit already retrieved chunks; they do not run a new search. See [Long-Term Memory](../chatting/memory.md) for injection strategies and formatting.\r
 \r
 ### Databank Retrieval\r
 \r
@@ -20890,6 +21540,8 @@ Long-term memory and retrieval macros from Lumiverse's memory systems.\r
 | \`{{cortexActive}}\` | \`"yes"\` / \`"no"\` \u2014 whether Memory Cortex returned results | \u2014 |\r
 | \`{{entityCount}}\` | Number of active entities in context | \u2014 |\r
 | \`{{characterColors}}\` | Character speech / thought / narration color instructions | \u2014 |\r
+\r
+Cortex macros read this prompt's available Cortex context, not all saved records. \`{{cortexActive}}\` reports content availability rather than the master switch; \`{{entityFacts::name}}\` looks within retrieved entities. Memory content macros own placement and suppress combined automatic fallback, including when a surrounding condition resolves false. Use \`{{memories}}\` for combined recall or individual macros for a custom layout; combining both can repeat content. See [Memory Cortex](../chatting/memory-cortex.md#put-cortex-in-the-prompt).\r
 \r
 ---\r
 \r
@@ -20936,6 +21588,17 @@ Alias: \`{{lumiaCouncilQuirks}}\` for \`{{lumiaQuirks}}\`\r
 | \`{{lumiaOOCErotic}}\` | Mirror & Synapse erotic OOC prompt |\r
 | \`{{lumiaOOCEroticBleed}}\` | Narrative Rupture mid-narrative OOC prompt |\r
 | \`{{lumiaOOCTrigger}}\` | OOC trigger countdown or activation message |\r
+\r
+---\r
+\r
+## MCP\r
+\r
+| Macro | Description |\r
+|-------|-------------|\r
+| \`{{mcpTools}}\` | Callable MCP function names and descriptions available for this generation |\r
+| \`{{mcpToolsActive}}\` | \`"yes"\` / \`"no"\` \u2014 whether MCP tools are available |\r
+\r
+Place \`{{mcpTools}}\` in a preset block to choose its role, position, and depth. Native function definitions are sent with the model request automatically. Connect the server in **Settings \u2192 MCP Servers** and enable **Enable Function Calling** in the active preset. These macros return empty text / \`"no"\` when function calling is disabled or the generation is an impersonation.\r
 \r
 ---\r
 \r
@@ -20989,6 +21652,10 @@ These macros return condition-friendly truthy/falsy values (such as \`"yes"\` / 
 | \`{{hasvar::key}}\` | Local variable exists |\r
 | \`{{haschatvar::key}}\` | Chat-persisted variable exists |\r
 | \`{{hasgvar::key}}\` | Global variable exists |\r
+| \`{{hasvarkey::key::path}}\` | Path exists in a local JSON variable |\r
+| \`{{haschatvarkey::key::path}}\` | Path exists in a chat-persisted JSON variable |\r
+| \`{{hasgvarkey::key::path}}\` | Path exists in a global JSON variable |\r
+| \`{{jsonHas::json::path}}\` | Path exists in the JSON |\r
 | \`{{hasPromptVar::name}}\` | A prompt variable is available |\r
 | \`{{hasTag::name}}\` | Character has the given tag (case-insensitive) |\r
 | \`{{var::name::ison::keyA,keyB}}\` | All listed option keys are selected on a multi-select prompt variable |\r
@@ -21555,6 +22222,8 @@ Removes tokens whose probability is below a minimum threshold relative to the to
 \r
 ## Repetition Control\r
 \r
+Frequency, presence, and repetition penalties are disabled when unset or set to **0**. Repetition penalty is also disabled at **1**, its neutral multiplier. Disabled penalties are omitted from generation requests, including values supplied through a custom body. Frequency and presence penalties remain active at **1**.\r
+\r
 !!! warning "Limited provider support"\r
     Most major providers (Anthropic, Google, DeepSeek, and many others) **do not support** frequency, presence, or repetition penalties. These parameters are silently ignored if the provider doesn't implement them. They primarily work with OpenAI and OpenAI-compatible APIs. Only use these if you know your provider supports them.\r
 \r
@@ -21578,7 +22247,8 @@ Penalizes tokens that have appeared *at all*, regardless of frequency. Encourage
 \r
 A multiplier penalty on repeated tokens. Some providers use this instead of frequency/presence penalties.\r
 \r
-- **1.0** \u2014 No penalty\r
+- **0** \u2014 Disabled; omitted from the request\r
+- **1.0** \u2014 Disabled; omitted from the request\r
 - **1.05 - 1.15** \u2014 Mild to moderate penalty\r
 \r
 !!! warning "Don't stack penalties"\r
@@ -21862,6 +22532,197 @@ If no preset is linked to your connection, or the preset has no blocks, Lumivers
 \r
 Each connection can optionally link to a preset. When you generate using that connection, its linked preset is used for assembly. You can also switch presets independently of connections.\r
 `,
+    "reference/environment-variables.md": `---\r
+title: Environment Variables (.env)\r
+---\r
+\r
+# Environment Variables (.env)\r
+\r
+The \`.env\` file controls how your Lumiverse server starts: its port, data location, networking, runtime behavior, and optional integrations. Most users can keep the setup wizard's defaults. Change only the settings you need.\r
+\r
+API connections, presets, and normal account preferences belong in Lumiverse's settings. Launcher options such as \`-Build\` and \`--build\` are command-line flags, not \`.env\` entries; see [Start Script Options](../getting-started/installation.md#start-script-options).\r
+\r
+## Find and edit the file\r
+\r
+Your \`.env\` is in the Lumiverse folder, beside \`start.ps1\`, \`start.sh\`, and \`.env.example\`. Open a terminal in that folder:\r
+\r
+=== "Windows"\r
+\r
+    \`\`\`powershell\r
+    .\\start.ps1 -EditEnv\r
+    \`\`\`\r
+\r
+    This uses your configured editor, or Notepad by default.\r
+\r
+=== "macOS / Linux / Termux"\r
+\r
+    \`\`\`bash\r
+    ./start.sh --edit-env\r
+    \`\`\`\r
+\r
+    On Termux, the editor prefers nano. If needed, install it with \`pkg install nano\`.\r
+\r
+You can also run \`bun run edit-env\`. If \`.env\` is missing, the editor offers to create it from \`.env.example\`.\r
+\r
+### How entries work\r
+\r
+Use one \`NAME=value\` entry per line. Lines starting with \`#\` are comments: remove the \`#\` to enable an example setting. Edit an existing entry instead of adding a second copy of the same name.\r
+\r
+\`\`\`dotenv\r
+# Change the server port\r
+PORT=8080\r
+\r
+# Temporary recovery from broken custom styling\r
+LUMIVERSE_SAFE_THEME=true\r
+\`\`\`\r
+\r
+Save the file and restart Lumiverse. Open \`http://localhost:8080\` for the example above. Remove \`LUMIVERSE_SAFE_THEME\` and restart when you want to restore saved styling.\r
+\r
+Boolean formats differ by setting. Use the values shown in the tables; \`1\`, \`true\`, and \`yes\` are not interchangeable for every option. Durations ending in \`_MS\` are milliseconds, and sizes ending in \`_BYTES\` are bytes.\r
+\r
+Keep \`.env\` private when it contains secrets. Preserve it alongside your data backup when it contains custom paths or encryption settings. See [Termux backup and reinstall](termux-troubleshooting.md#reinstall-while-preserving-your-data) for an example.\r
+\r
+## Server and data\r
+\r
+| Variable | Default when unset | What it changes |\r
+|----------|--------------------|-----------------|\r
+| \`PORT\` | \`7860\` | Server port; integer from \`1\` to \`65535\`. |\r
+| \`DATA_DIR\` | \`./data\` | Directory containing the database, identity, assets, and other server data. A relative path resolves from the server's working directory. Changing it selects another data location; it does not move your existing files. |\r
+| \`FRONTEND_DIR\` | Unset in the backend | Path to the built frontend. The start scripts supply it, and the desktop runner can find an existing bundle. Leave it alone for normal launches. |\r
+| \`LUMIVERSE_SAFE_THEME\` | \`false\` | Set \`true\` to suppress saved custom CSS and component overrides without deleting them. Also accepts \`1\`, \`yes\`, or \`on\`. |\r
+\r
+## Network and authentication\r
+\r
+### Native iOS push\r
+\r
+These optional values configure Lumiverse as the provider for Apple's APNs\r
+service. They require an enrolled Apple Developer Program team and a push-capable\r
+iOS app signature. Keep the private key on the server and restart after changes.\r
+\r
+| Variable | Default when unset | What it changes |\r
+|----------|--------------------|-----------------|\r
+| \`APNS_TEAM_ID\` | Unset | The 10-character Apple team ID that owns the app and APNs key. |\r
+| \`APNS_KEY_ID\` | Unset | The 10-character identifier of the APNs authentication key. |\r
+| \`APNS_PRIVATE_KEY_PATH\` | Unset | Path to the private \`.p8\` signing key. All three signing values are required to enable delivery. |\r
+| \`APNS_BUNDLE_ID\` | \`chat.lumiverse.ios\` | App bundle identifier authorized by that key. |\r
+\r
+### Server access\r
+\r
+Prefer **Settings \u2192 Operator \u2192 Trusted Hostnames** for a specific public address. For a complete HTTPS phone-access example, see [Remote Access with Tailscale](../getting-started/tailscale.md).\r
+\r
+| Variable | Default when unset | What it changes |\r
+|----------|--------------------|-----------------|\r
+| \`TRUSTED_ORIGINS\` | Localhost, \`127.0.0.1\`, and detected LAN IPv4 origins at \`PORT\` | Comma-separated allowed origins, such as \`http://localhost:7860,https://app.example.com\`. Include the scheme and any non-default port. Operator-configured trusted hosts also contribute allowed origins. |\r
+| \`TRUST_ANY_ORIGIN\` | \`false\` | Set exactly \`true\` to enable broad Remote Mode. Allows any origin; use named trusted hosts when you only need a particular address. |\r
+| \`TRUSTED_PROXIES\` | Empty | Comma-separated proxy IPs or CIDRs allowed to supply forwarded host/protocol headers. For a local HTTP proxy, for example, \`127.0.0.1\`. Without this list, forwarded host/protocol headers are not trusted; client-IP handling retains its private-peer fallback. |\r
+| \`AUTH_BASE_URL\` | Approved request origin | Optional fixed origin for authentication/OAuth, such as \`https://app.example.com\`. Normally use Trusted Hostnames instead. |\r
+| \`AUTH_SECRET\` | Derived from the identity file | Explicit authentication signing secret. Normally leave unset. |\r
+| \`ENCRYPTION_KEY\` | Identity-file key | Legacy/manual encryption-key override. Preserve an existing value during migration; do not invent a new one for a working install. |\r
+| \`OWNER_USERNAME\` | \`admin\` | Owner display name/fallback; the actual account username is stored in owner credentials. |\r
+| \`OWNER_PASSWORD\` | Unset | Legacy credential migration or initial Docker provisioning. Normal local setup writes hashed credentials through the wizard. To reset a password, use the launcher or \`bun run reset-password\`. |\r
+\r
+!!! note "Unset does not mean unrestricted"\r
+    Leaving \`TRUSTED_ORIGINS\` unset uses the local/LAN defaults above. It does not enable \`TRUST_ANY_ORIGIN\`.\r
+\r
+## Direct HTTPS certificates\r
+\r
+Leave these unset when Tailscale Serve or another reverse proxy handles HTTPS. See [Direct TLS and custom certificates](../getting-started/installation.md#direct-tls-and-custom-certificates) for certificate examples and Docker mounts.\r
+\r
+| Variable | Default | What it changes |\r
+|----------|---------|-----------------|\r
+| \`LUMIVERSE_TLS_CERT_FILE\` | Unset | PEM certificate/full-chain path. Set together with \`LUMIVERSE_TLS_KEY_FILE\`; the backend listener becomes HTTPS-only. |\r
+| \`LUMIVERSE_TLS_KEY_FILE\` | Unset | Matching PEM private-key path. |\r
+| \`LUMIVERSE_TLS_KEY_PASSPHRASE_FILE\` | Unset | File containing the passphrase for an encrypted private key. |\r
+| \`LUMIVERSE_TLS_CONFIG_FILE\` | Unset | JSON manifest for certificate selection by hostname/SNI. Use instead of the other three TLS variables; they cannot be combined. |\r
+\r
+## Memory and background work\r
+\r
+These are optional tuning or troubleshooting settings. Keep defaults unless you have a reason to change them.\r
+\r
+| Variable | Default | Values and behavior |\r
+|----------|---------|---------------------|\r
+| \`LUMIVERSE_SMOL\` | Enabled | Launcher's lower-memory Bun mode. Set \`false\`, \`0\`, \`off\`, or \`no\` to disable; other values keep it enabled. Applies to server launches through the start scripts or runner. |\r
+| \`LUMIVERSE_PROMPT_ASSEMBLY_WORKER\` | Enabled when compatible | Set exactly \`false\` to assemble prompts in the main process. Incompatible extension hooks can also cause an automatic fallback. |\r
+| \`LUMIVERSE_PROMPT_ASSEMBLY_WORKERS\` | Requests \`2\` | Positive worker count, capped by available CPU parallelism. |\r
+| \`LUMIVERSE_PROMPT_ASSEMBLY_IDLE_MS\` | \`600000\` (10 minutes) | Worker idle timeout, clamped to \`30000\`\u2013\`1800000\` (30 seconds\u201330 minutes). |\r
+| \`LUMIVERSE_CORTEX_WORKER\` | Enabled | Set exactly \`false\` to disable the Memory Cortex warm worker. |\r
+| \`LUMIVERSE_CHAT_VECTORIZATION_SUBPROCESS\` | Disabled on Windows; enabled elsewhere when available | Set \`true\` to opt in on Windows or \`false\` to disable. Failures can fall back to in-process execution. |\r
+| \`LUMIVERSE_LANCEDB_STARTUP_MAINTENANCE\` | Enabled | Deferred LanceDB maintenance after startup. Set \`false\`, \`0\`, \`no\`, or \`off\` to disable; maintenance can then be run from Operator. |\r
+| \`LUMIVERSE_SQLITE_MMAP_ENABLED\` | \`false\` | Set exactly \`true\` to opt into SQLite memory-mapped I/O. Normally leave disabled: filesystem or disk-space failures can crash the process. |\r
+| \`LUMIVERSE_SQLITE_MMAP_DISABLED\` | Unset | Legacy kill switch: exactly \`true\` overrides the mmap opt-in. |\r
+| \`LUMIVERSE_INLINE_TOOL_MAX_ROUNDS\` | \`3\` | Maximum inline tool rounds per generation; a number of at least \`1\`, rounded down. |\r
+\r
+## Disk health\r
+\r
+See [Disk Health & SMART](../settings/disk-health.md) for monitoring setup. Disk-pressure warnings require **both** thresholds to be crossed. The environment supplies startup defaults until the owner saves overrides in Operator.\r
+\r
+| Variable | Default | Values and behavior |\r
+|----------|---------|---------------------|\r
+| \`LUMIVERSE_DISK_WARNING_USAGE_PERCENT\` | \`90\` percent | Usage threshold. Accepts a ratio greater than \`0\` through \`1\`, or a percentage greater than \`1\` through \`100\`. |\r
+| \`LUMIVERSE_DISK_WARNING_MIN_FREE_BYTES\` | \`107374182400\` (100 GiB) | Free-space threshold; positive byte count. |\r
+| \`LUMIVERSE_SMARTCTL_PATH\` | Auto-detected | Explicit path to the \`smartctl\` executable. |\r
+| \`LUMIVERSE_SMART_MONITOR\` | Enabled | Set exactly \`false\` to disable scheduled SMART checks. Requires available tooling and access to the device. |\r
+| \`LUMIVERSE_SMARTCTL_AUTO_INSTALL\` | Disabled | Set exactly \`true\` for unattended startup installation through a supported package manager. Does not invoke sudo or ask for credentials. |\r
+\r
+## Extension storage\r
+\r
+These settings govern Spindle's ephemeral storage pools. They are byte limits, not counts of extensions.\r
+\r
+| Variable | Default | Values and behavior |\r
+|----------|---------|---------------------|\r
+| \`SPINDLE_EPHEMERAL_GLOBAL_MAX_BYTES\` | \`524288000\` (500 MiB) | Total ephemeral storage limit; positive integer. |\r
+| \`SPINDLE_EPHEMERAL_EXTENSION_DEFAULT_MAX_BYTES\` | \`52428800\` (50 MiB) | Default per-extension limit; positive integer. |\r
+| \`SPINDLE_EPHEMERAL_EXTENSION_MAX_OVERRIDES\` | Empty | Comma-separated overrides in \`extension.id:bytes\` format. |\r
+| \`SPINDLE_EPHEMERAL_RESERVATION_TTL_MS\` | \`600000\` (10 minutes) | Storage reservation lifetime; positive integer in milliseconds. |\r
+\r
+\`\`\`dotenv\r
+SPINDLE_EPHEMERAL_EXTENSION_MAX_OVERRIDES=example.extension:104857600\r
+\`\`\`\r
+\r
+Replace \`example.extension\` with the installed extension's actual identifier.\r
+\r
+## Vector database overrides\r
+\r
+Normally configure this through Operator. Setting \`LUMIVERSE_VECTOR_STORE_PROVIDER\` overrides the stored provider and connection and makes those fields read-only in the Operator UI. Saved runtime tuning remains effective. Provider credentials here are secrets.\r
+\r
+| Variable | Default | What it changes |\r
+|----------|---------|-----------------|\r
+| \`LUMIVERSE_VECTOR_STORE_PROVIDER\` | Stored configuration | Select \`lancedb\`, \`qdrant\`, or \`milvus\`. Leave unset to use the UI configuration. |\r
+| \`LUMIVERSE_QDRANT_URL\` | Empty | Qdrant server URL when using that provider. |\r
+| \`LUMIVERSE_QDRANT_API_KEY\` | Empty | Optional Qdrant authentication key. |\r
+| \`LUMIVERSE_MILVUS_ADDRESS\` | Empty | Milvus server address. |\r
+| \`LUMIVERSE_MILVUS_DATABASE\` | Server default | Milvus database shared by runtime and maintenance tools. |\r
+| \`LUMIVERSE_MILVUS_USERNAME\` | Empty | Milvus username. |\r
+| \`LUMIVERSE_MILVUS_PASSWORD\` | Empty | Milvus password. |\r
+| \`LUMIVERSE_MILVUS_SSL\` | \`false\` | Set exactly \`true\` for a TLS connection to Milvus. |\r
+| \`LUMIVERSE_MILVUS_CONNECT_TIMEOUT_MS\` | Provider default | Positive connection timeout in milliseconds. |\r
+| \`LUMIVERSE_MILVUS_REQUEST_TIMEOUT_MS\` | Provider default | Non-negative request timeout in milliseconds; \`0\` is accepted. |\r
+| \`LUMIVERSE_MILVUS_FLUSH_POLICY\` | \`per_write\` | Set \`manual\` to flush during explicit maintenance, using Strong reads for visibility. A policy saved in Operator takes precedence. Validate with the [Milvus maintenance tools](../settings/milvus-maintenance.md) before enabling. |\r
+\r
+## Migration and remote files\r
+\r
+Use [Settings \u2192 Migration](../getting-started/installation.md#migrating-from-sillytavern) for an interactive import. The startup migration variables below are intended for Docker's one-time import flow.\r
+\r
+| Variable | Default | What it changes |\r
+|----------|---------|-----------------|\r
+| \`LUMIVERSE_ST_MIGRATE\` | \`false\` | Set exactly \`true\` to enable startup SillyTavern migration. |\r
+| \`SILLYTAVERN_PATH\` | \`./data/SillyTavern\` | Source data path visible to the server/container. |\r
+| \`SILLYTAVERN_TARGET_USER\` | \`default-user\` | SillyTavern user directory to import. |\r
+| \`SILLYTAVERN_MIGRATION_TARGET\` | \`5\` | Import scope: \`1\` characters, \`2\` world books, \`3\` personas, \`4\` characters and chats, \`5\` everything. Clamped to \`1\`\u2013\`5\`. |\r
+| \`LUMIVERSE_FORCE_NEW_MIGRATION\` | \`false\` | Exactly \`true\` re-runs startup migration even after a completed import. |\r
+| \`LUMIVERSE_ENABLE_SFTP\` | Disabled | \`1\` or \`true\` enables probing the optional SFTP source. Only enable on a runtime that can load its native dependency; unsupported Bun builds can crash on import. Local and other migration sources do not require it. |\r
+| \`LUMIVERSE_ST_MIGRATION_SUBPROCESS\` | Enabled | Exactly \`false\` disables migration subprocess execution for troubleshooting. |\r
+| \`LUMIVERSE_REMOTE_FILE_MAX_BYTES\` | \`104857600\` (100 MiB) | Positive remote-file size cap for guarded fetches. |\r
+| \`LUMIVERSE_REMOTE_FETCH_TIMEOUT_MS\` | \`30000\` (30 seconds) | Positive per-request timeout for remote HTTP file providers. |\r
+\r
+## Other optional integrations\r
+\r
+| Variable | Default | What it changes |\r
+|----------|---------|-----------------|\r
+| \`POLLINATIONS_APP_KEY\` | Built-in publishable app key | Per-instance Pollinations BYOP publishable app-key override. |\r
+\r
+This reference covers operator configuration rather than variables supplied internally by launchers, child processes, tests, or developer diagnostics. The checked-in \`.env.example\` is a starter template; a supported setting does not have to appear in that template to work.\r
+`,
     "reference/glossary.md": `---\r
 title: Glossary\r
 ---\r
@@ -21956,7 +22817,7 @@ Key terms used throughout Lumiverse and these guides.\r
 ## I\r
 \r
 **Interlink**\r
-: A live, bidirectional link between two chats' Memory Cortex state. Each chat sees the other's entities and relationships in real time.\r
+: A live link to another chat's evolving Memory Cortex state, rather than a frozen vault snapshot. Links can be directional or bidirectional and can share entities, relationships, and optionally chunks. See [Vaults & Interlinks](../chatting/memory-cortex.md#vaults-interlinks).\r
 \r
 ## L\r
 \r
@@ -22155,11 +23016,198 @@ The Command Palette is the fastest way to navigate Lumiverse. It can:\r
 \r
 ## Tips\r
 \r
+### Custom desktop bindings\r
+\r
+Open **Settings \u2192 Key Bindings** in the desktop frontend. Choose a desktop action,\r
+application command, or command registered by a Spindle extension. Record a shortcut\r
+(or choose the keys manually), add it, and select **Save Bindings**.\r
+\r
+**F13\u2013F24** can be bound on their own or with modifiers, including keys sent by\r
+macro pads. Other keys require **Control**, **Alt/Option**, or **Command/Super**.\r
+\r
+Bindings use app-focused mode by default. Enable **Global key bindings** once\r
+with desktop confirmation, then choose **Global** for each action you want to\r
+trigger while Lumiverse is in the background. You can configure and change all\r
+bindings in the frontend. Extensions can also include a binding editor directly\r
+in their own panel or settings. No custom shortcuts are enabled by\r
+default. Saving reports duplicate combinations and OS registration conflicts.\r
+Remove a binding and save to free its shortcut. Bindings persist across restarts.\r
+Disabling global key bindings changes the current account's shortcuts and shared\r
+desktop actions to app-focused mode.\r
+\r
+Application and extension commands require the integrated browser to remain open\r
+and signed in, and keep their normal chat/page restrictions. They belong to the\r
+selected instance and account; disabled extensions cannot receive triggers. The\r
+desktop's **Show / Hide Lumiverse** action keeps the browser open while hiding it.\r
+Global bindings work on macOS, Windows and Linux X11. Native Wayland sessions\r
+currently support app-focused bindings only.\r
+\r
 !!! tip "Command Palette is your friend"\r
     Almost everything in Lumiverse can be reached through the Command Palette. Learn to use it and you'll navigate the app much faster than clicking through menus.\r
 \r
 !!! tip "Queue vs send"\r
     Queueing (**Cmd/Ctrl + Enter**) stacks your message onto the next generation instead of starting one immediately. Useful when the AI is mid-stream and you want to "buffer" your next input without interrupting.\r
+`,
+    "reference/termux-troubleshooting.md": `---\r
+title: Termux Troubleshooting\r
+---\r
+\r
+# Termux Troubleshooting\r
+\r
+Start with the [Android / Termux walkthrough](../getting-started/android-installation.md). Run commands one at a time and keep the first error message: it helps distinguish runtime problems from a failed frontend build.\r
+\r
+## Package or mirror errors\r
+\r
+In Termux, run \`termux-change-repo\`, select a working mirror, then retry:\r
+\r
+\`\`\`bash\r
+pkg update\r
+pkg upgrade\r
+\`\`\`\r
+\r
+Use a consistent Termux installation source and avoid mixing add-ons from different sources. See the [official installation documentation](https://github.com/termux/termux-app#installation).\r
+\r
+## Bun, glibc, or "Bad system call" errors\r
+\r
+The current launcher installs \`glibc-repo\`, \`glibc-runner\`, and \`proot\`, validates Bun's execution path, and attempts a runtime rebuild when needed. Update your checkout and retry its normal path first:\r
+\r
+\`\`\`bash\r
+cd ~/Lumiverse\r
+git pull --ff-only\r
+./start.sh -b\r
+\`\`\`\r
+\r
+If Git reports local modifications, inspect them with \`git status\` and \`git diff\`. Preserve edits before resolving the update; \`git reset --hard\` is not a general repair command.\r
+\r
+If the package installation itself failed, retry the packages in base Termux:\r
+\r
+\`\`\`bash\r
+pkg install glibc-repo\r
+pkg update\r
+pkg install glibc-runner proot\r
+cd ~/Lumiverse\r
+./start.sh -b\r
+\`\`\`\r
+\r
+If runtime or setup errors persist, try the Ubuntu fallback below. PRoot supplies a Linux userland but still uses your Android kernel, so it cannot resolve every device restriction.\r
+\r
+## Sharp cannot load the android-arm64 runtime\r
+\r
+Native Android Bun needs an Android Sharp binding; the standard Linux packages use a different C library. The launcher now downloads a version-matched Sharp/libvips engine from an immutable Lumiverse release, verifies its archive and libraries, and tests image processing before marking backend dependencies installed. The same preflight runs before server startup and during Termux updates, including updates with unchanged package manifests.\r
+\r
+After updating to a revision containing this fix, restart normally:\r
+\r
+\`\`\`bash\r
+cd ~/Lumiverse\r
+git pull --ff-only\r
+./start.sh -b\r
+\`\`\`\r
+\r
+The first launch needs access to GitHub release downloads. Native libraries are cached under \`vendor/sharp-android/\`, outside \`node_modules\`, and damaged or missing files are downloaded again. A checksum or download failure stops dependency validation with the actual error; it does not require removing your data or lockfiles. Ubuntu/PRoot runtimes continue to use the standard Linux Sharp package.\r
+\r
+## Ubuntu / proot-distro fallback\r
+\r
+These steps create a separate Lumiverse install inside Ubuntu. They do not automatically move data from your existing Termux checkout.\r
+\r
+### 1. Install Ubuntu from base Termux\r
+\r
+\`\`\`bash\r
+pkg install proot-distro\r
+proot-distro install ubuntu\r
+proot-distro login ubuntu\r
+\`\`\`\r
+\r
+Current PRoot-Distro also supports an explicit image tag such as \`ubuntu:24.04\`; check its [installation reference](https://github.com/termux/proot-distro#quick-start) if your version uses image tags. If Ubuntu is already installed, use \`proot-distro login ubuntu\` without reinstalling it.\r
+\r
+### 2. Install and launch inside Ubuntu\r
+\r
+After entering Ubuntu:\r
+\r
+\`\`\`bash\r
+apt update\r
+apt install -y git curl ca-certificates unzip nodejs npm\r
+cd ~\r
+git clone https://github.com/prolix-oc/Lumiverse.git\r
+cd Lumiverse\r
+chmod +x start.sh\r
+./start.sh\r
+\`\`\`\r
+\r
+Follow setup and open \`http://localhost:7860\` in your Android browser. Use a different configured port if applicable. Stop any old Termux server first so the two installs do not compete for the same port.\r
+\r
+### 3. Return later\r
+\r
+From base Termux:\r
+\r
+\`\`\`bash\r
+proot-distro login ubuntu\r
+cd ~/Lumiverse\r
+./start.sh\r
+\`\`\`\r
+\r
+Use \`exit\` to leave Ubuntu after stopping the server. Paths such as \`~/Lumiverse\` refer to the home folder of the environment you are currently in.\r
+\r
+## Apache Arrow, Rollup, or Rolldown build failures\r
+\r
+The launcher already repairs Termux frontend native bindings with npm and clears the Bun install cache during its Termux dependency flow. First retry the updated launcher with \`./start.sh -b\` and inspect the error.\r
+\r
+For a broken dependency installation, the launcher's cleanup mode removes **both backend and frontend lockfiles and node_modules**, then reinstalls backend dependencies. Use it only after preserving any intentional lockfile changes:\r
+\r
+\`\`\`bash\r
+cd ~/Lumiverse\r
+./start.sh --kill-pkgs\r
+./start.sh -b\r
+\`\`\`\r
+\r
+This leaves your data directory in place, but dependency versions may be resolved again. An Apache Arrow/backend error may have a different cause from a frontend binding error; keep the failing package name and terminal output when asking for help.\r
+\r
+## Reinstall while preserving your data\r
+\r
+Stop Lumiverse first. The following example assumes the default \`~/Lumiverse/data\` directory. If \`.env\` sets \`DATA_DIR\`, locate and back up that actual directory instead. Run these steps in the environment that owns the install: base Termux or Ubuntu.\r
+\r
+### 1. Back up and inspect\r
+\r
+Create a new backup folder rather than merging into an older backup:\r
+\r
+\`\`\`bash\r
+cd ~\r
+mkdir ~/lumi-backup\r
+cp -a ~/Lumiverse/data ~/lumi-backup/data\r
+cp -a ~/Lumiverse/.env ~/lumi-backup/.env\r
+ls -la ~/lumi-backup/data\r
+\`\`\`\r
+\r
+If \`mkdir\` reports that the folder exists, choose another unused name and use it in every following command. Confirm the copy completed and the backup contains your database, assets, and \`lumiverse.identity\`; do not continue with an incomplete backup. Back up custom files outside \`data/\` separately. The \`.env\` copy preserves configuration such as custom data paths and explicit encryption settings.\r
+\r
+### 2. Keep the old checkout and clone afresh\r
+\r
+Before moving the old checkout, run \`git branch --show-current\` inside it and note the branch. Use the same branch in the new checkout before restoring data, so reinstalling does not accidentally downgrade a staging database to main.\r
+\r
+\`\`\`bash\r
+cd ~\r
+mv ~/Lumiverse ~/Lumiverse-old\r
+git clone https://github.com/prolix-oc/Lumiverse.git\r
+cd ~/Lumiverse\r
+\`\`\`\r
+\r
+Use an unused name for \`Lumiverse-old\`. Keeping the old checkout gives you a recovery copy while you verify the new install.\r
+\r
+The fresh clone starts on \`main\`. If your old install used \`staging\`, run \`git switch staging\` in the new checkout before continuing.\r
+\r
+### 3. Restore before starting\r
+\r
+For the default data location:\r
+\r
+\`\`\`bash\r
+cp -a ~/lumi-backup/data ~/Lumiverse/data\r
+cp -a ~/lumi-backup/.env ~/Lumiverse/.env\r
+chmod +x start.sh\r
+./start.sh -b\r
+\`\`\`\r
+\r
+For a custom \`DATA_DIR\`, restore to that configured location instead. Do not run a fresh setup over your restored account. Sign in and confirm your characters, chats, settings, and connections before removing either recovery copy. Keep an independent backup afterward.\r
+\r
+For account archives and moving data between running installs, see [Data Portability](../data-portability/index.md). For phone access or PWA issues, see [Remote Access with Tailscale](../getting-started/tailscale.md#troubleshooting).\r
 `,
     "reference/troubleshooting.md": `---\r
 title: Troubleshooting\r
@@ -22256,6 +23304,8 @@ Records stay in server memory and are cleared when tracking is disabled or the s
 \r
 ### App feels slow\r
 \r
+- In the desktop app, set **Rendering** to **Efficiency** in the Theme panel. This disables both the native window blur and in-page glass blur.\r
+- On Wayland, try disabling **Blur background** under **Use translucent desktop background**. Blur intensity is chosen by the compositor, so selecting a lower intensity in Lumiverse does not reduce the Linux rendering cost.\r
 - Disable **glass effects** in the Theme panel (backdrop-filter can be GPU-intensive)\r
 - Reduce the number of messages loaded per page\r
 - Close unused panels\r
@@ -22284,6 +23334,14 @@ Reset your password from the command line:\r
 \`\`\`bash\r
 bun run reset-password\r
 \`\`\`\r
+\r
+---\r
+\r
+## Installation and Mobile Issues\r
+\r
+- **Linux desktop audio is silent:** see [Linux audio setup](../getting-started/desktop-tray.md#audio-is-silent-on-linux) for GStreamer plugin installation commands and checks.\r
+- **Termux runtime, setup, or build failures:** see [Termux Troubleshooting](termux-troubleshooting.md) for recovery, the Ubuntu fallback, and reinstalling with a backup.\r
+- **Remote access or installed PWA problems:** see [Remote Access with Tailscale](../getting-started/tailscale.md#troubleshooting).\r
 \r
 ---\r
 \r
@@ -22456,6 +23514,9 @@ title: Embeddings\r
 \r
 # Embeddings\r
 \r
+For external Milvus deployments, see [Milvus maintenance](milvus-maintenance.md)\r
+for migration, BM25 backfill, flush policy, and benchmark commands.\r
+\r
 Embeddings power two features in Lumiverse: **semantic world book activation** (finding lorebook entries by meaning, not just keywords) and **long-term chat memory** (recalling relevant past moments). Both require an embedding provider to be configured.\r
 \r
 ---\r
@@ -22498,6 +23559,7 @@ The available providers include Lumiverse's built-ins and any embedding provider
 | **ElectronHub** | Model aggregator |\r
 | **BananaBread** | Lumiverse's local embedding server. Defaults to \`http://localhost:8008/v1/embeddings\` and pulls its model list from \`/v1/models\`. |\r
 | **Nano-GPT** | Pay-per-token aggregator |\r
+| **NVIDIA NIM** | NVIDIA Build or a self-hosted NIM embedding endpoint. Supports Nemotron 3 and 3.5 Embed 1B; Lumiverse automatically sends passage/query input types. |\r
 | **Spindle extension** | An enabled extension may contribute an embedding provider. Availability and model options depend on that extension. |\r
 \r
 ### 4. Configure the Connection\r
@@ -22512,6 +23574,8 @@ The available providers include Lumiverse's built-ins and any embedding provider
 | **Send Dimensions** | Whether to include the dimension value in API requests (some providers require it, others reject it) |\r
 \r
 For Mistral and Cohere, Lumiverse translates **Send Dimensions** to each native API's \`output_dimension\` field. Cohere requests are also split automatically when a batch exceeds its 96-text API limit.\r
+\r
+For NVIDIA Build, select **NVIDIA NIM** and use \`https://integrate.api.nvidia.com/v1/embeddings\` with the model ID \`nvidia/nemotron-3.5-embed-1b\` for Nemotron 3.5 Embed 1B. Lumiverse sends \`input_type: "passage"\` when testing or indexing content and \`input_type: "query"\` when searching. These roles are required by [NVIDIA's API](https://docs.api.nvidia.com/nim/reference/nvidia-nemotron-3_5-embed-1b-infer); no manual request fields are needed.\r
 \r
 ### 5. Add Fallback Connections (Optional)\r
 \r
@@ -22540,13 +23604,11 @@ Enable vectorization for the content types you want:\r
 | **Chat Documents** | \`vectorize_chat_documents\` | Indexes [databank](../chatting/databank.md) and chat-attached documents for \`#slug\` mentions and document RAG |\r
 | **Chat Messages** | \`vectorize_chat_messages\` | Enables [long-term memory](../chatting/memory.md) \u2014 recalls relevant past messages during generation |\r
 \r
-When chat-message vectorization is enabled, the **Memory Retrieval Mode** (\`chat_memory_mode\`) controls how aggressively past messages are recalled:\r
+Configure chat recall under **Settings \u2192 Advanced \u2192 Long-Term Chat Memory**. Its **Memory Mode** presets (Conservative, Balanced, Aggressive, Manual) set chunk sizes, overlap, and the recent-message exclusion window. They do not change the similarity threshold or Top-K. Explicit settings there take precedence over the legacy embedding-level chat-memory mode.\r
 \r
-| Mode | Behavior |\r
-|------|----------|\r
-| **Conservative** | Fewer, high-quality memories \u2014 strict threshold |\r
-| **Balanced** | Standard retrieval (recommended) |\r
-| **Aggressive** | More memories, lower threshold \u2014 better for long epics |\r
+Basic Chat Memory works with **Memory Cortex disabled**. Cortex's Simple/Standard/Advanced modes are separate analysis settings under **Settings \u2192 Memory Cortex**. [Summary](../chatting/loom-summary.md) uses an LLM connection and does not require embeddings.\r
+\r
+Enable **Vectorise chat messages**, then use **Recompile Memories** in the chat input bar's quick menu to prepare existing history. Add \`{{memories}}\` to an enabled preset block: basic recall defaults to **Macro only**, not automatic injection. See [Long-Term Memory](../chatting/memory.md) for setup, stored versus vectorized chunks, and injection rules.\r
 \r
 ---\r
 \r
@@ -22572,8 +23634,8 @@ The preset row drives the **Retrieved Entries**, **Chunk Target / Max / Overlap 
 Maximum cosine distance for matches. Lower values = stricter matching.\r
 \r
 - **0** \u2014 No filtering (accept all matches)\r
-- **0.3-0.5** \u2014 Moderate filtering\r
-- **0.8+** \u2014 Very strict (only highly similar content)\r
+- **Smaller positive values** \u2014 Stricter filtering\r
+- **Larger positive values** \u2014 Permit more distant matches\r
 \r
 Cosine distance can exceed 1.0 in LanceDB's implementation, so this isn't capped at 1.\r
 \r
@@ -22591,7 +23653,11 @@ Controls the balance between traditional keyword matching and semantic vector se
 |------|----------|\r
 | **Keyword First** | Prioritize exact word matches; use vectors as a tiebreaker |\r
 | **Balanced** | Weight both methods equally (recommended) |\r
-| **Vector First** | Prioritize semantic similarity; keywords are secondary |\r
+| **Vector First** | Select semantic matches by vector distance first; keyword evidence breaks ties and keyword activations fill remaining capacity |\r
+\r
+Vector First reserves the vector shortlist for entries returned by semantic search. An entry that also matches a trigger keyword retains its vector score and counts as a vector activation. World-info entry and token budgets admit vector matches before keyword fallback, while constants, minimum-priority filters, and configured group rules still apply. Prompt insertion positions and entry ordering remain controlled by the lorebook's placement settings.\r
+\r
+Converting a lorebook retains its primary and secondary trigger keywords. Setting Similarity Threshold and Rerank Cutoff to **0** disables filtering; it does not change the selected retrieval mode.\r
 \r
 ---\r
 \r
@@ -22625,32 +23691,32 @@ title: Illarin\r
 \r
 # Illarin\r
 \r
-Illarin is an asset platform that links to your Lumiverse instance and delivers characters, world books, presets, themes, and packs directly into your library \u2014 no manual downloads.\r
+Illarin connects to your Lumiverse installation so you can send characters, world books, presets, themes, packs, and Spindle extensions directly to it.\r
 \r
 ---\r
 \r
-## Linking Your Instance\r
+## Connecting Your Installation\r
 \r
 1. Open **Settings > Illarin**\r
-2. Confirm the **Illarin URL** (default: \`https://illarin.xyz\`) and give your instance a name (e.g. "Home PC")\r
+2. Confirm the **Illarin URL** (default: \`https://illarin.com\`) and give your instance a name (e.g. "Home PC")\r
 3. Click **Link**\r
 \r
 How the link completes depends on where you're browsing from:\r
 \r
-- **Same machine** (you opened Lumiverse on \`localhost\`): Lumiverse opens the Illarin approval screen in a new browser tab. Approve it there, and linking finishes on its own.\r
-- **Another device** (phone, tablet, or another computer on your network): Lumiverse shows a **device code** instead. Open the verification URL shown in the panel, sign in, and type the code.\r
+- **Same machine** (you opened Lumiverse on \`localhost\`): Lumiverse shows a verification code and opens the Illarin approval screen in a new browser tab. Type the displayed code on that page before approving. If your browser blocks the tab, use the **Open Illarin approval page** link next to the code; keep Settings open so you can see the code.\r
+- **Another device** (phone, tablet, or another computer on your network): Lumiverse opens Illarin's verification page and shows a **device code**. Sign in and type the code. If the page is blocked, use the verification link shown beside the code.\r
 \r
 !!! warning "Only trust codes you requested"\r
     Never enter a linking code you did not start yourself. The approval page must show the exact same code as your settings panel. If it doesn't, decline.\r
 \r
-### Scopes\r
+### Permissions\r
 \r
-Linking currently requests one permission, chosen at link time:\r
+Lumiverse requests two optional permissions. Both start unchecked on Illarin's approval screen; choose which to grant:\r
 \r
-- **asset:receive** \u2014 lets the assets you send from Illarin arrive in this instance.\r
+- **work:receive** \u2014 lets works you send from Illarin arrive in this installation, including extensions when extension installation is available.\r
+- **library:sync** \u2014 reports installed Illarin presets and extensions and their release numbers to your Illarin account so it can detect updates. Declining this does not prevent receiving works.\r
 \r
-Library mirroring is not requested until the local sync feature is implemented.\r
-Adding scopes later requires unlinking and linking again.\r
+You can change grants in your Illarin account settings without reconnecting. Click **Refresh permissions** in Lumiverse after changing them. If a needed grant is turned off, collection stops rather than retrying a forbidden request.\r
 \r
 ---\r
 \r
@@ -22658,27 +23724,134 @@ Adding scopes later requires unlinking and linking again.\r
 \r
 The Illarin settings panel shows:\r
 \r
-- The instance name and server-assigned instance ID\r
-- Your granted scopes\r
-- The declared application version\r
+- The installation name and server-assigned connected app ID\r
+- The permissions last granted by Illarin\r
+- The reported app version\r
 \r
 Access credentials rotate automatically; nothing to maintain. Temporary network\r
 or Illarin service failures leave the saved link in place and retry later. Only\r
-an explicit credential rejection requires linking again.\r
+an expired/rejected credential or an uncertain refresh outcome requires connecting again.\r
+\r
+## Extensions\r
+\r
+Owners and admins can receive Spindle extensions sent from Illarin. The first install is **disabled**; review and approve all permissions it requests in **Extensions** before its first run. Updates keep the extension's enabled state, previously granted permissions, and stored data. New permissions require a separate approval. A send cannot overwrite an extension from a different Illarin work or another source; remove the other extension yourself if you want to install it instead. A takedown notice is shown on the extension and does not disable it automatically.\r
+\r
+Extension creators can publish an archive on Illarin, then optionally connect a public GitHub repository using a \`.illarin-proof\` file on its default branch. Illarin imports eligible GitHub releases and serves the archive unchanged; publishing never grants an app permission to install or run it. See Illarin's **Extension publishing** guide for release-source and prerelease options.\r
+\r
+## Preset Updates\r
+\r
+Sending a newer release of an installed Illarin preset updates the same preset in place. Your sampler overrides, custom request body, and compatible prompt-variable selections are retained. Bundled regexes from older releases remain disabled in folders marked with their release number; sending the same release again replaces only that release's regexes.\r
+\r
+Illarin's release number tracks updates independently of the preset creator's version label. Lumiverse displays both when they differ. With **library:sync** enabled, preset installs, updates, and removals are reported for your connected installation.\r
 \r
 ---\r
 \r
 ## Unlinking\r
 \r
-Click **Unlink from Illarin** to remove this instance's credentials locally.\r
+Click **Unlink from Illarin** to remove this installation's credentials locally.\r
 \r
-Unlinking is local-only: also open your Illarin account settings and revoke the matching instance (matched by name and instance ID) so the platform stops holding a place for it.\r
+Unlinking is local-only: also open your Illarin account settings and revoke the matching connected app by its server-assigned ID and displayed names.\r
 \r
 ---\r
 \r
 ## Privacy\r
 \r
-Credentials are encrypted at rest and never leave this machine except to talk to Illarin itself. They are excluded from exports and backups. No chat data, messages, or personal content is shared through this integration.\r
+Credentials are encrypted at rest and sent only to the exact Illarin server you connected. They are excluded from exports and backups. Illarin library reports contain installed work IDs and versions, not chats or messages; you can decline \`library:sync\` independently of receiving works.\r
+\r
+Do not run two copies of one Lumiverse data directory at the same time, including while upgrading: they could both try to rotate the same refresh token. If you clone an installation, disconnect Illarin in the clone before using it and connect the clone independently.\r
+`,
+    "settings/inference-scheduling.md": `# Local Inference Scheduling\r
+\r
+Lumiverse can put the requests that share your local model hardware into one\r
+queue. This is for machines where chat, embeddings, the Memory Cortex sidecar,\r
+and image generation all reach the same GPU (or the same small pool of RAM).\r
+\r
+Without scheduling, a long chat can be streaming a reply while the Memory Cortex\r
+sidecar is extracting entities and the embedding model is indexing new chunks.\r
+Those models load at the same time, and the machine starts swapping or the\r
+provider runs out of VRAM. With scheduling enabled, one request uses the model\r
+resource at a time and everything else waits its turn.\r
+\r
+Scheduling is **off by default** and only applies to **local** endpoints\r
+(loopback addresses, private network hosts, and \`.local\`/\`localhost\` names).\r
+Requests to hosted APIs are never delayed.\r
+\r
+## Enable it\r
+\r
+1. Open **Settings \u2192 Inference**.\r
+2. Turn on **Local Inference Scheduling**.\r
+3. Leave **One queue for all local endpoints** on if chat, embeddings, and image\r
+   generation run on the same computer.\r
+4. Leave **Concurrent requests per queue** at \`1\` for a single GPU.\r
+\r
+The **Detected endpoints** list shows every chat, embedding, image, and Memory\r
+Cortex connection that points at a local address. Toggle **Exclude** on any\r
+endpoint that should keep running outside the queue.\r
+\r
+## How the queue behaves\r
+\r
+Requests are ordered by what the user is waiting for:\r
+\r
+| Priority | Work |\r
+| --- | --- |\r
+| 1 | Chat replies, regeneration, edit-and-send |\r
+| 2 | Image generation and Visual Studio jobs you requested |\r
+| 3 | Retrieval for the next prompt |\r
+| 4 | Memory Cortex extraction, summaries, cortex warming |\r
+| 5 | Chunk and world-book embedding, backfills |\r
+\r
+- A chat reply or a requested image can interrupt background extraction or\r
+  batch embedding. Interrupted batches are retried later; interrupted Memory\r
+  Cortex calls fall back to heuristics and the next chunk tries the sidecar\r
+  again.\r
+- Chat replies never give up while queued. Background work stops waiting after\r
+  **Give up waiting after** seconds (0 means wait indefinitely).\r
+- Long waits are promoted so background work cannot starve behind a constant\r
+  stream of higher-priority requests.\r
+\r
+If two requests are equally important, the one that arrived first runs first.\r
+\r
+## Settings\r
+\r
+| Setting | Meaning |\r
+| --- | --- |\r
+| **One queue for all local endpoints** | Every detected local endpoint shares one queue. Turn off to give each endpoint its own queue. |\r
+| **Let chat and images interrupt background work** | Background extraction and embedding stop when interactive work needs the model. |\r
+| **Concurrent requests per queue** | Keep at 1 for one GPU. Raise only for CPU endpoints or endpoints with memory headroom. |\r
+| **Give up waiting after** | Maximum queue wait for background work. Chat is unaffected. |\r
+| **Detected endpoints** | Include or exclude individual connections. |\r
+\r
+## Live status\r
+\r
+The **Live queue status** panel shows which request currently holds each queue,\r
+which requests are waiting, and how long they have waited. Counters track\r
+completed, preempted, and abandoned requests. The panel updates live over the\r
+WebSocket and still polls every three seconds as a fallback while it is open.\r
+\r
+## Limitations\r
+\r
+- Only calls made by Lumiverse itself are scheduled. A Spindle extension that\r
+  registers its own sidecar provider and contacts a model directly is outside\r
+  the queue.\r
+- Per-user settings are applied per account. On a multi-user server, enable\r
+  scheduling for every account that shares the hardware.\r
+- Scheduling starts and stops requests; it does not unload a model from VRAM.\r
+  Use the model server's own idle-unload setting (for example Ollama's\r
+  \`keep_alive\`) if you need memory released between requests.\r
+- Requests that were already running when you change the settings finish on\r
+  their previous queue.\r
+\r
+## Troubleshooting\r
+\r
+- **Nothing appears in the endpoint list** \u2014 the connection's URL is not local.\r
+  Add it to **Extra origins** if it lives on another machine you still want\r
+  queued.\r
+- **Chat waits too long** \u2014 raise the image/chat priority order by enabling\r
+  interruption, or split unrelated endpoints into their own queues by turning\r
+  off the unified pool.\r
+- **Embedding backlog grows during long chats** \u2014 that is expected; batch\r
+  embedding resumes when the reply finishes. Lower the queue's maximum wait if\r
+  you would rather it fail and retry sooner.\r
 `,
     "settings/lumihub.md": `---\r
 title: LumiHub\r
@@ -22693,10 +23866,11 @@ LumiHub is a hub service that lets you browse and install characters and world b
 ## Linking Your Instance\r
 \r
 1. Open **Settings > LumiHub**\r
-2. Optionally customize your **instance name** (how your instance identifies itself)\r
-3. Click **Link with LumiHub**\r
-4. A browser window opens for authorization\r
-5. Once authorized, your instance connects and stays linked\r
+2. Enter the URL of your custom or self-hosted LumiHub\r
+3. Optionally customize your **instance name** (how your instance identifies itself)\r
+4. Click **Link with LumiHub**\r
+5. A browser window opens for authorization\r
+6. Once authorized, your instance connects and stays linked\r
 \r
 Your instance maintains a persistent connection to LumiHub with automatic reconnection if the connection drops.\r
 \r
@@ -22729,6 +23903,213 @@ The LumiHub settings panel shows:\r
 \r
 Click **Unlink from LumiHub** to disconnect. This stops the connection and removes the linking token. You can re-link at any time.\r
 `,
+    "settings/milvus-maintenance.md": `---\r
+title: Milvus maintenance\r
+---\r
+\r
+# Milvus maintenance\r
+\r
+Lumiverse supports Milvus 3.0 through the Node SDK. Collection migrations and\r
+BM25 backfills are explicit maintenance operations. Run the commands below from\r
+the backend checkout with Bun and its dependencies installed.\r
+\r
+## Connection and write policy\r
+\r
+The tools read \`LUMIVERSE_MILVUS_ADDRESS\`, \`LUMIVERSE_MILVUS_DATABASE\`,\r
+\`LUMIVERSE_MILVUS_USERNAME\`, \`LUMIVERSE_MILVUS_PASSWORD\`, and\r
+\`LUMIVERSE_MILVUS_SSL\`. They do not read the running application's encrypted\r
+owner credentials; supply credentials through the process environment. Use a\r
+trusted machine and keep checkpoint and repair files private.\r
+\r
+All retrieval paths request Strong consistency, including filtered reads,\r
+counts, dense search, BM25, and hybrid search. Successful collection/index setup\r
+is cached until reset or reconnection; failed setup remains retryable.\r
+\r
+The default **Flush after each write** behavior remains available. After live\r
+validation, select **Flush during maintenance** in Operator's Milvus settings\r
+and choose **Apply Runtime Tuning**. For an environment-managed connection,\r
+\`LUMIVERSE_MILVUS_FLUSH_POLICY=manual\` also sets the initial policy; a policy\r
+saved in Operator takes precedence over that environment variable.\r
+The maintenance policy also prevents ordinary embedding orchestration from\r
+immediately requesting another flush. Explicit maintenance still flushes. Strong reads can increase\r
+search latency; benchmark the complete workload before adopting this policy.\r
+\r
+## Inventory and server settings\r
+\r
+\`\`\`sh\r
+bun run milvus:maintenance inventory\r
+\`\`\`\r
+\r
+The report lists the active collections, schemas, dimensions, row counts,\r
+indexes, statistics, and BM25 eligibility. Required settings are reported as\r
+requirements, not as verified running values. A successful connection does not\r
+prove that these features are enabled.\r
+\r
+Text requires StorageV3:\r
+\r
+\`\`\`yaml\r
+common:\r
+  storage:\r
+    useLoonFFI: true\r
+\`\`\`\r
+\r
+Adding BM25 to existing data additionally requires:\r
+\r
+\`\`\`yaml\r
+dataCoord:\r
+  compaction:\r
+    bumpSchemaVersion:\r
+      enabled: true\r
+    storageVersion:\r
+      enabled: true\r
+\`\`\`\r
+\r
+Apply and verify these values through your Milvus deployment's configuration\r
+workflow. StorageV3 changes persisted storage formats and limits downgrade\r
+compatibility. See [Milvus StorageV3 documentation](https://milvus.io/docs/storage-v3.md).\r
+\r
+## Text and BM25 migration\r
+\r
+Stop **every** Lumiverse instance and other writer using these collections for\r
+the maintenance window. Keep them stopped through validation and cutover. The\r
+tool detects source changes but cannot enforce a write lock across applications.\r
+Use a separate checkpoint for each logical collection; repeat the sequence for\r
+\`embeddings_world_books\` and \`embeddings\` as needed.\r
+\r
+\`\`\`sh\r
+bun run milvus:maintenance plan-text --collection embeddings_world_books --checkpoint data/milvus-world-books.json\r
+bun run milvus:maintenance run --checkpoint data/milvus-world-books.json --writers-stopped\r
+bun run milvus:maintenance cutover --checkpoint data/milvus-world-books.json --writers-stopped\r
+\`\`\`\r
+\r
+Planning creates a checkpoint without altering collection schemas. Running\r
+creates a uniquely named replacement with Text content, BM25, and its dense,\r
+sparse, and scalar indexes. The copy uses bounded primary-key pages, so it can\r
+scan beyond Milvus's offset result window. It reuses unchanged numeric vectors;\r
+it does not change embedding models or dimensions.\r
+\r
+Progress is saved after each acknowledged upsert batch. On interruption, rerun\r
+\`run\` with the same checkpoint and repair input. Replaying an uncertain batch is\r
+idempotent. If the process was killed, verify it is no longer running before\r
+removing its stale \`<checkpoint>.lock\` file. A source change requires a new plan;\r
+the previous collections remain available for inspection.\r
+\r
+Before marking the replacement ready, the tool seals it, waits for indexes, and\r
+compares a full fingerprint of IDs, tenant/source ownership, content, metadata,\r
+timestamps, and float32 vectors. Cutover repeats the comparison and updates\r
+\`lumiverse_active_embeddings_world_books\` or \`lumiverse_active_embeddings\`.\r
+Restart Lumiverse afterward: routing and schema caches resolve per connection.\r
+\r
+A vector-store reset clears the active Text collection while retaining its\r
+schema and routing alias. If the next embedding model has a different dimension,\r
+an empty replacement is created before routing switches to it. Nonempty\r
+collections continue to reject dimension mismatches. Retained rollback copies\r
+remain separate operator cleanup items.\r
+\r
+### Previously clipped content\r
+\r
+The tool blocks migration if a row ends with the legacy \`[content clipped]\`\r
+marker. It cannot recover missing text from Milvus. Rebuild affected rows from\r
+canonical SQLite/source records with the **same embedding model, dimensions,\r
+revision, and embedding-input rules**, then supply a JSONL repair file:\r
+\r
+\`\`\`json\r
+{"sourceHash":"SHA256_OF_OLD_ROW","row":{"id":"...","user_id":"...","source_type":"...","source_id":"...","owner_id":"...","chunk_index":0,"content":"full canonical content","metadata_json":"{}","updated_at":123,"vector":[0.1,0.2]}}\r
+\`\`\`\r
+\r
+Compute \`sourceHash\` with the exported \`milvusRowHash(oldRow)\` helper in\r
+\`src/services/vector-store/providers/milvus-maintenance.ts\`. Each record contains\r
+a complete rebuilt VectorRow. Only content/vector changes are allowed; a changed\r
+revision, identity, ownership, or metadata requires normal source reindexing.\r
+The tool verifies the old-row hash and vector dimensions; the repair producer\r
+must establish canonical-source and embedding-model provenance. This command\r
+does not generate embeddings or independently verify that provenance.\r
+\r
+Pass \`--canonical-rows FILE\` to **every** command for that checkpoint, including\r
+planning and rollback. The repair file's digest is bound into the checkpoint.\r
+Oversized metadata remains subject to its VARCHAR limit and must be repaired\r
+through normal source reindexing.\r
+\r
+### Rollback\r
+\r
+Keep writers stopped, then run:\r
+\r
+\`\`\`sh\r
+bun run milvus:maintenance rollback --checkpoint data/milvus-world-books.json --writers-stopped\r
+\`\`\`\r
+\r
+Restart Lumiverse after rollback. The command refuses to switch back if either\r
+collection has changed since validation; reconcile new writes first. It retains\r
+both physical collections. Deleting obsolete collections is a separate operator\r
+operation after the rollback period.\r
+\r
+## In-place BM25 backfill\r
+\r
+A healthy collection with BM25 already defined needs no function backfill.\r
+In-place backfill accepts an existing analyzer-enabled VARCHAR content field.\r
+The legacy dense-only fallback lacks that analyzer and requires replacement.\r
+Text collections must have BM25 defined when created. See\r
+[Milvus schema-change limits](https://milvus.io/docs/add-fields-to-an-existing-collection.md).\r
+\r
+\`\`\`sh\r
+bun run milvus:maintenance plan-bm25 --collection embeddings --checkpoint data/milvus-bm25.json\r
+bun run milvus:maintenance run --checkpoint data/milvus-bm25.json --writers-stopped\r
+\`\`\`\r
+\r
+The operation adds the sparse output, function, and bound index together, then\r
+waits for valid segment counters and Finished indexes with no pending rows.\r
+Missing counters, partial coverage, and an accepted schema change do not count\r
+as completion. Nonempty collections require positive segment totals. Index\r
+failures stop immediately; timeouts retain the checkpoint for resume. The\r
+default polling timeout is ten minutes, adjustable with \`--timeout-ms\`.\r
+Restart Lumiverse after completion to clear schema and search-fallback caches.\r
+This operation retains the original collection and does not automatically drop\r
+the newly added function on failure.\r
+\r
+## Benchmarking and live validation\r
+\r
+\`\`\`sh\r
+bun run bench:milvus --rows 10000 --queries 50 --flush-policy manual\r
+bun run bench:milvus --rows 10000 --queries 50 --flush-policy per_write\r
+bun run bench:milvus --rows 10000 --queries 50 --index-type HNSW --index-params '{"M":32,"efConstruction":200}' --search-params '{"ef":128}'\r
+\`\`\`\r
+\r
+The benchmark copies a bounded corpus into a temporary collection, uses separate\r
+writer/reader clients, and removes its own collection afterward. It verifies\r
+immediate insert/update/delete visibility for filtered reads, counts, dense,\r
+lexical, and hybrid search, plus tenant isolation, without flushing between the\r
+probe's writes and reads. A failed check aborts the benchmark.\r
+\r
+Reports include ingestion throughput, index build time, filtered dense recall\r
+against exact cosine results, and dense/BM25/hybrid p50/p95 latency. Lexical and\r
+hybrid latency are measured where query terms exist; they are not semantic\r
+quality scores. Compare only matching corpus hashes and comparable server load.\r
+The bounded corpus uses primary-key order; select a representative collection\r
+and adequate corpus size. Record server RSS/index memory externally during each\r
+run. \`--text\` exercises the Text schema and requires StorageV3.\r
+\r
+Small sealed segments may remain below Milvus's index-building threshold. Check\r
+\`denseIndexedRows\` and \`indexCoverageAdequate\` before drawing conclusions about\r
+index algorithms; otherwise the run can largely measure brute-force search.\r
+Frequent flushes can produce this situation.\r
+\r
+New Milvus 3.0 algorithms require opting into target vector index version \`10\`\r
+and scalar index version \`4\` in the server configuration. The tool neither\r
+changes those cluster-wide settings nor rebuilds existing application indexes.\r
+Run equivalent benchmarks before and after the operator applies those settings,\r
+using new temporary indexes. See [Milvus release notes](https://milvus.io/docs/release_notes.md).\r
+\r
+The opt-in automated live test uses an explicit test endpoint:\r
+\r
+\`\`\`sh\r
+LUMIVERSE_MILVUS_TEST_ADDRESS=localhost:19530 bun test src/services/vector-store/providers/milvus.live.test.ts\r
+\`\`\`\r
+\r
+Set corresponding \`LUMIVERSE_MILVUS_TEST_DATABASE\`, \`_USERNAME\`, \`_PASSWORD\`, and\r
+\`_SSL\` variables when needed. Set \`LUMIVERSE_MILVUS_TEST_TEXT=true\` to test Text.\r
+Ordinary test runs skip this integration test and never use the application's\r
+normal production connection automatically.\r
+`,
     "settings/push-notifications.md": `---\r
 title: Notifications\r
 ---\r
@@ -22757,6 +24138,33 @@ Lumiverse can send system notifications to your devices when certain events happ
 Each device must be subscribed individually. You can manage all your registered devices from this settings tab.\r
 \r
 Lumiverse Desktop registers as a native destination. Its device identity and revocable enrollment credential are stored in the operating system's per-app configuration directory, so rebuilding or updating the desktop bundle does not require you to sign in again just to keep receiving notifications. The credential is pinned to that server's origin and identity; removing the destination in Settings revokes it.\r
+\r
+The iOS app uses Apple's native push service (APNs), so it does not require\r
+browser Push API support. It needs an IPA signed with the Push Notifications\r
+capability. The official app uses the Lumiverse notification relay, automatically\r
+verifies the device, and encrypts notification previews between your backend and\r
+your iPhone. A one-time connection alert may appear while enabling notifications.\r
+Self-built IPAs can use their owner's Apple provider credentials on the backend. Free\r
+Personal Team signing cannot enable APNs; the iOS notification settings show\r
+missing app or server configuration. Once configured, notifications can arrive\r
+while the app is backgrounded or closed.\r
+\r
+If iOS cannot decrypt a preview, it shows a generic Lumiverse alert. The relay\r
+sees delivery metadata and generic Live Activity progress. Enable notifications\r
+on this iPhone before using Live Activities through the relay.\r
+\r
+The Android app also registers a native destination. Completion alerts can show\r
+the character's avatar; failure alerts show the connection and error details.\r
+Tapping an alert opens its chat on the enrolled server. Android 13 and later ask\r
+for notification permission, and Android's app settings offer separate channels\r
+for completion and error alerts.\r
+\r
+When hosting on the phone, native notifications work while the embedded backend\r
+is running. When connected to a remote server, both the APK and server need\r
+matching Firebase configuration. Settings reports missing configuration before\r
+enrollment. Force-stopping the app prevents remote delivery until it is reopened;\r
+notifications do not keep an on-device generation running after Android stops the\r
+backend. Changing servers or signing out clears the app's native enrollment.\r
 \r
 ---\r
 \r
@@ -22825,17 +24233,13 @@ You need:\r
 1. A working Lumiverse instance reachable at a stable public URL, such as \`https://app.example.com\`.\r
 2. Owner access in Lumiverse.\r
 3. Admin access in your identity provider.\r
-4. Lumiverse configured with the same public URL used by browsers.\r
+4. The public HTTPS origin added under **Settings \u2192 Operator \u2192 Trusted\r
+   Hostnames**. Restart Lumiverse after adding it so auth discovery recognizes\r
+   the origin.\r
 \r
-Set this environment variable on the Lumiverse server:\r
-\r
-\`\`\`bash\r
-AUTH_BASE_URL=https://app.example.com\r
-\`\`\`\r
-\r
-Restart Lumiverse after changing it.\r
-\r
-If \`AUTH_BASE_URL\` is missing, Lumiverse may fall back to \`http://localhost:7860\`, which causes OIDC providers to reject the redirect URI.\r
+\`AUTH_BASE_URL=https://app.example.com\` may be used to pin auth to one public\r
+origin, but it is no longer required. The provider-specific **Public Lumiverse\r
+Origin** below remains the source of its registered callback URL.\r
 \r
 ---\r
 \r
@@ -23079,12 +24483,8 @@ The \`redirect_uri\` sent by Lumiverse does not exactly match the URI registered
 \r
 Check:\r
 \r
-1. \`AUTH_BASE_URL\` is set on the Lumiverse server:\r
-\r
-   \`\`\`bash\r
-   AUTH_BASE_URL=https://app.example.com\r
-   \`\`\`\r
-\r
+1. The public origin is present under **Settings \u2192 Operator \u2192 Trusted\r
+   Hostnames**, and Lumiverse was restarted after adding it.\r
 2. **Settings > SSO > Public Lumiverse Origin** is the same origin:\r
 \r
    \`\`\`text\r
@@ -23202,7 +24602,7 @@ title: Web Search\r
 \r
 # Web Search\r
 \r
-Lumiverse can connect **SearXNG**, **Exa**, or **Tavily** to the [Council](../council/index.md) so members can look up current, factual, or source-backed information mid-deliberation. Results are condensed into a context block and handed back to the calling tool.\r
+Lumiverse can connect **SearXNG**, **Exa**, **Tavily**, or **DeepSeek** to the [Council](../council/index.md) so members can look up current, factual, or source-backed information mid-deliberation. Results are condensed into a context block and handed back to the calling tool.\r
 \r
 This is a host-level feature \u2014 once configured, any council member you assign the **Web Search** tool to can use it.\r
 \r
@@ -23212,11 +24612,11 @@ This is a host-level feature \u2014 once configured, any council member you assi
 \r
 1. A council member calls the **Web Search** tool with a search-engine-style query.\r
 2. Lumiverse forwards the query to your configured provider.\r
-3. SearXNG results are fetched and converted to clean text using the same scraper that powers [Databanks](../chatting/memory-cortex.md). Exa and Tavily return extracted content directly, so no follow-up page fetch is needed.\r
+3. SearXNG results are fetched and converted to clean text using the same scraper that powers [Databanks](../chatting/memory-cortex.md). Exa, Tavily, and DeepSeek return extracted content directly, so no follow-up page fetch is needed.\r
 4. The combined snippets and page content are packaged into a single context block.\r
 5. That context block is stored under the variable \`web_search_context\` and exposed to the rest of the deliberation.\r
 \r
-With SearXNG, the search request goes only to your own instance. Exa and Tavily are hosted APIs and receive the search query plus their provider-specific request options.\r
+With SearXNG, the search request goes only to your own instance. Exa, Tavily, and DeepSeek are hosted APIs and receive the search query plus their provider-specific request options.\r
 \r
 ---\r
 \r
@@ -23240,11 +24640,13 @@ Web Search needs a reachable SearXNG instance that returns JSON.\r
 \r
 ---\r
 \r
-## Setting Up Exa or Tavily\r
+## Setting Up Exa, Tavily, or DeepSeek\r
 \r
-Both hosted providers need an API key, available from their respective dashboards. In **Settings \u2192 Web Search**, select **Exa** or **Tavily** and paste the key. Lumiverse uses their fixed HTTPS endpoints automatically and stores each provider's key separately.\r
+Hosted providers need an API key, available from their respective dashboards. In **Settings \u2192 Web Search**, select **Exa**, **Tavily**, or **DeepSeek** and paste the key. Lumiverse uses their fixed HTTPS endpoints automatically and stores each provider's key separately. Switching providers preserves each provider's saved preferences and key.\r
 \r
 Tavily searches use its documented \`POST https://api.tavily.com/search\` endpoint with \`Authorization: Bearer <key>\`. Lumiverse requests Tavily's basic search depth and native plain-text extraction when page content is needed.\r
+\r
+DeepSeek uses \`POST https://api.deepseek.com/v1/tools/search\` with your regular [DeepSeek API key](https://platform.deepseek.com/api_keys). Queries must be at most **128 Unicode characters** and support operators such as \`site:\`, \`lang:\`, and \`after:\`. Lumiverse requests native page content for context, falling back to DeepSeek's longer summary or snippet when unavailable. Results-only searches skip content extraction. See DeepSeek's [Search & Fetch guide](https://api-docs.deepseek.com/guides/search/) for supported syntax, billing, and rate limits.\r
 \r
 ## Configuring Lumiverse\r
 \r
@@ -23255,9 +24657,9 @@ Open **Settings \u2192 Web Search**.\r
 | Field | What it does |\r
 |-------|--------------|\r
 | **Enable web search** | Master switch. While off, the Council \`web_search\` tool is hidden and the test button is the only thing that runs. |\r
-| **Provider** | Choose \`SearXNG\`, \`Exa\`, or \`Tavily\`. |\r
-| **API URL** | For SearXNG, your instance base URL; Lumiverse appends \`/search\` if you only give a host. Exa and Tavily use their fixed API URLs. |\r
-| **API Key** | Optional for SearXNG and sent as \`Authorization: Bearer <key>\` if set. Required for Exa and Tavily. The label shows **(configured)** once a key is saved. |\r
+| **Provider** | Choose \`SearXNG\`, \`Exa\`, \`Tavily\`, or \`DeepSeek\`. |\r
+| **API URL** | For SearXNG, your instance base URL; Lumiverse appends \`/search\` if you only give a host. Exa, Tavily, and DeepSeek use their fixed API URLs. |\r
+| **API Key** | Optional for SearXNG and sent as \`Authorization: Bearer <key>\` if set. Required for Exa, Tavily, and DeepSeek. The label shows **(configured)** once a key is saved. |\r
 \r
 ### Search Tuning\r
 \r
@@ -23269,7 +24671,7 @@ Open **Settings \u2192 Web Search**.\r
 | **Timeout (ms)** | 15,000 | 5,000 \u2013 120,000 | How long Lumiverse waits for both the search request and each page fetch before giving up. |\r
 | **Default Results** | 3 | 1 \u2013 10 | Result count used when the council member doesn't specify one. |\r
 | **Max Results** | 5 | 1 \u2013 20 | Hard cap on results, even if a tool asks for more. Must be \u2265 Default Results. |\r
-| **Pages to Scrape** | 3 | 1 \u2013 10 | Of the search results, how many to extract text from. SearXNG fetches those pages; Exa and Tavily use their native extraction. Smaller is faster; larger gives the model more material to work with. |\r
+| **Pages to Scrape** | 3 | 1 \u2013 10 | Of the search results, how many to extract text from. SearXNG fetches those pages; Exa, Tavily, and DeepSeek use their native extraction. Smaller is faster; larger gives the model more material to work with. |\r
 | **Chars per Page** | 3,000 | 500 \u2013 20,000 | Per-page text cap applied after extraction. Keeps the context block from blowing past the chat context. |\r
 \r
 ### Saving & Testing\r
@@ -23284,7 +24686,7 @@ The test uses **whatever is currently in the form**, including any unsaved API k
 \r
 ## Using Web Search in the Council\r
 \r
-Once Web Search is **enabled** and the provider is configured (including an API key for Exa or Tavily), a new **Web Search** tool appears under the Context category in the [Council Tools](../council/council-tools.md) picker.\r
+Once Web Search is **enabled** and the provider is configured (including an API key for Exa, Tavily, or DeepSeek), a new **Web Search** tool appears under the Context category in the [Council Tools](../council/council-tools.md) picker.\r
 \r
 To use it:\r
 \r
@@ -23302,7 +24704,7 @@ The tool accepts two arguments:\r
 The tool stores its output in the deliberation under the variable \`web_search_context\`. Any downstream member can read that variable \u2014 though it does not appear in the deliberation transcript by default, to keep the context block from leaking into prose.\r
 \r
 !!! note "Web Search is gated"\r
-    The tool only shows up in the Council picker while Web Search is enabled **and** an API URL is set. Toggling it off again removes the tool from any member that had it assigned for the duration the gate is closed.\r
+    The tool only shows up in the Council picker while Web Search is enabled and the provider is configured. Hosted providers also require a saved API key. Toggling it off again removes the tool from any member that had it assigned for the duration the gate is closed.\r
 \r
 ---\r
 \r
@@ -23326,6 +24728,10 @@ You can use neither, either, or both.\r
 | "SearXNG returned HTTP 403" on test | Your instance has JSON output disabled, or a fronting proxy is blocking unauthenticated requests. Set an **API Key** or relax the proxy rule. |\r
 | "SearXNG returned HTTP 429" | Rate-limited. If you're testing against a public instance, switch to a self-hosted one. |\r
 | "Tavily returned HTTP 401" | The API key is missing, invalid, or was entered under another provider. Select Tavily and save the correct key. |\r
+| "DeepSeek returned HTTP 401" | Select DeepSeek and save a valid DeepSeek API key. |\r
+| "DeepSeek returned HTTP 402" | Your DeepSeek account needs additional balance. |\r
+| "DeepSeek returned HTTP 429" | Your DeepSeek account has hit its search rate limit. Wait before retrying. |\r
+| "DeepSeek search queries must be at most 128 Unicode characters" | Shorten the query, including any search operators. Lumiverse preserves queries rather than silently truncating them. |\r
 | Tool never gets called by the Council | The member needs the tool explicitly checked. The model also won't call it for questions it can answer from the current chat \u2014 that's by design. |\r
 | Empty results despite a working query in your browser | Your engine allowlist is too narrow, or your SearXNG instance has those engines disabled. Clear the **Engines** field and retest. |\r
 | Pages return as \`Fetch note: \u2026\` instead of content | The page blocks scraping (bot protection, login walls, JS-only rendering). The snippet from SearXNG is still included. |\r
@@ -24463,6 +25869,36 @@ Shorter scan depths make entries activate only when keywords are in the very rec
 \r
 !!! tip "Use shorter scan depths for transient information"\r
     If an entry describes a temporary state (like weather), set scan depth to 3-5 so it fades when the topic changes.\r
+\r
+---\r
+\r
+## Excluding Text from Scans\r
+\r
+Some messages carry text the AI should keep seeing but that should never trigger lore \u2014 for example, a story tracker that lists characters who are currently off-scene. Wrap that text in exclusion markup and World Info ignores it, while it stays in the chat and in the prompt.\r
+\r
+| Form | Example |\r
+|---|---|\r
+| Tag | \`<wi-exclude>Off-scene: Mira, Captain Holt</wi-exclude>\` |\r
+| Markers | \`!--WI_EXCLUDE_START--!\` \u2026 \`!--WI_EXCLUDE_END--!\` |\r
+| Attribute on any HTML element | \`<div class="tracker" wi-exclude>\u2026</div>\` |\r
+\r
+\`\`\`html\r
+<div class="tracker" wi-exclude>\r
+  Location: The Gilded Anchor\r
+  Off-scene: Mira, Captain Holt\r
+</div>\r
+\`\`\`\r
+\r
+The attribute form excludes the whole element, including everything nested inside it.\r
+\r
+- Excluded text is ignored by keyword matching and left out of the vectorized-entry search query. The stored message, the chat display, and what is sent to the AI are unchanged.\r
+- Each message is handled separately. An unclosed block runs to the end of that message only.\r
+- Tag and attribute names are not case-sensitive, and the attribute works with or without a value. Markers must be written exactly as shown.\r
+- Excluded regions are scanned as blank space, so words on either side never join into a new keyword match.\r
+- Lore entry content and recursion are not affected.\r
+\r
+!!! tip "Getting the AI to use it"\r
+    Ask in your preset or character instructions for tracker or status blocks to be wrapped in \`<div wi-exclude>\` or the markers. The markers appear as plain text in chat; a display-target regex script can hide them.\r
 \r
 ---\r
 \r
