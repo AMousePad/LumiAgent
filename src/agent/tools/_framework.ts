@@ -58,23 +58,29 @@ export function defineTool<TInput>(config: {
   return config;
 }
 
-// Gemini's function-declaration schema is a restricted OpenAPI subset that
-// 400s on these JSON Schema keywords. Strip them so tool schemas survive every
-// provider route, not only Lumiverse's native google path that sanitizes but
-// also the openai-compatible / OpenRouter / custom routes that forward raw.
+// These keywords are rejected by provider routes that accept only an OpenAPI subset.
 const NON_PORTABLE_SCHEMA_KEYS = new Set([
   "additionalProperties", "$schema", "$id", "$ref", "$defs", "definitions",
   "patternProperties", "unevaluatedProperties", "propertyNames",
 ]);
 
 function stripNonPortableSchemaKeys(node: unknown): unknown {
-  if (Array.isArray(node)) return node.map(stripNonPortableSchemaKeys);
-  if (!node || typeof node !== "object") return node;
+  if (!node || typeof node !== "object" || Array.isArray(node)) return node;
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
     if (NON_PORTABLE_SCHEMA_KEYS.has(k)) continue;
-    out[k] = stripNonPortableSchemaKeys(v);
+    if (k === "properties" && v && typeof v === "object" && !Array.isArray(v)) {
+      out[k] = Object.fromEntries(Object.entries(v).map(([name, schema]) => [name, stripNonPortableSchemaKeys(schema)]));
+    } else if (k === "items") {
+      out[k] = stripNonPortableSchemaKeys(v);
+    } else if (["anyOf", "oneOf", "allOf", "prefixItems"].includes(k) && Array.isArray(v)) {
+      out[k] = v.map(stripNonPortableSchemaKeys);
+    } else {
+      out[k] = v;
+    }
   }
+  // Vertex requires a scalar type. Branches preserve JSON Schema null semantics on other providers.
+  if (Array.isArray(out.type)) return { anyOf: out.type.map(type => ({ ...out, type })) };
   return out;
 }
 

@@ -3161,16 +3161,24 @@ function defineTool(config) {
   return config;
 }
 function stripNonPortableSchemaKeys(node) {
-  if (Array.isArray(node))
-    return node.map(stripNonPortableSchemaKeys);
-  if (!node || typeof node !== "object")
+  if (!node || typeof node !== "object" || Array.isArray(node))
     return node;
   const out = {};
   for (const [k, v] of Object.entries(node)) {
     if (NON_PORTABLE_SCHEMA_KEYS.has(k))
       continue;
-    out[k] = stripNonPortableSchemaKeys(v);
+    if (k === "properties" && v && typeof v === "object" && !Array.isArray(v)) {
+      out[k] = Object.fromEntries(Object.entries(v).map(([name, schema]) => [name, stripNonPortableSchemaKeys(schema)]));
+    } else if (k === "items") {
+      out[k] = stripNonPortableSchemaKeys(v);
+    } else if (["anyOf", "oneOf", "allOf", "prefixItems"].includes(k) && Array.isArray(v)) {
+      out[k] = v.map(stripNonPortableSchemaKeys);
+    } else {
+      out[k] = v;
+    }
   }
+  if (Array.isArray(out.type))
+    return { anyOf: out.type.map((type) => ({ ...out, type })) };
   return out;
 }
 function portableJsonSchema(schema) {
@@ -24655,9 +24663,9 @@ var init_asset_delete = __esm(() => {
       type: "object",
       properties: {
         source: {
-          oneOf: [
-            { type: "object", properties: { kind: { const: "character" }, character_id: { type: "string" } }, required: ["kind", "character_id"] },
-            { type: "object", properties: { kind: { const: "module" }, module_id: { type: "string" } }, required: ["kind", "module_id"] }
+          anyOf: [
+            { type: "object", properties: { kind: { type: "string", enum: ["character"] }, character_id: { type: "string" } }, required: ["kind", "character_id"] },
+            { type: "object", properties: { kind: { type: "string", enum: ["module"] }, module_id: { type: "string" } }, required: ["kind", "module_id"] }
           ]
         },
         asset_name: { type: "string" }
@@ -24714,9 +24722,9 @@ var init_asset_rename = __esm(() => {
       type: "object",
       properties: {
         source: {
-          oneOf: [
-            { type: "object", properties: { kind: { const: "character" }, character_id: { type: "string" } }, required: ["kind", "character_id"] },
-            { type: "object", properties: { kind: { const: "module" }, module_id: { type: "string" } }, required: ["kind", "module_id"] }
+          anyOf: [
+            { type: "object", properties: { kind: { type: "string", enum: ["character"] }, character_id: { type: "string" } }, required: ["kind", "character_id"] },
+            { type: "object", properties: { kind: { type: "string", enum: ["module"] }, module_id: { type: "string" } }, required: ["kind", "module_id"] }
           ]
         },
         old_name: { type: "string" },

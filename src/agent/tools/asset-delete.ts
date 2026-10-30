@@ -25,9 +25,9 @@ export const assetDeleteTool = defineTool({
     type: "object",
     properties: {
       source: {
-        oneOf: [
-          { type: "object", properties: { kind: { const: "character" }, character_id: { type: "string" } }, required: ["kind", "character_id"] },
-          { type: "object", properties: { kind: { const: "module" }, module_id: { type: "string" } }, required: ["kind", "module_id"] },
+        anyOf: [
+          { type: "object", properties: { kind: { type: "string", enum: ["character"] }, character_id: { type: "string" } }, required: ["kind", "character_id"] },
+          { type: "object", properties: { kind: { type: "string", enum: ["module"] }, module_id: { type: "string" } }, required: ["kind", "module_id"] },
         ],
       },
       asset_name: { type: "string" },
