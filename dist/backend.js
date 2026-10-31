@@ -11,6 +11,19 @@ var __esm = (fn, res, err) => () => {
   return res;
 };
 
+// src/agent/retry.ts
+function coerceAutoRetries(value) {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.min(MAX_AUTO_RETRIES, Math.floor(value))) : DEFAULT_AUTO_RETRIES;
+}
+function canRetryModelError(error) {
+  const status = error?.status ?? error?.statusCode;
+  if (status && status >= 400 && status < 500)
+    return [408, 409, 425, 429].includes(status);
+  const message = error instanceof Error ? error.message : String(error);
+  return !/(?:\b(?:http|status(?: code)?|error(?: code)?)\s*[:=(]?\s*|\()(?:400|401|403|404|422)\b|invalid (?:api key|json payload)|unauthorized|permission denied/i.test(message);
+}
+var DEFAULT_AUTO_RETRIES = 3, MAX_AUTO_RETRIES = 10;
+
 // src/state/assistant-activity.ts
 function activitySnapshot(activity, now = Date.now()) {
   return activity ? { ...activity, observedAt: now } : undefined;
@@ -19,6 +32,7 @@ function advanceActivity(message, event, now = Date.now()) {
   const previous = message.activity;
   let phase;
   switch (event.type) {
+    case "turn_retry":
     case "turn_started":
       phase = "waiting";
       break;
@@ -2607,6 +2621,7 @@ function defaultSettings() {
     cacheMode: "full",
     parallelToolCalls: true,
     autoCompaction: true,
+    autoRetries: coerceAutoRetries(undefined),
     tpmLimit: null,
     rpmLimit: null,
     debugLogging: false,
@@ -2651,6 +2666,7 @@ async function loadSettings(spindle2, userId) {
     cacheMode: coerceCacheMode(s["cacheMode"]),
     parallelToolCalls: typeof s["parallelToolCalls"] === "boolean" ? s["parallelToolCalls"] : true,
     autoCompaction: s["autoCompaction"] !== false,
+    autoRetries: coerceAutoRetries(s["autoRetries"]),
     tpmLimit: coercePositiveInt(s["tpmLimit"]),
     rpmLimit: coercePositiveInt(s["rpmLimit"]),
     debugLogging: s["debugLogging"] === true,
@@ -51850,7 +51866,6 @@ var init_workspace_actions = __esm(() => {
   init_workspace();
   mutationTails = new Map;
 });
-
 // src/state/frontend-binding.ts
 class FrontendBinding {
   userId;
@@ -52130,7 +52145,6 @@ async function* runLlmStream(spindle2, input) {
     spindle2.log.warn(`llm.stream ENDED WITHOUT done chunk: last_chunk_type=${lastChunkType} ` + `reasoning_chars_streamed=${reasoningChars}(${reasoningChunks} chunks) ` + `token_chars_streamed=${tokenChars}(${tokenChunks} chunks). ` + `The loop will see empty content + no tool_calls + finish_reason="" and fail the turn.`);
   }
 }
-
 // src/agent/cache-control.ts
 var LAG_USER_TURNS = 1;
 var ADDITIONAL_LAGS = [3, 6];
@@ -53107,8 +53121,9 @@ async function* runAgent(input) {
     };
   }
   const startingTurn = input.startingTurn ?? 0;
-  let anyToolCallThisRun = false;
   let textToolCallRetries = 0;
+  let retryAttempt = 0;
+  const autoRetries = coerceAutoRetries(input.autoRetries);
   for (let i = 1;i <= maxTurns; i++) {
     const turnNum = startingTurn + i;
     if (signal.aborted)
@@ -53194,12 +53209,29 @@ async function* runAgent(input) {
           reasoning = ev.response.reasoning;
         }
       }
+      if (!sawDoneEvent)
+        throw new Error("The model connection closed before the response finished.");
+      if (!content.trim() && toolCalls.length === 0 && !["max_tokens", "content_filter", "safety"].includes(finishReason)) {
+        throw new Error("The model returned an empty response.");
+      }
     } catch (err) {
       if (signal.aborted)
         return;
+      if (retryAttempt < autoRetries && canRetryModelError(err)) {
+        retryAttempt++;
+        const delayMs = Math.min(1000 * 2 ** (retryAttempt - 1), 1e4);
+        const error = err instanceof Error ? err.message : String(err);
+        yield { type: "turn_retry", message: `Retrying (${retryAttempt}/${autoRetries}) in ${delayMs / 1000}s: ${error}` };
+        await sleep(delayMs, signal);
+        if (signal.aborted)
+          return;
+        i--;
+        continue;
+      }
       input.spindle.log.error(`loop.turn ${turnNum} LLM stream threw: ${err.message} (streamed reasoning_chars=${streamedReasoningChars} token_chars=${streamedTokenChars} saw_done=${sawDoneEvent})`);
       throw new Error(`LLM call failed: ${err.message}`);
     }
+    retryAttempt = 0;
     dlog(input.spindle, `loop.turn ${turnNum} response: finish_reason=${finishReason || "<empty>"} content_chars=${content.length} tool_calls=${toolCalls.length}[${toolCalls.map((t) => t.name).join(",") || "<none>"}] reasoning_terminal_chars=${reasoning?.length ?? 0} reasoning_streamed_chars=${streamedReasoningChars} token_streamed_chars=${streamedTokenChars} saw_done=${sawDoneEvent} usage=${usage ? `p${usage.prompt}/c${usage.completion}/t${usage.total}${usage.estimated ? "(est)" : ""}` : "<none>"} conv_msgs=${conv.length}`);
     if (usage === undefined) {
       try {
@@ -53300,8 +53332,6 @@ Diagnostics (also in the Lumiverse server logs):
         return;
       }
     }
-    if (toolCalls.length > 0)
-      anyToolCallThisRun = true;
     const results = [];
     const newEdits = [];
     const queuedImages = [];
@@ -53477,12 +53507,6 @@ Diagnostics (also in the Lumiverse server logs):
       return;
     }
     if (toolCalls.length === 0) {
-      if (!anyToolCallThisRun && content.trim().length > 0) {
-        yield {
-          type: "warning",
-          message: "I responded without calling any tools. If you asked for an edit and nothing changed, the selected connection might not support native tool calling. Try a different connection: Anthropic, OpenAI, Google Gemini, Claude-via-Vertex/Bedrock, and most OpenRouter routes for those same models support it. Proxies and older open-weight models often do not."
-        };
-      }
       yield { type: "paused_for_input", reason: "no_tool_calls" };
       return;
     }
@@ -53514,7 +53538,7 @@ var addressing_section_default = '# Addressing characters\n\nYour current focus,
 // src/agent/prompts/claude/tasks/general/when_to_stop.txt
 var when_to_stop_default = `# When to stop
 
-When the user's last request is **fulfilled by tool calls**, write a short summary of what changed and stop without calling any tool. The user will tell you what to do next.`;
+When the user's last request is fully fulfilled in the sense of what they are asking.`;
 
 // src/agent/prompts/claude/tasks/general/agent_notes_section.txt
 var agent_notes_section_default = `# Agent notes (agent/agent.md, snapshot)
@@ -54342,6 +54366,7 @@ async function handleGetSettings(userId) {
     autoCompaction: settings.autoCompaction,
     tpmLimit: settings.tpmLimit,
     rpmLimit: settings.rpmLimit,
+    autoRetries: settings.autoRetries,
     debugLogging: settings.debugLogging,
     requireChangeApproval: settings.requireChangeApproval,
     reasoningEffort: settings.reasoningEffort
@@ -54417,7 +54442,7 @@ function buildSamplerParams(samplers, parallelToolCalls, provider) {
   base["parallel_tool_calls"] = parallelToolCalls;
   return base;
 }
-async function handleUpdateSettings(persona, systemPromptOverride, samplers, jailbreak, jailbreakPlacement, workspaceCapBytes, toolOutputCapTokens, cacheMode, parallelToolCalls, tpmLimit, rpmLimit, debugLogging, requireChangeApproval, reasoningEffort, autoCompaction, userId) {
+async function handleUpdateSettings(persona, systemPromptOverride, samplers, jailbreak, jailbreakPlacement, workspaceCapBytes, toolOutputCapTokens, cacheMode, parallelToolCalls, tpmLimit, rpmLimit, debugLogging, requireChangeApproval, reasoningEffort, autoCompaction, autoRetries, userId) {
   const prior = await loadSettings(spindle, userId);
   const persistedApproval = requireChangeApproval ?? prior.requireChangeApproval;
   await saveSettings(spindle, {
@@ -54436,7 +54461,8 @@ async function handleUpdateSettings(persona, systemPromptOverride, samplers, jai
     debugLogging,
     requireChangeApproval: persistedApproval,
     reasoningEffort: reasoningEffort ?? prior.reasoningEffort,
-    autoCompaction: autoCompaction ?? prior.autoCompaction
+    autoCompaction: autoCompaction ?? prior.autoCompaction,
+    autoRetries: coerceAutoRetries(autoRetries ?? prior.autoRetries)
   }, userId);
   await handleGetSettings(userId);
 }
@@ -54805,11 +54831,16 @@ async function compactSession(sessionId, userId, trigger, connectionId) {
         cacheMode: settings.cacheMode,
         tpmLimit: settings.tpmLimit,
         rpmLimit: settings.rpmLimit,
+        autoRetries: settings.autoRetries,
         signal: ac.signal,
         recentReads: recentReadsFor(userId, sessionId)
       })) {
         advanceActivity(assistant, ev);
         switch (ev.type) {
+          case "turn_retry":
+            assistant.blocks.splice(turnStartBlocks);
+            assistant.blocks.push({ type: "warning", message: ev.message });
+            break;
           case "turn_started":
             assistant.turn = ev.turn;
             currentText = null;
@@ -56321,12 +56352,17 @@ async function handleSendMessageInternal(s, userId, connectionIdOverride, fronte
         cacheMode: settings.cacheMode,
         tpmLimit: settings.tpmLimit,
         rpmLimit: settings.rpmLimit,
+        autoRetries: settings.autoRetries,
         signal: ac.signal,
         recentReads: recentReadsFor(userId, s.sessionId),
         callFrontend: async (op, args, timeoutMs) => callFrontend(userId, op, args, timeoutMs, ac.signal, await binding.target(ac.signal))
       })) {
         advanceActivity(assistant, ev);
         switch (ev.type) {
+          case "turn_retry":
+            assistant.blocks.splice(turnStartBlocks);
+            assistant.blocks.push({ type: "warning", message: ev.message });
+            break;
           case "turn_started":
             assistant.turn = ev.turn;
             lastTurn = ev.turn;
@@ -56808,7 +56844,7 @@ spindle.onFrontendMessage(async (raw, userId, frontendSessionId) => {
         const previous = settingsWrites.get(userId) ?? Promise.resolve();
         const write = previous.catch(() => {}).then(async () => {
           try {
-            await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.cacheMode ?? "full", msg.parallelToolCalls ?? true, msg.tpmLimit ?? null, msg.rpmLimit ?? null, msg.debugLogging ?? false, msg.requireChangeApproval, msg.reasoningEffort, msg.autoCompaction, userId);
+            await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.cacheMode ?? "full", msg.parallelToolCalls ?? true, msg.tpmLimit ?? null, msg.rpmLimit ?? null, msg.debugLogging ?? false, msg.requireChangeApproval, msg.reasoningEffort, msg.autoCompaction, msg.autoRetries, userId);
             if (msg.requestId)
               spindle.sendToFrontend({ type: "settings_saved", requestId: msg.requestId }, userId, frontendSessionId ? { frontendSessionId } : undefined);
           } catch (error) {

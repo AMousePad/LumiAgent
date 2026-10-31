@@ -1,3 +1,4 @@
+import { coerceAutoRetries } from "./agent/retry";
 import { FrontendBinding } from "./state/frontend-binding";
 import { advanceActivity, activitySnapshot, finishActivity } from "./state/assistant-activity";
 import { SessionCommands } from "./state/session-commands";
@@ -642,6 +643,7 @@ async function handleGetSettings(userId: string): Promise<void> {
     autoCompaction: settings.autoCompaction,
     tpmLimit: settings.tpmLimit,
     rpmLimit: settings.rpmLimit,
+    autoRetries: settings.autoRetries,
     debugLogging: settings.debugLogging,
     requireChangeApproval: settings.requireChangeApproval,
     reasoningEffort: settings.reasoningEffort,
@@ -755,6 +757,7 @@ async function handleUpdateSettings(
   requireChangeApproval: boolean | undefined,
   reasoningEffort: AgentSettings["reasoningEffort"] | undefined,
   autoCompaction: boolean | undefined,
+  autoRetries: number | undefined,
   userId: string,
 ): Promise<void> {
   const prior = await loadSettings(spindle, userId);
@@ -776,6 +779,7 @@ async function handleUpdateSettings(
     requireChangeApproval: persistedApproval,
     reasoningEffort: reasoningEffort ?? prior.reasoningEffort,
     autoCompaction: autoCompaction ?? prior.autoCompaction,
+    autoRetries: coerceAutoRetries(autoRetries ?? prior.autoRetries),
   }, userId);
   await handleGetSettings(userId);
 }
@@ -1155,11 +1159,15 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
       ...(settings.samplers.contextSize !== null ? { contextTokens: settings.samplers.contextSize } : {}),
       toolOutputCapTokens: resolveToolOutputCapTokens(settings),
       tokenizerModelId: await resolveModelForConnection(s.connectionId, userId),
-      maxTurns: 8, startingTurn: 0, cacheMode: settings.cacheMode, tpmLimit: settings.tpmLimit, rpmLimit: settings.rpmLimit, signal: ac.signal,
+      maxTurns: 8, startingTurn: 0, cacheMode: settings.cacheMode, tpmLimit: settings.tpmLimit, rpmLimit: settings.rpmLimit, autoRetries: settings.autoRetries, signal: ac.signal,
       recentReads: recentReadsFor(userId, sessionId),
     })) {
       advanceActivity(assistant, ev);
       switch (ev.type) {
+        case "turn_retry":
+          assistant.blocks.splice(turnStartBlocks);
+          assistant.blocks.push({ type: "warning", message: ev.message });
+          break;
         case "turn_started":
           assistant.turn = ev.turn;
           currentText = null; currentReasoning = null;
@@ -2751,12 +2759,16 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
       toolOutputCapTokens: resolveToolOutputCapTokens(settings),
       tokenizerModelId: await resolveModelForConnection(s.connectionId, userId),
       maxTurns: DEFAULT_MAX_TURNS_PER_MESSAGE, startingTurn: lastTurn,
-      cacheMode: settings.cacheMode, tpmLimit: settings.tpmLimit, rpmLimit: settings.rpmLimit, signal: ac.signal,
+      cacheMode: settings.cacheMode, tpmLimit: settings.tpmLimit, rpmLimit: settings.rpmLimit, autoRetries: settings.autoRetries, signal: ac.signal,
       recentReads: recentReadsFor(userId, s.sessionId),
       callFrontend: async (op, args, timeoutMs) => callFrontend(userId, op, args, timeoutMs, ac.signal, await binding.target(ac.signal)),
     })) {
       advanceActivity(assistant, ev);
       switch (ev.type) {
+        case "turn_retry":
+          assistant.blocks.splice(turnStartBlocks);
+          assistant.blocks.push({ type: "warning", message: ev.message });
+          break;
         case "turn_started":
           assistant.turn = ev.turn; lastTurn = ev.turn;
           currentTextBlock = null; currentReasoningBlock = null;
@@ -3224,7 +3236,7 @@ spindle.onFrontendMessage(async (raw: unknown, userId: string, frontendSessionId
         const previous = settingsWrites.get(userId) ?? Promise.resolve();
         const write = previous.catch(() => {}).then(async () => {
           try {
-            await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.cacheMode ?? "full", msg.parallelToolCalls ?? true, msg.tpmLimit ?? null, msg.rpmLimit ?? null, msg.debugLogging ?? false, msg.requireChangeApproval, msg.reasoningEffort, msg.autoCompaction, userId);
+            await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.cacheMode ?? "full", msg.parallelToolCalls ?? true, msg.tpmLimit ?? null, msg.rpmLimit ?? null, msg.debugLogging ?? false, msg.requireChangeApproval, msg.reasoningEffort, msg.autoCompaction, msg.autoRetries, userId);
             if (msg.requestId) spindle.sendToFrontend({ type: "settings_saved", requestId: msg.requestId }, userId, frontendSessionId ? { frontendSessionId } : undefined);
           } catch (error) {
             if (msg.requestId) spindle.sendToFrontend({ type: "settings_saved", requestId: msg.requestId, error: (error as Error).message }, userId, frontendSessionId ? { frontendSessionId } : undefined);

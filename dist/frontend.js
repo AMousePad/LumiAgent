@@ -2528,6 +2528,13 @@ async function handleThemeWorkbench(ctx, request, signal) {
   throw new Error("This theme operation uses the backend API.");
 }
 
+// src/agent/retry.ts
+var DEFAULT_AUTO_RETRIES = 3;
+var MAX_AUTO_RETRIES = 10;
+function coerceAutoRetries(value) {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.min(MAX_AUTO_RETRIES, Math.floor(value))) : DEFAULT_AUTO_RETRIES;
+}
+
 // src/ui/request-feedback.ts
 class RequestFeedback {
   root = document.createElement("div");
@@ -15065,6 +15072,12 @@ function handleAgentEvent(ev, ctx) {
       ctx.ensureStreamingTurn().addWarning(ev.message);
       ctx.state.currentAssistantMessage?.blocks.push({ type: "warning", message: ev.message });
       return;
+    case "turn_retry":
+      ctx.rebindCurrentAssistantMessage();
+      ctx.state.currentAssistantMessage?.blocks.splice(turnStartBlocks);
+      ctx.state.currentAssistantMessage?.blocks.push({ type: "warning", message: ev.message });
+      ctx.rebuildStreamingTurn();
+      return;
     case "turn_started":
       ctx.clearErrorBanners();
       ctx.adoptStreamingTurn(ev.assistantMessageId);
@@ -18222,6 +18235,17 @@ Revert those edits to the character now, or leave them applied?`;
     reasoningRow.appendChild(reasoningSelect);
     wrap.appendChild(reasoningRow);
     wrap.appendChild(el9("div", "la-settings-hint", "Thinking budget for agent turns only. Inherit keeps the connection's own reasoning settings; Off disables thinking on models that allow it."));
+    const retriesRow = el9("div", "la-settings-row");
+    retriesRow.append(el9("label", "la-settings-row-label", "Automatic retries"));
+    const retriesInput = document.createElement("input");
+    retriesInput.type = "number";
+    retriesInput.className = "la-slider-input";
+    retriesInput.min = "0";
+    retriesInput.max = String(MAX_AUTO_RETRIES);
+    retriesInput.step = "1";
+    retriesInput.placeholder = String(DEFAULT_AUTO_RETRIES);
+    retriesRow.append(retriesInput);
+    wrap.append(retriesRow, el9("div", "la-settings-hint", "Retry failed model requests from saved progress. Completed edits are kept. Default: 3. Set 0 to disable."));
     const parallelToolsRow = el9("div", "la-settings-row");
     parallelToolsRow.append(el9("label", "la-settings-row-label", "Parallel tool calls"));
     const parallelToolsInput = document.createElement("input");
@@ -18340,7 +18364,7 @@ Revert those edits to the character now, or leave them applied?`;
         return;
       }
       const active = document.activeElement;
-      if (active === personaArea || active === promptArea || active === jbArea || active === wsCapInput || active === toolCapInput || active === tpmInput || active === rpmInput)
+      if (active === personaArea || active === promptArea || active === jbArea || active === wsCapInput || active === toolCapInput || active === tpmInput || active === rpmInput || active === retriesInput)
         return;
       personaArea.value = s.persona;
       personaArea.placeholder = "(empty: agent has no persona)";
@@ -18363,6 +18387,7 @@ Revert those edits to the character now, or leave them applied?`;
       changeApprovalInput.checked = s.requireChangeApproval ?? false;
       tpmInput.value = s.tpmLimit ? String(s.tpmLimit) : "";
       rpmInput.value = s.rpmLimit ? String(s.rpmLimit) : "";
+      retriesInput.value = String(s.autoRetries ?? DEFAULT_AUTO_RETRIES);
       renderSamplers();
     };
     const resetAllSamplers = () => {
@@ -18502,6 +18527,7 @@ Revert those edits to the character now, or leave them applied?`;
         reasoningEffort: reasoningSelect.value,
         tpmLimit: parsePosInt(tpmInput.value),
         rpmLimit: parsePosInt(rpmInput.value),
+        autoRetries: coerceAutoRetries(retriesInput.value.trim() ? Number(retriesInput.value) : undefined),
         debugLogging: debugLogInput.checked,
         requireChangeApproval: changeApprovalInput.checked
       };
@@ -18567,7 +18593,7 @@ Revert those edits to the character now, or leave them applied?`;
       resetAllSamplers();
       commit();
     });
-    for (const inp of [personaArea, promptArea, jbArea, wsCapInput, toolCapInput, tpmInput, rpmInput]) {
+    for (const inp of [personaArea, promptArea, jbArea, wsCapInput, toolCapInput, tpmInput, rpmInput, retriesInput]) {
       inp.addEventListener("blur", () => commit());
     }
     for (const inp of [jbPlacement, cacheModeSelect, parallelToolsInput, autoCompactionInput, debugLogInput, changeApprovalInput, reasoningSelect]) {
@@ -19385,6 +19411,15 @@ ${t}` : t);
   };
   const agentEventCtx = {
     state,
+    rebuildStreamingTurn() {
+      const id = state.currentAssistantMessage?.id;
+      state.streamingAssistant?.destroy();
+      state.streamingAssistant = null;
+      if (id)
+        virtualizer.evict(id);
+      rehydrateStreamingTurn();
+      virtualizer.setCount();
+    },
     adoptStreamingTurn,
     ensureStreamingTurn,
     rebindCurrentAssistantMessage,
@@ -19902,6 +19937,7 @@ ${t}` : t);
           autoCompaction: msg.autoCompaction ?? true,
           tpmLimit: msg.tpmLimit,
           rpmLimit: msg.rpmLimit,
+          autoRetries: msg.autoRetries,
           debugLogging: msg.debugLogging,
           requireChangeApproval: msg.requireChangeApproval,
           ...msg.reasoningEffort !== undefined ? { reasoningEffort: msg.reasoningEffort } : {}

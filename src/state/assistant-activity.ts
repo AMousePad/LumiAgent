@@ -8,6 +8,7 @@ export function advanceActivity(message: ChatAssistantMessage, event: AgentEvent
   const previous = message.activity;
   let phase: AssistantActivity["phase"] | undefined;
   switch (event.type) {
+    case "turn_retry":
     case "turn_started": phase = "waiting"; break;
     case "llm_reasoning": if (event.token) phase = "thinking"; break;
     case "llm_token": if (event.token) phase = "responding"; break;

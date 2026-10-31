@@ -26,6 +26,7 @@ export interface AgentEventCtx {
   rebindCurrentAssistantMessage(): void;
   finalizeAssistantTurn(status: ChatAssistantMessage["status"]): void;
   rerenderThread(): void;
+  rebuildStreamingTurn(): void;
   updateSessionBar(): void;
   clearErrorBanners(): void;
 }
@@ -50,6 +51,12 @@ export function handleAgentEvent(ev: AgentEvent, ctx: AgentEventCtx): void {
     case "warning":
       ctx.ensureStreamingTurn().addWarning(ev.message);
       ctx.state.currentAssistantMessage?.blocks.push({ type: "warning", message: ev.message });
+      return;
+    case "turn_retry":
+      ctx.rebindCurrentAssistantMessage();
+      ctx.state.currentAssistantMessage?.blocks.splice(turnStartBlocks);
+      ctx.state.currentAssistantMessage?.blocks.push({ type: "warning", message: ev.message });
+      ctx.rebuildStreamingTurn();
       return;
     case "turn_started":
       ctx.clearErrorBanners();

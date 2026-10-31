@@ -382,6 +382,7 @@ export interface SessionStatusWire {
 }
 
 export type AgentEvent =
+  | { type: "turn_retry"; message: string }
   | { type: "turn_started"; turn: number; assistantMessageId: string }
   | { type: "llm_token"; token: string }
   | { type: "llm_reasoning"; token: string }
@@ -422,7 +423,7 @@ export type FrontendToBackend =
   | { type: "set_pinned_chat"; sessionId: string; chatId: string | null }
   | { type: "set_focus"; sessionId: string; characterId: string | null }
   | { type: "get_settings" }
-  | { type: "update_settings"; requestId?: string; persona: string; systemPromptOverride: string | null; samplers: Readonly<Record<string, number | null>>; jailbreak: string; jailbreakPlacement: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes: number | null; toolOutputCapTokens: number | null; cacheMode?: "off" | "system_only" | "full"; parallelToolCalls?: boolean; autoCompaction?: boolean; tpmLimit?: number | null; rpmLimit?: number | null; debugLogging?: boolean; requireChangeApproval?: boolean; reasoningEffort?: "inherit" | "off" | "minimal" | "low" | "medium" | "high" | "max" }
+  | { type: "update_settings"; requestId?: string; persona: string; systemPromptOverride: string | null; samplers: Readonly<Record<string, number | null>>; jailbreak: string; jailbreakPlacement: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes: number | null; toolOutputCapTokens: number | null; cacheMode?: "off" | "system_only" | "full"; parallelToolCalls?: boolean; autoCompaction?: boolean; autoRetries?: number; tpmLimit?: number | null; rpmLimit?: number | null; debugLogging?: boolean; requireChangeApproval?: boolean; reasoningEffort?: "inherit" | "off" | "minimal" | "low" | "medium" | "high" | "max" }
   | { type: "get_ui_prefs" }
   | { type: "update_ui_prefs"; connectionId: string | null; lastSessionId: string | null; tutorialSeen?: boolean; mouseyDead?: boolean; meetPromptShown?: boolean; tutorialDone?: boolean }
   | { type: "mousey_revived"; sessionId: string | null }
@@ -483,7 +484,7 @@ export type BackendMessage =
   | { type: "focus_set"; sessionId: string; characterId: string | null; characterName: string; pinnedChatId: string | null }
   | { type: "focus_rejected"; sessionId: string; reason: string }
   | { type: "settings_saved"; requestId: string; error?: string }
-  | { type: "settings_pushed"; persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody: string; samplers: Readonly<Record<string, number | null>>; jailbreak: string; jailbreakPlacement: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes: number | null; workspaceCapDefaultBytes: number; workspaceFileCapBytes: number; toolOutputCapTokens: number | null; toolOutputCapDefaultTokens: number; cacheMode: "off" | "system_only" | "full"; parallelToolCalls: boolean; autoCompaction: boolean; tpmLimit: number | null; rpmLimit: number | null; debugLogging: boolean; requireChangeApproval: boolean; reasoningEffort?: "inherit" | "off" | "minimal" | "low" | "medium" | "high" | "max" }
+  | { type: "settings_pushed"; persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody: string; samplers: Readonly<Record<string, number | null>>; jailbreak: string; jailbreakPlacement: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes: number | null; workspaceCapDefaultBytes: number; workspaceFileCapBytes: number; toolOutputCapTokens: number | null; toolOutputCapDefaultTokens: number; cacheMode: "off" | "system_only" | "full"; parallelToolCalls: boolean; autoCompaction: boolean; autoRetries: number; tpmLimit: number | null; rpmLimit: number | null; debugLogging: boolean; requireChangeApproval: boolean; reasoningEffort?: "inherit" | "off" | "minimal" | "low" | "medium" | "high" | "max" }
   | { type: "ui_prefs_pushed"; connectionId: string | null; lastSessionId: string | null; tutorialSeen: boolean; mouseyDead: boolean; meetPromptShown: boolean; tutorialDone: boolean }
   | { type: "edit_content"; requestId: string; detail: { content: string; total: number } | null }
   | { type: "workspace_response"; requestId: string; result?: import("./workspace-contract").WorkspaceResult; error?: string }

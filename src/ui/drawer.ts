@@ -1,3 +1,4 @@
+import { coerceAutoRetries, DEFAULT_AUTO_RETRIES, MAX_AUTO_RETRIES } from "../agent/retry";
 import { RequestFeedback } from "./request-feedback";
 import { mergeHistoryPage, HISTORY_WINDOW_SIZE } from "./history-window";
 import { SessionSync } from "./session-sync";
@@ -107,7 +108,7 @@ interface UiState {
   scopeLedgers: Map<string, readonly EditLogEntry[]>;
   chatsForCharacter: ChatSummary[];
   pinnedChatId: string | null;
-  settings: { persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody?: string; samplers?: Readonly<Record<string, number | null>>; jailbreak?: string; jailbreakPlacement?: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes?: number | null; workspaceCapDefaultBytes?: number; workspaceFileCapBytes?: number; toolOutputCapTokens?: number | null; toolOutputCapDefaultTokens?: number; cacheMode?: "off" | "system_only" | "full"; parallelToolCalls?: boolean; autoCompaction?: boolean; tpmLimit?: number | null; rpmLimit?: number | null; debugLogging?: boolean; requireChangeApproval?: boolean; reasoningEffort?: "inherit" | "off" | "minimal" | "low" | "medium" | "high" | "max" } | null;
+  settings: { persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody?: string; samplers?: Readonly<Record<string, number | null>>; jailbreak?: string; jailbreakPlacement?: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes?: number | null; workspaceCapDefaultBytes?: number; workspaceFileCapBytes?: number; toolOutputCapTokens?: number | null; toolOutputCapDefaultTokens?: number; cacheMode?: "off" | "system_only" | "full"; parallelToolCalls?: boolean; autoCompaction?: boolean; autoRetries?: number; tpmLimit?: number | null; rpmLimit?: number | null; debugLogging?: boolean; requireChangeApproval?: boolean; reasoningEffort?: "inherit" | "off" | "minimal" | "low" | "medium" | "high" | "max" } | null;
   pendingPinChatId: string | null;
   // Single-shot, reset after consume so a later list_chats won't re-pin after the user explicitly unpinned.
   autoPinNeeded: boolean;
@@ -2049,6 +2050,18 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     wrap.appendChild(reasoningRow);
     wrap.appendChild(el("div", "la-settings-hint", "Thinking budget for agent turns only. Inherit keeps the connection's own reasoning settings; Off disables thinking on models that allow it."));
 
+    const retriesRow = el("div", "la-settings-row");
+    retriesRow.append(el("label", "la-settings-row-label", "Automatic retries"));
+    const retriesInput = document.createElement("input");
+    retriesInput.type = "number";
+    retriesInput.className = "la-slider-input";
+    retriesInput.min = "0";
+    retriesInput.max = String(MAX_AUTO_RETRIES);
+    retriesInput.step = "1";
+    retriesInput.placeholder = String(DEFAULT_AUTO_RETRIES);
+    retriesRow.append(retriesInput);
+    wrap.append(retriesRow, el("div", "la-settings-hint", "Retry failed model requests from saved progress. Completed edits are kept. Default: 3. Set 0 to disable."));
+
     const parallelToolsRow = el("div", "la-settings-row");
     parallelToolsRow.append(el("label", "la-settings-row-label", "Parallel tool calls"));
     const parallelToolsInput = document.createElement("input");
@@ -2170,7 +2183,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       // round-trip. Skip the rewrite while one of the form's text fields is focused.
       const active = document.activeElement;
       if (active === personaArea || active === promptArea || active === jbArea
-        || active === wsCapInput || active === toolCapInput || active === tpmInput || active === rpmInput) return;
+        || active === wsCapInput || active === toolCapInput || active === tpmInput || active === rpmInput || active === retriesInput) return;
       personaArea.value = s.persona;
       personaArea.placeholder = "(empty: agent has no persona)";
       // Show the default body when override is null so the user can see what's
@@ -2194,6 +2207,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       changeApprovalInput.checked = s.requireChangeApproval ?? false;
       tpmInput.value = s.tpmLimit ? String(s.tpmLimit) : "";
       rpmInput.value = s.rpmLimit ? String(s.rpmLimit) : "";
+      retriesInput.value = String(s.autoRetries ?? DEFAULT_AUTO_RETRIES);
       renderSamplers();
     };
 
@@ -2313,6 +2327,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         reasoningEffort: reasoningSelect.value as "inherit" | "off" | "minimal" | "low" | "medium" | "high" | "max",
         tpmLimit: parsePosInt(tpmInput.value),
         rpmLimit: parsePosInt(rpmInput.value),
+        autoRetries: coerceAutoRetries(retriesInput.value.trim() ? Number(retriesInput.value) : undefined),
         debugLogging: debugLogInput.checked,
         requireChangeApproval: changeApprovalInput.checked,
       };
@@ -2359,7 +2374,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     promptResetBtn.addEventListener("click", () => { if (state.settings?.defaultSystemPromptBody) { promptArea.value = state.settings.defaultSystemPromptBody; commit(); } });
     samplersResetBtn.addEventListener("click", () => { resetAllSamplers(); commit(); });
 
-    for (const inp of [personaArea, promptArea, jbArea, wsCapInput, toolCapInput, tpmInput, rpmInput]) {
+    for (const inp of [personaArea, promptArea, jbArea, wsCapInput, toolCapInput, tpmInput, rpmInput, retriesInput]) {
       inp.addEventListener("blur", () => commit());
     }
     for (const inp of [jbPlacement, cacheModeSelect, parallelToolsInput, autoCompactionInput, debugLogInput, changeApprovalInput, reasoningSelect]) {
@@ -3212,6 +3227,14 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
 
   const agentEventCtx: AgentEventCtx = {
     state,
+    rebuildStreamingTurn() {
+      const id = state.currentAssistantMessage?.id;
+      state.streamingAssistant?.destroy();
+      state.streamingAssistant = null;
+      if (id) virtualizer.evict(id);
+      rehydrateStreamingTurn();
+      virtualizer.setCount();
+    },
     adoptStreamingTurn,
     ensureStreamingTurn,
     rebindCurrentAssistantMessage,
@@ -3712,6 +3735,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
           autoCompaction: msg.autoCompaction ?? true,
           tpmLimit: msg.tpmLimit,
           rpmLimit: msg.rpmLimit,
+          autoRetries: msg.autoRetries,
           debugLogging: msg.debugLogging,
           requireChangeApproval: msg.requireChangeApproval,
           ...(msg.reasoningEffort !== undefined ? { reasoningEffort: msg.reasoningEffort } : {}),

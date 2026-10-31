@@ -13,6 +13,7 @@ import type {
 } from "../types";
 import { encodeAssistantTurn, encodeToolResults, coalesceConsecutiveTurns } from "./protocol";
 import { runLlmStream } from "./llm";
+import { coerceAutoRetries, canRetryModelError } from "./retry";
 import { withRollingCacheBreakpoint } from "./cache-control";
 import { LoopDetector } from "./loop-detector";
 import { newEditEntry } from "../state/edit-log";
@@ -118,6 +119,7 @@ export interface RunAgentInput {
   readonly parameters?: Record<string, unknown> | undefined;
   readonly reasoning?: import("lumiverse-spindle-types").GenerationReasoningOverrideDTO | undefined;
   readonly maxTurns?: number | undefined;
+  readonly autoRetries?: number | undefined;
   readonly startingTurn?: number | undefined;
   readonly signal?: AbortSignal | undefined;
   readonly contextTokens?: number | undefined;
@@ -460,8 +462,9 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
   }
 
   const startingTurn = input.startingTurn ?? 0;
-  let anyToolCallThisRun = false;
   let textToolCallRetries = 0;
+  let retryAttempt = 0;
+  const autoRetries = coerceAutoRetries(input.autoRetries);
   for (let i = 1; i <= maxTurns; i++) {
     const turnNum = startingTurn + i;
     if (signal.aborted) return;
@@ -558,8 +561,22 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
           reasoning = ev.response.reasoning;
         }
       }
+      if (!sawDoneEvent) throw new Error("The model connection closed before the response finished.");
+      if (!content.trim() && toolCalls.length === 0 && !["max_tokens", "content_filter", "safety"].includes(finishReason)) {
+        throw new Error("The model returned an empty response.");
+      }
     } catch (err) {
       if (signal.aborted) return;
+      if (retryAttempt < autoRetries && canRetryModelError(err)) {
+        retryAttempt++;
+        const delayMs = Math.min(1000 * 2 ** (retryAttempt - 1), 10000);
+        const error = err instanceof Error ? err.message : String(err);
+        yield { type: "turn_retry", message: `Retrying (${retryAttempt}/${autoRetries}) in ${delayMs / 1000}s: ${error}` };
+        await sleep(delayMs, signal);
+        if (signal.aborted) return;
+        i--;
+        continue;
+      }
       input.spindle.log.error(
         `loop.turn ${turnNum} LLM stream threw: ${(err as Error).message} ` +
         `(streamed reasoning_chars=${streamedReasoningChars} token_chars=${streamedTokenChars} saw_done=${sawDoneEvent})`,
@@ -567,6 +584,7 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
       throw new Error(`LLM call failed: ${(err as Error).message}`);
     }
 
+    retryAttempt = 0;
     dlog(input.spindle,
       `loop.turn ${turnNum} response: finish_reason=${finishReason || "<empty>"} ` +
       `content_chars=${content.length} tool_calls=${toolCalls.length}` +
@@ -713,7 +731,6 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
       }
     }
 
-    if (toolCalls.length > 0) anyToolCallThisRun = true;
     const results: ToolResult[] = [];
     const newEdits: EditLogEntry[] = [];
     const queuedImages: QueuedImage[] = [];
@@ -946,13 +963,6 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
     }
 
     if (toolCalls.length === 0) {
-      if (!anyToolCallThisRun && content.trim().length > 0) {
-        yield {
-          type: "warning",
-          message:
-            "I responded without calling any tools. If you asked for an edit and nothing changed, the selected connection might not support native tool calling. Try a different connection: Anthropic, OpenAI, Google Gemini, Claude-via-Vertex/Bedrock, and most OpenRouter routes for those same models support it. Proxies and older open-weight models often do not.",
-        };
-      }
       yield { type: "paused_for_input", reason: "no_tool_calls" };
       return;
     }

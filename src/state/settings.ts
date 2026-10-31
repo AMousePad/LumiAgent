@@ -1,3 +1,4 @@
+import { coerceAutoRetries } from "../agent/retry";
 import type { SpindleAPI } from "lumiverse-spindle-types";
 import { coerceSamplerBag, defaultSamplerBag, type SamplerBag } from "./samplers";
 import { setDebugLogging } from "../log";
@@ -41,6 +42,7 @@ export interface AgentSettings {
   // Mistral configurations, certain self-hosted setups).
   readonly parallelToolCalls: boolean;
   readonly autoCompaction: boolean;
+  readonly autoRetries: number;
   // null = no throttle. Positive = max tokens (prompt + completion) the agent
   // loop may consume per rolling 60s before it pauses requests. Guards a
   // provider's tokens-per-minute quota (e.g. Gemini free tier 250k TPM).
@@ -108,6 +110,7 @@ export function defaultSettings(): AgentSettings {
     cacheMode: "full",
     parallelToolCalls: true,
     autoCompaction: true,
+    autoRetries: coerceAutoRetries(undefined),
     tpmLimit: null,
     rpmLimit: null,
     debugLogging: false,
@@ -158,6 +161,7 @@ export async function loadSettings(spindle: SpindleAPI, userId: string): Promise
     cacheMode: coerceCacheMode(s["cacheMode"]),
     parallelToolCalls: typeof s["parallelToolCalls"] === "boolean" ? (s["parallelToolCalls"] as boolean) : true,
     autoCompaction: s["autoCompaction"] !== false,
+    autoRetries: coerceAutoRetries(s["autoRetries"]),
     tpmLimit: coercePositiveInt(s["tpmLimit"]),
     rpmLimit: coercePositiveInt(s["rpmLimit"]),
     debugLogging: s["debugLogging"] === true,
