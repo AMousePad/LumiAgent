@@ -1,3 +1,4 @@
+import { createUuid } from "./uuid";
 import type { SessionRevision } from "../state/session-sync";
 
 export class SessionSync {
@@ -12,7 +13,7 @@ export class SessionSync {
     if (sessionId !== this.sessionId) this.revision = null;
     this.sessionId = sessionId;
     this.before = before;
-    this.requestId = crypto.randomUUID();
+    this.requestId = createUuid();
     this.requestedAt = Date.now();
     return this.requestId;
   }

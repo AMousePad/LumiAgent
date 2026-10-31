@@ -1,3 +1,4 @@
+import { createUuid } from "./uuid";
 import type { BackendToFrontend, FrontendToBackend } from "../types";
 import type { ScopeRef } from "../types";
 import type { messageActivity, messageDetail } from "../state/session-view";
@@ -12,12 +13,12 @@ export class MessageReader {
   private readonly pending = new Map<string, { resolve(value: unknown): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>();
   constructor(private readonly send: (message: FrontendToBackend) => void) {}
   edit(scope: ScopeRef, editId: string, part: "before" | "after", offset: number): Promise<{ content: string; total: number }> {
-    return this.request({ type: "read_edit_content", requestId: crypto.randomUUID(), scope, editId, part, offset });
+    return this.request({ type: "read_edit_content", requestId: createUuid(), scope, editId, part, offset });
   }
   source(sessionId: string, messageId: string): MessageSource {
     return {
-      activity: (kind, start, callId) => this.request({ type: "read_message_activity", sessionId, messageId, requestId: crypto.randomUUID(), kind, ...(start === undefined ? {} : { start }), ...(callId ? { callId } : {}) }),
-      detail: (blockIndex, offset, part = "content") => this.request({ type: "read_message_detail", sessionId, messageId, requestId: crypto.randomUUID(), blockIndex, offset, part }),
+      activity: (kind, start, callId) => this.request({ type: "read_message_activity", sessionId, messageId, requestId: createUuid(), kind, ...(start === undefined ? {} : { start }), ...(callId ? { callId } : {}) }),
+      detail: (blockIndex, offset, part = "content") => this.request({ type: "read_message_detail", sessionId, messageId, requestId: createUuid(), blockIndex, offset, part }),
     };
   }
   private request<T>(message: Extract<FrontendToBackend, { type: "read_message_activity" | "read_message_detail" | "read_edit_content" }>): Promise<T> {

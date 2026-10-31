@@ -1,3 +1,4 @@
+import { createUuid } from "./uuid";
 import type { SpindleFrontendContext, SpindleModalHandle } from "lumiverse-spindle-types";
 import type { EditLogEntry, EditSurface, ScopeRef } from "../types";
 import { fileKeyOf, scopeKeyString, canRevertEdit } from "../types";
@@ -260,7 +261,7 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
   if (deps.filesPanel) filesView.appendChild(deps.filesPanel);
 
   root.append(tabs, editsView, filesView);
-  const panelId = `workshop-${crypto.randomUUID()}`;
+  const panelId = `workshop-${createUuid()}`;
   editsView.id = `${panelId}-edits`; filesView.id = `${panelId}-files`;
   editsView.setAttribute("role", "tabpanel"); filesView.setAttribute("role", "tabpanel");
   const syncTabs = () => {

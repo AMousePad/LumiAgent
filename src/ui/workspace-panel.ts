@@ -1,3 +1,4 @@
+import { createUuid } from "./uuid";
 import type { SpindleFrontendContext } from "lumiverse-spindle-types";
 import type { BackendToFrontend, FrontendToBackend, WorkspaceEntry } from "../types";
 import type { WorkspaceAction, WorkspaceResult } from "../workspace-contract";
@@ -42,7 +43,7 @@ export function mountWorkspacePanel(deps: WorkspacePanelDeps): WorkspacePanelHan
   let listing = 0, preview = 0;
   const pending = new Map<string, { resolve(value: WorkspaceResult): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>();
   const request = (input: WorkspaceAction): Promise<WorkspaceResult> => new Promise((resolve, reject) => {
-    const requestId = crypto.randomUUID();
+    const requestId = createUuid();
     const timer = setTimeout(() => { pending.delete(requestId); reject(new Error("The server has not responded. Refresh to check the latest state.")); }, input.action === "download" ? 120000 : 30000);
     pending.set(requestId, { resolve, reject, timer });
     try { deps.sendBackend({ type: "workspace_request", requestId, input }); }

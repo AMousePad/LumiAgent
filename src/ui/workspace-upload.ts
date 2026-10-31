@@ -1,3 +1,4 @@
+import { createUuid } from "./uuid";
 import type { FrontendToBackend } from "../types";
 import { uploadFile } from "./staged-upload";
 
@@ -36,7 +37,7 @@ export class WorkspaceUploads {
         this.send({ type: "ws_upload_discard", uploadId });
         throw new DOMException("Upload cancelled", "AbortError");
       }
-      const transferId = crypto.randomUUID();
+      const transferId = createUuid();
       await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(() => this.complete(transferId, "Saving the upload timed out. Check the workspace before retrying."), 30 * 60_000);
         this.pending.set(transferId, {

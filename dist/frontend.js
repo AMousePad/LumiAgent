@@ -2528,6 +2528,17 @@ async function handleThemeWorkbench(ctx, request, signal) {
   throw new Error("This theme operation uses the backend API.");
 }
 
+// src/ui/uuid.ts
+function createUuid() {
+  if (typeof crypto.randomUUID === "function")
+    return crypto.randomUUID();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = bytes[6] & 15 | 64;
+  bytes[8] = bytes[8] & 63 | 128;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 // src/agent/retry.ts
 var DEFAULT_AUTO_RETRIES = 3;
 var MAX_AUTO_RETRIES = 10;
@@ -2641,7 +2652,7 @@ class SessionSync {
       this.revision = null;
     this.sessionId = sessionId;
     this.before = before;
-    this.requestId = crypto.randomUUID();
+    this.requestId = createUuid();
     this.requestedAt = Date.now();
     return this.requestId;
   }
@@ -2694,12 +2705,12 @@ class MessageReader {
     this.send = send;
   }
   edit(scope, editId, part, offset) {
-    return this.request({ type: "read_edit_content", requestId: crypto.randomUUID(), scope, editId, part, offset });
+    return this.request({ type: "read_edit_content", requestId: createUuid(), scope, editId, part, offset });
   }
   source(sessionId, messageId) {
     return {
-      activity: (kind, start, callId) => this.request({ type: "read_message_activity", sessionId, messageId, requestId: crypto.randomUUID(), kind, ...start === undefined ? {} : { start }, ...callId ? { callId } : {} }),
-      detail: (blockIndex, offset, part = "content") => this.request({ type: "read_message_detail", sessionId, messageId, requestId: crypto.randomUUID(), blockIndex, offset, part })
+      activity: (kind, start, callId) => this.request({ type: "read_message_activity", sessionId, messageId, requestId: createUuid(), kind, ...start === undefined ? {} : { start }, ...callId ? { callId } : {} }),
+      detail: (blockIndex, offset, part = "content") => this.request({ type: "read_message_detail", sessionId, messageId, requestId: createUuid(), blockIndex, offset, part })
     };
   }
   request(message) {
@@ -7657,7 +7668,7 @@ class WorkspaceUploads {
         this.send({ type: "ws_upload_discard", uploadId });
         throw new DOMException("Upload cancelled", "AbortError");
       }
-      const transferId = crypto.randomUUID();
+      const transferId = createUuid();
       await new Promise((resolve, reject) => {
         const timer = setTimeout(() => this.complete(transferId, "Saving the upload timed out. Check the workspace before retrying."), 30 * 60000);
         this.pending.set(transferId, {
@@ -14122,7 +14133,7 @@ function openDiffModal(ctx, deps, opts) {
   if (deps.filesPanel)
     filesView.appendChild(deps.filesPanel);
   root.append(tabs, editsView, filesView);
-  const panelId = `workshop-${crypto.randomUUID()}`;
+  const panelId = `workshop-${createUuid()}`;
   editsView.id = `${panelId}-edits`;
   filesView.id = `${panelId}-files`;
   editsView.setAttribute("role", "tabpanel");
@@ -14535,7 +14546,7 @@ function mountWorkspacePanel(deps) {
   let listing = 0, preview = 0;
   const pending = new Map;
   const request = (input) => new Promise((resolve, reject) => {
-    const requestId = crypto.randomUUID();
+    const requestId = createUuid();
     const timer = setTimeout(() => {
       pending.delete(requestId);
       reject(new Error("The server has not responded. Refresh to check the latest state."));
@@ -17016,7 +17027,7 @@ function mountDrawer(ctx) {
       return;
     if (direction === "before" ? historyPage.start <= 0 : historyPage.end >= historyPage.total)
       return;
-    const requestId = crypto.randomUUID();
+    const requestId = createUuid();
     pendingHistory = { requestId, sessionId: state.sessionId, direction };
     historyFeedback.begin(requestId, {
       label: "Loading messages…",
@@ -18537,7 +18548,7 @@ Revert those edits to the character now, or leave them applied?`;
       lastCommitted = key;
       const before = state.settings;
       const promptCacheBroken = !!before && (before.persona !== persona || (before.systemPromptOverride ?? null) !== systemPromptOverride || (before.jailbreak ?? "") !== jbArea.value || (before.jailbreakPlacement ?? "system_suffix") !== placement || (before.cacheMode ?? "full") !== newCacheMode);
-      const requestId = crypto.randomUUID();
+      const requestId = createUuid();
       const submittedRevision = formRevision;
       pendingSave = true;
       status.textContent = "Saving…";

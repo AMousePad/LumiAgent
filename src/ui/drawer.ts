@@ -1,3 +1,4 @@
+import { createUuid } from "./uuid";
 import { coerceAutoRetries, DEFAULT_AUTO_RETRIES, MAX_AUTO_RETRIES } from "../agent/retry";
 import { RequestFeedback } from "./request-feedback";
 import { mergeHistoryPage, HISTORY_WINDOW_SIZE } from "./history-window";
@@ -681,7 +682,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   const requestHistory = (direction: "before" | "after") => {
     if (!state.sessionId || sessionSync.requestId || pendingHistory || historySettling) return;
     if (direction === "before" ? historyPage.start <= 0 : historyPage.end >= historyPage.total) return;
-    const requestId = crypto.randomUUID();
+    const requestId = createUuid();
     pendingHistory = { requestId, sessionId: state.sessionId, direction };
     historyFeedback.begin(requestId, { label: "Loading messages…", position: direction === "before" ? "top" : "bottom",
       retry: () => requestHistory(direction),
@@ -2342,7 +2343,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         || (before.jailbreakPlacement ?? "system_suffix") !== placement
         || (before.cacheMode ?? "full") !== newCacheMode
       );
-      const requestId = crypto.randomUUID();
+      const requestId = createUuid();
       const submittedRevision = formRevision;
       pendingSave = true;
       status.textContent = "Saving…";
