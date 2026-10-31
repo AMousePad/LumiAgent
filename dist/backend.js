@@ -11,6 +11,42 @@ var __esm = (fn, res, err) => () => {
   return res;
 };
 
+// src/state/character-catalog.ts
+async function* characterPages(spindle2, userId) {
+  const seen = new Set;
+  let offset = 0;
+  for (;; ) {
+    const page = await spindle2.characters.list({ limit: CHARACTER_PAGE_SIZE, offset, userId });
+    const fresh = page.data.filter((character) => {
+      if (seen.has(character.id))
+        return false;
+      seen.add(character.id);
+      return true;
+    });
+    if (fresh.length)
+      yield fresh;
+    offset += page.data.length;
+    if (offset >= page.total)
+      break;
+    if (!page.data.length)
+      throw new Error("Character listing ended before all results arrived. Retry the request.");
+  }
+}
+async function listAllCharacters(spindle2, userId) {
+  const out = [];
+  for await (const page of characterPages(spindle2, userId))
+    out.push(...page);
+  return out;
+}
+async function mapInBatches(items, map) {
+  const out = [];
+  for (let start = 0;start < items.length; start += 8) {
+    out.push(...await Promise.all(items.slice(start, start + 8).map(map)));
+  }
+  return out;
+}
+var CHARACTER_PAGE_SIZE = 200;
+
 // src/agent/retry.ts
 function coerceAutoRetries(value) {
   return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.min(MAX_AUTO_RETRIES, Math.floor(value))) : DEFAULT_AUTO_RETRIES;
@@ -40636,33 +40672,6 @@ var init_audit_card_coverage = __esm(() => {
   });
 });
 
-// src/state/character-catalog.ts
-async function listAllCharacters(spindle2, userId) {
-  const out = [];
-  const seen = new Set;
-  let offset = 0;
-  let total = Number.POSITIVE_INFINITY;
-  while (offset < total) {
-    const page = await spindle2.characters.list({
-      limit: CHARACTER_PAGE_SIZE,
-      offset,
-      userId
-    });
-    total = Math.max(0, page.total);
-    for (const character of page.data) {
-      if (seen.has(character.id))
-        continue;
-      seen.add(character.id);
-      out.push(character);
-    }
-    if (page.data.length === 0)
-      break;
-    offset += page.data.length;
-  }
-  return out;
-}
-var CHARACTER_PAGE_SIZE = 500;
-
 // src/agent/prompts/claude/tools/bulk-update-character-tags/description.txt
 var description_default11 = "Preview or apply one tag batch across multiple characters. Each row may `add` and/or `remove` exact tags while preserving all others, or use `set` alone to replace the full tag array.\n\nThe default is `dry_run:true`. Review its complete before/after diff, then repeat the same updates with `dry_run:false` and the returned `preview_hash`. Preflight errors make zero writes; each live row is rechecked, and a mid-batch failure compensates prior writes without overwriting divergent tags. A live batch uses one approval and records one reversible edit per changed character.\n";
 var init_description11 = () => {};
@@ -45874,7 +45883,7 @@ var arg_character_id_default4 = "Only affects the rx/wb container forms; default
 var init_arg_character_id4 = () => {};
 
 // src/agent/prompts/claude/tools/list/description.txt
-var description_default59 = `List a container's children. Paths: char, char/alternate_greetings, char/alternate_fields[/<field>], char/extensions[/<dotted-with-brackets>], rx, wb[/<bookId>], persona, preset[/<presetId>]. max_entries defaults to 200 (max 2000), max_depth to 4 (max 10, extension trees only). Scope large extension trees to a subtree.\r
+var description_default59 = `List a container's children. Paths: char, char/alternate_greetings, char/alternate_fields[/<field>], char/extensions[/<dotted-with-brackets>], rx, wb[/<bookId>], persona, preset[/<presetId>]. max_entries defaults to 200 (max 2000), max_depth to 4 (max 10, extension trees only). Use next_offset as offset to retrieve the next page until has_more is false. Scope large extension trees to a subtree.\r
 \r
 For char/rx/wb, character_id overrides focus. list does not parse char/<id>/...: use path="char/extensions", character_id="<id>". Returned char/ paths are unqualified: insert char/<id>/ before reading or writing another character. rx/wb IDs already identify their owners. Persona/preset and wb/<bookId> need no focus. include_unattached=true on wb lists the whole library.\r
 \r
@@ -45895,7 +45904,7 @@ var arg_include_unattached_default = "path='wb' only: list all owned world books
 var init_arg_include_unattached = () => {};
 
 // src/agent/prompts/claude/tools/list/arg_max_entries.txt
-var arg_max_entries_default = "Max rows returned. Default 200. A `char/extensions` walk, or `wb` with include_unattached on a large library, will overflow the output cap and spill at that default: scope the path or lower this instead.\n";
+var arg_max_entries_default = "Max rows per page. Default 200, maximum 2000. Continue with the returned next_offset. A `char/extensions` walk, or `wb` with include_unattached on a large library, will overflow the output cap and spill at that default: scope the path or lower this instead.\r\n";
 var init_arg_max_entries = () => {};
 
 // src/agent/prompts/claude/tools/list/arg_max_depth.txt
@@ -45918,7 +45927,7 @@ function classifyNode(v) {
     return { type: "boolean" };
   return { type: typeof v };
 }
-async function listCharacterRoot(ctx, characterId, maxEntries) {
+async function listCharacterRoot(ctx, characterId, maxEntries, offset = 0) {
   const c = await ctx.spindle.characters.get(characterId, ctx.userId);
   if (!c)
     throw new Error(`character ${characterId} not found`);
@@ -45940,20 +45949,20 @@ async function listCharacterRoot(ctx, characterId, maxEntries) {
     out.push({ path: "char/alternate_fields", type: "alternate_fields", size: altTotal });
   }
   out.push({ path: "char/extensions", type: "object", size: c.extensions ? Object.keys(c.extensions).length : 0 });
-  return out.slice(0, maxEntries);
+  return out.slice(offset, offset + maxEntries);
 }
-async function listGreetings(ctx, characterId, maxEntries) {
+async function listGreetings(ctx, characterId, maxEntries, offset = 0) {
   const c = await ctx.spindle.characters.get(characterId, ctx.userId);
   if (!c)
     throw new Error(`character ${characterId} not found`);
   const arr = c.alternate_greetings ?? [];
-  return arr.slice(0, maxEntries).map((g, i) => ({
-    path: `char/alternate_greetings/${i}`,
+  return arr.slice(offset, offset + maxEntries).map((g, i) => ({
+    path: `char/alternate_greetings/${offset + i}`,
     type: "string",
     size: typeof g === "string" ? g.length : 0
   }));
 }
-async function listAlternateFields(ctx, characterId, maxEntries) {
+async function listAlternateFields(ctx, characterId, maxEntries, offset = 0) {
   const c = await ctx.spindle.characters.get(characterId, ctx.userId);
   if (!c)
     throw new Error(`character ${characterId} not found`);
@@ -45961,40 +45970,40 @@ async function listAlternateFields(ctx, characterId, maxEntries) {
   for (const f of ALTERNATE_FIELD_NAMES) {
     const variants = readAltFieldArray(c.extensions, f);
     out.push({ path: `char/alternate_fields/${f}`, type: "alt_field_group", entries: variants.length });
-    if (out.length >= maxEntries)
-      break;
   }
-  return out;
+  return out.slice(offset, offset + maxEntries);
 }
-async function listAlternateFieldVariants(ctx, characterId, field, maxEntries) {
+async function listAlternateFieldVariants(ctx, characterId, field, maxEntries, offset = 0) {
   const c = await ctx.spindle.characters.get(characterId, ctx.userId);
   if (!c)
     throw new Error(`character ${characterId} not found`);
   const variants = readAltFieldArray(c.extensions, field);
-  return variants.slice(0, maxEntries).map((v, i) => ({
+  return variants.slice(offset, offset + maxEntries).map((v, i) => ({
     path: `char/alternate_fields/${field}/${v.id}`,
     type: "alt_field_variant",
     label: v.label || `(unlabeled #${i})`,
     size: v.content.length
   }));
 }
-async function listRegex(ctx, characterId, maxEntries) {
+async function listRegex(ctx, characterId, maxEntries, offset = 0) {
   const out = [];
-  let offset = 0;
   while (out.length < maxEntries) {
-    const r = await ctx.spindle.regex_scripts.list({ scope: "character", scopeId: characterId, userId: ctx.userId, limit: 200, offset });
+    ctx.signal.throwIfAborted();
+    const r = await ctx.spindle.regex_scripts.list({ scope: "character", scopeId: characterId, userId: ctx.userId, limit: Math.min(200, maxEntries - out.length), offset });
     for (const s of r.data) {
       if (out.length >= maxEntries)
         break;
       out.push({ path: `rx/${s.id}`, type: "regex_script", label: s.name, size: (s.find_regex?.length ?? 0) + (s.replace_string?.length ?? 0) });
     }
-    if (r.data.length === 0 || offset + r.data.length >= r.total)
+    if (offset + r.data.length >= r.total)
       break;
+    if (!r.data.length)
+      throw new Error("Listing ended before all results arrived. Retry the request.");
     offset += r.data.length;
   }
   return out;
 }
-async function listWorldBooks(ctx, characterId, maxEntries, includeUnattached) {
+async function listWorldBooks(ctx, characterId, maxEntries, includeUnattached, offset = 0) {
   const attached = new Set;
   if (characterId !== null) {
     const c = await ctx.spindle.characters.get(characterId, ctx.userId);
@@ -46006,11 +46015,14 @@ async function listWorldBooks(ctx, characterId, maxEntries, includeUnattached) {
   const globalSet = includeUnattached ? new Set(await ctx.spindle.world_books.getGlobal(ctx.userId).catch(() => [])) : new Set;
   const wbIds = includeUnattached ? (await listAllWorldBooks(ctx)).map((wb) => wb.id) : [...attached];
   const out = [];
+  let skipped = 0;
   for (const wbId of wbIds) {
     if (out.length >= maxEntries)
       break;
     const wb = await ctx.spindle.world_books.get(wbId, ctx.userId);
     if (!wb)
+      continue;
+    if (skipped++ < offset)
       continue;
     const meta = await ctx.spindle.world_books.entries.list(wbId, { limit: 1, userId: ctx.userId });
     const entry = { path: `wb/${wbId}`, type: "world_book", label: wb.name, entries: meta.total };
@@ -46022,23 +46034,25 @@ async function listWorldBooks(ctx, characterId, maxEntries, includeUnattached) {
   }
   return out;
 }
-async function listWorldBookEntries(ctx, bookId, maxEntries) {
+async function listWorldBookEntries(ctx, bookId, maxEntries, offset = 0) {
   const out = [];
-  let offset = 0;
   while (out.length < maxEntries) {
-    const r = await ctx.spindle.world_books.entries.list(bookId, { limit: 500, userId: ctx.userId, offset });
+    ctx.signal.throwIfAborted();
+    const r = await ctx.spindle.world_books.entries.list(bookId, { limit: Math.min(200, maxEntries - out.length), userId: ctx.userId, offset });
     for (const e of r.data) {
       if (out.length >= maxEntries)
         break;
       out.push({ path: `wb/${e.id}`, type: "wb_entry", label: wbLabel(e), size: e.content?.length ?? 0 });
     }
-    if (r.data.length === 0 || offset + r.data.length >= r.total)
+    if (offset + r.data.length >= r.total)
       break;
+    if (!r.data.length)
+      throw new Error("Listing ended before all results arrived. Retry the request.");
     offset += r.data.length;
   }
   return out;
 }
-async function listExtensions(ctx, characterId, subPath, maxEntries, maxDepth) {
+async function listExtensions(ctx, characterId, subPath, maxEntries, maxDepth, offset = 0) {
   if (subPath !== "") {
     await Promise.resolve().then(() => init_gate());
     const res = await checkExtensionRead(ctx.spindle, ctx.userId, characterId, subPath);
@@ -46055,6 +46069,7 @@ async function listExtensions(ctx, characterId, subPath, maxEntries, maxDepth) {
   if (root === undefined)
     throw new Error(`extensions${subPath === "" ? "" : "." + subPath} does not exist`);
   const out = [];
+  let visited = 0;
   const visit = (node, prefix, depth) => {
     if (out.length >= maxEntries)
       return;
@@ -46066,7 +46081,8 @@ async function listExtensions(ctx, characterId, subPath, maxEntries, maxDepth) {
       const entry = { path: `char/extensions/${fullDotted}`, type: info.type };
       if (info.size !== undefined)
         entry.size = info.size;
-      out.push(entry);
+      if (visited++ >= offset)
+        out.push(entry);
     }
     if (depth >= maxDepth)
       return;
@@ -46092,41 +46108,45 @@ async function listExtensions(ctx, characterId, subPath, maxEntries, maxDepth) {
   visit(root, "", 0);
   return out;
 }
-async function listPersonas(ctx, maxEntries) {
+async function listPersonas(ctx, maxEntries, offset = 0) {
   const out = [];
-  let offset = 0;
   while (out.length < maxEntries) {
-    const r = await ctx.spindle.personas.list({ limit: 200, offset, userId: ctx.userId });
+    ctx.signal.throwIfAborted();
+    const r = await ctx.spindle.personas.list({ limit: Math.min(200, maxEntries - out.length), offset, userId: ctx.userId });
     for (const p of r.data) {
       if (out.length >= maxEntries)
         break;
       out.push({ path: `persona/${p.id}`, type: "persona", label: p.name, size: p.description?.length ?? 0 });
     }
-    if (r.data.length === 0 || offset + r.data.length >= r.total)
+    if (offset + r.data.length >= r.total)
       break;
+    if (!r.data.length)
+      throw new Error("Listing ended before all results arrived. Retry the request.");
     offset += r.data.length;
   }
   return out;
 }
-async function listPresets(ctx, maxEntries) {
+async function listPresets(ctx, maxEntries, offset = 0) {
   const out = [];
-  let offset = 0;
   while (out.length < maxEntries) {
-    const r = await ctx.spindle.presets.list({ limit: 200, offset, userId: ctx.userId });
+    ctx.signal.throwIfAborted();
+    const r = await ctx.spindle.presets.list({ limit: Math.min(200, maxEntries - out.length), offset, userId: ctx.userId });
     for (const p of r.data) {
       if (out.length >= maxEntries)
         break;
       out.push({ path: `preset/${p.id}`, type: "preset", label: p.name });
     }
-    if (r.data.length === 0 || offset + r.data.length >= r.total)
+    if (offset + r.data.length >= r.total)
       break;
+    if (!r.data.length)
+      throw new Error("Listing ended before all results arrived. Retry the request.");
     offset += r.data.length;
   }
   return out;
 }
-async function listPresetBlocks(ctx, presetId, maxEntries) {
+async function listPresetBlocks(ctx, presetId, maxEntries, offset = 0) {
   const blocks = await ctx.spindle.presets.blocks.list(presetId, ctx.userId);
-  return blocks.slice(0, maxEntries).map((b) => {
+  return blocks.slice(offset, offset + maxEntries).map((b) => {
     const content = b.content;
     return {
       path: `preset/${presetId}/block/${b.id}`,
@@ -46151,6 +46171,7 @@ var init_list = __esm(() => {
   init_arg_max_depth();
   inputSchema59 = object({
     path: string2().describe("Container path. Empty / 'char' for the character overview. 'rx' for regex scripts. 'wb' for world books. 'wb/<bookId>' for entries in a book. 'char/alternate_greetings' for all greetings. 'char/extensions[/dotted]' for an extensions subtree. 'persona' for all personas. 'preset' for all presets. 'preset/<presetId>' for a preset's blocks."),
+    offset: number2().int().nonnegative().optional().describe("Zero-based result offset. Continue with next_offset from the previous page."),
     max_entries: number2().int().positive().max(2000).optional().describe("Max items returned. Default 200."),
     max_depth: number2().int().positive().max(10).optional().describe("Recursion depth (only used for extensions traversal). Default 4."),
     include_unattached: boolean2().optional().describe("path='wb' only: list all owned world books, not just the character's attached ones. Works with no focused character; with one, rows carry an `attached` flag."),
@@ -46164,6 +46185,7 @@ var init_list = __esm(() => {
       type: "object",
       properties: {
         path: { type: "string", description: arg_path_default7 },
+        offset: { type: "integer", minimum: 0, description: "Zero-based result offset. Continue with next_offset." },
         max_entries: { type: "integer", minimum: 1, maximum: 2000, description: arg_max_entries_default },
         max_depth: { type: "integer", minimum: 1, maximum: 10, description: arg_max_depth_default },
         character_id: { type: "string", description: arg_character_id_default5 },
@@ -46174,7 +46196,9 @@ var init_list = __esm(() => {
     },
     requiresCharacter: false,
     execute: async (input, ctx) => {
-      const maxEntries = input.max_entries ?? 200;
+      const pageSize = input.max_entries ?? 200;
+      const maxEntries = pageSize + 1;
+      const offset = input.offset ?? 0;
       const path = input.path.trim();
       const rootExtensions = path === "char/extensions" || path === "extensions";
       const maxDepth = input.max_depth ?? (rootExtensions ? 1 : 4);
@@ -46197,44 +46221,53 @@ var init_list = __esm(() => {
         }
         let entries;
         if (path === "" || path === "char" || path === "character") {
-          entries = await listCharacterRoot(ctx, target, maxEntries);
+          entries = await listCharacterRoot(ctx, target, maxEntries, offset);
         } else if (path === "char/alternate_greetings" || path === "alternate_greetings") {
-          entries = await listGreetings(ctx, target, maxEntries);
+          entries = await listGreetings(ctx, target, maxEntries, offset);
         } else if (path === "char/alternate_fields" || path === "alternate_fields") {
-          entries = await listAlternateFields(ctx, target, maxEntries);
+          entries = await listAlternateFields(ctx, target, maxEntries, offset);
         } else if (path.startsWith("char/alternate_fields/") || path.startsWith("alternate_fields/")) {
           const field = path.replace(/^(char\/)?alternate_fields\//, "");
           if (!isAlternateFieldName(field)) {
             return { content: `Error: [PATH_NOT_FOUND] unknown alternate field '${field}'. Valid: ${ALTERNATE_FIELD_NAMES.join(", ")}.`, isError: true };
           }
-          entries = await listAlternateFieldVariants(ctx, target, field, maxEntries);
+          entries = await listAlternateFieldVariants(ctx, target, field, maxEntries, offset);
         } else if (path === "rx" || path === "regex_scripts") {
-          entries = await listRegex(ctx, target, maxEntries);
+          entries = await listRegex(ctx, target, maxEntries, offset);
         } else if (path === "wb" || path === "world_books") {
-          entries = await listWorldBooks(ctx, target === "" ? null : target, maxEntries, input.include_unattached === true);
+          entries = await listWorldBooks(ctx, target === "" ? null : target, maxEntries, input.include_unattached === true, offset);
         } else if (path.startsWith("wb/") || path.startsWith("world_books/")) {
           const bookId = path.split("/")[1] ?? "";
           if (!bookId)
             return { content: "Error: wb/<bookId> requires a book id", isError: true };
-          entries = await listWorldBookEntries(ctx, bookId, maxEntries);
+          entries = await listWorldBookEntries(ctx, bookId, maxEntries, offset);
         } else if (path === "char/extensions" || path === "extensions") {
-          entries = await listExtensions(ctx, target, "", maxEntries, maxDepth);
+          entries = await listExtensions(ctx, target, "", maxEntries, maxDepth, offset);
         } else if (path.startsWith("char/extensions/") || path.startsWith("extensions/")) {
           const sub = path.replace(/^(char\/)?extensions\//, "");
-          entries = await listExtensions(ctx, target, sub, maxEntries, maxDepth);
+          entries = await listExtensions(ctx, target, sub, maxEntries, maxDepth, offset);
         } else if (path === "persona" || path === "personas") {
-          entries = await listPersonas(ctx, maxEntries);
+          entries = await listPersonas(ctx, maxEntries, offset);
         } else if (path === "preset" || path === "presets") {
-          entries = await listPresets(ctx, maxEntries);
+          entries = await listPresets(ctx, maxEntries, offset);
         } else if (path.startsWith("preset/")) {
           const presetId = path.split("/")[1] ?? "";
           if (!presetId)
             return { content: "Error: preset/<presetId> requires a preset id", isError: true };
-          entries = await listPresetBlocks(ctx, presetId, maxEntries);
+          entries = await listPresetBlocks(ctx, presetId, maxEntries, offset);
         } else {
           return { content: `Error: unknown list path '${path}'. Try: '', 'char/alternate_greetings', 'rx', 'wb', 'wb/<id>', 'char/extensions[/dotted]', 'persona', 'preset', 'preset/<id>'.`, isError: true };
         }
-        return { content: JSON.stringify({ path, count: entries.length, entries }, null, 2) };
+        const hasMore = entries.length > pageSize;
+        entries = entries.slice(0, pageSize);
+        return { content: JSON.stringify({
+          path,
+          offset,
+          count: entries.length,
+          has_more: hasMore,
+          next_offset: hasMore ? offset + entries.length : null,
+          entries
+        }, null, 2) };
       } catch (err) {
         if (err instanceof ExtensionRefusedError)
           return { content: `Error: [REFUSED_BY_EXTENSION] ${err.message}`, isError: true };
@@ -48841,14 +48874,23 @@ var init_translate_card_strings = __esm(() => {
       if (!c)
         return { content: `Error: character ${cid} not found.`, isError: true };
       if (include.has("regex_scripts")) {
-        const res = await ctx.spindle.regex_scripts.list({ scope: "character", scopeId: cid, userId: ctx.userId, limit: 1000 });
-        for (const r of res.data) {
-          if (isNonEmptyString(r.replace_string) && r.replace_string.length >= minChars) {
-            items.push({ id: mkId(), text: r.replace_string, kind: "plain", target: { kind: "regex_replace_string", scriptId: r.id, scriptName: r.name } });
+        let offset = 0;
+        for (;; ) {
+          ctx.signal.throwIfAborted();
+          const res = await ctx.spindle.regex_scripts.list({ scope: "character", scopeId: cid, userId: ctx.userId, limit: 200, offset });
+          for (const r of res.data) {
+            if (isNonEmptyString(r.replace_string) && r.replace_string.length >= minChars) {
+              items.push({ id: mkId(), text: r.replace_string, kind: "plain", target: { kind: "regex_replace_string", scriptId: r.id, scriptName: r.name } });
+            }
+            if (isNonEmptyString(r.find_regex) && r.find_regex.length >= minChars && !looksLikeRegexPattern(r.find_regex)) {
+              items.push({ id: mkId(), text: r.find_regex, kind: "plain", target: { kind: "regex_find_regex", scriptId: r.id, scriptName: r.name } });
+            }
           }
-          if (isNonEmptyString(r.find_regex) && r.find_regex.length >= minChars && !looksLikeRegexPattern(r.find_regex)) {
-            items.push({ id: mkId(), text: r.find_regex, kind: "plain", target: { kind: "regex_find_regex", scriptId: r.id, scriptName: r.name } });
-          }
+          offset += res.data.length;
+          if (offset >= res.total)
+            break;
+          if (!res.data.length)
+            throw new Error("Regex listing ended before all results arrived. Retry the request.");
         }
       }
       const ext = c.extensions ?? {};
@@ -54138,15 +54180,15 @@ function characterToSummary(c, regexCount, chatCount) {
   };
 }
 async function handleListCharacters(userId) {
-  const [res, chats] = await Promise.all([
-    spindle.characters.list({ limit: 1000, userId }),
-    listAllChats(spindle, userId)
-  ]);
+  const chats = await listAllChats(spindle, userId);
   const chatCounts = countChatsByCharacter(chats);
-  const summaries = await Promise.all(res.data.map(async (c) => {
-    const rxs = await spindle.regex_scripts.list({ scope: "character", scopeId: c.id, userId, limit: 1 });
-    return characterToSummary(c, rxs.total, chatCounts.get(c.id) ?? 0);
-  }));
+  const summaries = [];
+  for await (const page of characterPages(spindle, userId)) {
+    summaries.push(...await mapInBatches(page, async (c) => {
+      const rxs = await spindle.regex_scripts.list({ scope: "character", scopeId: c.id, userId, limit: 1 });
+      return characterToSummary(c, rxs.total, chatCounts.get(c.id) ?? 0);
+    }));
+  }
   send({ type: "characters_pushed", characters: summaries }, userId);
 }
 async function handleListConnections(userId) {
@@ -54521,42 +54563,50 @@ async function handleListCharactersStorage(userId) {
     await Promise.resolve().then(() => init_workspace());
     const { workspaceCaps } = await resolveCapsForUser(userId);
     const workspaceUsage = await getWorkspaceUsage(spindle, userId);
-    const charactersRes = await spindle.characters.list({ limit: 1000, userId });
-    const perChar = await Promise.all(charactersRes.data.map(async (c) => {
-      const ledger = await loadLedger(spindle, characterScope(c.id), userId).catch(() => null);
-      const view = ledger ? entriesView(ledger) : [];
-      if (view.length === 0)
-        return null;
-      let ledgerBytes = 0;
-      try {
-        const s = await spindle.userStorage.stat(ledgerPath(characterScope(c.id)), userId);
-        if (s.exists)
-          ledgerBytes = s.sizeBytes;
-      } catch {}
-      let chatCount = 0;
-      let msgCount = 0;
-      try {
-        const chats = await spindle.chats.list({ characterId: c.id, userId, limit: 500 });
-        chatCount = chats.total;
-        const counts = await Promise.all(chats.data.map(async (ch) => {
-          try {
-            return (await spindle.chat.getMessages(ch.id)).length;
-          } catch {
-            return 0;
+    const perChar = [];
+    for await (const page of characterPages(spindle, userId)) {
+      perChar.push(...await mapInBatches(page, async (c) => {
+        const ledger = await loadLedger(spindle, characterScope(c.id), userId).catch(() => null);
+        const view = ledger ? entriesView(ledger) : [];
+        if (view.length === 0)
+          return null;
+        let ledgerBytes = 0;
+        try {
+          const s = await spindle.userStorage.stat(ledgerPath(characterScope(c.id)), userId);
+          if (s.exists)
+            ledgerBytes = s.sizeBytes;
+        } catch {}
+        let chatCount = 0;
+        let msgCount = 0;
+        try {
+          let offset = 0;
+          for (;; ) {
+            const chats = await spindle.chats.list({ characterId: c.id, userId, limit: 200, offset });
+            chatCount = chats.total;
+            const counts = await mapInBatches(chats.data, async (ch) => {
+              try {
+                return (await spindle.chat.getMessages(ch.id)).length;
+              } catch {
+                return 0;
+              }
+            });
+            msgCount += counts.reduce((a, b) => a + b, 0);
+            offset += chats.data.length;
+            if (offset >= chats.total || chats.data.length === 0)
+              break;
           }
-        }));
-        msgCount = counts.reduce((a, b) => a + b, 0);
-      } catch {}
-      return {
-        characterId: c.id,
-        characterName: c.name,
-        editCount: view.length,
-        liveEditCount: view.filter((e) => !e.reverted).length,
-        ledgerBytes,
-        chatCount,
-        msgCount
-      };
-    }));
+        } catch {}
+        return {
+          characterId: c.id,
+          characterName: c.name,
+          editCount: view.length,
+          liveEditCount: view.filter((e) => !e.reverted).length,
+          ledgerBytes,
+          chatCount,
+          msgCount
+        };
+      }));
+    }
     const entries = perChar.filter((e) => e !== null);
     const wbToPersona = new Map;
     try {

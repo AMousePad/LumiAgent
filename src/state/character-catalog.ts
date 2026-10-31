@@ -1,31 +1,34 @@
 import type { CharacterDTO, SpindleAPI } from "lumiverse-spindle-types";
 
-const CHARACTER_PAGE_SIZE = 500;
+const CHARACTER_PAGE_SIZE = 200;
 
-export async function listAllCharacters(
-  spindle: SpindleAPI,
-  userId: string,
-): Promise<CharacterDTO[]> {
-  const out: CharacterDTO[] = [];
+export async function* characterPages(spindle: SpindleAPI, userId: string): AsyncGenerator<CharacterDTO[]> {
   const seen = new Set<string>();
   let offset = 0;
-  let total = Number.POSITIVE_INFINITY;
-
-  while (offset < total) {
-    const page = await spindle.characters.list({
-      limit: CHARACTER_PAGE_SIZE,
-      offset,
-      userId,
-    });
-    total = Math.max(0, page.total);
-    for (const character of page.data) {
-      if (seen.has(character.id)) continue;
+  for (;;) {
+    const page = await spindle.characters.list({ limit: CHARACTER_PAGE_SIZE, offset, userId });
+    const fresh = page.data.filter(character => {
+      if (seen.has(character.id)) return false;
       seen.add(character.id);
-      out.push(character);
-    }
-    if (page.data.length === 0) break;
+      return true;
+    });
+    if (fresh.length) yield fresh;
     offset += page.data.length;
+    if (offset >= page.total) break;
+    if (!page.data.length) throw new Error("Character listing ended before all results arrived. Retry the request.");
   }
+}
 
+export async function listAllCharacters(spindle: SpindleAPI, userId: string): Promise<CharacterDTO[]> {
+  const out: CharacterDTO[] = [];
+  for await (const page of characterPages(spindle, userId)) out.push(...page);
+  return out;
+}
+
+export async function mapInBatches<T, R>(items: readonly T[], map: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = [];
+  for (let start = 0; start < items.length; start += 8) {
+    out.push(...await Promise.all(items.slice(start, start + 8).map(map)));
+  }
   return out;
 }

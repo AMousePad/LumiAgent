@@ -1,4 +1,4 @@
-List a container's children. Paths: char, char/alternate_greetings, char/alternate_fields[/<field>], char/extensions[/<dotted-with-brackets>], rx, wb[/<bookId>], persona, preset[/<presetId>]. max_entries defaults to 200 (max 2000), max_depth to 4 (max 10, extension trees only). Scope large extension trees to a subtree.
+List a container's children. Paths: char, char/alternate_greetings, char/alternate_fields[/<field>], char/extensions[/<dotted-with-brackets>], rx, wb[/<bookId>], persona, preset[/<presetId>]. max_entries defaults to 200 (max 2000), max_depth to 4 (max 10, extension trees only). Use next_offset as offset to retrieve the next page until has_more is false. Scope large extension trees to a subtree.
 
 For char/rx/wb, character_id overrides focus. list does not parse char/<id>/...: use path="char/extensions", character_id="<id>". Returned char/ paths are unqualified: insert char/<id>/ before reading or writing another character. rx/wb IDs already identify their owners. Persona/preset and wb/<bookId> need no focus. include_unattached=true on wb lists the whole library.
 

@@ -1,3 +1,4 @@
+import { characterPages, mapInBatches } from "./state/character-catalog";
 import { coerceAutoRetries } from "./agent/retry";
 import { FrontendBinding } from "./state/frontend-binding";
 import { advanceActivity, activitySnapshot, finishActivity } from "./state/assistant-activity";
@@ -384,17 +385,15 @@ function characterToSummary(c: CharacterDTO, regexCount: number, chatCount: numb
 }
 
 async function handleListCharacters(userId: string): Promise<void> {
-  const [res, chats] = await Promise.all([
-    spindle.characters.list({ limit: 1000, userId }),
-    listAllChats(spindle, userId),
-  ]);
+  const chats = await listAllChats(spindle, userId);
   const chatCounts = countChatsByCharacter(chats);
-  const summaries: CharacterSummary[] = await Promise.all(
-    res.data.map(async (c) => {
+  const summaries: CharacterSummary[] = [];
+  for await (const page of characterPages(spindle, userId)) {
+    summaries.push(...await mapInBatches(page, async c => {
       const rxs = await spindle.regex_scripts.list({ scope: "character", scopeId: c.id, userId, limit: 1 });
       return characterToSummary(c, rxs.total, chatCounts.get(c.id) ?? 0);
-    }),
-  );
+    }));
+  }
   send({ type: "characters_pushed", characters: summaries }, userId);
 }
 
@@ -846,41 +845,46 @@ async function handleListCharactersStorage(userId: string): Promise<void> {
     const { getWorkspaceUsage } = await import("./state/workspace");
     const { workspaceCaps } = await resolveCapsForUser(userId);
     const workspaceUsage = await getWorkspaceUsage(spindle, userId);
-    const charactersRes = await spindle.characters.list({ limit: 1000, userId });
-    // Parallelise per-character ledger + stat. Serial scan was O(N) round-trips
-    // and dominated the workshop refresh latency on accounts with many cards.
-    const perChar = await Promise.all(charactersRes.data.map(async (c) => {
-      const ledger = await loadLedger(spindle, characterScope(c.id), userId).catch(() => null);
-      const view = ledger ? entriesView(ledger) : [];
-      if (view.length === 0) return null;
-      let ledgerBytes = 0;
-      try {
-        const s = await spindle.userStorage.stat(ledgerPath(characterScope(c.id)), userId);
-        if (s.exists) ledgerBytes = s.sizeBytes;
-      } catch { /* missing on disk, cache only */ }
-      // Chat + total-message counts for the workshop Characters selector.
-      // Bounded to characters that already have a ledger. Per-chat message
-      // fetch is best-effort: a failed chat contributes 0, never aborts.
-      let chatCount = 0;
-      let msgCount = 0;
-      try {
-        const chats = await spindle.chats.list({ characterId: c.id, userId, limit: 500 });
-        chatCount = chats.total;
-        const counts = await Promise.all(chats.data.map(async (ch) => {
-          try { return (await spindle.chat.getMessages(ch.id)).length; } catch { return 0; }
-        }));
-        msgCount = counts.reduce((a, b) => a + b, 0);
-      } catch { /* chats permission may be absent; leave 0 */ }
-      return {
-        characterId: c.id,
-        characterName: c.name,
-        editCount: view.length,
-        liveEditCount: view.filter((e) => !e.reverted).length,
-        ledgerBytes,
-        chatCount,
-        msgCount,
-      };
-    }));
+    const perChar: Array<CharacterStorageEntry | null> = [];
+    for await (const page of characterPages(spindle, userId)) {
+      perChar.push(...await mapInBatches(page, async c => {
+        const ledger = await loadLedger(spindle, characterScope(c.id), userId).catch(() => null);
+        const view = ledger ? entriesView(ledger) : [];
+        if (view.length === 0) return null;
+        let ledgerBytes = 0;
+        try {
+          const s = await spindle.userStorage.stat(ledgerPath(characterScope(c.id)), userId);
+          if (s.exists) ledgerBytes = s.sizeBytes;
+        } catch { /* missing on disk, cache only */ }
+        // Chat + total-message counts for the workshop Characters selector.
+        // Bounded to characters that already have a ledger. Per-chat message
+        // fetch is best-effort: a failed chat contributes 0, never aborts.
+        let chatCount = 0;
+        let msgCount = 0;
+        try {
+          let offset = 0;
+          for (;;) {
+            const chats = await spindle.chats.list({ characterId: c.id, userId, limit: 200, offset });
+            chatCount = chats.total;
+            const counts = await mapInBatches(chats.data, async ch => {
+              try { return (await spindle.chat.getMessages(ch.id)).length; } catch { return 0; }
+            });
+            msgCount += counts.reduce((a, b) => a + b, 0);
+            offset += chats.data.length;
+            if (offset >= chats.total || chats.data.length === 0) break;
+          }
+        } catch { /* chats permission may be absent; leave 0 */ }
+        return {
+          characterId: c.id,
+          characterName: c.name,
+          editCount: view.length,
+          liveEditCount: view.filter((e) => !e.reverted).length,
+          ledgerBytes,
+          chatCount,
+          msgCount,
+        };
+      }));
+    }
     const entries: CharacterStorageEntry[] = perChar.filter((e): e is NonNullable<typeof e> => e !== null);
 
     // world_book id -> the persona that attaches it. Persona-owned lorebooks

@@ -116,15 +116,22 @@ export const translateCardStringsTool = defineTool({
     if (!c) return { content: `Error: character ${cid} not found.`, isError: true };
 
     if (include.has("regex_scripts")) {
-      const res = await ctx.spindle.regex_scripts.list({ scope: "character", scopeId: cid, userId: ctx.userId, limit: 1000 });
-      for (const r of res.data) {
-        if (isNonEmptyString(r.replace_string) && r.replace_string.length >= minChars) {
-          items.push({ id: mkId(), text: r.replace_string, kind: "plain", target: { kind: "regex_replace_string", scriptId: r.id, scriptName: r.name } });
+      let offset = 0;
+      for (;;) {
+        ctx.signal.throwIfAborted();
+        const res = await ctx.spindle.regex_scripts.list({ scope: "character", scopeId: cid, userId: ctx.userId, limit: 200, offset });
+        for (const r of res.data) {
+          if (isNonEmptyString(r.replace_string) && r.replace_string.length >= minChars) {
+            items.push({ id: mkId(), text: r.replace_string, kind: "plain", target: { kind: "regex_replace_string", scriptId: r.id, scriptName: r.name } });
+          }
+          if (isNonEmptyString(r.find_regex) && r.find_regex.length >= minChars && !looksLikeRegexPattern(r.find_regex)) {
+            // Rare: some scripts use plain-text `find_regex` keywords. Only translate if it looks like text, not a pattern.
+            items.push({ id: mkId(), text: r.find_regex, kind: "plain", target: { kind: "regex_find_regex", scriptId: r.id, scriptName: r.name } });
+          }
         }
-        if (isNonEmptyString(r.find_regex) && r.find_regex.length >= minChars && !looksLikeRegexPattern(r.find_regex)) {
-          // Rare: some scripts use plain-text `find_regex` keywords. Only translate if it looks like text, not a pattern.
-          items.push({ id: mkId(), text: r.find_regex, kind: "plain", target: { kind: "regex_find_regex", scriptId: r.id, scriptName: r.name } });
-        }
+        offset += res.data.length;
+        if (offset >= res.total) break;
+        if (!res.data.length) throw new Error("Regex listing ended before all results arrived. Retry the request.");
       }
     }
 

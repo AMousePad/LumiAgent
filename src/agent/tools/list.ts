@@ -13,6 +13,7 @@ import argMaxDepth from "../prompts/claude/tools/list/arg_max_depth.txt";
 
 const inputSchema = z.object({
   path: z.string().describe("Container path. Empty / 'char' for the character overview. 'rx' for regex scripts. 'wb' for world books. 'wb/<bookId>' for entries in a book. 'char/alternate_greetings' for all greetings. 'char/extensions[/dotted]' for an extensions subtree. 'persona' for all personas. 'preset' for all presets. 'preset/<presetId>' for a preset's blocks."),
+  offset: z.number().int().nonnegative().optional().describe("Zero-based result offset. Continue with next_offset from the previous page."),
   max_entries: z.number().int().positive().max(2000).optional().describe("Max items returned. Default 200."),
   max_depth: z.number().int().positive().max(10).optional().describe("Recursion depth (only used for extensions traversal). Default 4."),
   include_unattached: z.boolean().optional().describe("path='wb' only: list all owned world books, not just the character's attached ones. Works with no focused character; with one, rows carry an `attached` flag."),
@@ -41,7 +42,7 @@ function classifyNode(v: unknown): { type: string; size?: number } {
   return { type: typeof v };
 }
 
-async function listCharacterRoot(ctx: ToolCtx, characterId: string, maxEntries: number): Promise<ListEntry[]> {
+async function listCharacterRoot(ctx: ToolCtx, characterId: string, maxEntries: number, offset = 0): Promise<ListEntry[]> {
   const c = await ctx.spindle.characters.get(characterId, ctx.userId);
   if (!c) throw new Error(`character ${characterId} not found`);
   const fields = ["name", "description", "personality", "scenario", "first_mes", "mes_example", "creator_notes", "system_prompt", "post_history_instructions", "creator"] as const;
@@ -60,37 +61,36 @@ async function listCharacterRoot(ctx: ToolCtx, characterId: string, maxEntries: 
     out.push({ path: "char/alternate_fields", type: "alternate_fields", size: altTotal });
   }
   out.push({ path: "char/extensions", type: "object", size: c.extensions ? Object.keys(c.extensions).length : 0 });
-  return out.slice(0, maxEntries);
+  return out.slice(offset, offset + maxEntries);
 }
 
-async function listGreetings(ctx: ToolCtx, characterId: string, maxEntries: number): Promise<ListEntry[]> {
+async function listGreetings(ctx: ToolCtx, characterId: string, maxEntries: number, offset = 0): Promise<ListEntry[]> {
   const c = await ctx.spindle.characters.get(characterId, ctx.userId);
   if (!c) throw new Error(`character ${characterId} not found`);
   const arr = c.alternate_greetings ?? [];
-  return arr.slice(0, maxEntries).map((g, i) => ({
-    path: `char/alternate_greetings/${i}`,
+  return arr.slice(offset, offset + maxEntries).map((g, i) => ({
+    path: `char/alternate_greetings/${offset + i}`,
     type: "string",
     size: typeof g === "string" ? g.length : 0,
   }));
 }
 
-async function listAlternateFields(ctx: ToolCtx, characterId: string, maxEntries: number): Promise<ListEntry[]> {
+async function listAlternateFields(ctx: ToolCtx, characterId: string, maxEntries: number, offset = 0): Promise<ListEntry[]> {
   const c = await ctx.spindle.characters.get(characterId, ctx.userId);
   if (!c) throw new Error(`character ${characterId} not found`);
   const out: ListEntry[] = [];
   for (const f of ALTERNATE_FIELD_NAMES) {
     const variants = readAltFieldArray(c.extensions, f);
     out.push({ path: `char/alternate_fields/${f}`, type: "alt_field_group", entries: variants.length });
-    if (out.length >= maxEntries) break;
   }
-  return out;
+  return out.slice(offset, offset + maxEntries);
 }
 
-async function listAlternateFieldVariants(ctx: ToolCtx, characterId: string, field: AlternateFieldName, maxEntries: number): Promise<ListEntry[]> {
+async function listAlternateFieldVariants(ctx: ToolCtx, characterId: string, field: AlternateFieldName, maxEntries: number, offset = 0): Promise<ListEntry[]> {
   const c = await ctx.spindle.characters.get(characterId, ctx.userId);
   if (!c) throw new Error(`character ${characterId} not found`);
   const variants = readAltFieldArray(c.extensions, field);
-  return variants.slice(0, maxEntries).map((v, i) => ({
+  return variants.slice(offset, offset + maxEntries).map((v, i) => ({
     path: `char/alternate_fields/${field}/${v.id}`,
     type: "alt_field_variant",
     label: v.label || `(unlabeled #${i})`,
@@ -98,22 +98,23 @@ async function listAlternateFieldVariants(ctx: ToolCtx, characterId: string, fie
   }));
 }
 
-async function listRegex(ctx: ToolCtx, characterId: string, maxEntries: number): Promise<ListEntry[]> {
+async function listRegex(ctx: ToolCtx, characterId: string, maxEntries: number, offset = 0): Promise<ListEntry[]> {
   const out: ListEntry[] = [];
-  let offset = 0;
   while (out.length < maxEntries) {
-    const r = await ctx.spindle.regex_scripts.list({ scope: "character", scopeId: characterId, userId: ctx.userId, limit: 200, offset });
+    ctx.signal.throwIfAborted();
+    const r = await ctx.spindle.regex_scripts.list({ scope: "character", scopeId: characterId, userId: ctx.userId, limit: Math.min(200, maxEntries - out.length), offset });
     for (const s of r.data) {
       if (out.length >= maxEntries) break;
       out.push({ path: `rx/${s.id}`, type: "regex_script", label: s.name, size: (s.find_regex?.length ?? 0) + (s.replace_string?.length ?? 0) });
     }
-    if (r.data.length === 0 || offset + r.data.length >= r.total) break;
+    if (offset + r.data.length >= r.total) break;
+    if (!r.data.length) throw new Error("Listing ended before all results arrived. Retry the request.");
     offset += r.data.length;
   }
   return out;
 }
 
-async function listWorldBooks(ctx: ToolCtx, characterId: string | null, maxEntries: number, includeUnattached: boolean): Promise<ListEntry[]> {
+async function listWorldBooks(ctx: ToolCtx, characterId: string | null, maxEntries: number, includeUnattached: boolean, offset = 0): Promise<ListEntry[]> {
   // characterId may be null only with includeUnattached: the whole library is
   // character-independent, the character just annotates `attached`.
   const attached = new Set<string>();
@@ -131,10 +132,12 @@ async function listWorldBooks(ctx: ToolCtx, characterId: string | null, maxEntri
     ? (await listAllWorldBooks(ctx)).map((wb) => wb.id)
     : [...attached];
   const out: ListEntry[] = [];
+  let skipped = 0;
   for (const wbId of wbIds) {
     if (out.length >= maxEntries) break;
     const wb = await ctx.spindle.world_books.get(wbId, ctx.userId);
     if (!wb) continue;
+    if (skipped++ < offset) continue;
     const meta = await ctx.spindle.world_books.entries.list(wbId, { limit: 1, userId: ctx.userId });
     const entry: ListEntry = { path: `wb/${wbId}`, type: "world_book", label: wb.name, entries: meta.total };
     if (includeUnattached && characterId !== null) (entry as ListEntry & { attached: boolean }).attached = attached.has(wbId);
@@ -144,22 +147,23 @@ async function listWorldBooks(ctx: ToolCtx, characterId: string | null, maxEntri
   return out;
 }
 
-async function listWorldBookEntries(ctx: ToolCtx, bookId: string, maxEntries: number): Promise<ListEntry[]> {
+async function listWorldBookEntries(ctx: ToolCtx, bookId: string, maxEntries: number, offset = 0): Promise<ListEntry[]> {
   const out: ListEntry[] = [];
-  let offset = 0;
   while (out.length < maxEntries) {
-    const r = await ctx.spindle.world_books.entries.list(bookId, { limit: 500, userId: ctx.userId, offset });
+    ctx.signal.throwIfAborted();
+    const r = await ctx.spindle.world_books.entries.list(bookId, { limit: Math.min(200, maxEntries - out.length), userId: ctx.userId, offset });
     for (const e of r.data) {
       if (out.length >= maxEntries) break;
       out.push({ path: `wb/${e.id}`, type: "wb_entry", label: wbLabel(e), size: (e.content?.length ?? 0) });
     }
-    if (r.data.length === 0 || offset + r.data.length >= r.total) break;
+    if (offset + r.data.length >= r.total) break;
+    if (!r.data.length) throw new Error("Listing ended before all results arrived. Retry the request.");
     offset += r.data.length;
   }
   return out;
 }
 
-async function listExtensions(ctx: ToolCtx, characterId: string, subPath: string, maxEntries: number, maxDepth: number): Promise<ListEntry[]> {
+async function listExtensions(ctx: ToolCtx, characterId: string, subPath: string, maxEntries: number, maxDepth: number, offset = 0): Promise<ListEntry[]> {
   // Gate the entry point on the phone-line check_read so callers can't peek
   // into refused subtrees (lumirealm.source.*, etc.) by addressing them here.
   if (subPath !== "") {
@@ -179,6 +183,7 @@ async function listExtensions(ctx: ToolCtx, characterId: string, subPath: string
   const root = getAtPath(c.extensions ?? {}, segs);
   if (root === undefined) throw new Error(`extensions${subPath === "" ? "" : "." + subPath} does not exist`);
   const out: ListEntry[] = [];
+  let visited = 0;
   const visit = (node: unknown, prefix: string, depth: number): void => {
     if (out.length >= maxEntries) return;
     const info = classifyNode(node);
@@ -189,7 +194,7 @@ async function listExtensions(ctx: ToolCtx, characterId: string, subPath: string
     if (prefix !== "") {
       const entry: ListEntry = { path: `char/extensions/${fullDotted}`, type: info.type };
       if (info.size !== undefined) entry.size = info.size;
-      out.push(entry);
+      if (visited++ >= offset) out.push(entry);
     }
     if (depth >= maxDepth) return;
     if (node === null || typeof node !== "object") return;
@@ -212,39 +217,41 @@ async function listExtensions(ctx: ToolCtx, characterId: string, subPath: string
   return out;
 }
 
-async function listPersonas(ctx: ToolCtx, maxEntries: number): Promise<ListEntry[]> {
+async function listPersonas(ctx: ToolCtx, maxEntries: number, offset = 0): Promise<ListEntry[]> {
   const out: ListEntry[] = [];
-  let offset = 0;
   while (out.length < maxEntries) {
-    const r = await ctx.spindle.personas.list({ limit: 200, offset, userId: ctx.userId });
+    ctx.signal.throwIfAborted();
+    const r = await ctx.spindle.personas.list({ limit: Math.min(200, maxEntries - out.length), offset, userId: ctx.userId });
     for (const p of r.data) {
       if (out.length >= maxEntries) break;
       out.push({ path: `persona/${p.id}`, type: "persona", label: p.name, size: p.description?.length ?? 0 });
     }
-    if (r.data.length === 0 || offset + r.data.length >= r.total) break;
+    if (offset + r.data.length >= r.total) break;
+    if (!r.data.length) throw new Error("Listing ended before all results arrived. Retry the request.");
     offset += r.data.length;
   }
   return out;
 }
 
-async function listPresets(ctx: ToolCtx, maxEntries: number): Promise<ListEntry[]> {
+async function listPresets(ctx: ToolCtx, maxEntries: number, offset = 0): Promise<ListEntry[]> {
   const out: ListEntry[] = [];
-  let offset = 0;
   while (out.length < maxEntries) {
-    const r = await ctx.spindle.presets.list({ limit: 200, offset, userId: ctx.userId });
+    ctx.signal.throwIfAborted();
+    const r = await ctx.spindle.presets.list({ limit: Math.min(200, maxEntries - out.length), offset, userId: ctx.userId });
     for (const p of r.data) {
       if (out.length >= maxEntries) break;
       out.push({ path: `preset/${p.id}`, type: "preset", label: p.name });
     }
-    if (r.data.length === 0 || offset + r.data.length >= r.total) break;
+    if (offset + r.data.length >= r.total) break;
+    if (!r.data.length) throw new Error("Listing ended before all results arrived. Retry the request.");
     offset += r.data.length;
   }
   return out;
 }
 
-async function listPresetBlocks(ctx: ToolCtx, presetId: string, maxEntries: number): Promise<ListEntry[]> {
+async function listPresetBlocks(ctx: ToolCtx, presetId: string, maxEntries: number, offset = 0): Promise<ListEntry[]> {
   const blocks = await ctx.spindle.presets.blocks.list(presetId, ctx.userId);
-  return blocks.slice(0, maxEntries).map((b) => {
+  return blocks.slice(offset, offset + maxEntries).map((b) => {
     const content = (b as unknown as Record<string, unknown>).content;
     return {
       path: `preset/${presetId}/block/${b.id}`,
@@ -263,6 +270,7 @@ export const listTool = defineTool({
     type: "object",
     properties: {
       path: { type: "string", description: argPath },
+      offset: { type: "integer", minimum: 0, description: "Zero-based result offset. Continue with next_offset." },
       max_entries: { type: "integer", minimum: 1, maximum: 2000, description: argMaxEntries },
       max_depth: { type: "integer", minimum: 1, maximum: 10, description: argMaxDepth },
       character_id: { type: "string", description: argCharacterId },
@@ -275,7 +283,9 @@ export const listTool = defineTool({
   // char/ rx/ wb/ branches loud-fail below when none is selected.
   requiresCharacter: false,
   execute: async (input, ctx) => {
-    const maxEntries = input.max_entries ?? 200;
+    const pageSize = input.max_entries ?? 200;
+    const maxEntries = pageSize + 1;
+    const offset = input.offset ?? 0;
     const path = input.path.trim();
     const rootExtensions = path === "char/extensions" || path === "extensions";
     const maxDepth = input.max_depth ?? (rootExtensions ? 1 : 4);
@@ -296,42 +306,45 @@ export const listTool = defineTool({
       }
       let entries: ListEntry[];
       if (path === "" || path === "char" || path === "character") {
-        entries = await listCharacterRoot(ctx, target, maxEntries);
+        entries = await listCharacterRoot(ctx, target, maxEntries, offset);
       } else if (path === "char/alternate_greetings" || path === "alternate_greetings") {
-        entries = await listGreetings(ctx, target, maxEntries);
+        entries = await listGreetings(ctx, target, maxEntries, offset);
       } else if (path === "char/alternate_fields" || path === "alternate_fields") {
-        entries = await listAlternateFields(ctx, target, maxEntries);
+        entries = await listAlternateFields(ctx, target, maxEntries, offset);
       } else if (path.startsWith("char/alternate_fields/") || path.startsWith("alternate_fields/")) {
         const field = path.replace(/^(char\/)?alternate_fields\//, "");
         if (!isAlternateFieldName(field)) {
           return { content: `Error: [PATH_NOT_FOUND] unknown alternate field '${field}'. Valid: ${ALTERNATE_FIELD_NAMES.join(", ")}.`, isError: true };
         }
-        entries = await listAlternateFieldVariants(ctx, target, field, maxEntries);
+        entries = await listAlternateFieldVariants(ctx, target, field, maxEntries, offset);
       } else if (path === "rx" || path === "regex_scripts") {
-        entries = await listRegex(ctx, target, maxEntries);
+        entries = await listRegex(ctx, target, maxEntries, offset);
       } else if (path === "wb" || path === "world_books") {
-        entries = await listWorldBooks(ctx, target === "" ? null : target, maxEntries, input.include_unattached === true);
+        entries = await listWorldBooks(ctx, target === "" ? null : target, maxEntries, input.include_unattached === true, offset);
       } else if (path.startsWith("wb/") || path.startsWith("world_books/")) {
         const bookId = path.split("/")[1] ?? "";
         if (!bookId) return { content: "Error: wb/<bookId> requires a book id", isError: true };
-        entries = await listWorldBookEntries(ctx, bookId, maxEntries);
+        entries = await listWorldBookEntries(ctx, bookId, maxEntries, offset);
       } else if (path === "char/extensions" || path === "extensions") {
-        entries = await listExtensions(ctx, target, "", maxEntries, maxDepth);
+        entries = await listExtensions(ctx, target, "", maxEntries, maxDepth, offset);
       } else if (path.startsWith("char/extensions/") || path.startsWith("extensions/")) {
         const sub = path.replace(/^(char\/)?extensions\//, "");
-        entries = await listExtensions(ctx, target, sub, maxEntries, maxDepth);
+        entries = await listExtensions(ctx, target, sub, maxEntries, maxDepth, offset);
       } else if (path === "persona" || path === "personas") {
-        entries = await listPersonas(ctx, maxEntries);
+        entries = await listPersonas(ctx, maxEntries, offset);
       } else if (path === "preset" || path === "presets") {
-        entries = await listPresets(ctx, maxEntries);
+        entries = await listPresets(ctx, maxEntries, offset);
       } else if (path.startsWith("preset/")) {
         const presetId = path.split("/")[1] ?? "";
         if (!presetId) return { content: "Error: preset/<presetId> requires a preset id", isError: true };
-        entries = await listPresetBlocks(ctx, presetId, maxEntries);
+        entries = await listPresetBlocks(ctx, presetId, maxEntries, offset);
       } else {
         return { content: `Error: unknown list path '${path}'. Try: '', 'char/alternate_greetings', 'rx', 'wb', 'wb/<id>', 'char/extensions[/dotted]', 'persona', 'preset', 'preset/<id>'.`, isError: true };
       }
-      return { content: JSON.stringify({ path, count: entries.length, entries }, null, 2) };
+      const hasMore = entries.length > pageSize;
+      entries = entries.slice(0, pageSize);
+      return { content: JSON.stringify({ path, offset, count: entries.length, has_more: hasMore,
+        next_offset: hasMore ? offset + entries.length : null, entries }, null, 2) };
     } catch (err) {
       if (err instanceof ExtensionRefusedError) return { content: `Error: [REFUSED_BY_EXTENSION] ${err.message}`, isError: true };
       return { content: `Error: ${(err as Error).message}`, isError: true };
