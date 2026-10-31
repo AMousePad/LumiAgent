@@ -651,7 +651,10 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       historyFeedback.begin(msg.requestId!, { label: openingConversation ? "Loading conversation…" : blocking ? "Syncing…" : "Loading messages…",
         position: state.messages.length && state.sessionId === msg.sessionId ? "top" : "center",
         retry: () => sendBackend({ type: "load_session", sessionId: request.sessionId, ...(request.before !== undefined ? { before: request.before } : {}) }),
-        onTimeout: () => { thread.removeAttribute("aria-busy"); },
+        onTimeout: () => {
+          thread.removeAttribute("aria-busy");
+          if (!openingConversation) { thread.inert = false; threadShell.classList.remove("is-syncing"); }
+        },
       });
     }
     if (["start_session", "send_message", "continue_session", "edit_user_message", "regenerate_assistant_message", "delete_message", "free_tool_result", "compact_session", "cancel_generation"].includes(msg.type) && "sessionId" in msg && typeof msg.sessionId === "string") {
@@ -669,6 +672,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         if (msg.type === "load_session") sessionSync.requestId = null;
         else pendingHistory = null;
         thread.removeAttribute("aria-busy");
+        if (!openingConversation) { thread.inert = false; threadShell.classList.remove("is-syncing"); }
       } else if (waitingCommandSession) commandFeedback.fail(waitingCommandSession, "Couldn’t reach the server");
     }
   };
@@ -3230,11 +3234,11 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       if (!sessionSync.snapshot(msg.sessionId, msg.requestId, msg.sync)) return;
       historyFeedback.finish(msg.requestId!);
       openingConversation = false; thread.inert = false; threadShell.classList.remove("is-opening", "is-syncing");
-    } else if (msg.sync && msg.type !== "session_started") {
+    } else if (msg.sync && msg.type !== "session_started" && msg.type !== "session_probe") {
       const id = messageSessionId(msg);
       if (id) {
         const action = sessionSync.event(id, msg.sync);
-        if (action === "resync") sendBackend({ type: "load_session", sessionId: id });
+        if (action === "resync") sendBackend({ type: "load_session", sessionId: id, ...(historyPage.end < historyPage.total ? { before: historyPage.end } : {}) });
         if (action !== "apply") return;
         if (historyPage.end < historyPage.total && ["chat_event", "generation_done", "generation_cancelled", "generation_error", "session_truncated"].includes(msg.type)) {
           if (msg.type === "session_truncated") {
@@ -3257,9 +3261,11 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     if (msg.type === "session_deleted" && sessionSync.sessionId === msg.sessionId) historyFeedback.clear();
     switch (msg.type) {
       case "session_probe": {
+        const action = sessionSync.probe(msg.sessionId, msg.sync);
+        if (action === "ignore") break;
         const wasLatest = historyPage.end === historyPage.total;
         if (msg.sessionId === state.sessionId && msg.total !== undefined) historyPage.total = msg.total;
-        if (msg.sessionId === state.sessionId && (msg.changed || state.isGenerating !== (msg.phase === "generating") || state.compacting !== (msg.phase === "compacting")) && !sessionSync.requestId && wasLatest) sendBackend({ type: "load_session", sessionId: msg.sessionId });
+        if (action === "resync") sendBackend({ type: "load_session", sessionId: msg.sessionId, ...(!wasLatest ? { before: historyPage.end } : {}) });
         break;
       }
       case "characters_pushed":
@@ -3370,6 +3376,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         // the prior session's scrollTop.
         if (restoreHistoryAnchor) virtualizer.restoreAnchor(restoreHistoryAnchor);
         else virtualizer.scrollToBottom();
+        virtualizer.refresh();
         lastHistoryScroll = thread.scrollTop;
         persistUiPrefs();
         applyStatus(msg.status);
@@ -3889,22 +3896,26 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
 
   thread.addEventListener("scroll", onHistoryScroll, { passive: true });
 
+  const probeSession = () => {
+    if (!document.hidden && state.sessionId && !sessionSync.requestId) sendBackend({ type: "probe_session", sessionId: state.sessionId });
+  };
   const off = tab.onActivate(() => {
+    virtualizer.refresh();
     refreshLists();
     adoptActiveChat();
-    if (state.sessionId) sendBackend({ type: "load_session", sessionId: state.sessionId });
+    if (state.sessionId) probeSession();
     else if (state.characterId) sendBackend({ type: "list_character_edits", characterId: state.characterId });
   });
 
   const resumeSync = () => {
-    if (!document.hidden && state.sessionId) sendBackend({ type: "load_session", sessionId: state.sessionId });
+    if (!document.hidden) virtualizer.refresh();
+    probeSession();
   };
+  const refreshThread = () => virtualizer.refresh();
+  window.addEventListener("focus", refreshThread);
   document.addEventListener("visibilitychange", resumeSync);
   window.addEventListener("online", resumeSync);
-  const recoveryTimer = setInterval(() => {
-    if (document.hidden || !state.sessionId) return;
-    if (!sessionSync.requestId) sendBackend({ type: "probe_session", sessionId: state.sessionId, revision: sessionSync.revision });
-  }, 15000);
+  const recoveryTimer = setInterval(probeSession, 15000);
 
   return () => {
     textareaObserver.disconnect();
@@ -3919,6 +3930,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     cancelAnimationFrame(historyRestoreFrame);
     thread.removeEventListener("scroll", onHistoryScroll);
     document.removeEventListener("visibilitychange", resumeSync);
+    window.removeEventListener("focus", refreshThread);
     window.removeEventListener("online", resumeSync);
     state.streamingAssistant?.destroy();
     historyFeedback.destroy();

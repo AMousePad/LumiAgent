@@ -2665,6 +2665,13 @@ class SessionSync {
     this.revision = revision;
     return "apply";
   }
+  probe(sessionId, revision) {
+    if (sessionId !== this.sessionId || this.requestId || !revision)
+      return "ignore";
+    if (!this.revision || this.revision.epoch !== revision.epoch || revision.sequence > this.revision.sequence)
+      return "resync";
+    return revision.sequence === this.revision.sequence ? "current" : "ignore";
+  }
 }
 
 // src/state/session-sync.ts
@@ -4576,6 +4583,9 @@ class ChatVirtualizer {
   nodeByKey = new Map;
   cleanup = null;
   hasFirstRenderHappened = false;
+  refreshFrame = 0;
+  updateViewport;
+  updateOffset;
   cancelUserScroll = (event) => {
     if (event instanceof KeyboardEvent && !["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key))
       return;
@@ -4605,8 +4615,14 @@ class ChatVirtualizer {
         return m ? deps.estimateSize?.(m) ?? DEFAULT_ESTIMATE : DEFAULT_ESTIMATE;
       },
       getItemKey: (i) => deps.getMessages()[i]?.id ?? i,
-      observeElementOffset,
-      observeElementRect,
+      observeElementOffset: (instance, callback) => {
+        this.updateOffset = () => callback(deps.scrollContainer.scrollTop, false);
+        return observeElementOffset(instance, callback);
+      },
+      observeElementRect: (instance, callback) => {
+        this.updateViewport = () => callback({ width: deps.scrollContainer.offsetWidth, height: deps.scrollContainer.offsetHeight });
+        return observeElementRect(instance, callback);
+      },
       scrollToFn: elementScroll,
       overscan: OVERSCAN,
       anchorTo: deps.followEnd === false ? "start" : "end",
@@ -4623,6 +4639,18 @@ class ChatVirtualizer {
   setCount() {
     this.virt.setOptions({ ...this.virt.options, count: this.deps.getMessages().length, getItemKey: (i) => this.deps.getMessages()[i]?.id ?? i });
     this.sync();
+  }
+  refresh() {
+    cancelAnimationFrame(this.refreshFrame);
+    this.refreshFrame = requestAnimationFrame(() => {
+      this.refreshFrame = 0;
+      const container = this.deps.scrollContainer;
+      if (!container.isConnected || !container.clientHeight || !container.clientWidth)
+        return;
+      this.updateViewport?.();
+      this.updateOffset?.();
+      this.sync();
+    });
   }
   requestMeasure(messageId) {
     const node = this.nodeByKey.get(messageId);
@@ -4699,6 +4727,9 @@ class ChatVirtualizer {
     restore();
   }
   destroy() {
+    cancelAnimationFrame(this.refreshFrame);
+    this.updateViewport = undefined;
+    this.updateOffset = undefined;
     if (this.cleanup) {
       this.cleanup();
       this.cleanup = null;
@@ -16930,6 +16961,10 @@ function mountDrawer(ctx) {
         retry: () => sendBackend({ type: "load_session", sessionId: request.sessionId, ...request.before !== undefined ? { before: request.before } : {} }),
         onTimeout: () => {
           thread.removeAttribute("aria-busy");
+          if (!openingConversation) {
+            thread.inert = false;
+            threadShell.classList.remove("is-syncing");
+          }
         }
       });
     }
@@ -16954,6 +16989,10 @@ function mountDrawer(ctx) {
         else
           pendingHistory = null;
         thread.removeAttribute("aria-busy");
+        if (!openingConversation) {
+          thread.inert = false;
+          threadShell.classList.remove("is-syncing");
+        }
       } else if (waitingCommandSession)
         commandFeedback.fail(waitingCommandSession, "Couldn’t reach the server");
     }
@@ -19373,12 +19412,12 @@ ${t}` : t);
       openingConversation = false;
       thread.inert = false;
       threadShell.classList.remove("is-opening", "is-syncing");
-    } else if (msg.sync && msg.type !== "session_started") {
+    } else if (msg.sync && msg.type !== "session_started" && msg.type !== "session_probe") {
       const id = messageSessionId(msg);
       if (id) {
         const action = sessionSync.event(id, msg.sync);
         if (action === "resync")
-          sendBackend({ type: "load_session", sessionId: id });
+          sendBackend({ type: "load_session", sessionId: id, ...historyPage.end < historyPage.total ? { before: historyPage.end } : {} });
         if (action !== "apply")
           return;
         if (historyPage.end < historyPage.total && ["chat_event", "generation_done", "generation_cancelled", "generation_error", "session_truncated"].includes(msg.type)) {
@@ -19405,11 +19444,14 @@ ${t}` : t);
       historyFeedback.clear();
     switch (msg.type) {
       case "session_probe": {
+        const action = sessionSync.probe(msg.sessionId, msg.sync);
+        if (action === "ignore")
+          break;
         const wasLatest = historyPage.end === historyPage.total;
         if (msg.sessionId === state.sessionId && msg.total !== undefined)
           historyPage.total = msg.total;
-        if (msg.sessionId === state.sessionId && (msg.changed || state.isGenerating !== (msg.phase === "generating") || state.compacting !== (msg.phase === "compacting")) && !sessionSync.requestId && wasLatest)
-          sendBackend({ type: "load_session", sessionId: msg.sessionId });
+        if (action === "resync")
+          sendBackend({ type: "load_session", sessionId: msg.sessionId, ...!wasLatest ? { before: historyPage.end } : {} });
         break;
       }
       case "characters_pushed":
@@ -19510,6 +19552,7 @@ ${t}` : t);
           virtualizer.restoreAnchor(restoreHistoryAnchor);
         else
           virtualizer.scrollToBottom();
+        virtualizer.refresh();
         lastHistoryScroll = thread.scrollTop;
         persistUiPrefs();
         applyStatus(msg.status);
@@ -20024,26 +20067,29 @@ ${t}` : t);
   adoptActiveChat();
   const offChatSwitched = ctx.events.on("CHAT_SWITCHED", () => adoptActiveChat());
   thread.addEventListener("scroll", onHistoryScroll, { passive: true });
+  const probeSession = () => {
+    if (!document.hidden && state.sessionId && !sessionSync.requestId)
+      sendBackend({ type: "probe_session", sessionId: state.sessionId });
+  };
   const off = tab.onActivate(() => {
+    virtualizer.refresh();
     refreshLists();
     adoptActiveChat();
     if (state.sessionId)
-      sendBackend({ type: "load_session", sessionId: state.sessionId });
+      probeSession();
     else if (state.characterId)
       sendBackend({ type: "list_character_edits", characterId: state.characterId });
   });
   const resumeSync = () => {
-    if (!document.hidden && state.sessionId)
-      sendBackend({ type: "load_session", sessionId: state.sessionId });
+    if (!document.hidden)
+      virtualizer.refresh();
+    probeSession();
   };
+  const refreshThread = () => virtualizer.refresh();
+  window.addEventListener("focus", refreshThread);
   document.addEventListener("visibilitychange", resumeSync);
   window.addEventListener("online", resumeSync);
-  const recoveryTimer = setInterval(() => {
-    if (document.hidden || !state.sessionId)
-      return;
-    if (!sessionSync.requestId)
-      sendBackend({ type: "probe_session", sessionId: state.sessionId, revision: sessionSync.revision });
-  }, 15000);
+  const recoveryTimer = setInterval(probeSession, 15000);
   return () => {
     textareaObserver.disconnect();
     cancelAnimationFrame(textareaResizeFrame);
@@ -20057,6 +20103,7 @@ ${t}` : t);
     cancelAnimationFrame(historyRestoreFrame);
     thread.removeEventListener("scroll", onHistoryScroll);
     document.removeEventListener("visibilitychange", resumeSync);
+    window.removeEventListener("focus", refreshThread);
     window.removeEventListener("online", resumeSync);
     state.streamingAssistant?.destroy();
     historyFeedback.destroy();

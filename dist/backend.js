@@ -44031,7 +44031,7 @@ include_catalog adds the first component page and variable defaults when the hos
 var init_description38 = () => {};
 
 // src/agent/prompts/claude/tools/get-theme/arg_include_catalog.txt
-var arg_include_catalog_default = `Include build-reference components and variable defaults when supported by the host. Does not require a browser.
+var arg_include_catalog_default = `Include build-reference components and variable defaults when supported by the host. Does not require a browser.\r
 `;
 var init_arg_include_catalog = () => {};
 
@@ -56713,7 +56713,7 @@ spindle.onFrontendMessage(async (raw, userId, frontendSessionId) => {
         return;
       case "probe_session": {
         const revision = sessionRevisions.current(userId, msg.sessionId);
-        spindle.sendToFrontend({ type: "session_probe", sessionId: msg.sessionId, total: sessionMessageCounts.get(scopedKey(userId, msg.sessionId)), phase: compactingSessions.has(scopedKey(userId, msg.sessionId)) ? "compacting" : activeSessions.has(scopedKey(userId, msg.sessionId)) || pendingSendCommands.has(scopedKey(userId, msg.sessionId)) ? "generating" : "idle", changed: !msg.revision || revision.epoch !== msg.revision.epoch || revision.sequence !== msg.revision.sequence }, userId, frontendSessionId ? { frontendSessionId } : undefined);
+        spindle.sendToFrontend({ type: "session_probe", sessionId: msg.sessionId, total: sessionMessageCounts.get(scopedKey(userId, msg.sessionId)), sync: revision }, userId, frontendSessionId ? { frontendSessionId } : undefined);
         return;
       }
       case "load_session_page":

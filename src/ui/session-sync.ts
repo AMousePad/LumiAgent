@@ -35,4 +35,10 @@ export class SessionSync {
     this.revision = revision;
     return "apply";
   }
+
+  probe(sessionId: string, revision: SessionRevision | undefined): "current" | "ignore" | "resync" {
+    if (sessionId !== this.sessionId || this.requestId || !revision) return "ignore";
+    if (!this.revision || this.revision.epoch !== revision.epoch || revision.sequence > this.revision.sequence) return "resync";
+    return revision.sequence === this.revision.sequence ? "current" : "ignore";
+  }
 }

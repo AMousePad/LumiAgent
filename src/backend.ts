@@ -3175,7 +3175,7 @@ spindle.onFrontendMessage(async (raw: unknown, userId: string, frontendSessionId
       case "list_sessions": await handleListSessions(msg.characterId, userId); return;
       case "probe_session": {
         const revision = sessionRevisions.current(userId, msg.sessionId);
-        spindle.sendToFrontend({ type: "session_probe", sessionId: msg.sessionId, total: sessionMessageCounts.get(scopedKey(userId, msg.sessionId)), phase: compactingSessions.has(scopedKey(userId, msg.sessionId)) ? "compacting" : activeSessions.has(scopedKey(userId, msg.sessionId)) || pendingSendCommands.has(scopedKey(userId, msg.sessionId)) ? "generating" : "idle", changed: !msg.revision || revision.epoch !== msg.revision.epoch || revision.sequence !== msg.revision.sequence }, userId, frontendSessionId ? { frontendSessionId } : undefined);
+        spindle.sendToFrontend({ type: "session_probe", sessionId: msg.sessionId, total: sessionMessageCounts.get(scopedKey(userId, msg.sessionId)), sync: revision }, userId, frontendSessionId ? { frontendSessionId } : undefined);
         return;
       }
       case "load_session_page": await handleLoadSession(msg.sessionId, userId, frontendSessionId, msg.requestId, msg.before, true); return;

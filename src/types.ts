@@ -395,7 +395,7 @@ export type AgentEvent =
   | { type: "warning"; message: string };
 
 export type FrontendToBackend =
-  | { type: "probe_session"; sessionId: string; revision: import("./state/session-sync").SessionRevision | null }
+  | { type: "probe_session"; sessionId: string }
   | { type: "list_characters" }
   | { type: "list_connections" }
   | { type: "list_sessions"; characterId?: string | null | undefined }
@@ -456,7 +456,7 @@ export type BackendToFrontend = BackendMessage & { sync?: import("./state/sessio
 
 export type BackendMessage =
   | { type: "session_page"; sessionId: string; requestId?: string; page: { start: number; end: number; total: number }; messages: readonly ChatMessage[]; status: SessionStatusWire }
-  | { type: "session_probe"; sessionId: string; total?: number; changed: boolean; phase: "idle" | "generating" | "compacting" }
+  | { type: "session_probe"; sessionId: string; total?: number }
   | { type: "message_detail"; sessionId: string; messageId: string; requestId: string; detail: ReturnType<typeof import("./state/session-view").messageDetail> | null }
   | { type: "message_activity"; requestId: string; page: ReturnType<typeof import("./state/session-view").messageActivity> | null }
   | { type: "characters_pushed"; characters: readonly CharacterSummary[] }

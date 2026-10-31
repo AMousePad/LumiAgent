@@ -31,6 +31,9 @@ export class ChatVirtualizer<T extends { id: string } = ChatMessage> {
   private readonly nodeByKey = new Map<string, HTMLElement>();
   private cleanup: (() => void) | null = null;
   private hasFirstRenderHappened = false;
+  private refreshFrame = 0;
+  private updateViewport: (() => void) | undefined;
+  private updateOffset: (() => void) | undefined;
   private readonly cancelUserScroll = (event: Event): void => {
     if (event instanceof KeyboardEvent && !["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key)) return;
     this.virt.cancelScroll();
@@ -64,8 +67,14 @@ export class ChatVirtualizer<T extends { id: string } = ChatMessage> {
         return m ? (deps.estimateSize?.(m) ?? DEFAULT_ESTIMATE) : DEFAULT_ESTIMATE;
       },
       getItemKey: (i) => deps.getMessages()[i]?.id ?? i,
-      observeElementOffset,
-      observeElementRect,
+      observeElementOffset: (instance, callback) => {
+        this.updateOffset = () => callback(deps.scrollContainer.scrollTop, false);
+        return observeElementOffset(instance, callback);
+      },
+      observeElementRect: (instance, callback) => {
+        this.updateViewport = () => callback({ width: deps.scrollContainer.offsetWidth, height: deps.scrollContainer.offsetHeight });
+        return observeElementRect(instance, callback);
+      },
       scrollToFn: elementScroll,
       overscan: OVERSCAN,
       anchorTo: deps.followEnd === false ? "start" : "end",
@@ -87,6 +96,19 @@ export class ChatVirtualizer<T extends { id: string } = ChatMessage> {
   setCount(): void {
     this.virt.setOptions({ ...this.virt.options, count: this.deps.getMessages().length, getItemKey: i => this.deps.getMessages()[i]?.id ?? i });
     this.sync();
+  }
+
+  refresh(): void {
+    cancelAnimationFrame(this.refreshFrame);
+    this.refreshFrame = requestAnimationFrame(() => {
+      this.refreshFrame = 0;
+      const container = this.deps.scrollContainer;
+      if (!container.isConnected || !container.clientHeight || !container.clientWidth) return;
+      // A backgrounded view can miss the scroll notification that reconciles its rendered range.
+      this.updateViewport?.();
+      this.updateOffset?.();
+      this.sync();
+    });
   }
 
   // Force the virtualizer to remeasure a single message. Tanstack's
@@ -169,6 +191,9 @@ export class ChatVirtualizer<T extends { id: string } = ChatMessage> {
   }
 
   destroy(): void {
+    cancelAnimationFrame(this.refreshFrame);
+    this.updateViewport = undefined;
+    this.updateOffset = undefined;
     if (this.cleanup) { this.cleanup(); this.cleanup = null; }
     for (const event of ["wheel", "touchstart", "pointerdown", "keydown"]) {
       this.deps.scrollContainer.removeEventListener(event, this.cancelUserScroll);
