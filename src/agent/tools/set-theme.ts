@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import { recordChange } from "./_change-history";
 import description from "../prompts/claude/tools/set-theme/description.txt";
 import argAccent from "../prompts/claude/tools/set-theme/arg_accent.txt";
 import argFromImageId from "../prompts/claude/tools/set-theme/arg_from_image_id.txt";
@@ -47,8 +48,12 @@ export const setThemeTool = defineTool({
   requiresCharacter: false,
   execute: async (input, ctx) => {
     try {
+      const track = async () => {
+        recordChange(ctx, { kind: "theme", id: "presentation" }, "Theme presentation", "overrides", null, { applied: input }, "Transient presentation changes are cleared through theme controls.");
+      };
       if (input.clear === true) {
         await ctx.spindle.theme.clear(ctx.userId);
+        await track();
         return { content: JSON.stringify({ cleared: true }) };
       }
 
@@ -62,6 +67,7 @@ export const setThemeTool = defineTool({
           return { content: `Error: [INVALID_VALUE_TYPE] max 200 variables per extension, got ${keys.length}`, isError: true };
         }
         await ctx.spindle.theme.apply({ variables: input.variables }, ctx.userId);
+        await track();
         return {
           content: JSON.stringify({
             applied_variables: keys.length,
@@ -79,6 +85,7 @@ export const setThemeTool = defineTool({
       }
 
       await ctx.spindle.theme.applyPalette({ accent: accent! }, ctx.userId);
+      await track();
       return {
         content: JSON.stringify({
           palette_applied: accent,

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import { observeChange } from "./_change-history";
 import { resolveMemoryChat, NO_CHAT_ERROR, memoryError, findEntity, entityRow } from "./_memory";
 import description from "../prompts/claude/tools/update-memory-entity/description.txt";
 
@@ -42,6 +43,7 @@ export const updateMemoryEntityTool = defineTool({
     try {
       const entity = await findEntity(ctx.spindle, chatId, { ...(input.name !== undefined ? { name: input.name } : {}), ...(input.entity_id !== undefined ? { entityId: input.entity_id } : {}) }, ctx.userId);
       if (!entity) return { content: `Error: [PATH_NOT_FOUND] entity not found. \`list_memory_entities\` shows what exists.`, isError: true };
+      return await observeChange(ctx, { kind: "cortex", id: chatId }, entity.name, "entity", () => ctx.spindle.memories.entities.get(entity.id, ctx.userId), async () => {
 
       const applied: string[] = [];
       if (input.add_aliases !== undefined || input.pin === true) {
@@ -65,6 +67,7 @@ export const updateMemoryEntityTool = defineTool({
       await ctx.spindle.memories.cortex.invalidateCache(chatId).catch(() => {});
       const fresh = await ctx.spindle.memories.entities.get(entity.id, ctx.userId);
       return { content: JSON.stringify({ applied, entity: fresh ? entityRow(fresh) : entityRow(entity) }, null, 2) };
+      });
     } catch (err) { return { content: memoryError(err), isError: true }; }
   },
 });

@@ -1,1 +1,1 @@
-Also fetch the component + variable catalog from the user's browser tab. Slower, and requires an open tab.
+Include build-reference components and variable defaults when supported by the host. Does not require a browser.

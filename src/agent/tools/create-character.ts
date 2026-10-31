@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { CharacterCreateDTO } from "lumiverse-spindle-types";
 import { defineTool } from "./_framework";
+import { recordChange } from "./_change-history";
 import description from "../prompts/claude/tools/create-character/description.txt";
 
 const strField = z.string().max(100_000).optional();
@@ -60,11 +61,12 @@ export const createCharacterTool = defineTool({
     if (input.extensions !== undefined) dto.extensions = input.extensions;
     try {
       const c = await ctx.spindle.characters.create(dto, ctx.userId);
+      recordChange(ctx, { kind: "character", id: c.id }, c.name, "created", null, c, "Delete the character from the character manager after reviewing its dependent chats and assets.");
       return {
         content: JSON.stringify({
           created: { id: c.id, name: c.name },
           address_as: `char/${c.id}/<field>`,
-          note: "Not in the edit ledger. Removal is user-side, in the Lumiverse character manager.",
+          note: "Creation is recorded in Workshop. Delete from the character manager.",
         }, null, 2),
       };
     } catch (err) { return { content: `Error: [SPINDLE_ERROR] ${(err as Error).message}`, isError: true }; }

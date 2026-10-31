@@ -228,10 +228,13 @@ function lookup(ref: string, scope: Record<string, unknown>): { found: boolean; 
     if (cur === null || cur === undefined) return { found: false, value: undefined };
     if (seg.kind === "key") {
       if (typeof cur !== "object" || Array.isArray(cur)) return { found: false, value: undefined };
+      if (!Object.hasOwn(cur, seg.value)) return { found: false, value: undefined };
       cur = (cur as Record<string, unknown>)[seg.value];
     } else {
       if (!Array.isArray(cur)) return { found: false, value: undefined };
-      cur = cur[parseInt(seg.value, 10)];
+      const index = parseInt(seg.value, 10);
+      if (!Object.hasOwn(cur, index)) return { found: false, value: undefined };
+      cur = cur[index];
     }
   }
   return { found: true, value: cur };

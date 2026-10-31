@@ -1,3 +1,9 @@
+import { FrontendBinding } from "./state/frontend-binding";
+import { advanceActivity, activitySnapshot, finishActivity } from "./state/assistant-activity";
+import { SessionCommands } from "./state/session-commands";
+import { loadSessionView, saveSessionView } from "./state/session-view-store";
+import { SessionRevisions, messageSessionId } from "./state/session-sync";
+import { sessionPage, messageDetail, projectAgentEvent, messageEditCounts, projectEdit } from "./state/session-view";
 declare const spindle: import("lumiverse-spindle-types").SpindleAPI;
 
 import type { CharacterDTO } from "lumiverse-spindle-types";
@@ -32,7 +38,7 @@ import compactionPrimerTemplate from "./agent/prompts/claude/backend/compaction_
 import attachedFilesHeader from "./agent/prompts/claude/backend/attached_files_header.txt";
 import { revertEditWithCheck, revertEdit, writeFieldValue, revertMemoryEditsWithCheck } from "./state/edit-log";
 import { appendEntries, entriesView, findEntry, loadLedger, ledgerPath, persistLedgerNow, purgeAllRevertedInMemory, squashMessage } from "./state/ledger";
-import { characterScope, scopeKeyString } from "./types";
+import { characterScope, scopeKeyString, canRevertEdit } from "./types";
 import { isDebugLogging } from "./log";
 import { registerPhonelineProbe } from "./phoneline/probe";
 import { applySinglePatch, sha256 as patchSha256 } from "./state/patch-stack";
@@ -45,6 +51,7 @@ import { encodeAssistantTurn, encodeToolResults } from "./agent/protocol";
 import type { ToolCall, ToolResult } from "./types";
 import {
   loadSession,
+  isSessionDeleted,
   newSession,
   saveSession,
   deleteSessionFile,
@@ -79,6 +86,18 @@ function scopedKey(userId: string, id: string): string {
 }
 
 const activeSessions = new Map<string, AbortController>();
+const liveSessions = new Map<string, PersistedSession>();
+const sessionRevisions = new SessionRevisions();
+const sessionMessageCounts = new Map<string, number>();
+const pendingSendCommands = new Set<string>();
+const sessionCommands = new SessionCommands();
+const settingsWrites = new Map<string, Promise<void>>();
+async function runSessionCommand(sessionId: string, userId: string, action: () => Promise<void>): Promise<void> {
+  try { await sessionCommands.run(userId, sessionId, action); }
+  catch (error) { send({ type: "generation_error", sessionId, error: (error as Error).message }, userId); }
+  finally { void pushSessionStatus(sessionId, userId); }
+}
+
 
 // Recent-read caches keyed by `${userId}:${sessionId}`, kept across messages so
 // a `read` in one turn satisfies an `edit` in the next (the gate's TTL +
@@ -111,7 +130,8 @@ function sweepStalePendingSessions(): void {
 }
 
 async function loadSessionWithPending(sessionId: string, userId: string): Promise<PersistedSession | null> {
-  const p = pendingSessions.get(scopedKey(userId, sessionId));
+  if (isSessionDeleted(spindle, sessionId, userId)) return null;
+  const p = liveSessions.get(scopedKey(userId, sessionId)) ?? pendingSessions.get(scopedKey(userId, sessionId));
   if (p) return p;
   return loadSession(spindle, sessionId, userId);
 }
@@ -125,6 +145,7 @@ const compactingSessions = new Set<string>();
 // non-whitespace text and no tool calls. reasoning-only / warning-only /
 // empty all qualify. This is the recover-send target after an errored turn.
 function assistantHasNoContent(m: ChatAssistantMessage): boolean {
+  if (m.preview?.hasContent) return false;
   for (const b of m.blocks) {
     if (b.type === "tool") return false;
     if (b.type === "text" && b.content.trim().length > 0) return false;
@@ -172,6 +193,27 @@ async function pushSessionStatus(sessionId: string, userId: string): Promise<voi
 const DEFAULT_MAX_TURNS_PER_MESSAGE = 80;
 
 function send(msg: BackendToFrontend, userId: string): void {
+  const sessionId = messageSessionId(msg);
+  if (sessionId && msg.type !== "session_deleted" && isSessionDeleted(spindle, sessionId, userId)) return;
+  if (sessionId) {
+    const live = liveSessions.get(scopedKey(userId, sessionId));
+    if (live) sessionMessageCounts.set(scopedKey(userId, sessionId), live.messages.length);
+    else if (msg.type === "session_truncated") sessionMessageCounts.set(scopedKey(userId, sessionId), msg.messages.length);
+  }
+  const sequenced = ["chat_event", "generation_done", "generation_error", "generation_cancelled", "session_truncated", "session_status"].includes(msg.type);
+  if (sessionId && sequenced) msg = { ...msg, sync: sessionRevisions.advance(userId, sessionId) };
+  if (msg.type === "session_truncated") {
+    const page = sessionPage(msg.messages);
+    const counts = messageEditCounts(msg.messages, msg.edits);
+    msg = { ...msg, page: { start: page.start, end: page.end, total: page.total }, messages: page.messages.map(message => ({ ...message, editCounts: counts.get(message.id)! })), edits: [] };
+    void pushSessionStatus(msg.sessionId, userId);
+  }
+  if (sessionId) {
+    const last = liveSessions.get(scopedKey(userId, sessionId))?.messages.at(-1);
+    if (last?.role === "assistant" && last.activity) msg = { ...msg, assistantActivity: { messageId: last.id, activity: activitySnapshot(last.activity)! } };
+  }
+  if (msg.type === "chat_event") msg = { ...msg, event: projectAgentEvent(msg.event) };
+  if (msg.type === "scope_edits_pushed") { const budget = { remaining: 500000 }; msg = { ...msg, entries: msg.entries.map(entry => projectEdit(entry, budget)) }; }
   spindle.sendToFrontend(msg, userId);
 }
 
@@ -189,6 +231,7 @@ interface PendingRpc {
   onAbort?: () => void;
 }
 const pendingFrontendRpc = new Map<string, PendingRpc>();
+const runFrontends = new Map<string, FrontendBinding>();
 const DEFAULT_FRONTEND_RPC_TIMEOUT_MS = 60_000;
 
 function takePendingFrontendRpc(rpcId: string): PendingRpc | null {
@@ -218,7 +261,10 @@ function cancelFrontendRpcsForUser(userId: string, reason: string, frontendSessi
 
 spindle.on("FRONTEND_SESSION_CLOSED", (payload, userId) => {
   const sessionId = (payload as { frontendSessionId?: unknown } | null)?.frontendSessionId;
-  if (userId && typeof sessionId === "string") cancelFrontendRpcsForUser(userId, "Originating browser session closed", sessionId);
+  if (userId && typeof sessionId === "string") {
+    for (const binding of runFrontends.values()) if (binding.userId === userId) binding.closed(sessionId);
+    cancelFrontendRpcsForUser(userId, "Browser disconnected before the tool returned. Check its result before retrying.", sessionId);
+  }
 });
 
 function callFrontend(
@@ -593,6 +639,7 @@ async function handleGetSettings(userId: string): Promise<void> {
     toolOutputCapDefaultTokens: DEFAULT_TOOL_OUTPUT_CAP_TOKENS,
     cacheMode: settings.cacheMode,
     parallelToolCalls: settings.parallelToolCalls,
+    autoCompaction: settings.autoCompaction,
     tpmLimit: settings.tpmLimit,
     rpmLimit: settings.rpmLimit,
     debugLogging: settings.debugLogging,
@@ -707,6 +754,7 @@ async function handleUpdateSettings(
   debugLogging: boolean,
   requireChangeApproval: boolean | undefined,
   reasoningEffort: AgentSettings["reasoningEffort"] | undefined,
+  autoCompaction: boolean | undefined,
   userId: string,
 ): Promise<void> {
   const prior = await loadSettings(spindle, userId);
@@ -727,6 +775,7 @@ async function handleUpdateSettings(
     debugLogging,
     requireChangeApproval: persistedApproval,
     reasoningEffort: reasoningEffort ?? prior.reasoningEffort,
+    autoCompaction: autoCompaction ?? prior.autoCompaction,
   }, userId);
   await handleGetSettings(userId);
 }
@@ -850,7 +899,7 @@ async function handleListCharactersStorage(userId: string): Promise<void> {
     // Non-character scopes have no entity list to iterate, so enumerate their
     // ledger directories directly. Empty ledgers are skipped like characters.
     let vaultNames: Map<string, string> | undefined;
-    for (const kind of ["persona", "chat", "preset", "world_book", "regex_script", "memory_vault"] as const) {
+    for (const kind of ["persona", "chat", "preset", "world_book", "regex_script", "memory_vault", "theme", "cortex", "variables", "images", "databank", "global_addon", "settings"] as const) {
       let names: string[] = [];
       try { names = await spindle.userStorage.list(`ledgers/${kind}/`, userId); } catch { /* no dir yet */ }
       for (const rel of names) {
@@ -871,7 +920,7 @@ async function handleListCharactersStorage(userId: string): Promise<void> {
           : kind === "preset" ? "Preset"
           : kind === "world_book" ? "World book"
           : kind === "regex_script" ? "Regex script"
-          : "Persona";
+          : kind === "persona" ? "Persona" : kind === "theme" ? "Theme" : kind === "cortex" ? "Cortex" : kind === "variables" ? "Variables" : kind === "images" ? "Images" : kind === "databank" ? "Databank" : kind === "global_addon" ? "Global add-ons" : "Settings";
         let label = `${kindLabel} ${id.slice(0, 8)}`;
         if (kind === "memory_vault") {
           try {
@@ -949,7 +998,7 @@ async function handleRevertCharacterAll(scope: ScopeRef, userId: string): Promis
       if (!p.reverted) liveIds.push(p.id);
     }
     for (const s of ledger.structural) if (!s.reverted) liveIds.push(s.id);
-    for (const e of ledger.externalEdits) if (!e.reverted) liveIds.push(e.id);
+    for (const e of ledger.externalEdits) if (canRevertEdit(e)) liveIds.push(e.id);
     if (liveIds.length === 0) {
       send({ type: "edits_reverted_bulk", scope, outcomes: [] }, userId);
       return;
@@ -1026,7 +1075,7 @@ function buildCompactionInstruction(maxHandoffChars: number): string {
   return fillPrompt(compactionTemplate, { HANDOFF_PATH, MAX_HANDOFF_CHARS: maxHandoffChars });
 }
 
-async function compactSession(sessionId: string, userId: string, trigger: "auto" | "manual"): Promise<void> {
+async function compactSession(sessionId: string, userId: string, trigger: "auto" | "manual", connectionId?: string): Promise<void> {
   log("info", `compact_session sessionId=${sessionId} trigger=${trigger}`);
   const key = scopedKey(userId, sessionId);
   if (activeSessions.has(key)) {
@@ -1044,8 +1093,11 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
 
   const releaseSlot = (): void => { activeSessions.delete(key); compactingSessions.delete(key); };
 
+  try {
   const s = await loadSession(spindle, sessionId, userId);
   if (!s) { releaseSlot(); send({ type: "ws_error", error: "Session not found." }, userId); void pushSessionStatus(sessionId, userId); return; }
+  if (connectionId) s.connectionId = connectionId;
+  liveSessions.set(key, s);
   let c: CharacterDTO | null = null;
   if (s.characterId !== null) {
     c = await spindle.characters.get(s.characterId, userId);
@@ -1083,10 +1135,11 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
     const provider = await resolveProviderForConnection(s.connectionId, userId);
     const samplerParams = buildSamplerParams(settings.samplers, settings.parallelToolCalls, provider);
     const assistantId = makeId("msg");
-    const assistant: ChatAssistantMessage = { id: assistantId, role: "assistant", ts: Date.now(), turn: 0, blocks: [{ type: "text", content: "[Compacting context, writing handoff notes...]" }], status: "streaming" };
+    const assistant: ChatAssistantMessage = { id: assistantId, role: "assistant", ts: Date.now(), turn: 0, blocks: [], status: "streaming", compaction: true };
     s.messages.push(assistant);
 
     let currentText: AssistantBlock & { type: "text" } | null = null;
+    let currentReasoning: AssistantBlock & { type: "reasoning" } | null = null;
     let turnStartBlocks = 0;
     const toolBlocks = new Map<string, AssistantBlock & { type: "tool" }>();
     // Stamp BEFORE the run so we can tell apart a fresh handoff written this
@@ -1105,19 +1158,23 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
       maxTurns: 8, startingTurn: 0, cacheMode: settings.cacheMode, tpmLimit: settings.tpmLimit, rpmLimit: settings.rpmLimit, signal: ac.signal,
       recentReads: recentReadsFor(userId, sessionId),
     })) {
-      send({ type: "chat_event", sessionId, event: ev }, userId);
+      advanceActivity(assistant, ev);
       switch (ev.type) {
         case "turn_started":
           assistant.turn = ev.turn;
-          currentText = null;
+          currentText = null; currentReasoning = null;
           turnStartBlocks = assistant.blocks.length;
           break;
         case "llm_token":
           if (!currentText) { currentText = { type: "text", content: ev.token }; assistant.blocks.push(currentText); }
           else currentText.content += ev.token;
           break;
+        case "llm_reasoning":
+          if (!currentReasoning) { currentReasoning = { type: "reasoning", content: ev.token }; assistant.blocks.push(currentReasoning); }
+          else currentReasoning.content += ev.token;
+          break;
         case "tool_started": {
-          currentText = null;
+          currentText = null; currentReasoning = null;
           const block: AssistantBlock & { type: "tool" } = { type: "tool", call_id: ev.call_id, name: ev.name, args: ev.args, edit_ids: [] };
           assistant.blocks.push(block); toolBlocks.set(ev.call_id, block);
           break;
@@ -1145,8 +1202,10 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
           break;
         default: break;
       }
+      send({ type: "chat_event", sessionId, event: ev }, userId);
     }
-    assistant.status = "complete";
+    assistant.status = ac.signal.aborted ? "cancelled" : "complete";
+    finishActivity(assistant);
 
     // Did the agent actually write a fresh, non-empty handoff? If not, the
     // conversation cannot be safely compacted: collapsing llmHistory would
@@ -1204,6 +1263,13 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
     // and renders the appended boundary marker without a manual reload.
     void handleLoadSession(sessionId, userId);
   } catch (err) {
+    const interrupted = s.messages.at(-1);
+    if (interrupted?.role === "assistant" && interrupted.status === "streaming") {
+      interrupted.status = ac.signal.aborted ? "cancelled" : "errored";
+      if (!ac.signal.aborted) interrupted.error = (err as Error).message;
+      finishActivity(interrupted);
+      await saveSession(spindle, s, userId).catch(() => {});
+    }
     // User-initiated stop aborts the compaction AC. That surfaces here as a
     // thrown abort; treat it as a clean cancel, not a failure toast. The
     // partial assistant bubble stays as the persisted last message.
@@ -1218,6 +1284,11 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
   } finally {
     activeSessions.delete(scopedKey(userId, sessionId));
     compactingSessions.delete(scopedKey(userId, sessionId));
+    void pushSessionStatus(sessionId, userId);
+  }
+  } finally {
+    releaseSlot();
+    liveSessions.delete(key);
     void pushSessionStatus(sessionId, userId);
   }
 }
@@ -1530,31 +1601,65 @@ async function handleListSessions(filter: string | null | undefined, userId: str
   send({ type: "sessions_pushed", sessions }, userId);
 }
 
-async function handleLoadSession(sessionId: string, userId: string): Promise<void> {
-  const s = await loadSessionWithPending(sessionId, userId);
-  if (!s) {
-    log("warn", `load_session: ${sessionId} not found`);
-    // A pending session that never saw a message is gone after a refresh.
-    // Tell the frontend explicitly so it clears its in-memory pointer instead
-    // of sitting on a dead session id.
-    send({ type: "session_deleted", sessionId }, userId);
+async function handleLoadSession(sessionId: string, userId: string, frontendSessionId?: string, requestId?: string, before?: number, pageOnly = false): Promise<void> {
+  if (isSessionDeleted(spindle, sessionId, userId)) { spindle.sendToFrontend({ type: "session_deleted", sessionId }, userId, frontendSessionId ? { frontendSessionId } : undefined); return; }
+  const revisionBefore = sessionRevisions.current(userId, sessionId);
+  const settings = await loadSettings(spindle, userId);
+  const key = scopedKey(userId, sessionId);
+  const offset = before !== undefined && Number.isFinite(before) ? before : undefined;
+  const view = !liveSessions.has(key) && !pendingSessions.has(key) ? await loadSessionView(spindle, sessionId, userId, offset).catch(() => null) : null;
+  const s = liveSessions.get(key) ?? view?.session ?? await loadSessionWithPending(sessionId, userId);
+  const target = frontendSessionId ? { frontendSessionId } : undefined;
+  if (view && sessionRevisions.current(userId, sessionId).sequence !== revisionBefore.sequence) return handleLoadSession(sessionId, userId, frontendSessionId, requestId, before, pageOnly);
+  if (!s || isSessionDeleted(spindle, sessionId, userId)) {
+    spindle.sendToFrontend({ type: "session_deleted", sessionId }, userId, target);
     return;
   }
-  const settings = await loadSettings(spindle, userId);
-  send({
-    type: "session_loaded",
-    sessionId: s.sessionId,
-    characterId: s.characterId,
-    characterName: s.characterName,
-    createdAt: s.createdAt,
-    messages: s.messages,
-    edits: s.edits,
+  if (!pageOnly && before === undefined && frontendSessionId) runFrontends.get(key)?.loaded(frontendSessionId);
+  if (!activeSessions.has(scopedKey(userId, sessionId))) {
+    for (const message of s.messages) if (message.role === "assistant" && message.status === "streaming") {
+      message.status = "errored";
+      finishActivity(message, message.activity?.updatedAt);
+      message.error = "This run was interrupted before it finished. You can continue from the saved conversation.";
+    }
+  }
+  const page = view && !liveSessions.has(key) ? view.page : sessionPage(s.messages, offset);
+  if (!view && !liveSessions.has(key) && !pendingSessions.has(key)) void saveSessionView(spindle, s, userId).catch(() => {});
+  if (!activeSessions.has(key)) for (const message of page.messages) if (message.role === "assistant" && message.status === "streaming") { message.status = "errored"; finishActivity(message, message.activity?.updatedAt); message.error = "Run interrupted. Continue from saved progress."; }
+  if (!view || liveSessions.has(key)) {
+    const counts = messageEditCounts(s.messages, s.edits);
+    page.messages = page.messages.map(message => ({ ...message, editCounts: counts.get(message.id)! }));
+  }
+  sessionMessageCounts.set(key, page.total);
+  if (pageOnly) {
+    spindle.sendToFrontend({ type: "session_page", sessionId, requestId,
+      page: { start: page.start, end: page.end, total: page.total }, messages: page.messages,
+      status: computeSessionStatus(s, userId, resolveContextTokens(settings.samplers)),
+      sync: sessionRevisions.current(userId, sessionId),
+    }, userId, target);
+    return;
+  }
+  const messageIds = new Set(page.messages.map(message => message.id));
+  const payload: BackendToFrontend = {
+    type: "session_loaded", requestId, page: { start: page.start, end: page.end, total: page.total },
+    sessionId: s.sessionId, characterId: s.characterId, characterName: s.characterName, createdAt: s.createdAt,
+    messages: page.messages, edits: s.edits.filter(entry => entry.assistantMessageId !== undefined && messageIds.has(entry.assistantMessageId)).slice(-100),
     status: computeSessionStatus(s, userId, resolveContextTokens(settings.samplers)),
+    sync: sessionRevisions.current(userId, sessionId),
     ...(s.compactedAt !== undefined ? { compactedAt: s.compactedAt } : {}),
-  }, userId);
+  };
+  spindle.sendToFrontend(payload, userId, target);
 }
 
-async function handleStartSession(sessionId: string, characterId: string | null, connectionId: string | undefined, userId: string): Promise<void> {
+async function handleMessageDetail(msg: Extract<FrontendToBackend, { type: "read_message_detail" }>, userId: string, frontendSessionId?: string): Promise<void> {
+  const s = await loadSessionWithPending(msg.sessionId, userId);
+  const message = s?.messages.find(message => message.id === msg.messageId);
+  spindle.sendToFrontend({ type: "message_detail", sessionId: msg.sessionId, messageId: msg.messageId, requestId: msg.requestId,
+    detail: message ? messageDetail(message, Number.isFinite(msg.blockIndex) ? msg.blockIndex : 0, Number.isFinite(msg.offset) ? msg.offset : 0, msg.part === "args" ? "args" : "content") : null,
+  }, userId, frontendSessionId ? { frontendSessionId } : undefined);
+}
+
+async function handleStartSession(sessionId: string, characterId: string | null, connectionId: string | undefined, userId: string, frontendSessionId?: string): Promise<void> {
   log("info", `start_session sessionId=${sessionId} characterId=${characterId ?? "(none)"}`);
   // Stage the pending session synchronously so a follow-up set_pinned_chat or
   // list_chats arriving while we await character lookup or system-file seeding
@@ -1583,13 +1688,14 @@ async function handleStartSession(sessionId: string, characterId: string | null,
     const { ensureSystemFiles } = await import("./state/system-files");
     await ensureSystemFiles(spindle, userId).catch((e) => log("warn", `ensureSystemFiles failed: ${(e as Error).message}`));
 
-    send({
+    spindle.sendToFrontend({
       type: "session_started",
+      sync: sessionRevisions.current(userId, sessionId),
       sessionId,
       characterId,
       characterName: s.characterName,
       createdAt: s.createdAt,
-    }, userId);
+    }, userId, frontendSessionId ? { frontendSessionId } : undefined);
     // No list refresh, an empty session shouldn't appear in the picker.
   } catch (err) {
     pendingSessions.delete(scopedKey(userId, sessionId));
@@ -1614,35 +1720,14 @@ async function handleContinueSession(sessionId: string, connectionId: string | u
     return;
   }
   const last = s.messages[s.messages.length - 1]!;
-  // "Continue" is valid in two shapes: (a) a user message awaiting a reply,
-  // and (b) a partial assistant message that paused for max_tokens. For (b)
-  // we strip it from the session before re-entering so the loop picks up at
-  // the preceding user message — otherwise handleSendMessageInternal would
-  // append a second assistant turn next to the partial one, which Anthropic
-  // rejects as consecutive assistant messages.
   if (last.role === "assistant") {
-    if (s.messages.length < 2 || s.messages[s.messages.length - 2]!.role !== "user") {
-      send({ type: "generation_error", sessionId, error: "nothing to continue: no preceding user message" }, userId);
-      return;
-    }
-    const orphanedMessageId = last.id;
-    s.messages.pop();
-    // Edits the partial turn made would otherwise stay in s.edits with their
-    // assistantMessageId pointing at the popped message — invisible to the new
-    // turn's current_message scope and missing from any per-message revert
-    // affordance. Unanchor them so they survive as session-level edits the
-    // user can still see in the workshop without misattribution.
-    for (const e of s.edits) {
-      if (e.assistantMessageId === orphanedMessageId) {
-        delete (e as { assistantMessageId?: string }).assistantMessageId;
-      }
-    }
-    s.llmHistory = rebuildLlmHistoryScoped(s, s.messages);
-    delete s.lastContext;
+    const continuation: ChatUserMessage = { id: makeId("msg"), role: "user", ts: Date.now(), content: "Continue from the saved progress. Do not repeat completed actions." };
+    s.messages.push(continuation);
+    s.llmHistory.push({ role: "user", content: continuation.content });
     await saveSession(spindle, s, userId);
     send({ type: "session_truncated", sessionId, messages: s.messages, edits: s.edits }, userId);
   }
-  void handleSendMessageInternal(s, userId, connectionId, frontendSessionId);
+  await handleSendMessageInternal(s, userId, connectionId, frontendSessionId);
 }
 
 // Persist attachment bytes to workspace files under attachments/{sessionId}/ and
@@ -1692,6 +1777,10 @@ async function handleSendMessage(
   wireFiles?: readonly WireFile[],
   frontendSessionId?: string,
 ): Promise<void> {
+  const commandKey = scopedKey(userId, sessionId);
+  if (pendingSendCommands.has(commandKey)) { void pushSessionStatus(sessionId, userId); return; }
+  pendingSendCommands.add(commandKey);
+  try {
   log("info", `send_message sessionId=${sessionId} userMessageId=${userMessageId} contentLen=${content.length} images=${wireImages?.length ?? 0} files=${wireFiles?.length ?? 0}`);
   if (activeSessions.has(scopedKey(userId, sessionId))) {
     send({ type: "generation_error", sessionId, error: "session already has a generation in flight" }, userId);
@@ -1701,6 +1790,10 @@ async function handleSendMessage(
   const s = await loadSessionWithPending(sessionId, userId);
   if (!s) {
     send({ type: "generation_error", sessionId, error: `session ${sessionId} not found` }, userId);
+    return;
+  }
+  if (s.messages.some(message => message.id === userMessageId)) {
+    await handleLoadSession(sessionId, userId, frontendSessionId);
     return;
   }
   const images = await persistAttachments(sessionId, userId, wireImages);
@@ -1720,11 +1813,15 @@ async function handleSendMessage(
     void handleListSessions(undefined, userId);
   }
   await handleSendMessageInternal(s, userId, connectionId, frontendSessionId);
+  } finally { pendingSendCommands.delete(commandKey); }
+
 }
 
 function handleCancelGeneration(sessionId: string, userId: string): void {
+  const cancelledPending = sessionCommands.cancel(userId, sessionId);
   const ac = activeSessions.get(scopedKey(userId, sessionId));
   if (!ac) {
+    if (cancelledPending) return;
     log("warn", `cancel: no active generation on session ${sessionId}`);
     return;
   }
@@ -2097,7 +2194,7 @@ async function handleRevertAllCharacters(scopes: readonly ScopeRef[], userId: st
         if (!p.reverted) liveIds.push(p.id);
       }
       for (const s of ledger.structural) if (!s.reverted) liveIds.push(s.id);
-      for (const e of ledger.externalEdits) if (!e.reverted) liveIds.push(e.id);
+      for (const e of ledger.externalEdits) if (canRevertEdit(e)) liveIds.push(e.id);
       if (liveIds.length === 0) {
         send({ type: "edits_reverted_bulk", scope, outcomes: [] }, userId);
         continue;
@@ -2144,7 +2241,7 @@ async function handleRevertSession(sessionId: string, userId: string): Promise<v
   // whole revert just because characterId is null would strand those writes.
   // revertEditsBatch groups by e.scope, so an empty-string fallback id is
   // harmless — no edit will fall back to it.
-  const liveSessionEdits = s.edits.filter((e) => !e.reverted);
+  const liveSessionEdits = s.edits.filter(canRevertEdit);
   if (liveSessionEdits.length === 0) {
     send({ type: "session_reverted", sessionId, entriesRestored: 0, entriesFailed: 0, scriptsRestored: 0, scriptsFailed: 0 }, userId);
     return;
@@ -2262,6 +2359,7 @@ async function revertEditsBatch(characterId: string, entries: readonly EditLogEn
   if (entries.length === 0) return { ok: 0, failed: 0, okIds: new Set() };
   const byScope = new Map<string, { scope: ScopeRef; ids: string[] }>();
   for (const e of entries) {
+    if (!canRevertEdit(e)) continue;
     const sc = e.scope ?? characterScope(characterId);
     const k = scopeKeyString(sc);
     let bucket = byScope.get(k);
@@ -2444,7 +2542,7 @@ async function handleEditUserMessage(sessionId: string, messageId: string, newCo
   send({ type: "session_truncated", sessionId, messages: s.messages, edits: s.edits }, userId);
 
   // Kick off regeneration as if the user just sent this message.
-  void handleSendMessageInternal(s, userId, connectionId, frontendSessionId);
+  await handleSendMessageInternal(s, userId, connectionId, frontendSessionId);
 }
 
 async function handleRegenerateAssistant(sessionId: string, assistantMessageId: string, editsAction: "keep" | "revert", connectionId: string | undefined, userId: string, frontendSessionId?: string): Promise<void> {
@@ -2481,7 +2579,7 @@ async function handleRegenerateAssistant(sessionId: string, assistantMessageId: 
   await saveSession(spindle, s, userId);
   send({ type: "session_truncated", sessionId, messages: s.messages, edits: s.edits }, userId);
 
-  void handleSendMessageInternal(s, userId, connectionId, frontendSessionId);
+  await handleSendMessageInternal(s, userId, connectionId, frontendSessionId);
 }
 
 async function handleForkSession(sourceSessionId: string, messageId: string, userId: string): Promise<void> {
@@ -2537,6 +2635,14 @@ async function handleForkSession(sourceSessionId: string, messageId: string, use
 // user's current dropdown value, applied here as the single heal point so
 // every entry path (send, edit, regenerate, continue) picks up the latest.
 async function handleSendMessageInternal(s: PersistedSession, userId: string, connectionIdOverride: string | undefined, frontendSessionId?: string): Promise<void> {
+  const slotKey = scopedKey(userId, s.sessionId);
+  let ownedController: AbortController | null = null;
+  let frontendBinding: FrontendBinding | undefined;
+  try {
+  if (sessionCommands.isCancelled(userId, s.sessionId)) {
+    send({ type: "generation_cancelled", sessionId: s.sessionId }, userId);
+    return;
+  }
   if (connectionIdOverride && s.connectionId !== connectionIdOverride) {
     s.connectionId = connectionIdOverride;
   }
@@ -2545,13 +2651,17 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
   // awaits (loadSession, saveSession), so two near-simultaneous sends could both
   // pass the caller guard; this is the authoritative single-claim point that
   // rejects the loser instead of starting a second generation on the session.
-  const slotKey = scopedKey(userId, s.sessionId);
   if (activeSessions.has(slotKey)) {
     send({ type: "generation_error", sessionId: s.sessionId, error: "session already has a generation in flight" }, userId);
     return;
   }
   const ac = new AbortController();
+  ownedController = ac;
+  frontendBinding = new FrontendBinding(userId, frontendSessionId);
+  const binding = frontendBinding;
+  runFrontends.set(slotKey, binding);
   activeSessions.set(slotKey, ac);
+  liveSessions.set(slotKey, s);
   void pushSessionStatus(s.sessionId, userId);
 
   // Setup before the generation loop (character fetch, settings load,
@@ -2609,12 +2719,13 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
     }
     dispatch = makeToolDispatch({
       requireChangeApproval: settings.requireChangeApproval,
-      requestApproval: (request, signal) => requestChangeApproval(userId, request, signal, frontendSessionId),
+      requestApproval: async (request, signal) => requestChangeApproval(userId, request, signal, await binding.target(signal)),
     });
     const provider = await resolveProviderForConnection(s.connectionId, userId);
     samplerParams = buildSamplerParams(settings.samplers, settings.parallelToolCalls, provider);
   } catch (setupErr) {
     activeSessions.delete(scopedKey(userId, s.sessionId));
+    liveSessions.delete(scopedKey(userId, s.sessionId));
     send({ type: "generation_error", sessionId: s.sessionId, error: (setupErr as Error).message }, userId);
     void pushSessionStatus(s.sessionId, userId);
     return;
@@ -2642,9 +2753,9 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
       maxTurns: DEFAULT_MAX_TURNS_PER_MESSAGE, startingTurn: lastTurn,
       cacheMode: settings.cacheMode, tpmLimit: settings.tpmLimit, rpmLimit: settings.rpmLimit, signal: ac.signal,
       recentReads: recentReadsFor(userId, s.sessionId),
-      callFrontend: (op, args, timeoutMs) => callFrontend(userId, op, args, timeoutMs, ac.signal, frontendSessionId),
+      callFrontend: async (op, args, timeoutMs) => callFrontend(userId, op, args, timeoutMs, ac.signal, await binding.target(ac.signal)),
     })) {
-      send({ type: "chat_event", sessionId: s.sessionId, event: ev }, userId);
+      advanceActivity(assistant, ev);
       switch (ev.type) {
         case "turn_started":
           assistant.turn = ev.turn; lastTurn = ev.turn;
@@ -2790,6 +2901,7 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
           assistant.status = "complete";
           break;
       }
+      send({ type: "chat_event", sessionId: s.sessionId, event: ev }, userId);
     }
   } catch (err) {
     // The user-cancel path throws an AbortError up from runLlmStream / tool
@@ -2802,6 +2914,8 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
       errored = true;
       assistant.status = "errored";
       const msg = (err as Error).message;
+      assistant.error = msg;
+      finishActivity(assistant);
       log("error", `session ${s.sessionId} generation threw: ${msg}`);
       send({ type: "generation_error", sessionId: s.sessionId, error: msg }, userId);
     }
@@ -2809,6 +2923,8 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
   activeSessions.delete(scopedKey(userId, s.sessionId));
   s.llmHistory = persistableHistory();
   if (ac.signal.aborted && !errored) assistant.status = "cancelled";
+  if (assistant.status === "streaming") assistant.status = "complete";
+  finishActivity(assistant);
   await saveSession(spindle, s, userId);
   if (s.characterId !== null) {
     const squashed = await autosquashAndNotify(s, s.characterId, assistantId, userId);
@@ -2824,12 +2940,19 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
   if (ac.signal.aborted && !errored) send({ type: "generation_cancelled", sessionId: s.sessionId }, userId);
   else if (!errored) {
     send({ type: "generation_done", sessionId: s.sessionId, turns: lastTurn }, userId);
-    if (shouldAutoCompact(s, settings.samplers)) {
+    if (shouldAutoCompact(s, settings.samplers) && (await loadSettings(spindle, userId)).autoCompaction) {
       void compactSession(s.sessionId, userId, "auto");
     }
   }
   void pushSessionStatus(s.sessionId, userId);
   void handleListSessions(undefined, userId);
+  } finally {
+    frontendBinding?.dispose();
+    if (frontendBinding && runFrontends.get(slotKey) === frontendBinding) runFrontends.delete(slotKey);
+    if (ownedController && activeSessions.get(slotKey) === ownedController) activeSessions.delete(slotKey);
+    if (ownedController && !activeSessions.has(slotKey) && liveSessions.get(slotKey) === s) liveSessions.delete(slotKey);
+    void pushSessionStatus(s.sessionId, userId);
+  }
 }
 
 // Collapse a single assistant message's edits to one patch per file. Fires
@@ -2937,6 +3060,7 @@ async function broadcastBridgeStatusForUser(userId: string): Promise<void> {
       offline: true,
       missingPermissions: first.missingPerms,
       missingFor: first.missingFor,
+      ...(first.providerId ? { providerId: first.providerId } : {}),
     }, userId);
   } catch (err) {
     log("warn", `bridge_status: broadcastForUser failed userId=${userId}: ${(err as Error).message}`);
@@ -3049,11 +3173,37 @@ spindle.onFrontendMessage(async (raw: unknown, userId: string, frontendSessionId
       case "list_characters": await handleListCharacters(userId); return;
       case "list_connections": await handleListConnections(userId); return;
       case "list_sessions": await handleListSessions(msg.characterId, userId); return;
-      case "load_session": await handleLoadSession(msg.sessionId, userId); return;
-      case "start_session": void handleStartSession(msg.sessionId, msg.characterId, msg.connectionId, userId); return;
-      case "send_message": void handleSendMessage(msg.sessionId, msg.userMessageId, msg.content, msg.connectionId, userId, msg.images, msg.files, frontendSessionId); return;
+      case "probe_session": {
+        const revision = sessionRevisions.current(userId, msg.sessionId);
+        spindle.sendToFrontend({ type: "session_probe", sessionId: msg.sessionId, total: sessionMessageCounts.get(scopedKey(userId, msg.sessionId)), phase: compactingSessions.has(scopedKey(userId, msg.sessionId)) ? "compacting" : activeSessions.has(scopedKey(userId, msg.sessionId)) || pendingSendCommands.has(scopedKey(userId, msg.sessionId)) ? "generating" : "idle", changed: !msg.revision || revision.epoch !== msg.revision.epoch || revision.sequence !== msg.revision.sequence }, userId, frontendSessionId ? { frontendSessionId } : undefined);
+        return;
+      }
+      case "load_session_page": await handleLoadSession(msg.sessionId, userId, frontendSessionId, msg.requestId, msg.before, true); return;
+      case "load_session": await handleLoadSession(msg.sessionId, userId, frontendSessionId, msg.requestId, msg.before); return;
+      case "read_message_detail": await handleMessageDetail(msg, userId, frontendSessionId); return;
+      case "read_edit_content": {
+        const ledger = await loadLedger(spindle, msg.scope, userId);
+        const entry = findEntry(ledger, msg.editId);
+        let content = "";
+        if (entry) {
+          const record = entry.record;
+          content = record.op === "edit" ? record[msg.part] : (record.op === "create" && msg.part === "after") || (record.op === "delete" && msg.part === "before") ? JSON.stringify(record.snapshot, null, 2) : "";
+        }
+        const offset = Number.isFinite(msg.offset) ? Math.max(0, Math.floor(msg.offset)) : 0;
+        spindle.sendToFrontend({ type: "edit_content", requestId: msg.requestId, detail: entry ? { total: content.length, content: content.slice(offset, offset + 24000) } : null }, userId, frontendSessionId ? { frontendSessionId } : undefined);
+        return;
+      }
+      case "read_message_activity": {
+        const session = await loadSessionWithPending(msg.sessionId, userId);
+        const message = session?.messages.find(item => item.id === msg.messageId);
+        const { messageActivity } = await import("./state/session-view");
+        spindle.sendToFrontend({ type: "message_activity", requestId: msg.requestId, page: message ? messageActivity(message, msg.kind, Number.isFinite(msg.start) ? msg.start : undefined, msg.callId) : null }, userId, frontendSessionId ? { frontendSessionId } : undefined);
+        return;
+      }
+      case "start_session": void handleStartSession(msg.sessionId, msg.characterId, msg.connectionId, userId, frontendSessionId); return;
+      case "send_message": void runSessionCommand(msg.sessionId, userId, () => handleSendMessage(msg.sessionId, msg.userMessageId, msg.content, msg.connectionId, userId, msg.images, msg.files, frontendSessionId)); return;
       case "ws_read_image": void handleWsReadImage(msg.path, userId); return;
-      case "continue_session": void handleContinueSession(msg.sessionId, msg.connectionId, userId, frontendSessionId); return;
+      case "continue_session": void runSessionCommand(msg.sessionId, userId, () => handleContinueSession(msg.sessionId, msg.connectionId, userId, frontendSessionId)); return;
       case "cancel_generation": handleCancelGeneration(msg.sessionId, userId); return;
       case "delete_session": await handleDeleteSession(msg.sessionId, userId); return;
       case "export_session_markdown": await handleExportSessionMarkdown(msg.sessionId, userId); return;
@@ -3061,20 +3211,33 @@ spindle.onFrontendMessage(async (raw: unknown, userId: string, frontendSessionId
       case "revert_edit": await handleRevertEdit(msg.scope ?? characterScope(msg.characterId), msg.editId, msg.force === true, userId); return;
       case "revert_edits_bulk": await handleRevertEditsBulk(msg.scope ?? characterScope(msg.characterId), msg.editIds, userId); return;
       case "revert_session": await handleRevertSession(msg.sessionId, userId); return;
-      case "edit_user_message": void handleEditUserMessage(msg.sessionId, msg.messageId, msg.newContent, msg.editsAction, msg.connectionId, userId, frontendSessionId); return;
-      case "regenerate_assistant_message": void handleRegenerateAssistant(msg.sessionId, msg.assistantMessageId, msg.editsAction, msg.connectionId, userId, frontendSessionId); return;
+      case "edit_user_message": void runSessionCommand(msg.sessionId, userId, () => handleEditUserMessage(msg.sessionId, msg.messageId, msg.newContent, msg.editsAction, msg.connectionId, userId, frontendSessionId)); return;
+      case "regenerate_assistant_message": void runSessionCommand(msg.sessionId, userId, () => handleRegenerateAssistant(msg.sessionId, msg.assistantMessageId, msg.editsAction, msg.connectionId, userId, frontendSessionId)); return;
       case "fork_session": void handleForkSession(msg.sourceSessionId, msg.messageId, userId); return;
-      case "delete_message": void handleDeleteMessage(msg.sessionId, msg.messageId, msg.editsAction, userId); return;
-      case "free_tool_result": void handleFreeToolResult(msg.sessionId, msg.callId, userId); return;
+      case "delete_message": void runSessionCommand(msg.sessionId, userId, () => handleDeleteMessage(msg.sessionId, msg.messageId, msg.editsAction, userId)); return;
+      case "free_tool_result": void runSessionCommand(msg.sessionId, userId, () => handleFreeToolResult(msg.sessionId, msg.callId, userId)); return;
       case "list_chats": await handleListChats(msg.characterId, msg.sessionId, userId); return;
       case "set_pinned_chat": await handleSetPinnedChat(msg.sessionId, msg.chatId, userId); return;
       case "set_focus": await handleSetFocus(msg.sessionId, msg.characterId, userId); return;
       case "get_settings": await handleGetSettings(userId); return;
-      case "update_settings": await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.cacheMode ?? "full", msg.parallelToolCalls ?? true, msg.tpmLimit ?? null, msg.rpmLimit ?? null, msg.debugLogging ?? false, msg.requireChangeApproval, msg.reasoningEffort, userId); return;
+      case "update_settings": {
+        const previous = settingsWrites.get(userId) ?? Promise.resolve();
+        const write = previous.catch(() => {}).then(async () => {
+          try {
+            await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.cacheMode ?? "full", msg.parallelToolCalls ?? true, msg.tpmLimit ?? null, msg.rpmLimit ?? null, msg.debugLogging ?? false, msg.requireChangeApproval, msg.reasoningEffort, msg.autoCompaction, userId);
+            if (msg.requestId) spindle.sendToFrontend({ type: "settings_saved", requestId: msg.requestId }, userId, frontendSessionId ? { frontendSessionId } : undefined);
+          } catch (error) {
+            if (msg.requestId) spindle.sendToFrontend({ type: "settings_saved", requestId: msg.requestId, error: (error as Error).message }, userId, frontendSessionId ? { frontendSessionId } : undefined);
+          }
+        });
+        settingsWrites.set(userId, write);
+        try { await write; } finally { if (settingsWrites.get(userId) === write) settingsWrites.delete(userId); }
+        return;
+      }
       case "get_ui_prefs": await handleGetUiPrefs(userId); return;
       case "update_ui_prefs": await handleUpdateUiPrefs(msg, userId); return;
       case "mousey_revived": await handleMouseyRevived(msg.sessionId, userId); return;
-      case "compact_session": void compactSession(msg.sessionId, userId, "manual"); return;
+      case "compact_session": void compactSession(msg.sessionId, userId, "manual", msg.connectionId); return;
       case "list_characters_storage": await handleListCharactersStorage(userId); return;
       case "squash_character": await handleSquashCharacter(msg.scope ?? characterScope(msg.characterId), userId); return;
       case "revert_character_all": await handleRevertCharacterAll(msg.scope ?? characterScope(msg.characterId), userId); return;
@@ -3087,6 +3250,17 @@ spindle.onFrontendMessage(async (raw: unknown, userId: string, frontendSessionId
       case "ws_upload_staged": void handleWsUploadStaged(msg.transferId, msg.path, msg.uploadId, userId, frontendSessionId); return;
       case "ws_upload_discard": await spindle.uploads.delete(msg.uploadId, userId); return;
       case "ws_delete": await handleWsDelete(msg.path, msg.recursive, userId); return;
+      case "workspace_request": {
+        try {
+          const { workspaceAction } = await import("./state/workspace-actions");
+          const result = await workspaceAction(spindle, userId, msg.input);
+          spindle.sendToFrontend({ type: "workspace_response", requestId: msg.requestId, result }, userId, frontendSessionId ? { frontendSessionId } : undefined);
+          if (result.kind === "changed") send({ type: "ws_changed" }, userId);
+        } catch (error) {
+          spindle.sendToFrontend({ type: "workspace_response", requestId: msg.requestId, error: (error as Error).message }, userId, frontendSessionId ? { frontendSessionId } : undefined);
+        }
+        return;
+      }
       case "ws_move": await handleWsMove(msg.from, msg.to, userId); return;
       case "ws_mkdir": await handleWsMkdir(msg.path, userId); return;
       case "ws_download": await handleWsDownload(msg.path, userId); return;

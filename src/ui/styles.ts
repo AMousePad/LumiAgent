@@ -1,7 +1,9 @@
+import { MESSAGE_STYLES } from "./message-styles";
+import { APP_STYLES } from "./app-styles";
+import { LOADERS_CSS } from "./loaders";
 // All colours / radii / shadows / fonts use Lumiverse host tokens
 // (--lumiverse-* / --lcs-*). No hardcoded hex / rgba in production paths.
 
-import { LOADERS_CSS } from "./loaders";
 
 export const STYLES = `
 ${LOADERS_CSS}
@@ -549,11 +551,11 @@ ${LOADERS_CSS}
    edge (~105px at full mousey size), i.e. drawer_width > ~970px. Default
    gives 24px breathing room; the @container override below kicks in only
    when the figure is in the column's vertical channel. */
-.la-virt-inner {
+.la-thread > .la-virt-spacer > .la-virt-inner {
   padding-bottom: 24px;
 }
 @container drawer (max-width: 970px) {
-  .la-virt-inner {
+  .la-thread > .la-virt-spacer > .la-virt-inner {
     /* Reserve = mousey_visible_extent + 24px buffer. Mousey extends above
        the composer by height * (1 - 0.33) = height * 0.67. Both scale via
        22cqw so the reserve tracks the figure 1:1 across drawer widths. */
@@ -788,7 +790,7 @@ ${LOADERS_CSS}
   background: linear-gradient(
     90deg,
     var(--lumiverse-text-muted) 0%,
-    var(--lumiverse-primary-text) 50%,
+    var(--lumiverse-primary-text, var(--lumiverse-primary)) 50%,
     var(--lumiverse-text-muted) 100%
   );
   background-size: 200% 100%;
@@ -1077,34 +1079,6 @@ ${LOADERS_CSS}
 .la-todos-empty { color: var(--lumiverse-text-dim); font-style: italic; }
 
 /* Edits card */
-.la-edits-card {
-  border: 1px solid var(--lumiverse-primary-muted);
-  border-radius: var(--lumiverse-radius);
-  background: var(--lumiverse-primary-015);
-  padding: 10px 14px;
-  font-size: 13px;
-}
-.la-edits-head {
-  display: flex; align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  user-select: none;
-}
-.la-edits-caret {
-  color: var(--lumiverse-primary-text);
-  font-size: 11px;
-  flex-shrink: 0;
-  width: 12px; text-align: center;
-}
-.la-edits-title {
-  font-weight: 600;
-  color: var(--lumiverse-primary-text);
-  letter-spacing: 0.01em;
-  flex: 1;
-}
-.la-edits-head-right { flex-shrink: 0; }
-.la-edits-list { display: none; margin-top: 10px; }
-.la-edits-card.is-open .la-edits-list { display: flex; flex-direction: column; gap: 8px; }
 .la-edit-row {
   padding: 8px 10px;
   background: var(--lumiverse-bg-elevated);
@@ -1196,13 +1170,15 @@ ${LOADERS_CSS}
   bottom: 100%;
   height: min(140px, 22cqw);
   width: auto;
-  pointer-events: auto;
-  cursor: pointer;
+  pointer-events: none;
   user-select: none;
   transform: translateY(33%);
   z-index: 1;
   transition: -webkit-mask-image var(--lumiverse-transition-fast), mask-image var(--lumiverse-transition-fast);
 }
+.la-mousey-hit { position:absolute; z-index:2; padding:0; margin:0; border:0; background:transparent; cursor:pointer; }
+.la-mousey-hit[hidden] { display:none; }
+.la-mousey-hit:focus-visible { outline:2px solid var(--lumiverse-primary); outline-offset:-2px; border-radius:8px; }
 /* Soft alpha falloff applied ONLY when text is detected behind the image.
    Toggled by the overlap detector in drawer.ts. The mask fades the image's
    own bottom edge so the figure stays visible without occluding text under
@@ -1231,6 +1207,8 @@ ${LOADERS_CSS}
   box-shadow: 0 0 0 3px var(--lumiverse-primary-015);
 }
 .la-textarea {
+  box-sizing: border-box;
+  min-width: 0;
   flex: 1;
   background: transparent;
   border: none;
@@ -1238,7 +1216,7 @@ ${LOADERS_CSS}
   font-family: inherit;
   font-size: 14px;
   line-height: 1.5;
-  padding: 10px 0;
+  padding: 10px 8px;
   min-height: 24px;
   max-height: 84px;
   overflow-y: auto;
@@ -1457,8 +1435,9 @@ ${LOADERS_CSS}
 }
 .la-cancel-btn:hover { background: var(--lumiverse-danger-015); border-color: var(--lumiverse-danger-050); }
 .la-cancel-btn svg { width: 14px; height: 14px; }
-.la-composer-status { display: none; }
-.la-composer-status.is-error { display: none; }
+.la-composer-status { font-size:12px; line-height:1.5; color:var(--lumiverse-text-muted); }
+.la-composer-status:empty { display:none; }
+.la-composer-status.is-error { color:var(--lumiverse-danger,var(--lumiverse-text)); }
 .la-composer-hint { color: var(--lumiverse-text-dim); font-size: 10px; text-align: right; padding: 0 16px; }
 
 /* Empty state */
@@ -1744,7 +1723,8 @@ ${LOADERS_CSS}
 .la-diff-modal-root {
   display: flex; flex-direction: column;
   height: 100%; min-height: 0;
-  margin: -16px;
+  margin: 0;
+  max-height:calc(100dvh - 144px);
   background: var(--lumiverse-bg);
   color: var(--lumiverse-text);
   font-family: var(--lumiverse-font-family);
@@ -2104,11 +2084,8 @@ ${LOADERS_CSS}
   55% { transform: translateY(30%) scale(1.18) rotate(-4deg); filter: brightness(3) saturate(2) drop-shadow(0 0 18px var(--lumiverse-danger)); }
   100% { transform: translateY(36%) scale(1.5); filter: brightness(6) saturate(0) blur(6px); opacity: 0; }
 }
-/* The remains: clickable, glowing pulsing halo, swells slightly on hover.
-   Overrides the decorative portrait's pointer-events: none. */
 .la-mousey.la-mousey-blood {
-  pointer-events: auto;
-  cursor: pointer;
+  pointer-events: none;
   height: min(90px, 15cqw);
   transform: translateY(20%);
   opacity: 1;
@@ -2524,4 +2501,6 @@ ${LOADERS_CSS}
   .la-composer { padding: 10px 10px 12px; }
   .la-msg-user .la-msg-bubble { max-width: 92%; }
 }
+${MESSAGE_STYLES}
+${APP_STYLES}
 `;

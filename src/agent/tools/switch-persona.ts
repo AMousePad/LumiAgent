@@ -22,7 +22,7 @@ export const switchPersonaTool = defineTool({
   requiresCharacter: false,
   execute: async (input, ctx) => {
     const deactivate = input.persona_id === "none";
-    const before = await ctx.spindle.personas.getActive(ctx.userId).catch(() => null);
+    const before = await ctx.spindle.personas.getActive(ctx.userId);
 
     if (!deactivate) {
       const target = await ctx.spindle.personas.get(input.persona_id, ctx.userId).catch(() => null);
@@ -34,12 +34,12 @@ export const switchPersonaTool = defineTool({
     try { await ctx.spindle.personas.switchActive(deactivate ? null : input.persona_id, ctx.userId); }
     catch (err) { return { content: `Error: [SPINDLE_ERROR] ${(err as Error).message}`, isError: true }; }
 
-    const after = await ctx.spindle.personas.getActive(ctx.userId).catch(() => null);
+    const after = await ctx.spindle.personas.getActive(ctx.userId);
+    if (before?.id !== after?.id) ctx.pushEdit({ op: "edit", surface: "active_persona", surfaceId: "active", surfaceLabel: "Active persona", field: "persona", before: JSON.stringify(before?.id ?? null), after: JSON.stringify(after?.id ?? null), valueEncoding: "json", scope: { kind: "settings", id: "active-persona" } });
     return {
       content: JSON.stringify({
         previous: before ? { id: before.id, name: before.name } : null,
         active: after ? { id: after.id, name: after.name } : null,
-        note: "User setting, not a card edit. `revert_session_edits` will not undo this.",
       }, null, 2),
     };
   },

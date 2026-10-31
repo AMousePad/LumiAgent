@@ -6,4 +6,4 @@ Ownership tags matter: `character_id` (defaults to the focused character) and `c
 
 Run `list_image_models` first if you don't know what providers, connections, or models the user has, or if a `model` / `parameters` value is rejected. `parameters` is provider-specific and is merged over the connection's defaults.
 
-This writes to the user's image library and is NOT in the edit ledger, so `revert_session_edits` will not undo it. Delete the image explicitly if it isn't wanted.
+Workshop records generated image metadata and avatar changes as history. `revert_session_edits` cannot restore image bytes. Delete the image explicitly if it isn't wanted.

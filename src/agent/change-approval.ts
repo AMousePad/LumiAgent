@@ -19,6 +19,7 @@ export type ChangeApprovalPolicy =
 // chat, lorebook, extension, external-provider, or workspace state. New tools
 // default to approval until deliberately added here.
 const NO_CHANGE_TOOLS: ReadonlySet<string> = new Set([
+  "inspect_cache",
   "inspect_council", "inspect_dlc", "list_memory_vaults", "read_memory_vault", "list_memory_links",
   "about_memoria",
   "ask_user_question",
@@ -35,6 +36,8 @@ const NO_CHANGE_TOOLS: ReadonlySet<string> = new Set([
   "get_active_chat",
   "get_lumiverse_version",
   "get_theme",
+  "inspect_theme",
+  "open_theme_editor",
   "get_user_info",
   "grep",
   "grep_chat_messages",
@@ -128,6 +131,7 @@ const MOVE_TOOLS: ReadonlySet<string> = new Set([
 ]);
 
 const TOOL_LABELS: Readonly<Record<string, string>> = {
+  run_cache_diagnostic: "Run a LumiCache simulation on a disposable chat copy",
   create_memory_vault: "Snapshot chat memory into a vault",
   rename_memory_vault: "Rename a memory vault",
   attach_memory_link: "Attach a memory vault or chat link",
@@ -156,6 +160,9 @@ const TOOL_LABELS: Readonly<Record<string, string>> = {
   fs_zip: "Create a workspace archive",
   generate_image: "Generate an image",
   install_theme_pack: "Install a theme pack",
+  edit_theme: "Edit the theme and save a recovery backup",
+  theme_assets: "Manage theme assets",
+  theme_archive: "Manage theme archives and backups",
   module_attach: "Attach a module",
   module_detach: "Detach a module",
   set_theme: "Change the UI theme",
@@ -326,7 +333,10 @@ export function changeApprovalPolicyFor(
   context: ApprovalTargetContext = {},
 ): ChangeApprovalPolicy {
   if (toolName === "custom_tool_run" || isToolGroup(toolName)) return { kind: "delegate" };
+  if (toolName === "run_cache_diagnostic" && ["audit", "cancel"].includes(String(args["action"]))) return { kind: "none" };
   if (NO_CHANGE_TOOLS.has(toolName)) return { kind: "none" };
+  if (toolName === "edit_theme" && args["validate_only"] === true) return { kind: "none" };
+  if (toolName === "theme_assets" && ["list", "create_bundle"].includes(String(args["action"]))) return { kind: "none" };
   if ((toolName === "apply_glossary" || toolName === "translate_card_strings") && args["dry_run"] === true) {
     return { kind: "none" };
   }

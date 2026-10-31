@@ -1,3 +1,4 @@
+import { saveSessionView, waitForSessionViewWrites } from "./session-view-store";
 import type { SpindleAPI } from "lumiverse-spindle-types";
 import type {
   ChatMessage,
@@ -13,6 +14,7 @@ const SCHEMA_VERSION = 1;
 const INDEX_SCHEMA_VERSION = 1;
 
 interface SessionIndexEntry {
+  readonly title?: string;
   readonly sessionId: string;
   readonly characterId: string | null;
   readonly characterName: string;
@@ -32,8 +34,10 @@ function summarizeForIndex(s: PersistedSession): SessionIndexEntry {
   // rebuildIndex feeds raw on-disk sessions here without normalizeLegacyEditScopes,
   // so a legacy file with `edits` missing must not throw on `.length` / `.filter`.
   const edits = Array.isArray(s.edits) ? s.edits : [];
+  const first = Array.isArray(s.messages) ? s.messages.find(message => message.role === "user") : undefined;
   return {
     sessionId: s.sessionId,
+    ...(first?.role === "user" && first.content ? { title: first.content.replace(/\s+/g, " ").slice(0, 100) } : {}),
     characterId: s.characterId,
     characterName: s.characterName,
     createdAt: s.createdAt,
@@ -115,6 +119,7 @@ export interface PersistedSession {
 }
 
 function path(sessionId: string): string {
+  if (!/^[a-zA-Z0-9_-]+$/.test(sessionId)) throw new Error("Invalid session identifier");
   return `${SESSION_DIR}/${sessionId}.json`;
 }
 
@@ -140,10 +145,30 @@ export function newSession(opts: {
   };
 }
 
-export async function saveSession(spindle: SpindleAPI, s: PersistedSession, userId: string): Promise<void> {
+const deletedSessions = new WeakMap<SpindleAPI, Set<string>>();
+export function isSessionDeleted(spindle: SpindleAPI, sessionId: string, userId: string): boolean {
+  return deletedSessions.get(spindle)?.has(JSON.stringify([userId, sessionId])) ?? false;
+}
+
+const sessionWrites = new WeakMap<SpindleAPI, Map<string, Promise<void>>>();
+
+export function saveSession(spindle: SpindleAPI, s: PersistedSession, userId: string): Promise<void> {
+  let users = sessionWrites.get(spindle);
+  if (!users) sessionWrites.set(spindle, users = new Map());
+  const next = (users.get(userId) ?? Promise.resolve()).catch(() => {}).then(() => persistSession(spindle, s, userId));
+  users.set(userId, next);
+  void next.finally(() => { if (users!.get(userId) === next) users!.delete(userId); }).catch(() => {});
+  return next;
+}
+
+async function persistSession(spindle: SpindleAPI, s: PersistedSession, userId: string): Promise<void> {
+  if (isSessionDeleted(spindle, s.sessionId, userId)) return;
   s.lastActivityAt = Date.now();
   await spindle.userStorage.setJson(path(s.sessionId), s, { userId });
   try { await upsertIndex(spindle, summarizeForIndex(s), userId); } catch { /* index is a cache; fallback walk handles loss */ }
+  try { await saveSessionView(spindle, s, userId); } catch {
+    try { await spindle.userStorage.delete(`session-views/${s.sessionId}/index.json`, userId); } catch {}
+  }
 }
 
 export async function loadSession(spindle: SpindleAPI, sessionId: string, userId: string): Promise<PersistedSession | null> {
@@ -205,17 +230,24 @@ export async function spliceRevertedFromSession(
 }
 
 export async function deleteSessionFile(spindle: SpindleAPI, sessionId: string, userId: string): Promise<void> {
+  let deleted = deletedSessions.get(spindle);
+  if (!deleted) deletedSessions.set(spindle, deleted = new Set());
+  deleted.add(JSON.stringify([userId, sessionId]));
+  await sessionWrites.get(spindle)?.get(userId)?.catch(() => {});
+  await waitForSessionViewWrites(spindle, sessionId, userId);
   try {
     await spindle.userStorage.delete(path(sessionId), userId);
   } catch {
     // already gone
   }
+  try { await spindle.userStorage.delete(`session-views/${sessionId}`, userId); } catch {}
   try { await removeFromIndex(spindle, sessionId, userId); } catch { /* index is best-effort */ }
 }
 
 function entryToWire(e: SessionIndexEntry, isActive: boolean): SessionSummaryWire {
   return {
     sessionId: e.sessionId,
+    ...(e.title ? { title: e.title } : {}),
     characterId: e.characterId,
     characterName: e.characterName,
     createdAt: e.createdAt,

@@ -46,6 +46,9 @@ export const setVariableTool = defineTool({
         if (input.clear === true) await bag.delete(chatId, input.key);
         else await bag.set(chatId, input.key, input.value!);
       }
+      const targetId = input.scope === "global" ? "global" : input.chat_id ?? ctx.pinnedChatId!;
+      const after = input.clear === true ? null : input.value!;
+      if (before !== after) ctx.pushEdit({ op: "edit", surface: "variable", surfaceId: `${input.scope}:${targetId}`, surfaceLabel: input.key, field: input.key, before: JSON.stringify(before), after: JSON.stringify(after), valueEncoding: "json", scope: { kind: "variables", id: targetId } });
       return {
         content: JSON.stringify({
           scope: input.scope,

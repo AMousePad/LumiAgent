@@ -43,7 +43,7 @@ var __esm = (fn, res, err) => () => {
   return res;
 };
 
-// ../../../node_modules/requires-port/index.js
+// node_modules/requires-port/index.js
 var require_requires_port = __commonJS(function(exports, module) {
   module.exports = function required(port, protocol) {
     protocol = protocol.split(":")[0];
@@ -68,7 +68,7 @@ var require_requires_port = __commonJS(function(exports, module) {
   };
 });
 
-// ../../../node_modules/querystringify/index.js
+// node_modules/querystringify/index.js
 var require_querystringify = __commonJS(function(exports) {
   var has = Object.prototype.hasOwnProperty;
   var undef;
@@ -120,7 +120,7 @@ var require_querystringify = __commonJS(function(exports) {
   exports.parse = querystring;
 });
 
-// ../../../node_modules/url-parse/index.js
+// node_modules/url-parse/index.js
 var require_url_parse = __commonJS(function(exports, module) {
   var required = require_requires_port();
   var qs = require_querystringify();
@@ -720,7 +720,7 @@ var init_translator_bridge = __esm(() => {
 });
 
 // src/ui/ask-user-modal.ts
-function el9(tag, cls, text) {
+function el8(tag, cls, text) {
   const e = document.createElement(tag);
   if (cls)
     e.className = cls;
@@ -730,34 +730,36 @@ function el9(tag, cls, text) {
 }
 function showAskUserQuestion(input) {
   return new Promise((resolve) => {
-    const overlay = el9("div", "la-modal-overlay la-ask-overlay");
-    const modal = el9("div", "la-modal la-ask-modal");
+    const overlay = el8("div", "la-modal-overlay la-ask-overlay");
+    const modal = el8("div", "la-modal la-ask-modal");
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    modal.setAttribute("role", "dialog");
+    modal.setAttribute("aria-modal", "true");
+    modal.setAttribute("aria-label", "Your input");
     overlay.appendChild(modal);
     const selections = new Map;
     const otherText = new Map;
     const previewBoxes = new Map;
-    const header = el9("div", "la-ask-header");
-    header.appendChild(el9("div", "la-ask-title", "Pick an option"));
-    const subtitle = el9("div", "la-ask-subtitle", `The agent paused with ${input.questions.length} question${input.questions.length === 1 ? "" : "s"}.`);
-    header.appendChild(subtitle);
+    const header = el8("div", "la-ask-header");
+    header.appendChild(el8("div", "la-ask-title", "Pick an option"));
     modal.appendChild(header);
-    const body = el9("div", "la-ask-body");
+    const body = el8("div", "la-ask-body");
     modal.appendChild(body);
     for (const q of input.questions) {
-      const card = el9("div", "la-ask-question");
-      const head = el9("div", "la-ask-question-head");
-      head.appendChild(el9("span", "la-ask-chip", q.header));
-      head.appendChild(el9("span", "la-ask-question-text", q.question));
+      const card = el8("div", "la-ask-question");
+      const head = el8("div", "la-ask-question-head");
+      head.appendChild(el8("span", "la-ask-chip", q.header));
+      head.appendChild(el8("span", "la-ask-question-text", q.question));
       if (q.multiSelect)
-        head.appendChild(el9("span", "la-ask-multi-badge", "multi-select"));
+        head.appendChild(el8("span", "la-ask-multi-badge", "multi-select"));
       card.appendChild(head);
-      const optionsWrap = el9("div", "la-ask-options" + (q.multiSelect ? " is-multi" : ""));
+      const optionsWrap = el8("div", "la-ask-options" + (q.multiSelect ? " is-multi" : ""));
       const allOptions = [
         ...q.options,
         { label: OTHER_LABEL, description: "Type a custom answer.", preview: "" }
       ];
       const inputs = [];
-      const otherInput = el9("textarea");
+      const otherInput = el8("textarea");
       otherInput.className = "la-ask-other-input";
       otherInput.placeholder = "Type a custom answer...";
       otherInput.rows = 2;
@@ -767,17 +769,17 @@ function showAskUserQuestion(input) {
       });
       for (let i = 0;i < allOptions.length; i++) {
         const opt = allOptions[i];
-        const row = el9("label", "la-ask-option");
+        const row = el8("label", "la-ask-option");
         const inputEl = document.createElement("input");
         inputEl.type = q.multiSelect ? "checkbox" : "radio";
         inputEl.name = `q-${input.questions.indexOf(q)}`;
         inputEl.value = opt.label;
         row.appendChild(inputEl);
         inputs.push(inputEl);
-        const text = el9("div", "la-ask-option-text");
-        text.appendChild(el9("div", "la-ask-option-label", opt.label));
+        const text = el8("div", "la-ask-option-text");
+        text.appendChild(el8("div", "la-ask-option-label", opt.label));
         if (opt.description)
-          text.appendChild(el9("div", "la-ask-option-desc", opt.description));
+          text.appendChild(el8("div", "la-ask-option-desc", opt.description));
         row.appendChild(text);
         inputEl.addEventListener("change", () => {
           if (q.multiSelect) {
@@ -814,26 +816,42 @@ function showAskUserQuestion(input) {
       card.appendChild(otherInput);
       const hasPreview = q.options.some((o) => o.preview && o.preview.length > 0);
       if (hasPreview) {
-        const previewBox = el9("pre", "la-ask-preview");
+        const previewBox = el8("pre", "la-ask-preview");
         previewBox.style.display = "none";
         previewBoxes.set(q.question, previewBox);
         card.appendChild(previewBox);
       }
       body.appendChild(card);
     }
-    const footer = el9("div", "la-ask-footer");
-    const cancelBtn = el9("button", "la-btn la-btn-ghost", "Cancel");
-    const submitBtn = el9("button", "la-btn la-btn-primary", "Submit");
+    const footer = el8("div", "la-ask-footer");
+    const cancelBtn = el8("button", "la-btn la-btn-ghost", "Cancel");
+    const submitBtn = el8("button", "la-btn la-btn-primary", "Submit");
     cancelBtn.type = "button";
     submitBtn.type = "button";
     footer.append(cancelBtn, submitBtn);
+    const error = el8("div", "la-form-error");
+    error.setAttribute("role", "alert");
+    modal.append(error);
     modal.appendChild(footer);
     const finish = (result) => {
       window.removeEventListener("keydown", onKey);
       overlay.remove();
+      if (previousFocus?.isConnected)
+        previousFocus.focus();
       resolve(result);
     };
     const onKey = (ev) => {
+      if (ev.key === "Tab") {
+        const controls = [...modal.querySelectorAll("button,input,textarea,select,[tabindex='0']")].filter((item) => !item.hasAttribute("disabled") && item.getClientRects().length > 0);
+        const first = controls[0], last = controls.at(-1);
+        if (ev.shiftKey && document.activeElement === first) {
+          ev.preventDefault();
+          last?.focus();
+        } else if (!ev.shiftKey && document.activeElement === last) {
+          ev.preventDefault();
+          first?.focus();
+        }
+      }
       if (ev.key === "Escape") {
         ev.preventDefault();
         finish({ cancelled: true });
@@ -847,7 +865,8 @@ function showAskUserQuestion(input) {
       for (const q of input.questions) {
         const raw = selections.get(q.question);
         if (raw === undefined || raw instanceof Set && raw.size === 0) {
-          finish({ cancelled: true });
+          error.textContent = "Choose an option for each question.";
+          modal.querySelector(`input[name="q-${input.questions.indexOf(q)}"]`)?.focus();
           return;
         }
         let answer;
@@ -863,14 +882,14 @@ function showAskUserQuestion(input) {
             }
           }
           if (parts.length === 0) {
-            finish({ cancelled: true });
+            error.textContent = "Enter your answer.";
             return;
           }
           answer = parts.join(", ");
         } else if (raw === OTHER_LABEL) {
           const txt = (otherText.get(q.question) ?? "").trim();
           if (!txt) {
-            finish({ cancelled: true });
+            error.textContent = "Enter your answer.";
             return;
           }
           answer = txt;
@@ -887,11 +906,12 @@ function showAskUserQuestion(input) {
         finish({ cancelled: true });
     });
     document.body.appendChild(overlay);
+    modal.querySelector("input,button")?.focus();
   });
 }
 var OTHER_LABEL = "Other";
 
-// ../../../node_modules/modern-screenshot/dist/index.mjs
+// node_modules/modern-screenshot/dist/index.mjs
 function supportWebp(ownerDocument) {
   const canvas = ownerDocument?.createElement?.("canvas");
   if (canvas) {
@@ -2223,6 +2243,156 @@ var init_dist = __esm(() => {
   SVG_EXTERNAL_RESOURCE_REGEX = /\bx?link:?href\s*=\s*["'](?!data:)[^"']+["']/i;
 });
 
+// src/ui/capture-fonts.ts
+async function waitForCaptureFonts(signal) {
+  signal.throwIfAborted();
+  if (document.fonts.status !== "loading")
+    return;
+  await new Promise((resolve, reject) => {
+    const finish = (error) => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", abort);
+      if (error)
+        reject(error);
+      else
+        resolve();
+    };
+    const abort = () => finish(signal.reason);
+    const timer = setTimeout(() => finish(new Error("Fonts are still loading. Retry the capture when they finish.")), 5000);
+    signal.addEventListener("abort", abort, { once: true });
+    document.fonts.ready.then(() => finish(), finish);
+  });
+}
+async function embedCaptureFonts(context, signal, warnings) {
+  const style = document.createElement("span").style;
+  for (const declarations of context.svgStyles.keys()) {
+    style.cssText = declarations;
+    for (const family of style.fontFamily.split(",").map(normalizeFamily).filter(Boolean)) {
+      if (!context.fontFamilies.has(family))
+        context.fontFamilies.set(family, new Set);
+    }
+  }
+  const faces = [];
+  const visited = new Set;
+  const collectRules = (rules) => {
+    for (const rule of Array.from(rules)) {
+      if (rule instanceof CSSFontFaceRule)
+        faces.push(rule);
+      else if (rule instanceof CSSImportRule && rule.styleSheet)
+        collectSheet(rule.styleSheet);
+      else if (rule instanceof CSSMediaRule && !matchMedia(rule.conditionText).matches)
+        continue;
+      else if (rule instanceof CSSSupportsRule && !CSS.supports(rule.conditionText))
+        continue;
+      else if ("cssRules" in rule)
+        collectRules(rule.cssRules);
+    }
+  };
+  const collectSheet = (sheet) => {
+    if (visited.has(sheet) || sheet.disabled)
+      return;
+    visited.add(sheet);
+    if (sheet.media.mediaText && !matchMedia(sheet.media.mediaText).matches)
+      return;
+    try {
+      collectRules(sheet.cssRules);
+    } catch {
+      warnings.add("Some stylesheet rules were inaccessible; their fonts may be missing from the capture.");
+    }
+  };
+  for (const root of [document, ...context.shadowRoots]) {
+    for (const sheet of [
+      ...Array.from(root.styleSheets),
+      ...root.adoptedStyleSheets
+    ])
+      collectSheet(sheet);
+  }
+  const downloads = new Map;
+  const download = (url) => {
+    let pending = downloads.get(url.href);
+    if (pending)
+      return pending;
+    pending = (async () => {
+      const controller = new AbortController;
+      const abort = () => controller.abort(signal.reason);
+      signal.addEventListener("abort", abort, { once: true });
+      const timer = setTimeout(() => controller.abort(), 5000);
+      try {
+        signal.throwIfAborted();
+        const response = await fetch(url.href, {
+          credentials: "same-origin",
+          cache: "no-cache",
+          redirect: "error",
+          signal: controller.signal
+        });
+        if (!response.ok)
+          throw new Error("Font download failed.");
+        const blob = await response.blob();
+        signal.throwIfAborted();
+        return await new Promise((resolve, reject) => {
+          const reader = new FileReader;
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(blob);
+        });
+      } finally {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", abort);
+      }
+    })();
+    downloads.set(url.href, pending);
+    return pending;
+  };
+  const embeddedFamilies = new Set;
+  const rules = [];
+  for (const face of faces) {
+    const family = normalizeFamily(face.style.getPropertyValue("font-family"));
+    if (!context.fontFamilies.has(family))
+      continue;
+    const source = face.style.getPropertyValue("src");
+    const urls = [
+      ...source.matchAll(/url\(\s*(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([^)]*))\s*\)/g)
+    ];
+    let embedded = source;
+    let usable = urls.length === 0;
+    for (const match of urls) {
+      try {
+        const raw = (match[1] ?? match[2] ?? match[3] ?? "").trim().replace(/\\([\da-f]{1,6})\s?|\\(.)/gi, (_, hex, character) => {
+          const code = hex ? parseInt(hex, 16) : 0;
+          return hex ? String.fromCodePoint(code > 0 && code <= 1114111 ? code : 65533) : character;
+        });
+        const url = new URL(raw, face.parentStyleSheet?.href ?? document.baseURI);
+        if (url.protocol !== "data:" && url.origin !== location.origin) {
+          warnings.add("Cross-origin fonts were omitted from the capture.");
+          embedded = embedded.replace(match[0], 'url("data:font/woff2;base64,")');
+          continue;
+        }
+        const data = url.protocol === "data:" ? url.href : await download(url);
+        embedded = embedded.replace(match[0], `url(${JSON.stringify(data)})`);
+        usable = true;
+      } catch {
+        signal.throwIfAborted();
+        warnings.add("A font could not be embedded; its text or icons may differ from the live page.");
+        embedded = embedded.replace(match[0], 'url("data:font/woff2;base64,")');
+      }
+    }
+    if (!usable)
+      continue;
+    const descriptors = Array.from(face.style).filter((name) => name !== "src").map((name) => `${name}:${face.style.getPropertyValue(name)};`).join("");
+    rules.push(`@font-face{${descriptors}src:${embedded};}`);
+    embeddedFamilies.add(family);
+  }
+  for (const font of document.fonts) {
+    const family = normalizeFamily(font.family);
+    if (font.status === "loaded" && context.fontFamilies.has(family) && !embeddedFamilies.has(family)) {
+      warnings.add("A loaded font could not be embedded; missing glyphs in this capture may not reflect the live page.");
+    }
+  }
+  return rules.join(`
+`) || " ";
+}
+var normalizeFamily = (family) => family.trim().replace(/["']/g, "").toLowerCase();
+
 // src/ui/capture.ts
 async function captureUi(input, signal) {
   signal.throwIfAborted();
@@ -2230,47 +2400,51 @@ async function captureUi(input, signal) {
     throw new Error("A UI capture is already running.");
   if (document.visibilityState === "hidden")
     throw new Error("The originating Lumiverse tab is hidden. Bring it into view and retry.");
-  const viewportWidth = Math.round(window.innerWidth), viewportHeight = Math.round(window.innerHeight);
-  if (!viewportWidth || !viewportHeight)
-    throw new Error("The originating tab has no visible viewport.");
-  const maxEdge = input.max_edge ?? 1600;
-  if (!Number.isInteger(maxEdge) || maxEdge < 512 || maxEdge > 2048)
-    throw new Error("max_edge must be between 512 and 2048.");
-  let crop = { x: 0, y: 0, width: viewportWidth, height: viewportHeight };
-  if (input.selector) {
-    if (input.selector.length > 1000)
-      throw new Error("Capture selector is too long.");
-    const nodes = document.querySelectorAll(input.selector);
-    if (nodes.length !== 1)
-      throw new Error(`Capture selector must match one element, found ${nodes.length}.`);
-    const node = nodes[0];
-    if (node.closest(PRIVATE))
-      throw new Error("This element is excluded from UI captures.");
-    const rect = node.getBoundingClientRect();
-    const x = Math.max(0, rect.x), y = Math.max(0, rect.y);
-    crop = {
-      x,
-      y,
-      width: Math.min(viewportWidth, rect.right) - x,
-      height: Math.min(viewportHeight, rect.bottom) - y
-    };
-    if (crop.width <= 0 || crop.height <= 0)
-      throw new Error("The selected element is outside the visible viewport. Open it before capturing.");
-  }
-  const warnings = new Set([
-    "Rendered UI snapshot, not native screen pixels. Backdrop blur, embedded frames, video and cross-origin resources may differ or be omitted."
-  ]);
-  const scale = Math.min(1, maxEdge / Math.max(viewportWidth, viewportHeight));
-  const backgroundColor = [document.body, document.documentElement].map((node) => getComputedStyle(node).backgroundColor).find((color) => color !== "transparent" && color !== "rgba(0, 0, 0, 0)") ?? "#fff";
   capturing = true;
+  let renderer;
   try {
-    const canvas = await domToCanvas(document.documentElement, {
+    await waitForCaptureFonts(signal);
+    signal.throwIfAborted();
+    const viewportWidth = Math.round(window.innerWidth), viewportHeight = Math.round(window.innerHeight);
+    if (!viewportWidth || !viewportHeight)
+      throw new Error("The originating tab has no visible viewport.");
+    const maxEdge = input.max_edge ?? 1600;
+    if (!Number.isInteger(maxEdge) || maxEdge < 512 || maxEdge > 2048)
+      throw new Error("max_edge must be between 512 and 2048.");
+    let crop = { x: 0, y: 0, width: viewportWidth, height: viewportHeight };
+    if (input.selector) {
+      if (input.selector.length > 1000)
+        throw new Error("Capture selector is too long.");
+      const nodes = document.querySelectorAll(input.selector);
+      if (nodes.length !== 1)
+        throw new Error(`Capture selector must match one element, found ${nodes.length}.`);
+      const node = nodes[0];
+      if (node.closest(PRIVATE))
+        throw new Error("This element is excluded from UI captures.");
+      const rect = node.getBoundingClientRect();
+      const x = Math.max(0, rect.x), y = Math.max(0, rect.y);
+      crop = {
+        x,
+        y,
+        width: Math.min(viewportWidth, rect.right) - x,
+        height: Math.min(viewportHeight, rect.bottom) - y
+      };
+      if (crop.width <= 0 || crop.height <= 0)
+        throw new Error("The selected element is outside the visible viewport. Open it before capturing.");
+    }
+    const warnings = new Set([
+      "Rendered UI snapshot, not native screen pixels. Backdrop blur, embedded frames, video and cross-origin resources may differ or be omitted."
+    ]);
+    const scale = Math.min(1, maxEdge / Math.max(viewportWidth, viewportHeight));
+    const backgroundColor = [document.body, document.documentElement].map((node) => getComputedStyle(node).backgroundColor).find((color) => color !== "transparent" && color !== "rgba(0, 0, 0, 0)") ?? "#fff";
+    renderer = await createContext(document.documentElement, {
       width: viewportWidth,
       height: viewportHeight,
       scale,
       maximumCanvasSize: 2048,
       backgroundColor,
       timeout: 5000,
+      font: { cssText: " " },
       features: { restoreScrollPosition: true },
       fetch: { requestInit: { credentials: "same-origin", signal } },
       fetchFn: async (value) => {
@@ -2295,6 +2469,14 @@ async function captureUi(input, signal) {
         }
       }
     });
+    const captureContext = renderer;
+    captureContext.onCloneNode = async () => {
+      captureContext.font = {
+        cssText: await embedCaptureFonts(captureContext, signal, warnings)
+      };
+    };
+    captureContext.log.warn = () => warnings.add("Some capture resources could not be rendered. Check the live page before changing missing text, icons or images.");
+    const canvas = await domToCanvas(captureContext);
     signal.throwIfAborted();
     const output = document.createElement("canvas");
     output.width = Math.max(1, Math.round(crop.width * scale));
@@ -2321,6 +2503,8 @@ async function captureUi(input, signal) {
       warnings: [...warnings]
     };
   } finally {
+    if (renderer)
+      destroyContext(renderer);
     capturing = false;
   }
 }
@@ -2330,29 +2514,2312 @@ var init_capture = __esm(() => {
 });
 
 // src/ui/theme-bridge.ts
-function requireCapability(ctx, key) {
-  const caps = ctx.host?.capabilities ?? {};
-  if (!caps[key])
-    throw new Error(`host does not support ${key}; update Lumiverse to use theme authoring`);
-}
-function handleThemeCatalog(ctx) {
-  requireCapability(ctx, "theme-catalog-v1");
-  return {
-    components: ctx.theme.catalog.listComponents(),
-    variables: ctx.theme.catalog.listVariables()
-  };
-}
-async function handleThemeInstallPack(ctx, args) {
-  requireCapability(ctx, "theme-packs-v1");
-  const a = args;
-  const result = await ctx.theme.packs.installDraft(a.draft, {
-    apply: a.apply !== false,
-    saveToLibrary: a.save_to_library === true
-  });
-  return result;
+async function handleThemeWorkbench(ctx, request, signal) {
+  signal?.throwIfAborted();
+  const { operation, args = {} } = request;
+  if (operation === "open_editor")
+    return { opened: ctx.theme.openEditor(args) };
+  if (operation === "selector") {
+    const inspect = ctx.theme.inspect;
+    if (!ctx.host.capabilities["theme-inspection-v1"] || !inspect)
+      throw new Error("Theme inspection is unavailable. Update Lumiverse.");
+    return inspect(args);
+  }
+  throw new Error("This theme operation uses the backend API.");
 }
 
-// ../../../node_modules/tus-js-client/lib.esm/error.js
+// src/ui/request-feedback.ts
+class RequestFeedback {
+  root = document.createElement("div");
+  spinner = document.createElement("span");
+  label = document.createElement("span");
+  retry = document.createElement("button");
+  id = null;
+  reveal;
+  deadline;
+  constructor(parent) {
+    this.root.className = "la-request-feedback";
+    this.root.setAttribute("role", "status");
+    this.root.setAttribute("aria-live", "polite");
+    this.root.hidden = true;
+    this.spinner.className = "la-pending-spinner";
+    this.spinner.setAttribute("aria-hidden", "true");
+    this.retry.type = "button";
+    this.retry.hidden = true;
+    this.root.append(this.spinner, this.label, this.retry);
+    parent.append(this.root);
+  }
+  begin(id, options) {
+    this.clear();
+    this.id = id;
+    this.root.dataset.position = options.position;
+    this.root.dataset.state = "loading";
+    this.spinner.hidden = false;
+    this.label.textContent = options.label;
+    this.retry.hidden = true;
+    this.retry.textContent = options.retryLabel ?? "Retry";
+    this.retry.onclick = options.retry;
+    this.reveal = setTimeout(() => {
+      if (this.id === id)
+        this.root.hidden = false;
+    }, 150);
+    this.deadline = setTimeout(() => {
+      if (this.id !== id)
+        return;
+      this.fail(id, options.timeoutMessage ?? "Couldn’t load messages");
+      options.onTimeout?.();
+    }, 15000);
+  }
+  fail(id, message) {
+    if (this.id !== id)
+      return;
+    clearTimeout(this.reveal);
+    clearTimeout(this.deadline);
+    this.root.hidden = false;
+    this.root.dataset.state = "error";
+    this.spinner.hidden = true;
+    this.label.textContent = message;
+    this.retry.hidden = false;
+  }
+  finish(id) {
+    if (this.id === id)
+      this.clear();
+  }
+  clear() {
+    clearTimeout(this.reveal);
+    clearTimeout(this.deadline);
+    this.id = null;
+    this.root.hidden = true;
+    this.retry.onclick = null;
+  }
+  destroy() {
+    this.clear();
+    this.root.remove();
+  }
+}
+
+// src/ui/history-window.ts
+var HISTORY_WINDOW_SIZE = 90;
+function mergeHistoryPage(current, incoming, direction) {
+  if (incoming.end < current.start || incoming.start > current.end)
+    return null;
+  const start = Math.min(current.start, incoming.start);
+  const end = Math.max(current.end, incoming.end);
+  const messages = [];
+  for (let i = start;i < end; i++) {
+    const existing = current.messages[i - current.start];
+    const overlap = incoming.messages[i - incoming.start];
+    if (existing && overlap && existing.id !== overlap.id)
+      return null;
+    const message = existing ?? incoming.messages[i - incoming.start];
+    if (!message)
+      return null;
+    messages.push(message);
+  }
+  const trim = Math.max(0, messages.length - HISTORY_WINDOW_SIZE);
+  return direction === "before" ? { start, end: end - trim, total: incoming.total, messages: messages.slice(0, HISTORY_WINDOW_SIZE) } : { start: start + trim, end, total: incoming.total, messages: messages.slice(trim) };
+}
+
+// src/ui/session-sync.ts
+class SessionSync {
+  sessionId = null;
+  requestId = null;
+  revision = null;
+  requestedAt = 0;
+  before;
+  request(sessionId, before) {
+    if (sessionId === this.sessionId && this.requestId && before === this.before && Date.now() - this.requestedAt < 15000)
+      return null;
+    if (sessionId !== this.sessionId)
+      this.revision = null;
+    this.sessionId = sessionId;
+    this.before = before;
+    this.requestId = crypto.randomUUID();
+    this.requestedAt = Date.now();
+    return this.requestId;
+  }
+  snapshot(sessionId, requestId, revision) {
+    if (sessionId !== this.sessionId || requestId !== this.requestId || !revision)
+      return false;
+    if (this.revision?.epoch === revision.epoch && this.revision.sequence > revision.sequence)
+      return false;
+    this.revision = revision;
+    this.requestId = null;
+    return true;
+  }
+  event(sessionId, revision) {
+    if (sessionId !== this.sessionId || this.requestId)
+      return "ignore";
+    if (!revision)
+      return "resync";
+    if (!this.revision) {
+      this.revision = revision;
+      return "apply";
+    }
+    if (this.revision.epoch !== revision.epoch)
+      return "resync";
+    if (revision.sequence <= this.revision.sequence)
+      return "ignore";
+    if (revision.sequence !== this.revision.sequence + 1)
+      return "resync";
+    this.revision = revision;
+    return "apply";
+  }
+}
+
+// src/state/session-sync.ts
+function messageSessionId(message) {
+  return "sessionId" in message ? message.sessionId : message.type === "session_status" ? message.status.sessionId : undefined;
+}
+
+// src/ui/message-reader.ts
+class MessageReader {
+  send;
+  pending = new Map;
+  constructor(send) {
+    this.send = send;
+  }
+  edit(scope, editId, part, offset) {
+    return this.request({ type: "read_edit_content", requestId: crypto.randomUUID(), scope, editId, part, offset });
+  }
+  source(sessionId, messageId) {
+    return {
+      activity: (kind, start, callId) => this.request({ type: "read_message_activity", sessionId, messageId, requestId: crypto.randomUUID(), kind, ...start === undefined ? {} : { start }, ...callId ? { callId } : {} }),
+      detail: (blockIndex, offset, part = "content") => this.request({ type: "read_message_detail", sessionId, messageId, requestId: crypto.randomUUID(), blockIndex, offset, part })
+    };
+  }
+  request(message) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(message.requestId);
+        reject(new Error("Couldn’t load this content"));
+      }, 15000);
+      this.pending.set(message.requestId, { resolve: (value) => resolve(value), reject, timer });
+      try {
+        this.send(message);
+      } catch (error) {
+        clearTimeout(timer);
+        this.pending.delete(message.requestId);
+        reject(error);
+      }
+    });
+  }
+  receive(message) {
+    if (message.type !== "message_detail" && message.type !== "message_activity" && message.type !== "edit_content")
+      return;
+    const request = this.pending.get(message.requestId);
+    if (!request)
+      return;
+    clearTimeout(request.timer);
+    this.pending.delete(message.requestId);
+    const value = message.type === "message_activity" ? message.page : message.detail;
+    if (value)
+      request.resolve(value);
+    else
+      request.reject(new Error("This message is no longer available"));
+  }
+  destroy() {
+    for (const item of this.pending.values()) {
+      clearTimeout(item.timer);
+      item.reject(new Error("Conversation closed"));
+    }
+    this.pending.clear();
+  }
+}
+
+// src/ui/settings-layout.ts
+function organizeSettings(root) {
+  let section = null;
+  for (const child of [...root.children]) {
+    if (child.matches(".la-settings-divider")) {
+      child.remove();
+      continue;
+    }
+    const heading = child.matches(".la-settings-label") ? child : child.querySelector(".la-settings-label");
+    if (heading) {
+      section = document.createElement("section");
+      section.className = "la-settings-section";
+      const title = document.createElement("h3");
+      title.textContent = heading.textContent;
+      section.append(title);
+      child.replaceWith(section);
+      continue;
+    }
+    if (child.matches(".la-composer-status"))
+      continue;
+    section?.append(child);
+  }
+  for (const input of root.querySelectorAll("input,textarea,select")) {
+    if (input.getAttribute("aria-label") || input.closest("label"))
+      continue;
+    const label = input.closest(".la-settings-row,.la-sampler-row")?.querySelector("label,.la-sampler-label")?.textContent ?? input.closest(".la-settings-section")?.querySelector("h3")?.textContent;
+    if (label)
+      input.setAttribute("aria-label", label);
+  }
+}
+
+// node_modules/@tanstack/virtual-core/dist/esm/lazy-measurements.js
+function getMeasurementKey(item) {
+  return typeof item === "object" ? item.key : item;
+}
+function createLazyMeasurementsView(cache, flat) {
+  const count = cache.length;
+  return new Proxy(cache, {
+    get(target, prop, receiver) {
+      if (typeof prop === "string") {
+        const c = prop.charCodeAt(0);
+        if (c >= 48 && c <= 57) {
+          const i = +prop;
+          if (Number.isInteger(i) && i >= 0 && i < count) {
+            let v = target[i];
+            if (typeof v !== "object") {
+              const s = flat[i * 2];
+              v = target[i] = {
+                index: i,
+                key: v,
+                start: s,
+                size: flat[i * 2 + 1],
+                end: s + flat[i * 2 + 1],
+                lane: 0
+              };
+            }
+            return v;
+          }
+        }
+        if (prop === "length")
+          return count;
+      }
+      return Reflect.get(target, prop, receiver);
+    }
+  });
+}
+
+// node_modules/@tanstack/virtual-core/dist/esm/utils.js
+function memo(getDeps, fn, opts) {
+  let deps = opts.initialDeps ?? [];
+  let result;
+  let isInitial = true;
+  function memoizedFunction() {
+    var _a;
+    const debugEnabled = !!opts.key && !!((_a = opts.debug) == null ? undefined : _a.call(opts));
+    let depTime = 0;
+    if (debugEnabled)
+      depTime = Date.now();
+    const newDeps = getDeps();
+    const depsChanged = newDeps.length !== deps.length || newDeps.some((dep, index) => deps[index] !== dep);
+    if (!depsChanged) {
+      return result;
+    }
+    deps = newDeps;
+    let resultTime = 0;
+    if (debugEnabled)
+      resultTime = Date.now();
+    result = fn(...newDeps);
+    if (debugEnabled) {
+      const depEndTime = Math.round((Date.now() - depTime) * 100) / 100;
+      const resultEndTime = Math.round((Date.now() - resultTime) * 100) / 100;
+      const resultFpsPercentage = resultEndTime / 16;
+      const pad = (str, num) => {
+        str = String(str);
+        while (str.length < num) {
+          str = " " + str;
+        }
+        return str;
+      };
+      console.info(`%c⏱ ${pad(resultEndTime, 5)} /${pad(depEndTime, 5)} ms`, `
+            font-size: .6rem;
+            font-weight: bold;
+            color: hsl(${Math.max(0, Math.min(120 - 120 * resultFpsPercentage, 120))}deg 100% 31%);`, opts == null ? undefined : opts.key);
+    }
+    if ((opts == null ? undefined : opts.onChange) && !(isInitial && opts.skipInitialOnChange)) {
+      opts.onChange(result);
+    }
+    isInitial = false;
+    return result;
+  }
+  memoizedFunction.updateDeps = (newDeps) => {
+    deps = newDeps;
+  };
+  return memoizedFunction;
+}
+function notUndefined(value, msg) {
+  if (value === undefined) {
+    throw new Error(`Unexpected undefined${msg ? `: ${msg}` : ""}`);
+  } else {
+    return value;
+  }
+}
+var approxEqual = (a, b) => Math.abs(a - b) < 1.01;
+var debounce = (targetWindow, fn, ms) => {
+  let timeoutId;
+  return Object.assign(function(...args) {
+    targetWindow.clearTimeout(timeoutId);
+    timeoutId = targetWindow.setTimeout(() => fn.apply(this, args), ms);
+  }, {
+    cancel: () => {
+      targetWindow.clearTimeout(timeoutId);
+    }
+  });
+};
+
+// node_modules/@tanstack/virtual-core/dist/esm/scroll-classifier.js
+function classifyScrollEvent({
+  offset,
+  isScrolling,
+  elementMax,
+  holdOffset,
+  scrollOffset,
+  pendingWrite,
+  clampedMaxAtWrite
+}) {
+  var _a;
+  if (isScrolling && pendingWrite === null && offset === scrollOffset) {
+    return "spurious";
+  }
+  if (pendingWrite !== null && Math.abs(offset - pendingWrite.target) < 1.5) {
+    return "readBack";
+  }
+  if (pendingWrite !== null && !pendingWrite.smooth && elementMax !== null && pendingWrite.target > elementMax + holdOffset + 0.5 && Math.abs(offset - (elementMax + holdOffset)) < 1.5) {
+    return "clampedReadBack";
+  }
+  if (pendingWrite !== null && !pendingWrite.smooth && ((_a = pendingWrite.lowMaxes) == null ? undefined : _a.some((max) => Math.abs(offset - max) < 1.5))) {
+    return "clampedReadBack";
+  }
+  if (clampedMaxAtWrite !== null && Math.abs(offset - clampedMaxAtWrite) < 1.5) {
+    return "clampedEcho";
+  }
+  return "external";
+}
+var isAnimating = (phase) => phase === "smooth" || phase === "smoothFinishing";
+function externalRetiresCommand({
+  kind,
+  offset,
+  command,
+  target
+}) {
+  return kind !== "spurious" && kind !== "readBack" && kind !== "clampedReadBack" && (command == null ? undefined : command.index) != null && command.phase !== "queued" && !isAnimating(command.phase) && !approxEqual(offset, command.lastTargetOffset) && !approxEqual(offset, target()) && kind !== "clampedEcho";
+}
+var FLING_WINDOW_MS = 40;
+function flingSpedUp(samples) {
+  const last = samples[samples.length - 1];
+  if (last === undefined)
+    return false;
+  let j = samples.length - 2;
+  while (j >= 0 && last.t - samples[j].t < FLING_WINDOW_MS)
+    j--;
+  if (j < 0)
+    return false;
+  const mid = samples[j];
+  let k = j - 1;
+  while (k >= 0 && mid.t - samples[k].t < FLING_WINDOW_MS)
+    k--;
+  if (k < 0)
+    return false;
+  const first = samples[k];
+  const recent = (last.offset - mid.offset) / (last.t - mid.t);
+  const before = (mid.offset - first.offset) / (mid.t - first.t);
+  return recent * before >= 0 && Math.abs(recent) >= 2 * Math.abs(before) && Math.abs(recent) - Math.abs(before) >= 0.8;
+}
+function flingCaught(samples) {
+  const last = samples[samples.length - 1];
+  if (last === undefined)
+    return false;
+  let j = samples.length - 2;
+  while (j >= 0 && last.t - samples[j].t < FLING_WINDOW_MS)
+    j--;
+  if (j < 0)
+    return false;
+  const from = samples[j];
+  return Math.abs(last.offset - from.offset) / (last.t - from.t) >= 0.05;
+}
+
+// node_modules/@tanstack/virtual-core/dist/esm/ios-gesture.js
+var _isIOSResult;
+var isIOSWebKit = () => {
+  if (_isIOSResult !== undefined)
+    return _isIOSResult;
+  if (typeof navigator === "undefined")
+    return _isIOSResult = false;
+  if (/iP(hone|od|ad)/.test(navigator.userAgent))
+    return _isIOSResult = true;
+  const mtp = navigator.maxTouchPoints;
+  return _isIOSResult = navigator.platform === "MacIntel" && mtp !== undefined && mtp > 0;
+};
+var _iosMomentumOverridesWritesResult;
+var iosMomentumOverridesWrites = () => {
+  if (_iosMomentumOverridesWritesResult !== undefined) {
+    return _iosMomentumOverridesWritesResult;
+  }
+  return _iosMomentumOverridesWritesResult = isIOSWebKit() && typeof CSS !== "undefined" && typeof CSS.supports === "function" && CSS.supports("overflow-anchor: auto");
+};
+var momentumOverridesWrites = () => !isIOSWebKit() || iosMomentumOverridesWrites();
+var touchListenerOptions = {
+  capture: true,
+  passive: true
+};
+
+class IosGesture {
+  constructor(host) {
+    this.host = host;
+    this._touch = null;
+    this.inMotion = () => this._touch !== null && this._touch.phase !== "lateFling";
+    this.dragging = () => {
+      var _a;
+      return ((_a = this._touch) == null ? undefined : _a.phase) === "down" && this._touch.moved;
+    };
+    this.tail = () => {
+      var _a;
+      return ((_a = this._touch) == null ? undefined : _a.phase) === "tail" ? this._touch.moved ? "fling" : "tap" : null;
+    };
+    this.onScroll = ({
+      isScrolling,
+      ownReadBack,
+      moved,
+      external
+    }) => {
+      var _a, _b, _c;
+      if (isScrolling && ((_a = this._touch) == null ? undefined : _a.phase) === "tail") {
+        this._openTail(this._touch.moved || !ownReadBack, false);
+      } else if (((_b = this._touch) == null ? undefined : _b.phase) === "lateFling") {
+        if (this.host.now() > this._touch.until) {
+          this._touch = null;
+        } else if (external && isScrolling && moved) {
+          this._openTail(true, false);
+        }
+      }
+      if (!ownReadBack && isScrolling && moved && ((_c = this._touch) == null ? undefined : _c.phase) === "down") {
+        this._touch.moved = true;
+        return true;
+      }
+      return false;
+    };
+    this.touchStart = () => {
+      this.end();
+      this._touch = { phase: "down", moved: false };
+    };
+    this.touchEnd = () => {
+      var _a;
+      const moved = ((_a = this._touch) == null ? undefined : _a.phase) === "down" && this._touch.moved;
+      this.end();
+      this._openTail(moved, moved);
+    };
+    this.end = () => {
+      var _a;
+      const win = this.host.getWindow();
+      if (((_a = this._touch) == null ? undefined : _a.phase) === "tail" && win != null) {
+        win.clearTimeout(this._touch.timerId);
+      }
+      this._touch = null;
+    };
+    this.listen = (target) => {
+      const onTouchStart = () => this.touchStart();
+      const onTouchEnd = () => this.touchEnd();
+      target.addEventListener("touchstart", onTouchStart, touchListenerOptions);
+      target.addEventListener("touchend", onTouchEnd, touchListenerOptions);
+      target.addEventListener("touchcancel", onTouchEnd, touchListenerOptions);
+      return () => {
+        target.removeEventListener("touchstart", onTouchStart, touchListenerOptions);
+        target.removeEventListener("touchend", onTouchEnd, touchListenerOptions);
+        target.removeEventListener("touchcancel", onTouchEnd, touchListenerOptions);
+        this.end();
+      };
+    };
+    this._openTail = (moved, awaitingFling) => {
+      const win = this.host.getWindow();
+      if (win == null)
+        return;
+      this.end();
+      const tail = {
+        phase: "tail",
+        moved,
+        awaitingFling,
+        timerId: win.setTimeout(() => {
+          if (this.host.tailStillMoving()) {
+            this._openTail(tail.moved, tail.awaitingFling);
+            return;
+          }
+          this._touch = tail.awaitingFling ? { phase: "lateFling", until: this.host.now() + 1000 } : null;
+          this.host.onTailClosed();
+        }, 150)
+      };
+      this._touch = tail;
+    };
+  }
+  get touch() {
+    return this._touch;
+  }
+}
+
+// node_modules/@tanstack/virtual-core/dist/esm/index.js
+var getRect = (element) => {
+  const { clientWidth, clientHeight } = element;
+  return { width: clientWidth, height: clientHeight };
+};
+var createFrameQueue = (targetWindow) => {
+  const ids = /* @__PURE__ */ new Set;
+  return {
+    schedule: (fn) => {
+      const id = targetWindow.requestAnimationFrame(() => {
+        ids.delete(id);
+        fn();
+      });
+      ids.add(id);
+    },
+    cancel: () => {
+      ids.forEach((id) => targetWindow.cancelAnimationFrame(id));
+      ids.clear();
+    }
+  };
+};
+var defaultKeyExtractor = (index) => index;
+var defaultRangeExtractor = (range) => {
+  const overscan = range.overscan * Math.max(range.lanes ?? 1, 1);
+  const start = Math.max(range.startIndex - overscan, 0);
+  const end = Math.min(range.endIndex + overscan, range.count - 1);
+  const len = end - start + 1;
+  const arr = new Array(len);
+  for (let i = 0;i < len; i++) {
+    arr[i] = start + i;
+  }
+  return arr;
+};
+var observeElementRect = (instance, cb) => {
+  const element = instance.scrollElement;
+  if (!element) {
+    return;
+  }
+  const targetWindow = instance.targetWindow;
+  if (!targetWindow) {
+    return;
+  }
+  const handler = (rect) => {
+    const { width, height } = rect;
+    cb({ width: Math.round(width), height: Math.round(height) });
+  };
+  handler(getRect(element));
+  if (!targetWindow.ResizeObserver) {
+    return () => {};
+  }
+  const frames = createFrameQueue(targetWindow);
+  const observer = new targetWindow.ResizeObserver(() => {
+    const run = () => {
+      handler(getRect(element));
+    };
+    instance.options.useAnimationFrameWithResizeObserver ? frames.schedule(run) : run();
+  });
+  observer.observe(element, { box: "content-box" });
+  return () => {
+    observer.unobserve(element);
+    frames.cancel();
+  };
+};
+var addEventListenerOptions = {
+  passive: true
+};
+var supportsScrollend = typeof window == "undefined" ? true : ("onscrollend" in window);
+var observeOffset = (instance, cb, readOffset) => {
+  const element = instance.scrollElement;
+  if (!element) {
+    return;
+  }
+  const targetWindow = instance.targetWindow;
+  if (!targetWindow) {
+    return;
+  }
+  const registerScrollendEvent = instance.options.useScrollendEvent && supportsScrollend;
+  let offset = 0;
+  const fallback = registerScrollendEvent ? null : debounce(targetWindow, () => cb(readOffset(element), false), instance.options.isScrollingResetDelay);
+  const createHandler = (isScrolling) => () => {
+    offset = readOffset(element);
+    fallback == null || fallback();
+    cb(offset, isScrolling);
+  };
+  const handler = createHandler(true);
+  const endHandler = createHandler(false);
+  element.addEventListener("scroll", handler, addEventListenerOptions);
+  if (registerScrollendEvent) {
+    element.addEventListener("scrollend", endHandler, addEventListenerOptions);
+  }
+  return () => {
+    element.removeEventListener("scroll", handler);
+    if (registerScrollendEvent) {
+      element.removeEventListener("scrollend", endHandler);
+    }
+    fallback == null || fallback.cancel();
+  };
+};
+var observeElementOffset = (instance, cb) => observeOffset(instance, cb, (el) => {
+  const { horizontal, isRtl } = instance.options;
+  return horizontal ? el.scrollLeft * (isRtl && -1 || 1) : el.scrollTop;
+});
+var measureElement = (element, entry, instance) => {
+  if (instance.options.useCachedMeasurements) {
+    const index = instance.indexFromElement(element);
+    const key = instance.options.getItemKey(index);
+    return instance.itemSizeCache.get(key) ?? instance.options.estimateSize(index);
+  }
+  if (entry == null ? undefined : entry.borderBoxSize) {
+    const box = entry.borderBoxSize[0];
+    if (box) {
+      const size = Math.round(box[instance.options.horizontal ? "inlineSize" : "blockSize"]);
+      return size;
+    }
+  }
+  if (!entry) {
+    const index = instance.indexFromElement(element);
+    const key = instance.options.getItemKey(index);
+    const cachedSize = instance.itemSizeCache.get(key);
+    if (cachedSize !== undefined) {
+      return cachedSize;
+    }
+  }
+  return element[instance.options.horizontal ? "offsetWidth" : "offsetHeight"];
+};
+var scrollWithAdjustments = (offset, {
+  adjustments = 0,
+  behavior
+}, instance) => {
+  var _a, _b;
+  (_b = (_a = instance.scrollElement) == null ? undefined : _a.scrollTo) == null || _b.call(_a, {
+    [instance.options.horizontal ? "left" : "top"]: offset + adjustments,
+    behavior
+  });
+};
+var elementScroll = scrollWithAdjustments;
+var initialScrollPhase = (behavior, atTarget) => behavior === "smooth" ? atTarget ? "smoothLanded" : "smooth" : "instant";
+var isSmoothScroll = (state) => (state == null ? undefined : state.phase) === "smooth" || (state == null ? undefined : state.phase) === "smoothLanded";
+function isAppendWithTrim(prevCount, nextCount, getPreviousKey, getNextKey) {
+  if (nextCount === 0)
+    return false;
+  const firstKey = getNextKey(0);
+  const removedKeys = /* @__PURE__ */ new Set;
+  let removedCount = 0;
+  while (removedCount < prevCount) {
+    const key = getPreviousKey(removedCount);
+    if (key === firstKey)
+      break;
+    removedKeys.add(key);
+    removedCount++;
+  }
+  const retainedCount = prevCount - removedCount;
+  if (retainedCount === 0 || retainedCount >= nextCount)
+    return false;
+  for (let i = 0;i < retainedCount; i++) {
+    if (getNextKey(i) !== getPreviousKey(removedCount + i))
+      return false;
+  }
+  for (let i = retainedCount;i < nextCount; i++) {
+    if (removedKeys.has(getNextKey(i)))
+      return false;
+  }
+  return true;
+}
+
+class Virtualizer {
+  constructor(opts) {
+    this.unsubs = [];
+    this.scrollElement = null;
+    this.targetWindow = null;
+    this.isScrolling = false;
+    this.scrollState = null;
+    this.measurementsCache = [];
+    this._singleLaneMeasurements = null;
+    this.itemSizeCache = /* @__PURE__ */ new Map;
+    this.itemSizeCacheVersion = 0;
+    this.laneAssignments = /* @__PURE__ */ new Map;
+    this.pendingMin = null;
+    this.prevLanes = undefined;
+    this.lanesChangedFlag = false;
+    this.lanesSettling = false;
+    this.pendingScrollAnchor = null;
+    this.scrollRect = null;
+    this.scrollOffset = null;
+    this.scrollDirection = null;
+    this._holdOffset = 0;
+    this._reportedOverscroll = false;
+    this._iosGesture = new IosGesture({
+      getWindow: () => this.targetWindow,
+      now: () => this.now(),
+      tailStillMoving: () => {
+        const state = this.scrollState;
+        if ((state == null ? undefined : state.phase) !== "queued" || this.pendingWrite !== null) {
+          return false;
+        }
+        const now = this._readElementOffset();
+        if (now === null || this._lastElementOffset === null || Math.abs(now - this._lastElementOffset) < 1) {
+          return false;
+        }
+        this._lastElementOffset = now;
+        state.samples = [...state.samples ?? [], { t: this.now(), offset: now }];
+        return true;
+      },
+      onTailClosed: () => {
+        const state = this.scrollState;
+        if ((state == null ? undefined : state.phase) === "queued" && flingCaught(state.samples ?? [])) {
+          this.scrollState = null;
+        }
+        this._flushHoldIfReady(true);
+        this._writeAwaitingCommand();
+        this._retryClampedAdjustment();
+      }
+    });
+    this._lastElementOffset = null;
+    this.pendingWrite = null;
+    this._clampedAdjustment = null;
+    this.elementsCache = /* @__PURE__ */ new Map;
+    this._resizeBatch = null;
+    this.now = () => {
+      var _a, _b, _c;
+      return ((_c = (_b = (_a = this.targetWindow) == null ? undefined : _a.performance) == null ? undefined : _b.now) == null ? undefined : _c.call(_b)) ?? Date.now();
+    };
+    this.observer = /* @__PURE__ */ (() => {
+      let _ro = null;
+      let _frames = null;
+      let delivering = false;
+      let observeQueued = false;
+      const pendingObservations = /* @__PURE__ */ new Set;
+      const get = () => {
+        if (_ro) {
+          return _ro;
+        }
+        const targetWindow = this.targetWindow;
+        if (!targetWindow || !targetWindow.ResizeObserver) {
+          return null;
+        }
+        const frames = _frames = createFrameQueue(targetWindow);
+        return _ro = new targetWindow.ResizeObserver((entries) => {
+          const run = () => {
+            const batch = { sync: false };
+            this._resizeBatch = batch;
+            try {
+              entries.forEach(measureEntry);
+            } finally {
+              this._resizeBatch = null;
+              if (batch.notify) {
+                this.notify(batch.sync);
+                this._noteClampMax();
+                this._flushHoldIfReady(true);
+                this._retryClampedAdjustment();
+                this.measureElement(null);
+              }
+            }
+          };
+          if (this.options.useAnimationFrameWithResizeObserver) {
+            frames.schedule(run);
+          } else {
+            delivering = true;
+            try {
+              run();
+            } finally {
+              delivering = false;
+            }
+          }
+        });
+      };
+      const measureEntry = (entry) => {
+        const node = entry.target;
+        const index = this.indexFromElement(node);
+        if (!node.isConnected) {
+          this.observer.unobserve(node);
+          for (const [cacheKey, cachedNode] of this.elementsCache) {
+            if (cachedNode === node) {
+              this.elementsCache.delete(cacheKey);
+              break;
+            }
+          }
+          return;
+        }
+        if (!this.isIndexInRange(index))
+          return;
+        if (this.shouldMeasureDuringScroll(index)) {
+          this.resizeItem(index, this.options.measureElement(node, entry, this));
+        }
+      };
+      return {
+        disconnect: () => {
+          var _a;
+          (_a = get()) == null || _a.disconnect();
+          _frames == null || _frames.cancel();
+          pendingObservations.clear();
+          observeQueued = false;
+          _ro = null;
+          _frames = null;
+        },
+        observe: (target) => {
+          const observer = get();
+          if (!observer)
+            return;
+          if (!delivering) {
+            observer.observe(target, { box: "border-box" });
+            return;
+          }
+          pendingObservations.add(target);
+          if (!observeQueued) {
+            observeQueued = true;
+            _frames == null || _frames.schedule(() => {
+              observeQueued = false;
+              pendingObservations.forEach((node) => {
+                if (node.isConnected)
+                  _ro == null || _ro.observe(node, { box: "border-box" });
+              });
+              pendingObservations.clear();
+            });
+          }
+        },
+        unobserve: (target) => {
+          var _a;
+          pendingObservations.delete(target);
+          (_a = get()) == null || _a.unobserve(target);
+        }
+      };
+    })();
+    this.range = null;
+    this.setOptions = (opts2) => {
+      var _a;
+      const merged = {
+        debug: false,
+        initialOffset: 0,
+        overscan: 1,
+        paddingStart: 0,
+        paddingEnd: 0,
+        scrollPaddingStart: 0,
+        scrollPaddingEnd: 0,
+        horizontal: false,
+        getItemKey: defaultKeyExtractor,
+        rangeExtractor: defaultRangeExtractor,
+        onChange: () => {},
+        measureElement,
+        initialRect: { width: 0, height: 0 },
+        scrollMargin: 0,
+        gap: 0,
+        indexAttribute: "data-index",
+        initialMeasurementsCache: [],
+        lanes: 1,
+        anchorTo: "start",
+        followOnAppend: false,
+        scrollEndThreshold: 1,
+        isScrollingResetDelay: 150,
+        enabled: true,
+        isRtl: false,
+        useScrollendEvent: false,
+        useAnimationFrameWithResizeObserver: false,
+        laneAssignmentMode: "estimate",
+        useCachedMeasurements: false
+      };
+      for (const key in opts2) {
+        const v = opts2[key];
+        if (v !== undefined)
+          merged[key] = v;
+      }
+      const prevOptions = this.options;
+      let anchor = null;
+      let followOnAppend = null;
+      let edgeKeysChanged = false;
+      if (prevOptions !== undefined && prevOptions.enabled && merged.enabled && merged.anchorTo === "end" && this.scrollElement !== null) {
+        const prevCount = prevOptions.count;
+        const nextCount = merged.count;
+        const measurements = this.getMeasurements();
+        const previousItems = ((_a = this._singleLaneMeasurements) == null ? undefined : _a.items) ?? measurements;
+        const getPreviousKey = (index) => getMeasurementKey(previousItems[index]);
+        const prevFirstKey = prevCount > 0 ? getPreviousKey(0) : null;
+        const prevLastKey = prevCount > 0 ? getPreviousKey(prevCount - 1) : null;
+        const didCountChange = nextCount !== prevCount;
+        const didEdgeKeysChange = didCountChange || prevCount > 0 && nextCount > 0 && (merged.getItemKey(0) !== prevFirstKey || merged.getItemKey(nextCount - 1) !== prevLastKey);
+        if (didEdgeKeysChange) {
+          edgeKeysChanged = true;
+          const item = prevCount > 0 ? this.getVirtualItemForOffset(this.getScrollOffset()) ?? measurements[0] : null;
+          if (item) {
+            anchor = [item.key, this.getScrollOffset() - item.start];
+          }
+          const behavior = merged.followOnAppend === true ? "auto" : merged.followOnAppend || null;
+          if (behavior && nextCount > 0 && this.isAtEnd(prevOptions.scrollEndThreshold) && (prevCount === 0 || merged.getItemKey(nextCount - 1) !== prevLastKey)) {
+            if (nextCount > prevCount || isAppendWithTrim(prevCount, nextCount, getPreviousKey, merged.getItemKey)) {
+              followOnAppend = behavior;
+            }
+          }
+        }
+      }
+      this.options = merged;
+      if (edgeKeysChanged) {
+        this.pendingMin = 0;
+        this.itemSizeCacheVersion++;
+      }
+      let anchorDelta = null;
+      if (anchor && this.scrollOffset !== null && !this._awaitingCommandReadBack()) {
+        const [anchorKey, anchorOffset] = anchor;
+        const newMeasurements = this.getMeasurements();
+        const { count, getItemKey } = this.options;
+        let idx = 0;
+        while (idx < count && getItemKey(idx) !== anchorKey) {
+          idx++;
+        }
+        if (idx < count) {
+          const anchorItem = newMeasurements[idx];
+          if (anchorItem) {
+            const newOffset = Math.max(0, anchorItem.start + anchorOffset);
+            if (!followOnAppend && newOffset !== this.scrollOffset) {
+              anchorDelta = newOffset - this.scrollOffset;
+              this.scrollOffset = newOffset;
+            }
+          }
+        }
+      }
+      if (followOnAppend) {
+        this.pendingScrollAnchor = { kind: "follow", behavior: followOnAppend };
+      } else if (anchorDelta !== null) {
+        if (this._canWriteScroll()) {
+          this.pendingScrollAnchor = { kind: "anchor", delta: anchorDelta };
+        } else {
+          this._holdOffset += anchorDelta;
+          this._followOffsetTarget(anchorDelta);
+        }
+      }
+    };
+    this.notify = (sync) => {
+      var _a, _b;
+      (_b = (_a = this.options).onChange) == null || _b.call(_a, this, sync);
+    };
+    this.maybeNotify = memo(() => {
+      this.calculateRange();
+      return [
+        this.isScrolling,
+        this.range ? this.range.startIndex : null,
+        this.range ? this.range.endIndex : null
+      ];
+    }, (isScrolling) => {
+      this.notify(isScrolling);
+    }, {
+      key: "maybeNotify",
+      debug: () => this.options.debug,
+      initialDeps: [
+        this.isScrolling,
+        this.range ? this.range.startIndex : null,
+        this.range ? this.range.endIndex : null
+      ]
+    });
+    this.cleanup = () => {
+      var _a;
+      this.unsubs.filter(Boolean).forEach((d) => d());
+      this.unsubs = [];
+      this.observer.disconnect();
+      if (this.rafId != null && this.targetWindow) {
+        this.targetWindow.cancelAnimationFrame(this.rafId);
+        this.rafId = null;
+      }
+      this.scrollState = null;
+      (_a = this._momentumStop) == null || _a.restore();
+      this._momentumStop = null;
+      this.isScrolling = false;
+      this.scrollDirection = null;
+      this._holdOffset = 0;
+      this._reportedOverscroll = false;
+      this._clampedAdjustment = null;
+      this.pendingWrite = null;
+      this.scrollElement = null;
+      this.targetWindow = null;
+    };
+    this._didMount = () => {
+      return () => {
+        this.cleanup();
+      };
+    };
+    this._willUpdate = () => {
+      var _a;
+      const scrollElement = this.options.enabled ? this.options.getScrollElement() : null;
+      if (this.scrollElement !== scrollElement) {
+        this.cleanup();
+        if (!scrollElement) {
+          this.maybeNotify();
+          return;
+        }
+        this.scrollElement = scrollElement;
+        if (this.scrollElement && "ownerDocument" in this.scrollElement) {
+          this.targetWindow = this.scrollElement.ownerDocument.defaultView;
+        } else {
+          this.targetWindow = ((_a = this.scrollElement) == null ? undefined : _a.window) ?? null;
+        }
+        this.elementsCache.forEach((cached) => {
+          this.observer.observe(cached);
+        });
+        this.unsubs.push(this.options.observeElementRect(this, (rect) => {
+          this.scrollRect = rect;
+          this.maybeNotify();
+        }));
+        this.unsubs.push(this.options.observeElementOffset(this, (offset, isScrolling) => {
+          var _a2, _b, _c, _d;
+          const elementMax = isScrolling ? this._elementMaxScrollOffset() : null;
+          const wasOverscrolled = this._reportedOverscroll;
+          this._reportedOverscroll = offset < 0 || elementMax !== null && offset > elementMax + 1;
+          const elementOffset = offset;
+          this._lastElementOffset = elementOffset;
+          offset = this._toLayoutOffset(offset);
+          const kind = this._classifyScrollEvent(offset, isScrolling, elementMax);
+          if (kind === "spurious")
+            return;
+          if (kind === "readBack") {
+            offset = this.pendingWrite.target;
+          } else if (kind === "clampedReadBack" && ((_a2 = this.scrollState) == null ? undefined : _a2.index) != null && offset < this.getMaxScrollOffset() - 1.5) {
+            this.scrollState.lastTargetOffset = offset;
+          } else if (externalRetiresCommand({
+            kind,
+            offset,
+            command: this.scrollState,
+            target: () => this.getScrollStateTarget(this.scrollState)
+          })) {
+            this.scrollState = null;
+          }
+          this.pendingWrite = null;
+          if (this._clampedAdjustment !== null && Math.abs(offset - this._clampedAdjustment.maxAtWrite) >= 1.5) {
+            this._clampedAdjustment = null;
+          }
+          const prevOffset = this.getScrollOffset();
+          const prevDirection = this.scrollDirection;
+          this.scrollDirection = isScrolling ? prevOffset === offset ? this.scrollDirection : prevOffset < offset ? "forward" : "backward" : null;
+          this.scrollOffset = offset;
+          this.isScrolling = isScrolling;
+          const queued = this.scrollState;
+          if ((queued == null ? undefined : queued.phase) === "queued" && kind === "external" && isScrolling) {
+            if (wasOverscrolled || this._reportedOverscroll) {
+              queued.samples = [];
+            } else {
+              const t = this.now();
+              queued.samples = [
+                ...(queued.samples ?? []).filter((sample) => t - sample.t <= 200),
+                { t, offset: elementOffset }
+              ];
+              if (prevDirection !== null && this.scrollDirection !== prevDirection || flingSpedUp(queued.samples)) {
+                this.scrollState = null;
+              }
+            }
+          }
+          if (this._iosGesture.onScroll({
+            isScrolling,
+            ownReadBack: kind === "readBack",
+            moved: offset !== prevOffset,
+            external: kind === "external" && ((_b = this.scrollState) == null ? undefined : _b.phase) !== "smooth" && ((_c = this.scrollState) == null ? undefined : _c.phase) !== "smoothFinishing"
+          }) && ((_d = this.scrollState) == null ? undefined : _d.phase) === "queued") {
+            this.scrollState = null;
+          }
+          this._flushHoldIfReady(true);
+          if (this.scrollState) {
+            this.scheduleScrollReconcile();
+          }
+          this.maybeNotify();
+        }));
+        if ("addEventListener" in this.scrollElement) {
+          this.unsubs.push(this._iosGesture.listen(this.scrollElement));
+        }
+        this._scrollToOffset(this.getScrollOffset());
+      }
+      this._noteClampMax();
+      const anchor = this.pendingScrollAnchor;
+      this.pendingScrollAnchor = null;
+      if (anchor && this.scrollElement && this.options.enabled) {
+        if (anchor.kind === "anchor") {
+          if (!this._canWriteScroll()) {
+            this._holdOffset += anchor.delta;
+            this._followOffsetTarget(anchor.delta);
+            this.notify(false);
+          } else if (isSmoothScroll(this.scrollState) && !approxEqual(this.getScrollOffset() - anchor.delta, this.scrollState.lastTargetOffset))
+            ;
+          else {
+            this._followOffsetTarget(anchor.delta);
+            this._scrollToOffset(this.getScrollOffset());
+          }
+        } else {
+          this.scrollToEnd({ behavior: anchor.behavior });
+        }
+      }
+      this._flushHoldIfReady(false);
+      this._retryClampedAdjustment();
+    };
+    this._classifyScrollEvent = (offset, isScrolling, elementMax) => {
+      var _a;
+      return classifyScrollEvent({
+        offset,
+        isScrolling,
+        elementMax,
+        holdOffset: this._holdOffset,
+        scrollOffset: this.scrollOffset,
+        pendingWrite: this.pendingWrite,
+        clampedMaxAtWrite: ((_a = this._clampedAdjustment) == null ? undefined : _a.maxAtWrite) ?? null
+      });
+    };
+    this._retryClampedAdjustment = () => {
+      if (this._clampedAdjustment === null || !this.scrollElement || !this.options.enabled || !this._canWriteScroll()) {
+        return;
+      }
+      const { target, maxAtWrite } = this._clampedAdjustment;
+      const max = this.getMaxScrollOffset();
+      if (max > maxAtWrite + 0.5) {
+        this._clampedAdjustment = target > max + 0.5 ? { target, maxAtWrite: max } : null;
+        this._scrollToOffset(target);
+      }
+    };
+    this._writeAwaitingCommand = () => {
+      const state = this.scrollState;
+      if (state === null || state.phase !== "queued")
+        return;
+      const { behavior } = state;
+      this.getMeasurements();
+      const offset = this.getScrollStateTarget(state);
+      state.lastTargetOffset = offset;
+      this._clampedAdjustment = null;
+      state.phase = initialScrollPhase(behavior, state.index != null && approxEqual(offset, this.getScrollOffset()));
+      this._scrollToOffset(offset, { behavior });
+      this.scheduleScrollReconcile();
+    };
+    this._readElementOffset = () => {
+      const el = this.scrollElement;
+      if (el == null)
+        return null;
+      const { horizontal, isRtl } = this.options;
+      if (typeof el.scrollTop === "number") {
+        return horizontal ? el.scrollLeft * (isRtl && -1 || 1) : el.scrollTop;
+      }
+      if (typeof el.scrollY === "number") {
+        return horizontal ? el.scrollX : el.scrollY;
+      }
+      return null;
+    };
+    this._canWriteScroll = () => !(isIOSWebKit() && this._iosGesture.inMotion()) && !this._reportedOverscroll;
+    this._flushHoldIfReady = (sync) => {
+      var _a;
+      if (this._holdOffset === 0)
+        return;
+      if (!this.scrollElement || !this.options.enabled)
+        return;
+      if (!this._canWriteScroll())
+        return;
+      if (((_a = this.scrollState) == null ? undefined : _a.phase) === "smooth")
+        return;
+      this._holdOffset = 0;
+      if (this.scrollOffset !== null && this.scrollOffset < 0) {
+        this.scrollOffset = 0;
+      }
+      this.notify(sync);
+      const target = this.getCommandWrittenOffset() ?? this.getScrollOffset();
+      this._clampedAdjustment = this._clampedBy(target);
+      this._scrollToOffset(target);
+    };
+    this.rafId = null;
+    this.getSize = () => {
+      if (!this.options.enabled) {
+        this.scrollRect = null;
+        return 0;
+      }
+      this.scrollRect = this.scrollRect ?? this.options.initialRect;
+      return this.scrollRect[this.options.horizontal ? "width" : "height"];
+    };
+    this.getScrollOffset = () => {
+      if (!this.options.enabled) {
+        this.scrollOffset = null;
+        return 0;
+      }
+      this.scrollOffset = this.scrollOffset ?? (typeof this.options.initialOffset === "function" ? this.options.initialOffset() : this.options.initialOffset);
+      return this.scrollOffset;
+    };
+    this.getMeasurementOptions = memo(() => [
+      this.options.count,
+      this.options.paddingStart,
+      this.options.scrollMargin,
+      this.options.getItemKey,
+      this.options.enabled,
+      this.options.lanes,
+      this.options.laneAssignmentMode,
+      this.options.gap
+    ], (count, paddingStart, scrollMargin, getItemKey, enabled, lanes, laneAssignmentMode, gap) => {
+      const lanesChanged = this.prevLanes !== undefined && this.prevLanes !== lanes;
+      if (lanesChanged) {
+        this.lanesChangedFlag = true;
+      }
+      this.prevLanes = lanes;
+      this.pendingMin = null;
+      return {
+        count,
+        paddingStart,
+        scrollMargin,
+        getItemKey,
+        enabled,
+        lanes,
+        laneAssignmentMode,
+        gap
+      };
+    }, {
+      key: false
+    });
+    this.isIndexInRange = (index) => index >= 0 && index < this.options.count;
+    this.getMeasurements = memo(() => [this.getMeasurementOptions(), this.itemSizeCacheVersion], ({
+      count,
+      paddingStart,
+      scrollMargin,
+      getItemKey,
+      enabled,
+      lanes,
+      laneAssignmentMode,
+      gap
+    }, _itemSizeCacheVersion) => {
+      var _a;
+      const itemSizeCache = this.itemSizeCache;
+      if (!enabled) {
+        this.measurementsCache = [];
+        this._singleLaneMeasurements = null;
+        this.itemSizeCache.clear();
+        this.laneAssignments.clear();
+        return [];
+      }
+      if (this.laneAssignments.size > count) {
+        for (const index of this.laneAssignments.keys()) {
+          if (index >= count) {
+            this.laneAssignments.delete(index);
+          }
+        }
+      }
+      if (this.lanesChangedFlag) {
+        this.lanesChangedFlag = false;
+        this.lanesSettling = true;
+        this.measurementsCache = [];
+        this._singleLaneMeasurements = null;
+        this.itemSizeCache.clear();
+        this.laneAssignments.clear();
+        this.pendingMin = null;
+      }
+      if (this.measurementsCache.length === 0 && !this.lanesSettling) {
+        this.measurementsCache = this.options.initialMeasurementsCache;
+        this.measurementsCache.forEach((item) => {
+          this.itemSizeCache.set(item.key, item.size);
+        });
+      }
+      const min = this.lanesSettling ? 0 : this.pendingMin ?? 0;
+      this.pendingMin = null;
+      if (this.lanesSettling && this.measurementsCache.length === count) {
+        this.lanesSettling = false;
+      }
+      if (lanes === 1) {
+        const need = count * 2;
+        let flat = (_a = this._singleLaneMeasurements) == null ? undefined : _a.flat;
+        if (!flat || flat.length < need) {
+          const next = new Float64Array(need);
+          if (flat && min > 0)
+            next.set(flat.subarray(0, min * 2));
+          flat = next;
+        }
+        const items = min === 0 ? new Array(count) : this._singleLaneMeasurements.items.slice();
+        let runningStart;
+        if (min === 0) {
+          runningStart = paddingStart + scrollMargin;
+        } else {
+          const prevIdx = min - 1;
+          runningStart = flat[prevIdx * 2] + flat[prevIdx * 2 + 1] + gap;
+        }
+        for (let i = min;i < count; i++) {
+          const key = getItemKey(i);
+          items[i] = key;
+          const measuredSize = itemSizeCache.get(key);
+          const size = typeof measuredSize === "number" ? measuredSize : this.options.estimateSize(i);
+          flat[i * 2] = runningStart;
+          flat[i * 2 + 1] = size;
+          runningStart += size + gap;
+        }
+        this._singleLaneMeasurements = { flat, items };
+        const view = createLazyMeasurementsView(items, flat);
+        this.measurementsCache = view;
+        return view;
+      }
+      const measurements = this.measurementsCache.slice(0, min);
+      const laneLastIndex = new Array(lanes).fill(undefined);
+      const laneEnds = new Float64Array(lanes);
+      let filledLanes = 0;
+      for (let m = 0;m < min; m++) {
+        const item = measurements[m];
+        if (item) {
+          if (laneLastIndex[item.lane] === undefined)
+            filledLanes++;
+          laneLastIndex[item.lane] = m;
+          laneEnds[item.lane] = item.end;
+        }
+      }
+      for (let i = min;i < count; i++) {
+        const key = getItemKey(i);
+        const cachedLane = this.laneAssignments.get(i);
+        let lane;
+        let start;
+        const shouldCacheLane = laneAssignmentMode === "estimate" || itemSizeCache.has(key);
+        if (cachedLane !== undefined && this.options.lanes > 1) {
+          lane = cachedLane;
+          const prevIndex = laneLastIndex[lane];
+          const prevInLane = prevIndex !== undefined ? measurements[prevIndex] : undefined;
+          start = prevInLane ? prevInLane.end + gap : paddingStart + scrollMargin;
+        } else if (filledLanes === lanes) {
+          let bestLane = 0;
+          let bestEnd = laneEnds[0];
+          let bestIdx = laneLastIndex[0];
+          for (let l = 1;l < lanes; l++) {
+            const e = laneEnds[l];
+            if (e < bestEnd || e === bestEnd && laneLastIndex[l] < bestIdx) {
+              bestLane = l;
+              bestEnd = e;
+              bestIdx = laneLastIndex[l];
+            }
+          }
+          lane = bestLane;
+          start = bestEnd + gap;
+          if (shouldCacheLane) {
+            this.laneAssignments.set(i, lane);
+          }
+        } else {
+          lane = i % this.options.lanes;
+          start = paddingStart + scrollMargin;
+          if (shouldCacheLane) {
+            this.laneAssignments.set(i, lane);
+          }
+        }
+        const measuredSize = itemSizeCache.get(key);
+        const size = typeof measuredSize === "number" ? measuredSize : this.options.estimateSize(i);
+        const end = start + size;
+        measurements[i] = {
+          index: i,
+          start,
+          size,
+          end,
+          key,
+          lane
+        };
+        if (laneLastIndex[lane] === undefined)
+          filledLanes++;
+        laneLastIndex[lane] = i;
+        laneEnds[lane] = end;
+      }
+      this.measurementsCache = measurements;
+      return measurements;
+    }, {
+      key: "getMeasurements",
+      debug: () => this.options.debug
+    });
+    this.calculateRange = memo(() => [
+      this.getMeasurements(),
+      this.getSize(),
+      this.getScrollOffset(),
+      this.options.lanes
+    ], (measurements, outerSize, scrollOffset, lanes) => {
+      if (measurements.length === 0 || outerSize === 0) {
+        this.range = null;
+        return null;
+      }
+      this.range = calculateRangeImpl(measurements, outerSize, scrollOffset, lanes, lanes === 1 && this._singleLaneMeasurements !== null ? this._singleLaneMeasurements.flat : null);
+      return this.range;
+    }, {
+      key: "calculateRange",
+      debug: () => this.options.debug
+    });
+    this.getVirtualIndexes = memo(() => {
+      let startIndex = null;
+      let endIndex = null;
+      const range = this.calculateRange();
+      if (range) {
+        startIndex = range.startIndex;
+        endIndex = range.endIndex;
+      }
+      this.maybeNotify.updateDeps([this.isScrolling, startIndex, endIndex]);
+      return [
+        this.options.rangeExtractor,
+        this.options.overscan,
+        this.options.count,
+        startIndex,
+        endIndex,
+        this.options.lanes
+      ];
+    }, (rangeExtractor, overscan, count, startIndex, endIndex, lanes) => {
+      return startIndex === null || endIndex === null ? [] : rangeExtractor({
+        startIndex,
+        endIndex,
+        overscan,
+        count,
+        lanes
+      });
+    }, {
+      key: "getVirtualIndexes",
+      debug: () => this.options.debug
+    });
+    this.indexFromElement = (node) => {
+      const attributeName = this.options.indexAttribute;
+      const indexStr = node.getAttribute(attributeName);
+      if (!indexStr) {
+        console.warn(`Missing attribute name '${attributeName}={index}' on measured element.`);
+        return -1;
+      }
+      return parseInt(indexStr, 10);
+    };
+    this.shouldMeasureDuringScroll = (index) => {
+      var _a;
+      if (!isSmoothScroll(this.scrollState)) {
+        return true;
+      }
+      const scrollIndex = this.scrollState.index ?? ((_a = this.getVirtualItemForOffset(this.scrollState.lastTargetOffset)) == null ? undefined : _a.index);
+      if (scrollIndex !== undefined && this.range) {
+        const bufferSize = Math.max(this.options.overscan, Math.ceil((this.range.endIndex - this.range.startIndex) / 2));
+        const minIndex = Math.max(0, scrollIndex - bufferSize);
+        const maxIndex = Math.min(this.options.count - 1, scrollIndex + bufferSize);
+        return index >= minIndex && index <= maxIndex;
+      }
+      return true;
+    };
+    this.measureElement = (node) => {
+      if (!node) {
+        this.elementsCache.forEach((cached, key2) => {
+          if (!cached.isConnected) {
+            this.observer.unobserve(cached);
+            this.elementsCache.delete(key2);
+          }
+        });
+        return;
+      }
+      const index = this.indexFromElement(node);
+      if (!this.isIndexInRange(index))
+        return;
+      const key = this.options.getItemKey(index);
+      const prevNode = this.elementsCache.get(key);
+      if (prevNode !== node) {
+        if (prevNode) {
+          this.observer.unobserve(prevNode);
+        }
+        this.observer.observe(node);
+        this.elementsCache.set(key, node);
+      }
+      if (node.isConnected && (!this.isScrolling || this.scrollState) && this.shouldMeasureDuringScroll(index)) {
+        this.resizeItem(index, this.options.measureElement(node, undefined, this));
+      }
+    };
+    this.resizeItem = (index, size) => {
+      var _a, _b, _c;
+      if (!this.isIndexInRange(index))
+        return;
+      if ((_a = this._resizeBatch) == null ? undefined : _a.sync)
+        this.getMeasurements();
+      let cachedSize;
+      let itemStart;
+      let key;
+      const flat = (_b = this._singleLaneMeasurements) == null ? undefined : _b.flat;
+      if (this.options.lanes === 1 && flat != null) {
+        key = this.options.getItemKey(index);
+        itemStart = flat[index * 2];
+        cachedSize = flat[index * 2 + 1];
+      } else {
+        const item = this.measurementsCache[index];
+        if (!item)
+          return;
+        key = item.key;
+        itemStart = item.start;
+        cachedSize = item.size;
+      }
+      const itemSize = this.itemSizeCache.get(key) ?? cachedSize;
+      const delta = size - itemSize;
+      if (delta !== 0) {
+        const wasAtEnd = this.options.anchorTo === "end" && !isSmoothScroll(this.scrollState) && this.getVirtualDistanceFromEnd() <= this.options.scrollEndThreshold;
+        const prevTotalSize = wasAtEnd ? this._getLayoutTotalSize() : 0;
+        const scrollOffset = this.getScrollOffset();
+        const isFirstMeasure = !this.itemSizeCache.has(key);
+        const defaultShouldAdjust = isFirstMeasure ? itemStart < scrollOffset : itemStart + itemSize <= scrollOffset && this.scrollDirection !== "backward";
+        const shouldAdjustScroll = !isSmoothScroll(this.scrollState) && (this.shouldAdjustScrollPositionOnItemSizeChange !== undefined ? this.shouldAdjustScrollPositionOnItemSizeChange(this.measurementsCache[index] ?? {
+          index,
+          key,
+          start: itemStart,
+          size: cachedSize,
+          end: itemStart + cachedSize,
+          lane: 0
+        }, delta, this) : defaultShouldAdjust);
+        if (this.pendingMin === null || index < this.pendingMin) {
+          this.pendingMin = index;
+        }
+        this.itemSizeCache.set(key, size);
+        this.itemSizeCacheVersion++;
+        let adjustedSync = false;
+        if (!this._awaitingCommandReadBack()) {
+          if (wasAtEnd) {
+            adjustedSync = this.applyScrollAdjustment(this._getLayoutTotalSize() - prevTotalSize);
+          } else if (shouldAdjustScroll) {
+            adjustedSync = this.applyScrollAdjustment(delta);
+          }
+        }
+        if (this._resizeBatch) {
+          this._resizeBatch.notify = true;
+          (_c = this._resizeBatch).sync || (_c.sync = adjustedSync);
+          return;
+        }
+        this.notify(adjustedSync);
+        this._noteClampMax();
+        this._flushHoldIfReady(true);
+        this._retryClampedAdjustment();
+      }
+    };
+    this.getVirtualItems = memo(() => [this.getVirtualIndexes(), this.getMeasurements(), this._holdOffset], (indexes, measurements, hold) => {
+      const virtualItems = [];
+      for (let k = 0, len = indexes.length;k < len; k++) {
+        const i = indexes[k];
+        const measurement = measurements[i];
+        virtualItems.push(hold === 0 ? measurement : {
+          ...measurement,
+          start: measurement.start - hold,
+          end: measurement.end - hold
+        });
+      }
+      return virtualItems;
+    }, {
+      key: "getVirtualItems",
+      debug: () => this.options.debug
+    });
+    this.getVirtualItemForOffset = (offset) => {
+      var _a;
+      const measurements = this.getMeasurements();
+      if (measurements.length === 0) {
+        return;
+      }
+      const flat = (_a = this._singleLaneMeasurements) == null ? undefined : _a.flat;
+      const useFlat = this.options.lanes === 1 && flat != null;
+      const idx = findNearestBinarySearch(0, measurements.length - 1, useFlat ? (i) => flat[i * 2] : (i) => notUndefined(measurements[i]).start, offset);
+      return notUndefined(measurements[idx]);
+    };
+    this._noteClampMax = () => {
+      if (!this._awaitingCommandReadBack())
+        return;
+      const elementMax = this._elementMaxScrollOffset();
+      if (elementMax === null)
+        return;
+      const write = this.pendingWrite;
+      const max = Math.max(elementMax, 0) + this._holdOffset;
+      if (max >= write.target)
+        return;
+      const lowMaxes = write.lowMaxes ?? (write.lowMaxes = []);
+      if (lowMaxes[lowMaxes.length - 1] !== max)
+        lowMaxes.push(max);
+    };
+    this.getMaxScrollOffset = () => (this._elementMaxScrollOffset() ?? 0) + this._holdOffset;
+    this._toLayoutOffset = (elementOffset) => {
+      var _a;
+      let offset = elementOffset + this._holdOffset;
+      if (((_a = this.pendingScrollAnchor) == null ? undefined : _a.kind) === "anchor") {
+        offset += this.pendingScrollAnchor.delta;
+      }
+      return offset;
+    };
+    this._elementMaxScrollOffset = () => {
+      const el = this.scrollElement;
+      if (el === null)
+        return null;
+      if ("scrollHeight" in el) {
+        return this.options.horizontal ? el.scrollWidth - el.clientWidth : el.scrollHeight - el.clientHeight;
+      }
+      if ("document" in el) {
+        const doc = el.document.documentElement;
+        return this.options.horizontal ? doc.scrollWidth - el.innerWidth : doc.scrollHeight - el.innerHeight;
+      }
+      return null;
+    };
+    this._momentumStop = null;
+    this._stopMomentum = (done) => {
+      const el = this.scrollElement;
+      const win = this.targetWindow;
+      if (el === null || win === null)
+        return;
+      const scroller = "document" in el ? el.document.scrollingElement : el;
+      if (!(scroller == null ? undefined : scroller.style))
+        return;
+      if (this._momentumStop) {
+        this._momentumStop.done = done;
+        return;
+      }
+      const { style } = scroller;
+      const property = this.options.horizontal ? "overflow-x" : "overflow-y";
+      const value = style.getPropertyValue(property);
+      const priority = style.getPropertyPriority(property);
+      const crossSize = () => this.options.horizontal ? scroller.clientHeight : scroller.clientWidth;
+      const crossSizeBefore = crossSize();
+      style.setProperty(property, "hidden", "important");
+      if (crossSize() !== crossSizeBefore) {
+        style.setProperty(property, value, priority);
+        return;
+      }
+      const stop = {
+        restore: () => {
+          if (style.getPropertyValue(property) !== "hidden" || style.getPropertyPriority(property) !== "important") {
+            return false;
+          }
+          style.setProperty(property, value, priority);
+          return true;
+        },
+        done
+      };
+      this._momentumStop = stop;
+      win.requestAnimationFrame(() => win.requestAnimationFrame(() => {
+        if (this._momentumStop !== stop)
+          return;
+        this._momentumStop = null;
+        if (stop.restore())
+          stop.done();
+      }));
+    };
+    this._clampedBy = (target) => {
+      const elementMax = this._elementMaxScrollOffset();
+      if (elementMax === null)
+        return null;
+      const maxAtWrite = elementMax + this._holdOffset;
+      return target > maxAtWrite + 0.5 ? { target, maxAtWrite } : null;
+    };
+    this.getVirtualDistanceFromEnd = () => {
+      return Math.max(this._getLayoutTotalSize() + this.options.scrollMargin - this.getSize() - this.getScrollOffset(), 0);
+    };
+    this.getDistanceFromEnd = () => {
+      return Math.max(this.getMaxScrollOffset() - this.getScrollOffset(), 0);
+    };
+    this.isAtEnd = (threshold = this.options.scrollEndThreshold) => {
+      return this.getDistanceFromEnd() <= threshold;
+    };
+    this.getOffsetForAlignment = (toOffset, align, itemSize = 0) => {
+      if (!this.scrollElement)
+        return 0;
+      const size = this.getSize();
+      const scrollOffset = this.getScrollOffset();
+      if (align === "auto") {
+        align = toOffset >= scrollOffset + size ? "end" : "start";
+      }
+      if (align === "center") {
+        toOffset += (itemSize - size) / 2;
+      } else if (align === "end") {
+        toOffset -= size;
+      }
+      const maxOffset = this.getMaxScrollOffset();
+      return Math.max(Math.min(maxOffset, toOffset), 0);
+    };
+    this.getOffsetForIndex = (index, align = "auto") => {
+      index = Math.max(0, Math.min(index, this.options.count - 1));
+      const size = this.getSize();
+      const scrollOffset = this.getScrollOffset();
+      const item = this.measurementsCache[index];
+      if (!item)
+        return;
+      if (align === "auto") {
+        if (item.end >= scrollOffset + size - this.options.scrollPaddingEnd) {
+          align = "end";
+        } else if (item.start <= scrollOffset + this.options.scrollPaddingStart) {
+          align = "start";
+        } else {
+          return [scrollOffset, align];
+        }
+      }
+      if (align === "end" && index === this.options.count - 1) {
+        const maxOffset = this.getMaxScrollOffset();
+        const toOffset2 = maxOffset - this.options.paddingEnd + this.options.scrollPaddingEnd;
+        return [Math.max(Math.min(toOffset2, maxOffset), 0), align];
+      }
+      const toOffset = align === "end" ? item.end + this.options.scrollPaddingEnd : item.start - this.options.scrollPaddingStart;
+      return [
+        this.getOffsetForAlignment(toOffset, align, item.size),
+        align
+      ];
+    };
+    this.scrollToOffset = (toOffset, { align = "start", behavior = "auto" } = {}) => {
+      this._startScroll({ index: null, align }, this.getOffsetForAlignment(toOffset, align), behavior, "absolute");
+    };
+    this.scrollToIndex = (index, {
+      align: initialAlign = "auto",
+      behavior = "auto"
+    } = {}) => {
+      index = Math.max(0, Math.min(index, this.options.count - 1));
+      const offsetInfo = this.getOffsetForIndex(index, initialAlign);
+      if (!offsetInfo)
+        return;
+      const [offset, align] = offsetInfo;
+      this._startScroll({ index, align }, offset, behavior, "absolute");
+    };
+    this.scrollBy = (delta, { behavior = "auto" } = {}) => {
+      const offset = this.getOffsetForAlignment((this.getCommandWrittenOffset() ?? this.getScrollOffset()) + delta, "start");
+      this._startScroll({ index: null, align: "start" }, offset, behavior, "relative");
+    };
+    this.scrollToEnd = ({ behavior = "auto" } = {}) => {
+      if (this.options.count > 0) {
+        this._startScroll({ index: this.options.count - 1, align: "end", toEnd: true }, Math.max(this.getMaxScrollOffset(), 0), behavior, "absolute");
+        return;
+      }
+      this.scrollToOffset(Math.max(this.getTotalSize() - this.getSize(), 0), {
+        behavior
+      });
+    };
+    this.cancelScroll = () => {
+      if (this.rafId != null && this.targetWindow) {
+        this.targetWindow.cancelAnimationFrame(this.rafId);
+        this.rafId = null;
+      }
+      this.scrollState = null;
+    };
+    this.getTotalSize = () => Math.max(this._getLayoutTotalSize() - this._holdOffset, 0);
+    this._getLayoutTotalSize = () => {
+      var _a, _b;
+      const measurements = this.getMeasurements();
+      let end;
+      if (measurements.length === 0) {
+        end = this.options.paddingStart;
+      } else if (this.options.lanes === 1) {
+        const lastIdx = measurements.length - 1;
+        const flat = (_a = this._singleLaneMeasurements) == null ? undefined : _a.flat;
+        if (flat != null) {
+          end = flat[lastIdx * 2] + flat[lastIdx * 2 + 1];
+        } else {
+          end = ((_b = measurements[lastIdx]) == null ? undefined : _b.end) ?? 0;
+        }
+      } else {
+        const endByLane = Array(this.options.lanes).fill(null);
+        let endIndex = measurements.length - 1;
+        while (endIndex >= 0 && endByLane.some((val) => val === null)) {
+          const item = measurements[endIndex];
+          if (endByLane[item.lane] === null) {
+            endByLane[item.lane] = item.end;
+          }
+          endIndex--;
+        }
+        end = Math.max(...endByLane.filter((val) => val !== null));
+      }
+      return Math.max(end - this.options.scrollMargin + this.options.paddingEnd, 0);
+    };
+    this.takeSnapshot = () => {
+      const snapshot = [];
+      if (this.itemSizeCache.size === 0)
+        return snapshot;
+      const m = this.getMeasurements();
+      for (const item of m) {
+        if (item && this.itemSizeCache.has(item.key)) {
+          snapshot.push({
+            index: item.index,
+            key: item.key,
+            start: item.start,
+            size: item.size,
+            end: item.end,
+            lane: item.lane
+          });
+        }
+      }
+      return snapshot;
+    };
+    this._scrollToOffset = (offset, {
+      adjustments,
+      behavior
+    } = {}) => {
+      const write = {
+        target: offset + (adjustments ?? 0),
+        smooth: behavior === "smooth"
+      };
+      this.pendingWrite = write;
+      this.options.scrollToFn(offset - this._holdOffset, { behavior, adjustments }, this);
+      return write;
+    };
+    this.getCommandWrittenOffset = () => this.scrollState !== null && this.pendingWrite !== null && !this.pendingWrite.smooth ? this.pendingWrite.target : null;
+    this._awaitingCommandReadBack = () => {
+      const writtenOffset = this.getCommandWrittenOffset();
+      return !(isIOSWebKit() && this._iosGesture.dragging()) && writtenOffset !== null && !approxEqual(writtenOffset, this.getScrollOffset());
+    };
+    this._followOffsetTarget = (delta) => {
+      if (this.scrollState !== null && this.scrollState.index == null) {
+        this.scrollState.lastTargetOffset += delta;
+      }
+    };
+    this.measure = () => {
+      this.pendingMin = null;
+      this.itemSizeCache.clear();
+      this.laneAssignments.clear();
+      this.itemSizeCacheVersion++;
+      this.notify(false);
+    };
+    this.setOptions(opts);
+  }
+  get scrollAdjustments() {
+    return 0;
+  }
+  applyScrollAdjustment(delta, behavior) {
+    if (delta === 0)
+      return false;
+    if (this.options.debug) {
+      console.info("correction", delta);
+    }
+    this._followOffsetTarget(delta);
+    if (!this._canWriteScroll()) {
+      this._holdOffset += delta;
+      if (this.scrollOffset !== null)
+        this.scrollOffset += delta;
+      return true;
+    } else {
+      const offset = this.getScrollOffset();
+      this._clampedAdjustment = this._clampedBy(offset + delta);
+      const write = this._scrollToOffset(offset, {
+        adjustments: delta,
+        behavior
+      });
+      if (this.scrollOffset !== null) {
+        if (this.pendingWrite === write)
+          this.scrollOffset += delta;
+        if (this.scrollOffset < 0)
+          this.scrollOffset = 0;
+      }
+      return true;
+    }
+  }
+  scheduleScrollReconcile() {
+    if (!this.targetWindow) {
+      this.scrollState = null;
+      return;
+    }
+    if (this.rafId != null)
+      return;
+    this.rafId = this.targetWindow.requestAnimationFrame(() => {
+      this.rafId = null;
+      this.reconcileScroll();
+    });
+  }
+  getScrollStateTarget(state) {
+    const offsetInfo = state.toEnd ? [Math.max(this.getMaxScrollOffset(), 0)] : state.index != null ? this.getOffsetForIndex(state.index, state.align) : undefined;
+    return offsetInfo ? offsetInfo[0] : state.lastTargetOffset;
+  }
+  reconcileScroll() {
+    if (!this.scrollState)
+      return;
+    const el = this.scrollElement;
+    if (!el)
+      return;
+    const MAX_RECONCILE_MS = 5000;
+    if (this.now() - this.scrollState.startedAt > MAX_RECONCILE_MS) {
+      this.scrollState = null;
+      return;
+    }
+    if (this.scrollState.phase === "queued") {
+      this.scheduleScrollReconcile();
+      return;
+    }
+    this.getMeasurements();
+    const targetOffset = this.getScrollStateTarget(this.scrollState);
+    const STABLE_FRAMES = this.scrollState.index == null ? 1 : this.options.useAnimationFrameWithResizeObserver ? 3 : 2;
+    const targetChanged = targetOffset !== this.scrollState.lastTargetOffset;
+    if (!targetChanged && approxEqual(targetOffset, this.getScrollOffset())) {
+      if (this.scrollState.phase === "smooth") {
+        this.scrollState.phase = "smoothLanded";
+      } else if (this.scrollState.phase === "smoothFinishing") {
+        this.scrollState.phase = "instant";
+      }
+      this.scrollState.stableFrames++;
+      if (this.scrollState.stableFrames >= STABLE_FRAMES) {
+        if (this.getScrollOffset() !== targetOffset) {
+          this._scrollToOffset(targetOffset, { behavior: "auto" });
+        }
+        this.scrollState = null;
+        return;
+      }
+    } else {
+      this.scrollState.stableFrames = 0;
+      if (targetChanged) {
+        const viewport = this.getSize() || 600;
+        const distance = Math.abs(targetOffset - this.getScrollOffset());
+        const keepSmooth = isSmoothScroll(this.scrollState) && distance > viewport;
+        this.scrollState.lastTargetOffset = targetOffset;
+        if (keepSmooth) {
+          this.scrollState.phase = "smooth";
+        } else if (this.scrollState.phase === "smooth") {
+          this.scrollState.phase = "smoothFinishing";
+        } else if (this.scrollState.phase === "smoothLanded") {
+          this.scrollState.phase = "instant";
+        }
+        this._scrollToOffset(targetOffset, {
+          behavior: keepSmooth ? "smooth" : "auto"
+        });
+      }
+    }
+    this.scheduleScrollReconcile();
+  }
+  _startScroll(target, offset, behavior, kind) {
+    this.pendingScrollAnchor = null;
+    this._clampedAdjustment = null;
+    const tail = this._iosGesture.tail();
+    if (kind === "absolute" && tail !== null) {
+      if (tail === "fling" && momentumOverridesWrites()) {
+        this._stopMomentum(() => {
+          const state = this.scrollState;
+          if ((state == null ? undefined : state.phase) !== "queued" || this._iosGesture.tail() !== "fling" || this._reportedOverscroll) {
+            return;
+          }
+          this._iosGesture.end();
+          this._flushHoldIfReady(true);
+          this._writeAwaitingCommand();
+        });
+        this.scrollState = {
+          ...target,
+          startedAt: this.now(),
+          lastTargetOffset: offset,
+          stableFrames: 0,
+          phase: "queued",
+          behavior,
+          samples: []
+        };
+        this.scheduleScrollReconcile();
+        return;
+      }
+      this._iosGesture.end();
+    }
+    this.scrollState = {
+      ...target,
+      startedAt: this.now(),
+      lastTargetOffset: offset,
+      stableFrames: 0,
+      behavior,
+      phase: initialScrollPhase(behavior, target.index != null && approxEqual(offset, this.getScrollOffset()))
+    };
+    this._scrollToOffset(offset, { behavior });
+    this.scheduleScrollReconcile();
+  }
+}
+var findNearestBinarySearch = (low, high, getCurrentValue, value) => {
+  while (low <= high) {
+    const middle = (low + high) / 2 | 0;
+    const currentValue = getCurrentValue(middle);
+    if (currentValue < value) {
+      low = middle + 1;
+    } else if (currentValue > value) {
+      high = middle - 1;
+    } else {
+      return middle;
+    }
+  }
+  if (low > 0) {
+    return low - 1;
+  } else {
+    return 0;
+  }
+};
+function findNearestBinarySearchFlat(flat, high, value) {
+  let low = 0;
+  while (low <= high) {
+    const middle = (low + high) / 2 | 0;
+    const currentValue = flat[middle * 2];
+    if (currentValue < value) {
+      low = middle + 1;
+    } else if (currentValue > value) {
+      high = middle - 1;
+    } else {
+      return middle;
+    }
+  }
+  return low > 0 ? low - 1 : 0;
+}
+function calculateRangeImpl(measurements, outerSize, scrollOffset, lanes, flat) {
+  const lastIndex = measurements.length - 1;
+  if (measurements.length <= lanes) {
+    return { startIndex: 0, endIndex: lastIndex };
+  }
+  if (lanes === 1 && flat !== null) {
+    const startIndex2 = findNearestBinarySearchFlat(flat, lastIndex, scrollOffset);
+    let endIndex2 = startIndex2;
+    const limit = scrollOffset + outerSize;
+    while (endIndex2 < lastIndex && flat[endIndex2 * 2] + flat[endIndex2 * 2 + 1] < limit) {
+      endIndex2++;
+    }
+    return { startIndex: startIndex2, endIndex: endIndex2 };
+  }
+  const getStart = (index) => measurements[index].start;
+  let startIndex = findNearestBinarySearch(0, lastIndex, getStart, scrollOffset);
+  let endIndex = startIndex;
+  if (lanes === 1) {
+    while (endIndex < lastIndex && measurements[endIndex].end < scrollOffset + outerSize) {
+      endIndex++;
+    }
+  } else if (lanes > 1) {
+    const endPerLane = Array(lanes).fill(0);
+    while (endIndex < lastIndex && endPerLane.some((pos) => pos < scrollOffset + outerSize)) {
+      const item = measurements[endIndex];
+      endPerLane[item.lane] = item.end;
+      endIndex++;
+    }
+    const startPerLane = Array(lanes).fill(scrollOffset + outerSize);
+    while (startIndex >= 0 && startPerLane.some((pos) => pos >= scrollOffset)) {
+      const item = measurements[startIndex];
+      startPerLane[item.lane] = item.start;
+      startIndex--;
+    }
+    startIndex = Math.max(0, startIndex - startIndex % lanes);
+    endIndex = Math.min(lastIndex, endIndex + (lanes - 1 - endIndex % lanes));
+  }
+  return { startIndex, endIndex };
+}
+
+// src/ui/dom-lifecycle.ts
+var cleanups = new WeakMap;
+function onDispose(element, cleanup) {
+  cleanups.set(element, cleanup);
+}
+function disposeTree(element) {
+  if (element.closest("[data-live-message]"))
+    return;
+  for (const child of element.querySelectorAll("*")) {
+    if (child.closest("[data-live-message]"))
+      continue;
+    cleanups.get(child)?.();
+    cleanups.delete(child);
+  }
+  cleanups.get(element)?.();
+  cleanups.delete(element);
+}
+
+// src/ui/chat-virtualizer.ts
+var END_THRESHOLD_PX = 2;
+var DEFAULT_ESTIMATE = 220;
+var OVERSCAN = 4;
+
+class ChatVirtualizer {
+  deps;
+  spacer;
+  inner;
+  virt;
+  nodeByKey = new Map;
+  cleanup = null;
+  hasFirstRenderHappened = false;
+  cancelUserScroll = (event) => {
+    if (event instanceof KeyboardEvent && !["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key))
+      return;
+    this.virt.cancelScroll();
+  };
+  constructor(deps) {
+    this.deps = deps;
+    deps.scrollContainer.style.overflowAnchor = "none";
+    deps.scrollContainer.style.contain = deps.containSize === false ? "content" : "strict";
+    this.spacer = document.createElement("div");
+    this.spacer.className = "la-virt-spacer";
+    this.spacer.style.position = "relative";
+    this.spacer.style.width = "100%";
+    deps.scrollContainer.appendChild(this.spacer);
+    this.inner = document.createElement("div");
+    this.inner.className = "la-virt-inner";
+    this.inner.style.position = "absolute";
+    this.inner.style.top = "0";
+    this.inner.style.left = "0";
+    this.inner.style.width = "100%";
+    this.spacer.appendChild(this.inner);
+    this.virt = new Virtualizer({
+      count: deps.getMessages().length,
+      getScrollElement: () => deps.scrollContainer,
+      estimateSize: (i) => {
+        const m = deps.getMessages()[i];
+        return m ? deps.estimateSize?.(m) ?? DEFAULT_ESTIMATE : DEFAULT_ESTIMATE;
+      },
+      getItemKey: (i) => deps.getMessages()[i]?.id ?? i,
+      observeElementOffset,
+      observeElementRect,
+      scrollToFn: elementScroll,
+      overscan: OVERSCAN,
+      anchorTo: deps.followEnd === false ? "start" : "end",
+      followOnAppend: deps.followEnd !== false,
+      scrollEndThreshold: END_THRESHOLD_PX,
+      onChange: () => this.sync()
+    });
+    this.cleanup = this.virt._didMount();
+    for (const event of ["wheel", "touchstart", "pointerdown", "keydown"]) {
+      deps.scrollContainer.addEventListener(event, this.cancelUserScroll, { passive: true });
+    }
+    this.sync();
+  }
+  setCount() {
+    this.virt.setOptions({ ...this.virt.options, count: this.deps.getMessages().length, getItemKey: (i) => this.deps.getMessages()[i]?.id ?? i });
+    this.sync();
+  }
+  requestMeasure(messageId) {
+    const node = this.nodeByKey.get(messageId);
+    if (node)
+      this.virt.measureElement(node);
+  }
+  evict(messageId) {
+    const node = this.nodeByKey.get(messageId);
+    if (node)
+      disposeTree(node);
+    if (node?.parentElement)
+      node.remove();
+    this.nodeByKey.delete(messageId);
+  }
+  clear() {
+    for (const node of this.nodeByKey.values()) {
+      disposeTree(node);
+      if (node.parentElement)
+        node.remove();
+    }
+    this.nodeByKey.clear();
+  }
+  clearExcept(messageId) {
+    const keep = this.nodeByKey.get(messageId);
+    for (const [key, node] of this.nodeByKey) {
+      if (key === messageId)
+        continue;
+      disposeTree(node);
+      if (node.parentElement)
+        node.remove();
+    }
+    this.nodeByKey.clear();
+    if (keep)
+      this.nodeByKey.set(messageId, keep);
+  }
+  scrollToBottom() {
+    const count = this.deps.getMessages().length;
+    if (count === 0)
+      return;
+    this.virt.scrollToEnd();
+  }
+  scrollToItem(id) {
+    const index = this.deps.getMessages().findIndex((item) => item.id === id);
+    if (index < 0)
+      return;
+    this.virt.scrollToIndex(index, { align: "start" });
+    this.sync();
+  }
+  isNearBottom() {
+    return this.deps.followEnd !== false && this.virt.isAtEnd();
+  }
+  captureAnchor() {
+    const scrollTop = this.deps.scrollContainer.scrollTop;
+    const item = this.virt.getVirtualItems().find((item) => item.end > scrollTop);
+    if (!item)
+      return null;
+    return { id: String(item.key), offset: scrollTop - item.start };
+  }
+  restoreAnchor(anchor) {
+    this.hasFirstRenderHappened = true;
+    this.virt.setOptions({ ...this.virt.options, count: this.deps.getMessages().length, getItemKey: (i) => this.deps.getMessages()[i]?.id ?? i });
+    const index = this.deps.getMessages().findIndex((message) => message.id === anchor.id);
+    if (index < 0) {
+      this.sync();
+      return;
+    }
+    const restore = () => {
+      const offset = this.virt.getOffsetForIndex(index, "start");
+      if (offset)
+        this.virt.scrollToOffset(offset[0] + anchor.offset);
+    };
+    restore();
+    this.sync();
+    restore();
+  }
+  destroy() {
+    if (this.cleanup) {
+      this.cleanup();
+      this.cleanup = null;
+    }
+    for (const event of ["wheel", "touchstart", "pointerdown", "keydown"]) {
+      this.deps.scrollContainer.removeEventListener(event, this.cancelUserScroll);
+    }
+    this.clear();
+    if (this.spacer.parentElement)
+      this.spacer.parentElement.removeChild(this.spacer);
+  }
+  normaliseItemStyle(node) {
+    if (node.style.position)
+      node.style.position = "";
+    if (node.style.top)
+      node.style.top = "";
+    if (node.style.left)
+      node.style.left = "";
+    if (node.style.right)
+      node.style.right = "";
+    if (node.style.transform)
+      node.style.transform = "";
+  }
+  sync() {
+    this.virt._willUpdate();
+    const items = this.virt.getVirtualItems();
+    const totalSize = this.virt.getTotalSize();
+    this.spacer.style.height = `${totalSize}px`;
+    this.inner.style.transform = `translateY(${items[0]?.start ?? 0}px)`;
+    const activeKeys = new Set;
+    for (const it of items)
+      activeKeys.add(String(it.key));
+    for (const [key, node] of this.nodeByKey) {
+      if (!activeKeys.has(key) && node.parentElement === this.inner) {
+        this.inner.removeChild(node);
+        if (!node.contains(document.activeElement)) {
+          disposeTree(node);
+          this.nodeByKey.delete(key);
+        }
+      }
+    }
+    this.virt.measureElement(null);
+    const messages = this.deps.getMessages();
+    let cursor = this.inner.firstChild;
+    for (const item of items) {
+      const key = String(item.key);
+      const msg = messages[item.index];
+      if (!msg)
+        continue;
+      let node = this.nodeByKey.get(key);
+      if (!node) {
+        node = document.createElement("div");
+        node.className = "la-virtual-row";
+        node.style.display = "flow-root";
+        node.append(this.deps.renderMessage(msg, item.index));
+        node.setAttribute("data-virt-key", key);
+        this.nodeByKey.set(key, node);
+      }
+      this.normaliseItemStyle(node);
+      node.setAttribute("data-index", String(item.index));
+      if (node === cursor) {
+        cursor = node.nextSibling;
+      } else {
+        this.inner.insertBefore(node, cursor);
+        cursor = node.nextSibling;
+      }
+      this.virt.measureElement(node);
+    }
+    if (!this.hasFirstRenderHappened && items.length > 0) {
+      this.hasFirstRenderHappened = true;
+      if (this.deps.initialPosition !== "start" && this.deps.followEnd !== false)
+        this.scrollToBottom();
+    }
+  }
+}
+
+// src/ui/record-picker.ts
+function mountRecordPicker(root, options) {
+  root.classList.add("la-modal-body");
+  const search = document.createElement("input");
+  search.type = "search";
+  search.className = "la-picker-search";
+  search.placeholder = options.label;
+  search.setAttribute("aria-label", options.label);
+  const status = document.createElement("div");
+  status.className = "la-picker-status";
+  status.setAttribute("role", "status");
+  const list = document.createElement("div");
+  list.className = "la-picker-list";
+  root.append(search, status, list);
+  const feedback = new RequestFeedback(list);
+  let items = [], visible = [];
+  const virtualizer = new ChatVirtualizer({ scrollContainer: list, getMessages: () => visible, renderMessage: options.render, estimateSize: () => 76, initialPosition: "start", followEnd: false });
+  const render = () => {
+    const query = search.value.trim().toLocaleLowerCase();
+    visible = items.filter((item) => options.search(item).toLocaleLowerCase().includes(query));
+    status.textContent = visible.length ? "" : query ? "No matches" : "No conversations yet";
+    virtualizer.clear();
+    virtualizer.setCount();
+  };
+  search.oninput = () => {
+    list.scrollTop = 0;
+    render();
+  };
+  const refresh = () => {
+    feedback.begin("list", { label: "Loading conversations…", position: "center", retry: refresh });
+    options.reload();
+  };
+  return { refresh, setItems(next) {
+    items = next;
+    feedback.clear();
+    render();
+  }, destroy() {
+    feedback.destroy();
+    virtualizer.destroy();
+  }, focus() {
+    search.focus();
+  } };
+}
+
+// node_modules/tus-js-client/lib.esm/error.js
 function _typeof(o) {
   "@babel/helpers - typeof";
   return _typeof = typeof Symbol == "function" && typeof Symbol.iterator == "symbol" ? function(o) {
@@ -2513,7 +4980,7 @@ var DetailedError = /* @__PURE__ */ function(_Error) {
 }(/* @__PURE__ */ _wrapNativeSuper(Error));
 var error_default = DetailedError;
 
-// ../../../node_modules/tus-js-client/lib.esm/logger.js
+// node_modules/tus-js-client/lib.esm/logger.js
 var isEnabled = false;
 function log(msg) {
   if (!isEnabled)
@@ -2521,7 +4988,7 @@ function log(msg) {
   console.log(msg);
 }
 
-// ../../../node_modules/tus-js-client/lib.esm/noopUrlStorage.js
+// node_modules/tus-js-client/lib.esm/noopUrlStorage.js
 function _typeof2(o) {
   "@babel/helpers - typeof";
   return _typeof2 = typeof Symbol == "function" && typeof Symbol.iterator == "symbol" ? function(o) {
@@ -2596,7 +5063,7 @@ var NoopUrlStorage = /* @__PURE__ */ function() {
   }]);
 }();
 
-// ../../../node_modules/js-base64/base64.mjs
+// node_modules/js-base64/base64.mjs
 var version = "3.9.5";
 var VERSION = version;
 var _TD = typeof TextDecoder === "function" ? new TextDecoder("utf-8", { ignoreBOM: true }) : undefined;
@@ -2757,10 +5224,10 @@ var gBase64 = {
   extendBuiltins
 };
 
-// ../../../node_modules/tus-js-client/lib.esm/upload.js
+// node_modules/tus-js-client/lib.esm/upload.js
 var import_url_parse = __toESM(require_url_parse());
 
-// ../../../node_modules/tus-js-client/lib.esm/uuid.js
+// node_modules/tus-js-client/lib.esm/uuid.js
 function uuid() {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function(c) {
     var r = Math.random() * 16 | 0;
@@ -2769,7 +5236,7 @@ function uuid() {
   });
 }
 
-// ../../../node_modules/tus-js-client/lib.esm/upload.js
+// node_modules/tus-js-client/lib.esm/upload.js
 function _regeneratorRuntime() {
   /*! regenerator-runtime -- Copyright (c) 2014-present, Facebook, Inc. -- license (MIT): https://github.com/facebook/regenerator/blob/main/LICENSE */
   _regeneratorRuntime = function _regeneratorRuntime() {
@@ -3945,13 +6412,13 @@ function splitSizeIntoParts(totalSize, partCount) {
 BaseUpload.defaultOptions = defaultOptions;
 var upload_default = BaseUpload;
 
-// ../../../node_modules/tus-js-client/lib.esm/browser/isReactNative.js
+// node_modules/tus-js-client/lib.esm/browser/isReactNative.js
 var isReactNative = function isReactNative() {
   return typeof navigator !== "undefined" && typeof navigator.product === "string" && navigator.product.toLowerCase() === "reactnative";
 };
 var isReactNative_default = isReactNative;
 
-// ../../../node_modules/tus-js-client/lib.esm/browser/uriToBlob.js
+// node_modules/tus-js-client/lib.esm/browser/uriToBlob.js
 function uriToBlob(uri) {
   return new Promise(function(resolve, reject) {
     var xhr = new XMLHttpRequest;
@@ -3968,13 +6435,13 @@ function uriToBlob(uri) {
   });
 }
 
-// ../../../node_modules/tus-js-client/lib.esm/browser/sources/isCordova.js
+// node_modules/tus-js-client/lib.esm/browser/sources/isCordova.js
 var isCordova = function isCordova() {
   return typeof window !== "undefined" && (typeof window.PhoneGap !== "undefined" || typeof window.Cordova !== "undefined" || typeof window.cordova !== "undefined");
 };
 var isCordova_default = isCordova;
 
-// ../../../node_modules/tus-js-client/lib.esm/browser/sources/readAsByteArray.js
+// node_modules/tus-js-client/lib.esm/browser/sources/readAsByteArray.js
 function readAsByteArray(chunk) {
   return new Promise(function(resolve, reject) {
     var reader = new FileReader;
@@ -3991,7 +6458,7 @@ function readAsByteArray(chunk) {
   });
 }
 
-// ../../../node_modules/tus-js-client/lib.esm/browser/sources/FileSource.js
+// node_modules/tus-js-client/lib.esm/browser/sources/FileSource.js
 function _typeof4(o) {
   "@babel/helpers - typeof";
   return _typeof4 = typeof Symbol == "function" && typeof Symbol.iterator == "symbol" ? function(o) {
@@ -4064,7 +6531,7 @@ var FileSource = /* @__PURE__ */ function() {
   }]);
 }();
 
-// ../../../node_modules/tus-js-client/lib.esm/browser/sources/StreamSource.js
+// node_modules/tus-js-client/lib.esm/browser/sources/StreamSource.js
 function _typeof5(o) {
   "@babel/helpers - typeof";
   return _typeof5 = typeof Symbol == "function" && typeof Symbol.iterator == "symbol" ? function(o) {
@@ -4200,7 +6667,7 @@ var StreamSource = /* @__PURE__ */ function() {
   }]);
 }();
 
-// ../../../node_modules/tus-js-client/lib.esm/browser/fileReader.js
+// node_modules/tus-js-client/lib.esm/browser/fileReader.js
 function _typeof6(o) {
   "@babel/helpers - typeof";
   return _typeof6 = typeof Symbol == "function" && typeof Symbol.iterator == "symbol" ? function(o) {
@@ -4601,7 +7068,7 @@ var FileReader2 = /* @__PURE__ */ function() {
   }]);
 }();
 
-// ../../../node_modules/tus-js-client/lib.esm/browser/fileSignature.js
+// node_modules/tus-js-client/lib.esm/browser/fileSignature.js
 function fingerprint(file, options) {
   if (isReactNative_default()) {
     return Promise.resolve(reactNativeFingerprint(file, options));
@@ -4625,7 +7092,7 @@ function hashCode(str) {
   return hash;
 }
 
-// ../../../node_modules/tus-js-client/lib.esm/browser/httpStack.js
+// node_modules/tus-js-client/lib.esm/browser/httpStack.js
 function _typeof7(o) {
   "@babel/helpers - typeof";
   return _typeof7 = typeof Symbol == "function" && typeof Symbol.iterator == "symbol" ? function(o) {
@@ -4788,7 +7255,7 @@ var Response = /* @__PURE__ */ function() {
   }]);
 }();
 
-// ../../../node_modules/tus-js-client/lib.esm/browser/urlStorage.js
+// node_modules/tus-js-client/lib.esm/browser/urlStorage.js
 function _typeof8(o) {
   "@babel/helpers - typeof";
   return _typeof8 = typeof Symbol == "function" && typeof Symbol.iterator == "symbol" ? function(o) {
@@ -4903,7 +7370,7 @@ var WebStorageUrlStorage = /* @__PURE__ */ function() {
   }]);
 }();
 
-// ../../../node_modules/tus-js-client/lib.esm/browser/index.js
+// node_modules/tus-js-client/lib.esm/browser/index.js
 function _typeof9(o) {
   "@babel/helpers - typeof";
   return _typeof9 = typeof Symbol == "function" && typeof Symbol.iterator == "symbol" ? function(o) {
@@ -5187,12 +7654,233 @@ function characterScope(id) {
 function scopeKeyString(s) {
   return `${s.kind}:${s.id}`;
 }
+function canRevertEdit(entry) {
+  return !entry.reverted && !(entry.record.surface === "external" && entry.record.op === "edit" && entry.record.auditOnly);
+}
 function fileKeyOf(e) {
   const r = e.record;
   if (r.op === "edit")
     return `${r.surface}:${r.surfaceId}:${r.field}`;
   return `${r.surface}:${r.surfaceId}`;
 }
+
+// src/ui/message-styles.ts
+var MESSAGE_STYLES = `
+.la-drawer :is(button,summary,[role=button]) { -webkit-tap-highlight-color:transparent; }
+.la-drawer { --la-conversation-soft: color-mix(in srgb, var(--lumiverse-text) 4%, var(--lumiverse-bg)); }
+.la-header { background:var(--lumiverse-bg); padding:12px 14px; gap:8px; }
+.la-header .la-btn { min-width:34px; min-height:34px; border-color:transparent; border-radius:10px; }
+.la-header .la-combo-trigger { min-height:36px; border-radius:10px; padding:8px 12px; background:var(--la-conversation-soft); border:1px solid var(--lumiverse-border); }
+.la-header .la-btn:hover { border-color:var(--lumiverse-border); }
+.la-message-details,.la-activity-pagination button { font:inherit; font-size:12px; border:1px solid transparent; background:transparent; color:var(--lumiverse-text-muted); border-radius:8px; padding:7px 9px; min-height:34px; cursor:pointer; }
+.la-message-details:hover,.la-activity-pagination button:hover:not(:disabled) { background:var(--lumiverse-bg-hover); color:var(--lumiverse-text); }
+.la-activity-pagination button:disabled { opacity:.4; cursor:default; }
+.la-thread { padding:22px 16px; min-height:0; scrollbar-gutter:stable; }
+.la-thread-shell { position:relative; display:flex; flex-direction:column; flex:1; min-height:0; min-width:0; }
+.la-thread-shell.is-syncing .la-thread { filter:blur(4px); opacity:.55; pointer-events:none; }
+.la-thread-shell.is-opening .la-empty { visibility:hidden; }
+.la-request-feedback { position:absolute; z-index:4; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:8px; max-width:calc(100% - 24px); padding:8px 12px; border:1px solid var(--lumiverse-border); border-radius:12px; color:var(--lumiverse-text); background:var(--lumiverse-bg-elevated); box-shadow:0 3px 12px color-mix(in srgb,var(--lumiverse-bg) 35%,transparent); font-size:12px; line-height:1.4; }
+.la-request-feedback[hidden],.la-request-feedback [hidden] { display:none!important; }
+.la-request-feedback[data-position=top] { top:12px; }
+.la-request-feedback[data-position=bottom] { bottom:12px; }
+.la-request-feedback[data-position=center] { top:50%; transform:translate(-50%,-50%); }
+.la-request-feedback button,.la-inspector-retry { border:0; border-radius:6px; padding:5px 8px; background:var(--lumiverse-bg-hover); color:var(--lumiverse-text); font:inherit; cursor:pointer; }
+.la-pending-spinner { display:inline-block; flex:none; width:14px; height:14px; box-sizing:border-box; border:2px solid color-mix(in srgb,var(--lumiverse-text-muted) 30%,transparent); border-top-color:var(--lumiverse-primary); border-radius:50%; animation:la-request-spin .8s linear infinite; }
+.la-inspector-progress { display:flex; align-items:center; gap:8px; }
+@keyframes la-request-spin { to { transform:rotate(360deg); } }
+@media(prefers-reduced-motion:reduce) { .la-pending-spinner { animation:none; border-style:dotted; } }
+
+.la-msg { margin-bottom:24px; padding:8px; border-radius:18px; }
+.la-msg-bubble { transition:background .15s,border-color .15s; }
+.la-virtual-row:hover .la-msg-bubble,.la-virtual-row:focus-within .la-msg-bubble { background:color-mix(in srgb,var(--lumiverse-text) 8%,var(--lumiverse-bg)); border-color:color-mix(in srgb,var(--lumiverse-text) 20%,var(--lumiverse-border)); }
+.la-msg-assistant .la-msg-bubble { line-height:1.65; border-radius:16px 16px 16px 4px; padding:12px 16px; background:var(--la-conversation-soft); border:1px solid var(--lumiverse-border); }
+.la-virtual-row:hover .la-msg-actions,.la-virtual-row:focus-within .la-msg-actions { opacity:1; pointer-events:auto; }
+.la-msg-user .la-msg-bubble { border-radius:16px 16px 4px 16px; padding:12px 16px; background:var(--la-conversation-soft); border:1px solid var(--lumiverse-border); }
+.la-msg-block { margin:12px 0; }
+.la-activity-summary,.la-edits-card { margin:8px 0 16px; border:1px solid var(--lumiverse-border); border-radius:14px; background:var(--la-conversation-soft); overflow:hidden; }
+.la-activity-summary > summary,.la-edits-card > summary { display:flex; align-items:center; gap:10px; padding:13px 14px; cursor:pointer; list-style:none; min-height:48px; }
+.la-activity-summary > summary::-webkit-details-marker,.la-edits-card > summary::-webkit-details-marker { display:none; }
+.la-activity-chevron { width:20px; height:20px; flex:0 0 20px; display:block; color:var(--lumiverse-text-muted); transition:transform .16s; }
+.la-activity-summary[open] > summary > .la-activity-chevron,.la-edits-card[open] > summary > .la-activity-chevron { transform:rotate(180deg); }
+.la-activity-chevron svg { display:block; width:100%; height:100%; }
+.la-activity-count:empty { display:none; }
+.la-activity-summary > summary:hover,.la-edits-card > summary:hover { background:var(--lumiverse-bg-hover); }
+.la-drawer :is(.la-activity-summary,.la-edits-card) > summary:focus-visible { outline:2px solid var(--lumiverse-primary); outline-offset:-3px; border-radius:inherit; }
+.la-edits-list { padding:0 12px; max-height:min(360px,45dvh); overflow:auto; overscroll-behavior:contain; }
+.la-edits-card[open] .la-edits-list { display:flex; flex-direction:column; gap:8px; }
+.la-edits-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; padding:10px 12px; }
+.la-edits-actions .la-btn { min-height:32px; padding:6px 10px; background:var(--lumiverse-bg); border:1px solid var(--lumiverse-border); border-radius:8px; color:var(--lumiverse-text-muted); }
+.la-edits-actions .la-btn-danger { color:var(--lumiverse-danger); }
+@media(hover:none),(pointer:coarse) { .la-edits-actions .la-btn { min-height:40px; } }
+.la-activity-label { flex:1; min-width:0; font-size:12px; font-weight:550; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.la-activity-count { color:var(--lumiverse-text-muted); font-size:11px; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.la-activity-indicator { width:7px; height:7px; border-radius:50%; background:var(--lumiverse-text-muted); flex:none; }
+.la-activity-summary[data-state=running] .la-activity-indicator { background:var(--lumiverse-primary); box-shadow:0 0 0 4px color-mix(in srgb,var(--lumiverse-primary) 14%,transparent); }
+.la-activity-summary[data-state=error] .la-activity-indicator { background:var(--lumiverse-danger,var(--lumiverse-text)); }
+.la-activity-steps { padding:0 10px 10px; }
+.la-activity-pagination { display:flex; align-items:center; gap:6px; color:var(--lumiverse-text-muted); font-size:11px; padding-bottom:6px; }
+.la-activity-pagination span { margin-left:auto; }
+.la-activity-steps .la-tool-card { margin:3px 0; border:0; border-radius:8px; background:transparent; box-shadow:none; }
+.la-activity-steps .la-tool-head { min-height:38px; padding:9px 10px; }
+.la-tool-caret { display:flex; align-items:center; justify-content:center; }
+.la-tool-caret svg { display:block; transition:transform .16s; }
+.la-tool-card.is-open .la-tool-caret svg { transform:rotate(90deg); }
+.la-tool-head .la-tool-free-btn { display:none!important; }
+.la-tool-card.is-open .la-tool-head .la-tool-free-btn { display:inline-flex!important; text-transform:none; font-size:10px; }
+.la-tool-card.is-open .la-tool-head .la-tool-free-btn[hidden] { display:none!important; }
+.la-tool-body pre { max-height:240px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; }
+.la-reasoning { border:0; background:none; margin:8px 0; padding:0; }
+.la-reasoning-toggle { border:0; background:transparent; color:var(--lumiverse-text-muted); font:inherit; font-size:11px; min-height:32px; padding:5px 0; cursor:pointer; }
+.la-reasoning-body { max-height:240px; overflow:auto; padding:10px 12px; border-left:2px solid var(--lumiverse-border); font-size:12px; line-height:1.65; white-space:pre-wrap; }
+.la-run-notice { border-left:3px solid var(--lumiverse-primary); border-radius:0 8px 8px 0; padding:10px 12px; margin:12px 0; background:var(--la-conversation-soft); font-size:12px; line-height:1.6; overflow-wrap:anywhere; }
+.la-run-notice.is-error { border-color:var(--lumiverse-danger,var(--lumiverse-primary)); }
+.la-run-notice summary { cursor:pointer; font-weight:550; }
+.la-run-notice pre { max-height:240px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; }
+.la-message-details { display:block; margin:4px 0 0; font-size:11px; }
+.la-composer-input-wrap { border-radius:18px; box-shadow:none; }
+.la-composer-area { border-radius:18px; padding:6px 8px; align-items:center; gap:8px; }
+.la-composer-actions { align-items:center; gap:6px; align-self:flex-end; padding:2px 0; }
+.la-composer-actions > button { box-sizing:border-box; flex:0 0 36px; width:36px; height:36px; min-width:36px; min-height:36px; padding:0; margin:0; align-items:center; justify-content:center; line-height:1; }
+.la-composer-actions .la-compact-btn { display:flex; }
+.la-composer-actions svg { display:block; flex:none; }
+.la-composer .la-composer-status { display:none; }
+.la-composer .la-composer-status.is-error:not(:empty) { display:block; color:var(--lumiverse-danger,var(--lumiverse-text)); font-size:11px; line-height:1.5; }
+.la-send-btn,.la-cancel-btn,.la-attach-btn { width:36px; height:36px; border-radius:12px; }
+.la-message-inspector { background:var(--lumiverse-bg); color:var(--lumiverse-text); border:1px solid var(--lumiverse-border); border-radius:18px; width:min(800px,94vw); max-height:85dvh; padding:20px; }
+.la-message-inspector::backdrop { background:color-mix(in srgb,var(--lumiverse-bg) 70%,transparent); }
+.la-message-inspector header,.la-message-inspector nav { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.la-message-inspector header { justify-content:space-between; }
+.la-message-inspector h3 { margin:0; font-size:16px; }
+.la-message-inspector p { color:var(--lumiverse-text-muted); font-size:12px; }
+.la-message-inspector pre { max-height:55dvh; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.6; font-size:12px; }
+.la-message-inspector button { font:inherit; font-size:12px; padding:9px 12px; border-radius:8px; border:1px solid var(--lumiverse-border); background:var(--lumiverse-bg-hover); color:inherit; cursor:pointer; }
+.la-message-inspector button:disabled { opacity:.4; cursor:default; }
+.la-drawer :is(button,summary,[role=button]):focus-visible { outline:2px solid var(--lumiverse-primary); outline-offset:3px; }
+@media(prefers-reduced-motion:reduce) { .la-msg-bubble,.la-activity-summary *,.la-edits-card *,.la-reasoning-summary * { animation:none!important; transition:none!important; } }
+@media(hover:none),(pointer:coarse) { .la-msg-actions { opacity:1; pointer-events:auto; } .la-msg-action-btn { min-width:40px; min-height:40px; display:inline-flex; align-items:center; justify-content:center; } }
+`;
+
+// src/ui/app-styles.ts
+var SCROLL_SURFACE = ":is(.la-drawer, .la-drawer *, .la-modal-body, .la-modal-body *, .la-diff-modal-root, .la-diff-modal-root *, .la-ask-modal, .la-ask-modal *):not(.la-vn-lines)";
+var APP_STYLES = `
+.la-history-only { font-size:12px; color:var(--lumiverse-text-muted); max-width:300px; }
+.la-history-only summary { cursor:pointer; padding:8px 0; }
+.la-history-only p { white-space:normal; line-height:1.5; margin:4px 0; }
+.la-long-diff { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+.la-long-diff section { min-width:0; }
+.la-long-diff h4 { margin:0 0 10px; font-size:12px; }
+@media(max-width:600px) { .la-long-diff { grid-template-columns:1fr; } }
+.la-picker-search { width:100%; padding:11px 12px; margin-bottom:10px; border:1px solid var(--lumiverse-border); border-radius:10px; color:var(--lumiverse-text); background:var(--lumiverse-bg); font:inherit; }
+.la-picker-list { position:relative; height:min(540px,65dvh); overflow:auto; overscroll-behavior:contain; scrollbar-width:thin; }
+.la-picker-status { color:var(--lumiverse-text-muted); font-size:12px; padding:8px 0; }
+.la-picker-status:empty { display:none; }
+.la-picker-list .la-session-item-main { display:block; border:0; background:none; color:inherit; font:inherit; text-align:left; padding:8px 0; min-width:0; flex:1; cursor:pointer; }
+.la-session-title { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.la-slider-native { width:100%; height:32px; accent-color:var(--lumiverse-primary); cursor:pointer; }
+.la-slider-reset { border:0; background:transparent; color:var(--lumiverse-text-muted); font:inherit; font-size:11px; padding:8px; cursor:pointer; }
+.la-agent-settings :is(button,input,textarea,summary,select):focus-visible,.la-diff-modal-root :is(button,input,summary):focus-visible { outline:2px solid var(--lumiverse-primary); outline-offset:2px; }
+@media(hover:none),(pointer:coarse) { .la-diff-tree-row,.la-session-item-delete,.la-workshop-tab { min-height:42px; } .la-slider-reset { min-height:40px; } }
+.la-settings-section { border-top:1px solid var(--lumiverse-border); padding:20px 0; }
+.la-settings-section > h3 { margin:0 0 12px; font-size:14px; font-weight:600; }
+.la-agent-settings { min-width:0; }
+.la-agent-settings .la-composer-status { position:sticky; bottom:0; padding:10px 0; background:var(--lumiverse-bg); font-size:12px; }
+.la-agent-settings .la-composer-status:empty { display:none; }
+.la-settings-hint { line-height:1.5; }
+.la-form-error { font-size:12px; color:var(--lumiverse-danger,var(--lumiverse-text)); }
+.la-form-error:empty { display:none; }
+.la-ask-modal { max-height:calc(100dvh - 32px); overflow-y:auto; overscroll-behavior:contain; }
+.la-ask-footer { position:sticky; bottom:0; background:var(--lumiverse-bg-elevated); }
+@media(max-width:600px) { .la-settings-row { flex-wrap:wrap; gap:8px; } .la-settings-textarea { font-size:16px; } .la-ask-modal { width:calc(100vw - 24px); max-width:none; padding:16px; } }
+.la-activity-scroll { min-height:1px; max-height:min(360px,45dvh); overflow:auto; overscroll-behavior:auto; scrollbar-width:thin; padding:0 6px; }
+.la-activity-status { display:flex; align-items:center; gap:8px; padding:8px 12px; color:var(--lumiverse-text-muted); font-size:12px; }
+.la-activity-status:empty { display:none; }
+.la-reasoning-summary { margin:8px 0 12px; color:var(--lumiverse-text-muted); border:1px solid transparent; border-radius:16px; }
+.la-reasoning-summary[open] { border-color:var(--lumiverse-border); background:var(--la-conversation-soft); }
+.la-reasoning-summary[open] > summary { border-color:transparent; background:transparent; }
+.la-reasoning-summary > summary { display:inline-flex; align-items:center; gap:7px; min-height:32px; max-width:100%; padding:5px 11px; border:1px solid var(--lumiverse-border); border-radius:999px; background:var(--lumiverse-bg); cursor:pointer; list-style:none; font-size:12px; transition:background .15s,border-color .15s; }
+.la-reasoning-summary > summary:hover { background:var(--lumiverse-bg-hover); }
+.la-reasoning-summary > summary:focus-visible { outline:2px solid var(--lumiverse-primary); outline-offset:3px; }
+.la-reasoning-summary.is-thinking > summary .la-activity-indicator { display:block; width:11px; height:11px; background:none; border:1.5px solid var(--lumiverse-border); border-top-color:var(--lumiverse-primary); border-radius:50%; animation:la-request-spin 1s linear infinite; }
+.la-streaming-loading { display:flex; flex-direction:column; align-items:flex-start; gap:2px; min-height:28px; padding:4px 12px; }
+.la-msg-assistant[data-live-message] > .la-msg-bubble:empty { display:none; }
+@media(prefers-reduced-motion:reduce) { .la-thinking *, .la-thinking *::before, .la-thinking *::after { animation:none!important; } }
+@media(prefers-reduced-motion:reduce) { .la-reasoning-summary.is-thinking > summary .la-activity-indicator { animation:none; border-style:dotted; } }
+.la-progress-label { font-size:12px; color:var(--lumiverse-text-muted); }
+.la-compaction-status { margin:0 0 8px; font-size:12px; line-height:1.5; color:var(--lumiverse-text-muted); }
+.la-reasoning-summary > summary::-webkit-details-marker { display:none; }
+.la-reasoning-summary .la-activity-indicator { display:none; }
+.la-reasoning-summary .la-activity-label { flex:initial; font-weight:500; }
+.la-reasoning-summary .la-activity-chevron { width:16px; height:16px; flex-basis:16px; }
+.la-reasoning-summary[open] > summary .la-activity-chevron { transform:rotate(180deg); }
+.la-reasoning-summary .la-activity-scroll { max-height:min(320px,40dvh); border:0; border-top:1px solid var(--lumiverse-border); padding:6px 0; margin:0; scrollbar-gutter:stable; }
+.la-reasoning-tool { display:block; width:100%; text-align:left; padding:8px 11px; line-height:1.6; overflow-wrap:anywhere; white-space:normal; border:0; border-radius:8px; background:transparent; color:var(--lumiverse-primary); font:inherit; font-size:12px; cursor:pointer; }
+.la-reasoning-tool:hover { background:var(--lumiverse-bg-hover); }
+.la-reasoning-text { padding:8px 11px; font-size:12px; line-height:1.6; overflow-wrap:anywhere; }
+.la-activity-scroll .la-tool-card { margin:3px 0; }
+.la-inline-content { min-height:24px; font-size:12px; }
+.la-inline-content pre,.la-inline-chunk pre { white-space:pre-wrap; overflow-wrap:anywhere; margin:0; font:12px/1.6 ui-monospace,monospace; }
+.la-inline-scroll { height:320px; overflow:auto; overscroll-behavior:auto; scrollbar-width:thin; }
+.la-tool-body-section .la-inline-content { max-height:320px; overflow:auto; }
+.la-inline-retry,.la-activity-status button { margin-left:8px; padding:6px 10px; border:1px solid var(--lumiverse-border); border-radius:8px; color:var(--lumiverse-text); background:var(--lumiverse-bg-hover); }
+.la-files { display:flex; flex-direction:column; height:100%; min-height:0; min-width:0; gap:10px; padding:14px; color:var(--lumiverse-text); font:13px/1.5 var(--lumiverse-font-family,system-ui); container-type:inline-size; }
+.la-files-toolbar,.la-files-actions,.la-files-breadcrumbs { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+.la-files button { min-height:36px; border-radius:8px; font-family:inherit; font-size:12px; }
+.la-files button:focus-visible,.la-files-list:focus-visible { outline:2px solid var(--lumiverse-primary); outline-offset:2px; }
+.la-files-breadcrumbs { padding:5px 0; font-size:12px; color:var(--lumiverse-text-muted); }
+.la-files-breadcrumbs button { background:transparent; border-color:transparent; max-width:220px; overflow:hidden; text-overflow:ellipsis; }
+.la-files-breadcrumbs [aria-current] { color:var(--lumiverse-text); font-weight:600; }
+.la-files-status { font-size:12px; overflow-wrap:anywhere; color:var(--lumiverse-text-muted); }
+.la-files-status:empty { display:none; }
+.la-files-status.is-error { color:var(--lumiverse-danger,var(--lumiverse-text)); }
+.la-files-split { display:grid; grid-template-columns:minmax(220px,2fr) minmax(0,3fr); flex:1; min-height:0; border:1px solid var(--lumiverse-border); border-radius:12px; overflow:hidden; }
+.la-files-list { overflow:auto; min-height:0; position:relative; overscroll-behavior:contain; scrollbar-width:thin; }
+.la-files-list-space { position:relative; }
+.la-file-row { height:44px; position:absolute; left:0; right:0; display:flex; align-items:center; gap:10px; padding:0 12px; cursor:pointer; border:1px solid transparent; font-size:12px; }
+.la-file-row:hover { background:var(--lumiverse-bg-hover); }
+.la-file-row.is-selected { background:color-mix(in srgb,var(--lumiverse-primary) 13%,transparent); border-color:color-mix(in srgb,var(--lumiverse-primary) 35%,transparent); }
+.la-file-row.is-cut { opacity:.45; }
+.la-files .is-drop-target { box-shadow:inset 0 0 0 2px var(--lumiverse-primary); background:color-mix(in srgb,var(--lumiverse-primary) 12%,transparent); }
+.la-file-icon { width:20px; height:20px; flex:none; color:var(--lumiverse-text-muted); }
+.la-file-icon svg { width:100%; height:100%; fill:none; stroke:currentColor; stroke-width:1.5; stroke-linejoin:round; }
+.la-file-name { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.la-file-size { color:var(--lumiverse-text-muted); font-size:11px; white-space:nowrap; }
+.la-files-preview { min-width:0; min-height:0; overflow:auto; display:flex; flex-direction:column; border-left:1px solid var(--lumiverse-border); padding:14px; gap:12px; }
+.la-files-preview:empty::after { content:"Select a file to preview"; margin:auto; color:var(--lumiverse-text-muted); font-size:12px; }
+.la-files-preview-header { display:flex; gap:10px; align-items:center; font-size:13px; overflow-wrap:anywhere; }
+.la-files-preview-header button { display:none; }
+.la-files-preview-body { flex:1; min-height:0; display:flex; flex-direction:column; gap:10px; }
+.la-files-loading { display:flex; align-items:center; justify-content:center; gap:10px; min-height:120px; font-size:12px; color:var(--lumiverse-text-muted); }
+.la-files-status .la-files-loading { min-height:24px; justify-content:flex-start; }
+.la-files-empty { padding:24px 12px; color:var(--lumiverse-text-muted); font-size:12px; text-align:center; }
+.la-files-editor-bar { display:flex; align-items:center; justify-content:space-between; gap:12px; font-size:11px; color:var(--lumiverse-text-muted); }
+.la-files-editor { flex:1; min-height:180px; width:100%; resize:none; border:1px solid var(--lumiverse-border); border-radius:8px; background:var(--lumiverse-bg); color:var(--lumiverse-text); padding:12px; font:12px/1.65 ui-monospace,monospace; tab-size:2; }
+.la-files-preview-body :is(img,video) { max-width:100%; max-height:55dvh; object-fit:contain; border-radius:8px; }
+.la-files-preview-body audio { width:100%; }
+.la-file-name-dialog { width:min(360px,90vw); border:1px solid var(--lumiverse-border); border-radius:14px; padding:20px; background:var(--lumiverse-bg-elevated); color:var(--lumiverse-text); }
+.la-file-name-dialog::backdrop { background:#0006; }
+.la-file-name-dialog label { display:flex; flex-direction:column; gap:12px; font-size:14px; }
+.la-file-name-dialog input { width:100%; padding:10px; background:var(--lumiverse-bg); color:inherit; border:1px solid var(--lumiverse-border); border-radius:8px; font:inherit; }
+.la-file-name-dialog .la-files-actions { margin-top:18px; justify-content:flex-end; }
+@container(max-width:600px) {
+  .la-files-split { grid-template-columns:1fr; }
+  .la-files-preview { display:none; border-left:0; }
+  .has-preview .la-files-preview { display:flex; }
+  .has-preview .la-files-list { display:none; }
+  .la-files-preview-header button { display:inline-flex; }
+}
+@media(hover:none),(pointer:coarse) { .la-files button { min-height:42px; } .la-files-editor { font-size:16px; } }
+${SCROLL_SURFACE} { scrollbar-width:thin; scrollbar-color:color-mix(in srgb,var(--lumiverse-text-muted) 45%,transparent) transparent; }
+@supports selector(::-webkit-scrollbar) {
+  ${SCROLL_SURFACE} { scrollbar-width:auto; scrollbar-color:auto; }
+  ${SCROLL_SURFACE}::-webkit-scrollbar { width:6px; height:6px; }
+  ${SCROLL_SURFACE}::-webkit-scrollbar-track { background:transparent; }
+  ${SCROLL_SURFACE}::-webkit-scrollbar-thumb { background:color-mix(in srgb,var(--lumiverse-text-muted) 45%,transparent); border-radius:999px; }
+  ${SCROLL_SURFACE}::-webkit-scrollbar-thumb:hover { background:color-mix(in srgb,var(--lumiverse-text-muted) 70%,transparent); }
+  ${SCROLL_SURFACE}::-webkit-scrollbar-button { display:none; width:0; height:0; }
+  ${SCROLL_SURFACE}::-webkit-scrollbar-corner { background:transparent; }
+}
+@media(forced-colors:active) { ${SCROLL_SURFACE} { scrollbar-color:auto; } ${SCROLL_SURFACE}::-webkit-scrollbar-thumb { background:CanvasText; } }
+`;
 
 // src/ui/loaders.ts
 var LOADER_VARIANTS = [
@@ -6129,11 +8817,11 @@ ${LOADERS_CSS}
    edge (~105px at full mousey size), i.e. drawer_width > ~970px. Default
    gives 24px breathing room; the @container override below kicks in only
    when the figure is in the column's vertical channel. */
-.la-virt-inner {
+.la-thread > .la-virt-spacer > .la-virt-inner {
   padding-bottom: 24px;
 }
 @container drawer (max-width: 970px) {
-  .la-virt-inner {
+  .la-thread > .la-virt-spacer > .la-virt-inner {
     /* Reserve = mousey_visible_extent + 24px buffer. Mousey extends above
        the composer by height * (1 - 0.33) = height * 0.67. Both scale via
        22cqw so the reserve tracks the figure 1:1 across drawer widths. */
@@ -6368,7 +9056,7 @@ ${LOADERS_CSS}
   background: linear-gradient(
     90deg,
     var(--lumiverse-text-muted) 0%,
-    var(--lumiverse-primary-text) 50%,
+    var(--lumiverse-primary-text, var(--lumiverse-primary)) 50%,
     var(--lumiverse-text-muted) 100%
   );
   background-size: 200% 100%;
@@ -6657,34 +9345,6 @@ ${LOADERS_CSS}
 .la-todos-empty { color: var(--lumiverse-text-dim); font-style: italic; }
 
 /* Edits card */
-.la-edits-card {
-  border: 1px solid var(--lumiverse-primary-muted);
-  border-radius: var(--lumiverse-radius);
-  background: var(--lumiverse-primary-015);
-  padding: 10px 14px;
-  font-size: 13px;
-}
-.la-edits-head {
-  display: flex; align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  user-select: none;
-}
-.la-edits-caret {
-  color: var(--lumiverse-primary-text);
-  font-size: 11px;
-  flex-shrink: 0;
-  width: 12px; text-align: center;
-}
-.la-edits-title {
-  font-weight: 600;
-  color: var(--lumiverse-primary-text);
-  letter-spacing: 0.01em;
-  flex: 1;
-}
-.la-edits-head-right { flex-shrink: 0; }
-.la-edits-list { display: none; margin-top: 10px; }
-.la-edits-card.is-open .la-edits-list { display: flex; flex-direction: column; gap: 8px; }
 .la-edit-row {
   padding: 8px 10px;
   background: var(--lumiverse-bg-elevated);
@@ -6776,13 +9436,15 @@ ${LOADERS_CSS}
   bottom: 100%;
   height: min(140px, 22cqw);
   width: auto;
-  pointer-events: auto;
-  cursor: pointer;
+  pointer-events: none;
   user-select: none;
   transform: translateY(33%);
   z-index: 1;
   transition: -webkit-mask-image var(--lumiverse-transition-fast), mask-image var(--lumiverse-transition-fast);
 }
+.la-mousey-hit { position:absolute; z-index:2; padding:0; margin:0; border:0; background:transparent; cursor:pointer; }
+.la-mousey-hit[hidden] { display:none; }
+.la-mousey-hit:focus-visible { outline:2px solid var(--lumiverse-primary); outline-offset:-2px; border-radius:8px; }
 /* Soft alpha falloff applied ONLY when text is detected behind the image.
    Toggled by the overlap detector in drawer.ts. The mask fades the image's
    own bottom edge so the figure stays visible without occluding text under
@@ -6811,6 +9473,8 @@ ${LOADERS_CSS}
   box-shadow: 0 0 0 3px var(--lumiverse-primary-015);
 }
 .la-textarea {
+  box-sizing: border-box;
+  min-width: 0;
   flex: 1;
   background: transparent;
   border: none;
@@ -6818,7 +9482,7 @@ ${LOADERS_CSS}
   font-family: inherit;
   font-size: 14px;
   line-height: 1.5;
-  padding: 10px 0;
+  padding: 10px 8px;
   min-height: 24px;
   max-height: 84px;
   overflow-y: auto;
@@ -7037,8 +9701,9 @@ ${LOADERS_CSS}
 }
 .la-cancel-btn:hover { background: var(--lumiverse-danger-015); border-color: var(--lumiverse-danger-050); }
 .la-cancel-btn svg { width: 14px; height: 14px; }
-.la-composer-status { display: none; }
-.la-composer-status.is-error { display: none; }
+.la-composer-status { font-size:12px; line-height:1.5; color:var(--lumiverse-text-muted); }
+.la-composer-status:empty { display:none; }
+.la-composer-status.is-error { color:var(--lumiverse-danger,var(--lumiverse-text)); }
 .la-composer-hint { color: var(--lumiverse-text-dim); font-size: 10px; text-align: right; padding: 0 16px; }
 
 /* Empty state */
@@ -7324,7 +9989,8 @@ ${LOADERS_CSS}
 .la-diff-modal-root {
   display: flex; flex-direction: column;
   height: 100%; min-height: 0;
-  margin: -16px;
+  margin: 0;
+  max-height:calc(100dvh - 144px);
   background: var(--lumiverse-bg);
   color: var(--lumiverse-text);
   font-family: var(--lumiverse-font-family);
@@ -7684,11 +10350,8 @@ ${LOADERS_CSS}
   55% { transform: translateY(30%) scale(1.18) rotate(-4deg); filter: brightness(3) saturate(2) drop-shadow(0 0 18px var(--lumiverse-danger)); }
   100% { transform: translateY(36%) scale(1.5); filter: brightness(6) saturate(0) blur(6px); opacity: 0; }
 }
-/* The remains: clickable, glowing pulsing halo, swells slightly on hover.
-   Overrides the decorative portrait's pointer-events: none. */
 .la-mousey.la-mousey-blood {
-  pointer-events: auto;
-  cursor: pointer;
+  pointer-events: none;
   height: min(90px, 15cqw);
   transform: translateY(20%);
   opacity: 1;
@@ -8104,7 +10767,297 @@ ${LOADERS_CSS}
   .la-composer { padding: 10px 10px 12px; }
   .la-msg-user .la-msg-bubble { max-width: 92%; }
 }
+${MESSAGE_STYLES}
+${APP_STYLES}
 `;
+
+// src/ui/assistant-progress.ts
+function duration(ms) {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+}
+function mountAssistantProgress(reasoning, showWaiting) {
+  const summary = reasoning.root.querySelector("summary");
+  let activity;
+  let receivedAt = 0;
+  let timer;
+  const stop = () => {
+    if (timer !== undefined)
+      clearInterval(timer);
+    timer = undefined;
+  };
+  const render = () => {
+    if (!activity)
+      return;
+    const active = ["waiting", "thinking", "responding", "tools"].includes(activity.phase);
+    const now = (activity.observedAt ?? activity.updatedAt) + (active ? performance.now() - receivedAt : 0);
+    const silence = Math.max(0, now - activity.updatedAt);
+    const thinking = activity.phase === "thinking";
+    const elapsed = activity.reasoningMs + (activity.thinkingSince === undefined ? 0 : Math.max(0, now - activity.thinkingSince));
+    const waiting = active && activity.phase !== "tools" && silence >= 30000;
+    reasoning.root.classList.toggle("is-thinking", thinking && !waiting);
+    reasoning.setLabel(waiting && thinking ? `Waiting for model · ${duration(silence)}` : thinking ? `Thinking for ${duration(elapsed)}` : elapsed > 0 ? `Thought for ${duration(elapsed)}` : "Reasoning");
+    summary.title = active ? `Last update ${duration(silence)} ago` : "Reasoning and tool history";
+    showWaiting?.(activity.phase === "waiting" ? `Waiting for model${silence >= 1000 ? ` · ${duration(silence)}` : "…"}` : waiting && !thinking ? `Waiting for model · ${duration(silence)}` : null);
+  };
+  onDispose(summary, stop);
+  return {
+    update(value) {
+      activity = value ? { ...value } : undefined;
+      receivedAt = performance.now();
+      stop();
+      render();
+      if (activity && ["waiting", "thinking", "responding", "tools"].includes(activity.phase))
+        timer = setInterval(render, 1000);
+    },
+    destroy: stop
+  };
+}
+
+// src/ui/icons.ts
+var STROKE = `stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"`;
+var ICON_CHEVRON_DOWN = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="m6 9 6 6 6-6" ${STROKE}/></svg>`;
+var ICON_RETRY = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M21 3V8M21 8H16M21 8L18 5.29168C16.4077 3.86656 14.3051 3 12 3C7.02944 3 3 7.02944 3 12C3 16.9706 7.02944 21 12 21C16.2832 21 19.8675 18.008 20.777 14" ${STROKE}/></svg>`;
+var ICON_EDIT = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M20 16v4a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4" ${STROKE}/><polygon points="12.5 15.8 22 6.2 17.8 2 8.3 11.5 8 16 12.5 15.8" ${STROKE}/></svg>`;
+var ICON_TRASH = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14M10 11v6M14 11v6" ${STROKE}/></svg>`;
+var ICON_FORK = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v2a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9"/><path d="M12 12v3"/></svg>`;
+var ICON_DOWNLOAD = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
+var ICON_PIN = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>`;
+var ICON_PIN_OFF = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="M12 17v5"/><path d="M15 9.34V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H7.89"/><path d="m2 2 20 20"/><path d="M9 9v1.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h11"/></svg>`;
+var ICON_TICK = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/></svg>`;
+var ICON_NEW = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>`;
+var ICON_SESSIONS = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"/><path d="M7.5 9.5c0 .687.265 1.383.697 1.844l3.009 3.264a1.14 1.14 0 0 0 .407.314 1 1 0 0 0 .783-.004 1.14 1.14 0 0 0 .398-.31l3.008-3.264A2.77 2.77 0 0 0 16.5 9.5 2.5 2.5 0 0 0 12 8a2.5 2.5 0 0 0-4.5 1.5"/></svg>`;
+var ICON_SETTINGS = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="m10 16 1.5 1.5"/><path d="m14 8-1.5-1.5"/><path d="M15 2c-1.798 1.998-2.518 3.995-2.807 5.993"/><path d="m16.5 10.5 1 1"/><path d="m17 6-2.891-2.891"/><path d="M2 15c6.667-6 13.333 0 20-6"/><path d="m20 9 .891.891"/><path d="M3.109 14.109 4 15"/><path d="m6.5 12.5 1 1"/><path d="m7 18 2.891 2.891"/><path d="M9 22c1.798-1.998 2.518-3.995 2.807-5.993"/></svg>`;
+var ICON_WORKSHOP = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="M13 22h5a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v7"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M3.62 18.8A2.25 2.25 0 1 1 7 15.836a2.25 2.25 0 1 1 3.38 2.966l-2.626 2.856a1 1 0 0 1-1.507 0z"/></svg>`;
+var ICON_EXPAND = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/></svg>`;
+var ICON_COLLAPSE = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="m14 10 7-7"/><path d="m3 21 7-7"/></svg>`;
+var ICON_LUMIAGENT = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"><path d="m8 18-4 4V8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2Z"/><path d="M6.3 6 7 1.9 11 6"/><path d="M17.7 6 17 1.9 13 6"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="M9 11v2"/><path d="M15 11v2"/></svg>`;
+
+// src/ui/activity-summary.ts
+function createActivitySummary(options = {}) {
+  const root = document.createElement("details");
+  root.className = options.className ?? "la-activity-summary";
+  const summary = document.createElement("summary");
+  const indicator = document.createElement("span");
+  indicator.className = "la-activity-indicator";
+  indicator.setAttribute("aria-hidden", "true");
+  const label = document.createElement("span");
+  label.className = "la-activity-label";
+  const count = document.createElement("span");
+  count.className = "la-activity-count";
+  const chevron = document.createElement("span");
+  chevron.className = "la-activity-chevron";
+  chevron.setAttribute("aria-hidden", "true");
+  chevron.innerHTML = ICON_CHEVRON_DOWN;
+  summary.append(indicator, label, count, chevron);
+  const body = document.createElement("div");
+  body.className = "la-activity-scroll";
+  body.tabIndex = 0;
+  body.setAttribute("aria-label", options.label ?? "Tool activity");
+  body.hidden = !!options.load;
+  const status = document.createElement("div");
+  status.className = "la-activity-status";
+  status.setAttribute("role", "status");
+  root.append(summary, status, body);
+  let steps = [], total = 0, start = 0, end = 0;
+  let virtualizer = null;
+  let busy = false, destroyed = false, initialized = false;
+  let lastScroll = 0;
+  let customLabel = options.label;
+  let active = true;
+  const expanded = new Set;
+  const refreshLabel = () => {
+    const running = active ? steps.find((step) => step.state === "running") : undefined, errors = steps.some((step) => step.state === "error");
+    root.dataset.state = running ? "running" : errors ? "error" : "done";
+    label.textContent = customLabel ?? running?.title ?? "Activity";
+    count.textContent = options.label ? "" : `${total} ${total === 1 ? "step" : "steps"}`;
+  };
+  const mount = () => {
+    if (virtualizer || !root.open || body.hidden || destroyed)
+      return;
+    virtualizer = new ChatVirtualizer({ scrollContainer: body, getMessages: () => steps, renderMessage: (step) => {
+      const row = step.render();
+      const head = row.querySelector(".la-tool-head");
+      if (head) {
+        if (expanded.has(step.id))
+          head.click();
+        head.addEventListener("click", () => {
+          if (row.classList.contains("is-open")) {
+            expanded.add(step.id);
+            if (expanded.size > 90)
+              expanded.delete(expanded.values().next().value);
+          } else
+            expanded.delete(step.id);
+        });
+      }
+      return row;
+    }, estimateSize: () => 48, initialPosition: "start", followEnd: false, containSize: false });
+    virtualizer.setCount();
+  };
+  const load = async (at, callId) => {
+    if (!options.load || busy || destroyed)
+      return;
+    if (!virtualizer)
+      body.hidden = true;
+    busy = true;
+    status.replaceChildren();
+    const spinner = document.createElement("span");
+    spinner.className = "la-pending-spinner";
+    spinner.setAttribute("aria-hidden", "true");
+    status.append(spinner, document.createTextNode("Loading…"));
+    const anchor = virtualizer?.captureAnchor();
+    try {
+      const page = await options.load(at ?? (initialized ? undefined : 0), callId);
+      if (destroyed)
+        return;
+      if (callId || !initialized || page.end < start || page.start > end) {
+        steps = page.steps;
+        start = page.start;
+        end = page.end;
+        virtualizer?.clear();
+      } else {
+        const from = Math.min(start, page.start), to = Math.max(end, page.end);
+        const combined = [];
+        for (let i = from;i < to; i++) {
+          const step = steps[i - start] ?? page.steps[i - page.start];
+          if (step)
+            combined.push(step);
+        }
+        steps = combined;
+        start = from;
+        end = to;
+        if (steps.length > 90) {
+          const trim = steps.length - 90;
+          if (page.start < (at === undefined ? end : at + 30) && page.start === from && page.end < end) {
+            steps.splice(-trim);
+            end -= trim;
+          } else {
+            steps.splice(0, trim);
+            start += trim;
+          }
+        }
+      }
+      initialized = true;
+      total = page.total;
+      body.hidden = total === 0;
+      status.replaceChildren();
+      refreshLabel();
+      mount();
+      virtualizer?.setCount();
+      if (callId) {
+        virtualizer?.scrollToItem(callId);
+        requestAnimationFrame(() => {
+          const row = [...body.querySelectorAll("[data-virt-key]")].find((item) => item.dataset.virtKey === callId);
+          const card = row?.querySelector(".la-tool-card");
+          if (card && !card.classList.contains("is-open"))
+            card.querySelector(".la-tool-head")?.click();
+          row?.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+          card?.querySelector(".la-tool-head")?.focus({ preventScroll: true });
+        });
+      } else if (anchor && steps.some((step) => step.id === anchor.id))
+        virtualizer?.restoreAnchor(anchor);
+    } catch (error) {
+      if (destroyed)
+        return;
+      body.hidden = !virtualizer || steps.length === 0;
+      status.textContent = error.message;
+      const retry = document.createElement("button");
+      retry.textContent = "Retry";
+      retry.onclick = () => void load(at, callId);
+      status.append(retry);
+    } finally {
+      busy = false;
+    }
+  };
+  body.addEventListener("scroll", () => {
+    const direction = body.scrollTop - lastScroll;
+    lastScroll = body.scrollTop;
+    if (busy || !initialized)
+      return;
+    if (direction < 0 && body.scrollTop < 100 && start > 0)
+      load(Math.max(0, start - 30));
+    else if (direction > 0 && body.scrollHeight - body.scrollTop - body.clientHeight < 100 && end < total)
+      load(end);
+  }, { passive: true });
+  root.addEventListener("toggle", () => {
+    if (root.open) {
+      if (!initialized && options.load)
+        load();
+      else
+        mount();
+    } else {
+      virtualizer?.destroy();
+      virtualizer = null;
+    }
+  });
+  const destroy = () => {
+    destroyed = true;
+    virtualizer?.destroy();
+    virtualizer = null;
+    steps = [];
+  };
+  onDispose(root, destroy);
+  refreshLabel();
+  return {
+    root,
+    destroy,
+    setLabel(value) {
+      customLabel = value;
+      label.textContent = value;
+    },
+    setActive(value) {
+      active = value;
+      refreshLabel();
+    },
+    refresh(id) {
+      virtualizer?.evict(id);
+      virtualizer?.setCount();
+    },
+    reveal(id) {
+      root.open = true;
+      root.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+      if (options.load)
+        load(undefined, id);
+      else {
+        mount();
+        virtualizer?.scrollToItem(id);
+        requestAnimationFrame(() => body.querySelector(`[data-virt-key="${CSS.escape(id)}"] .la-tool-head`)?.click());
+      }
+    },
+    setTotal(value) {
+      total = Math.max(total, value);
+      refreshLabel();
+    },
+    add(step) {
+      body.hidden = false;
+      if (steps.some((item) => item.id === step.id))
+        return;
+      if (initialized && end < total) {
+        total++;
+        refreshLabel();
+        return;
+      }
+      steps.push(step);
+      total++;
+      end++;
+      if (steps.length > 90 && steps[0]?.state !== "running") {
+        steps.shift();
+        start++;
+      }
+      refreshLabel();
+      virtualizer?.setCount();
+    },
+    finish(id, error) {
+      const step = steps.find((step) => step.id === id);
+      if (!step)
+        return;
+      step.state = error ? "error" : "done";
+      refreshLabel();
+      virtualizer?.evict(id);
+      virtualizer?.setCount();
+    }
+  };
+}
 
 // src/ui/markdown.ts
 var ALLOWED_TAGS = new Set([
@@ -8515,7 +11468,77 @@ function renderMarkdown(raw) {
     frag.appendChild(child);
   return frag;
 }
-// ../../../node_modules/diff/libesm/diff/base.js
+
+// src/ui/inline-content.ts
+function mountInlineContent(root, read, markdown = false) {
+  let disposed = false;
+  let virtualizer = null;
+  onDispose(root, () => {
+    disposed = true;
+    virtualizer?.destroy();
+  });
+  const render = async (target, offset, initialize = false) => {
+    target.querySelector(".la-inline-feedback")?.remove();
+    const feedback = document.createElement("div");
+    feedback.className = "la-inline-feedback";
+    feedback.setAttribute("role", "status");
+    if (!target.hasChildNodes()) {
+      const spinner = document.createElement("span");
+      spinner.className = "la-pending-spinner";
+      spinner.setAttribute("aria-label", "Loading content");
+      feedback.append(spinner);
+    }
+    target.append(feedback);
+    target.setAttribute("aria-busy", "true");
+    let detached = false;
+    if (!initialize)
+      onDispose(target, () => {
+        detached = true;
+      });
+    try {
+      const detail = await read(offset);
+      if (disposed || detached)
+        return;
+      target.replaceChildren();
+      if (initialize && detail.total > 24000) {
+        root.classList.add("la-inline-scroll");
+        const chunks = Array.from({ length: Math.ceil(detail.total / 24000) }, (_, index) => ({ id: String(index), offset: index * 24000 }));
+        virtualizer = new ChatVirtualizer({ scrollContainer: root, getMessages: () => chunks, initialPosition: "start", followEnd: false, estimateSize: () => 1200, renderMessage(chunk) {
+          const body = document.createElement("div");
+          body.className = "la-inline-chunk";
+          if (chunk.offset === 0)
+            fill(body, detail.content);
+          else
+            render(body, chunk.offset);
+          return body;
+        } });
+        virtualizer.setCount();
+      } else
+        fill(target, detail.content);
+    } catch (error) {
+      if (disposed || detached)
+        return;
+      const retry = document.createElement("button");
+      retry.className = "la-inline-retry";
+      retry.textContent = "Retry";
+      retry.onclick = () => void render(target, offset, initialize);
+      feedback.replaceChildren(document.createTextNode(error.message), retry);
+    } finally {
+      target.removeAttribute("aria-busy");
+    }
+  };
+  const fill = (target, content) => {
+    if (markdown)
+      target.replaceChildren(renderMarkdown(content));
+    else {
+      const pre = document.createElement("pre");
+      pre.textContent = content;
+      target.replaceChildren(pre);
+    }
+  };
+  render(root, 0, true);
+}
+// node_modules/diff/libesm/diff/base.js
 class Diff {
   diff(oldStr, newStr, options = {}) {
     let callback;
@@ -8715,7 +11738,7 @@ class Diff {
   }
 }
 
-// ../../../node_modules/diff/libesm/util/string.js
+// node_modules/diff/libesm/util/string.js
 function longestCommonPrefix(str1, str2) {
   let i;
   for (i = 0;i < str1.length && i < str2.length; i++) {
@@ -8843,7 +11866,7 @@ function leadingAndTrailingWs(string, segmenter) {
   return [head, tail];
 }
 
-// ../../../node_modules/diff/libesm/diff/word.js
+// node_modules/diff/libesm/diff/word.js
 var extendedWordChars = "a-zA-Z0-9_\\u{AD}\\u{C0}-\\u{D6}\\u{D8}-\\u{F6}\\u{F8}-\\u{2C6}\\u{2C8}-\\u{2D7}\\u{2DE}-\\u{2FF}\\u{1E00}-\\u{1EFF}";
 var tokenizeIncludingWhitespace = new RegExp(`[${extendedWordChars}]+|\\s+|[^${extendedWordChars}]`, "ug");
 
@@ -8982,7 +12005,7 @@ function diffWordsWithSpace(oldStr, newStr, options) {
   return wordsWithSpaceDiff.diff(oldStr, newStr, options);
 }
 
-// ../../../node_modules/diff/libesm/diff/line.js
+// node_modules/diff/libesm/diff/line.js
 class LineDiff extends Diff {
   constructor() {
     super(...arguments);
@@ -9368,24 +12391,6 @@ function isShortField(before, after) {
   return longest < 120 && newlines <= 2;
 }
 
-// src/ui/icons.ts
-var STROKE = `stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"`;
-var ICON_RETRY = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M21 3V8M21 8H16M21 8L18 5.29168C16.4077 3.86656 14.3051 3 12 3C7.02944 3 3 7.02944 3 12C3 16.9706 7.02944 21 12 21C16.2832 21 19.8675 18.008 20.777 14" ${STROKE}/></svg>`;
-var ICON_EDIT = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M20 16v4a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4" ${STROKE}/><polygon points="12.5 15.8 22 6.2 17.8 2 8.3 11.5 8 16 12.5 15.8" ${STROKE}/></svg>`;
-var ICON_TRASH = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14M10 11v6M14 11v6" ${STROKE}/></svg>`;
-var ICON_FORK = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v2a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9"/><path d="M12 12v3"/></svg>`;
-var ICON_DOWNLOAD = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
-var ICON_PIN = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>`;
-var ICON_PIN_OFF = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="M12 17v5"/><path d="M15 9.34V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H7.89"/><path d="m2 2 20 20"/><path d="M9 9v1.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h11"/></svg>`;
-var ICON_TICK = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/></svg>`;
-var ICON_NEW = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>`;
-var ICON_SESSIONS = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"/><path d="M7.5 9.5c0 .687.265 1.383.697 1.844l3.009 3.264a1.14 1.14 0 0 0 .407.314 1 1 0 0 0 .783-.004 1.14 1.14 0 0 0 .398-.31l3.008-3.264A2.77 2.77 0 0 0 16.5 9.5 2.5 2.5 0 0 0 12 8a2.5 2.5 0 0 0-4.5 1.5"/></svg>`;
-var ICON_SETTINGS = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="m10 16 1.5 1.5"/><path d="m14 8-1.5-1.5"/><path d="M15 2c-1.798 1.998-2.518 3.995-2.807 5.993"/><path d="m16.5 10.5 1 1"/><path d="m17 6-2.891-2.891"/><path d="M2 15c6.667-6 13.333 0 20-6"/><path d="m20 9 .891.891"/><path d="M3.109 14.109 4 15"/><path d="m6.5 12.5 1 1"/><path d="m7 18 2.891 2.891"/><path d="M9 22c1.798-1.998 2.518-3.995 2.807-5.993"/></svg>`;
-var ICON_WORKSHOP = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="M13 22h5a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v7"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M3.62 18.8A2.25 2.25 0 1 1 7 15.836a2.25 2.25 0 1 1 3.38 2.966l-2.626 2.856a1 1 0 0 1-1.507 0z"/></svg>`;
-var ICON_EXPAND = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/></svg>`;
-var ICON_COLLAPSE = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ${STROKE}><path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="m14 10 7-7"/><path d="m3 21 7-7"/></svg>`;
-var ICON_LUMIAGENT = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"><path d="m8 18-4 4V8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2Z"/><path d="M6.3 6 7 1.9 11 6"/><path d="M17.7 6 17 1.9 13 6"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="M9 11v2"/><path d="M15 11v2"/></svg>`;
-
 // src/ui/loading.ts
 var WORDS = [
   "Accomplishing",
@@ -9496,6 +12501,8 @@ function pickWord(exclude) {
 function mountLoading(parent) {
   const wrap = document.createElement("div");
   wrap.className = "la-thinking";
+  wrap.setAttribute("role", "status");
+  wrap.setAttribute("aria-label", "Working");
   const spinner = document.createElement("span");
   spinner.className = `la-ld ${pickLoaderVariant()}`;
   const word = document.createElement("span");
@@ -9503,6 +12510,8 @@ function mountLoading(parent) {
   const dots = document.createElement("span");
   dots.className = "la-thinking-dots";
   dots.innerHTML = "<span>.</span><span>.</span><span>.</span>";
+  for (const child of [spinner, word, dots])
+    child.setAttribute("aria-hidden", "true");
   wrap.append(spinner, word, dots);
   parent.appendChild(wrap);
   let active = true;
@@ -9555,7 +12564,8 @@ function mountLoading(parent) {
       return;
     timeoutHandle = setTimeout(cycle, HOLD_MIN_MS + Math.random() * HOLD_JITTER_MS);
   };
-  timeoutHandle = setTimeout(cycle, 1400);
+  if (!matchMedia("(prefers-reduced-motion: reduce)").matches)
+    timeoutHandle = setTimeout(cycle, 1400);
   return {
     destroy() {
       active = false;
@@ -9576,6 +12586,23 @@ function el2(tag, cls, text) {
   if (text !== undefined)
     e.textContent = text;
   return e;
+}
+function runNotice(message, error = false) {
+  const root = el2("div", `la-run-notice${error ? " is-error" : ""}`);
+  if (message.length < 240 && !message.includes(`
+`)) {
+    root.textContent = message;
+    return root;
+  }
+  const details = document.createElement("details");
+  const summary = document.createElement("summary");
+  summary.textContent = message.split(`
+`)[0].slice(0, 180);
+  const body = document.createElement("pre");
+  body.textContent = message.slice(0, 16000);
+  details.append(summary, body);
+  root.append(details);
+  return root;
 }
 function shortId(id) {
   return id.length > 8 ? `${id.slice(0, 8)}…` : id;
@@ -9640,6 +12667,17 @@ function describeExternalTarget(surfaceId, itemId, field) {
 function describeToolActivity(name, args) {
   const s = (k) => typeof args[k] === "string" ? args[k] : undefined;
   switch (name) {
+    case "workspace": {
+      const action = s("action") ?? "inspect";
+      const verb = { read: "Reading", list: "Listing", write: "Writing", edit: "Editing", copy: "Copying", move: "Moving", unzip: "Extracting", zip: "Archiving", delete: "Deleting", mkdir: "Creating folder" }[action] ?? "Inspecting";
+      return { kind: ["write", "edit", "move", "delete", "mkdir", "unzip"].includes(action) ? "write" : "read", verb, target: s("path") ?? s("from") ?? "workspace" };
+    }
+    case "inspect_theme":
+      return { kind: "read", verb: "Inspecting", target: s("query") ?? s("selector") ?? s("component") ?? "theme" };
+    case "edit_theme":
+      return { kind: "write", verb: args["validate_only"] ? "Validating" : "Updating", target: "theme" };
+    case "capture_ui":
+      return { kind: "read", verb: "Capturing", target: "current interface" };
     case "read":
       return { kind: "read", verb: "Reading", target: describePath(s("path")) };
     case "inspect":
@@ -9786,7 +12824,12 @@ function buildToolCard(callId, name, args, deps) {
   const desc = describeToolActivity(name, args);
   card.dataset["kind"] = desc.kind;
   const head = el2("div", "la-tool-head");
-  const caret = el2("span", "la-tool-caret", "▸");
+  head.tabIndex = 0;
+  head.setAttribute("role", "button");
+  head.setAttribute("aria-expanded", "false");
+  const caret = el2("span", "la-tool-caret");
+  caret.setAttribute("aria-hidden", "true");
+  caret.innerHTML = '<svg viewBox="0 0 20 20" width="16" height="16"><path d="m8 6 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   const spinner = el2("span", "la-tool-spinner");
   spinner.setAttribute("aria-hidden", "true");
   const activity = el2("span", "la-tool-activity");
@@ -9795,8 +12838,10 @@ function buildToolCard(callId, name, args, deps) {
   activity.append(verbSpan, targetSpan);
   const sensBadge = el2("span", "la-tool-sens");
   sensBadge.style.display = "none";
-  const freeBtn = el2("button", "la-tool-free-btn", "free");
+  const freeBtn = el2("button", "la-tool-free-btn", "Forget result");
   freeBtn.type = "button";
+  freeBtn.dataset.canFree = String(!!deps?.onFreeToolResult);
+  freeBtn.hidden = !deps?.onFreeToolResult;
   freeBtn.title = "Replace this result with a stub to save context. The model loses access to its content.";
   freeBtn.style.display = "none";
   let confirmTimer = null;
@@ -9806,7 +12851,7 @@ function buildToolCard(callId, name, args, deps) {
       confirmTimer = null;
     }
     freeBtn.classList.remove("is-confirming");
-    freeBtn.textContent = "free";
+    freeBtn.textContent = "Forget result";
   };
   freeBtn.addEventListener("click", (ev) => {
     ev.stopPropagation();
@@ -9844,7 +12889,13 @@ function buildToolCard(callId, name, args, deps) {
     if (t.closest(".la-tool-free-btn"))
       return;
     card.classList.toggle("is-open");
-    caret.textContent = card.classList.contains("is-open") ? "▾" : "▸";
+    head.setAttribute("aria-expanded", String(card.classList.contains("is-open")));
+  });
+  head.addEventListener("keydown", (event) => {
+    if (event.target === head && (event.key === "Enter" || event.key === " ")) {
+      event.preventDefault();
+      head.click();
+    }
   });
   return card;
 }
@@ -9853,6 +12904,7 @@ function applyToolCardFreed(card, freed) {
   const freeBtn = card.querySelector(".la-tool-free-btn");
   if (!badge || !freeBtn)
     return;
+  freeBtn.hidden = freed === true || freeBtn.dataset.canFree !== "true";
   if (freed) {
     badge.textContent = "freed";
     badge.className = "la-tool-sens la-tool-sens-freed";
@@ -9889,7 +12941,7 @@ function buildEditRow(entry, deps) {
   const fullBtn = el2("button", "la-btn la-btn-mini la-btn-ghost", "Open full diff");
   fullBtn.addEventListener("click", () => deps.onOpenDiffModal(entry.id));
   actions.appendChild(fullBtn);
-  if (!entry.reverted) {
+  if (canRevertEdit(entry)) {
     const revertBtn = el2("button", "la-btn la-btn-mini la-btn-danger", "Revert");
     revertBtn.addEventListener("click", async () => {
       revertBtn.disabled = true;
@@ -9922,16 +12974,20 @@ function buildEditRow(entry, deps) {
   return row;
 }
 function buildEditsCard(parentMsg, deps) {
-  const card = el2("div", "la-edits-card la-msg-block");
-  const head = el2("div", "la-edits-head");
-  const caret = el2("span", "la-edits-caret", "▸");
-  const title = el2("span", "la-edits-title", "Edits (0)");
-  const right = el2("span", "la-edits-head-right");
+  const card = el2("details", "la-edits-card la-msg-block");
+  const head = el2("summary", "la-edits-head");
+  const indicator = el2("span", "la-activity-indicator");
+  indicator.setAttribute("aria-hidden", "true");
+  const title = el2("span", "la-activity-label", "Edits");
+  const count = el2("span", "la-activity-count");
+  const caret = el2("span", "la-activity-chevron");
+  caret.innerHTML = ICON_CHEVRON_DOWN;
+  const actions = el2("div", "la-edits-actions");
   const revertAllBtn = el2("button", "la-btn la-btn-mini la-btn-danger", "Revert all");
   revertAllBtn.style.display = "none";
   revertAllBtn.addEventListener("click", async (ev) => {
     ev.stopPropagation();
-    const liveIds = entries.filter((e) => !e.reverted).map((e) => e.id);
+    const liveIds = entries.filter(canRevertEdit).map((e) => e.id);
     if (liveIds.length === 0)
       return;
     revertAllBtn.disabled = true;
@@ -9946,23 +13002,19 @@ function buildEditsCard(parentMsg, deps) {
     revertAllBtn.disabled = false;
     revertAllBtn.textContent = "Revert all";
   });
-  const allBtn = el2("button", "la-btn la-btn-mini", "See Workshop");
+  const allBtn = el2("button", "la-btn la-btn-mini", "Workshop");
   allBtn.addEventListener("click", (ev) => {
     ev.stopPropagation();
     deps.onOpenDiffModal(undefined);
   });
-  right.append(revertAllBtn, allBtn);
-  head.append(caret, title, right);
+  actions.append(revertAllBtn, allBtn);
+  head.append(indicator, title, count, caret);
   const list = el2("div", "la-edits-list");
-  card.append(head, list);
-  head.addEventListener("click", () => {
-    card.classList.toggle("is-open");
-    caret.textContent = card.classList.contains("is-open") ? "▾" : "▸";
-  });
+  card.append(head, list, actions);
   const entries = [];
   const setTitle = () => {
-    const liveCount = entries.filter((e) => !e.reverted).length;
-    title.textContent = `Edits (${entries.length})`;
+    const liveCount = entries.filter(canRevertEdit).length;
+    count.textContent = `${entries.length} ${entries.length === 1 ? "change" : "changes"}`;
     revertAllBtn.style.display = liveCount > 0 ? "" : "none";
   };
   const append = (entry) => {
@@ -10022,6 +13074,8 @@ function renderUserMessage(msg, deps) {
     bubble.textContent = msg.content;
   }
   wrap.appendChild(bubble);
+  if (msg.preview?.truncated && deps?.getMessageSource)
+    mountInlineContent(bubble, (offset) => deps.getMessageSource(msg.id).detail(0, offset));
   if (isPre) {
     if (deps?.onForkMessage) {
       const actions = el2("div", "la-msg-actions");
@@ -10037,7 +13091,7 @@ function renderUserMessage(msg, deps) {
   }
   if (deps?.onEditUserMessage || deps?.onDeleteMessage || deps?.onForkMessage) {
     const actions = el2("div", "la-msg-actions");
-    if (deps?.onEditUserMessage) {
+    if (deps?.onEditUserMessage && !msg.preview?.truncated) {
       const editBtn = el2("button", "la-msg-action-btn la-msg-action-btn-icon");
       editBtn.innerHTML = ICON_EDIT;
       editBtn.setAttribute("aria-label", "Edit message");
@@ -10144,38 +13198,104 @@ function buildEditIndex(edits) {
     m.set(e.id, e);
   return m;
 }
+function hydrateToolCard(card, source, blockIndex) {
+  let loaded = false;
+  card.querySelector(".la-tool-head")?.addEventListener("click", () => {
+    if (loaded || !card.classList.contains("is-open"))
+      return;
+    loaded = true;
+    const sections = card.querySelectorAll(".la-tool-body-section");
+    for (const [index, section] of sections.entries()) {
+      const content = el2("div", "la-inline-content");
+      section.querySelector("pre")?.replaceWith(content);
+      mountInlineContent(content, (offset) => source.detail(blockIndex, offset, index === 0 ? "args" : "content"));
+    }
+  });
+}
+function timelineStep(block, index, reveal, source) {
+  return { id: block.type === "tool" ? block.call_id : `reasoning-${index}`, title: "Reasoning", state: "done", render: () => {
+    if (block.type === "tool") {
+      const description = describeToolActivity(block.name, block.args);
+      const link = el2("button", "la-reasoning-tool", `${description.verb} ${description.target}`);
+      link.addEventListener("click", () => reveal(block.call_id));
+      return link;
+    }
+    const text = el2("div", "la-reasoning-text");
+    if (block.type === "reasoning")
+      text.append(renderMarkdown(block.content));
+    if (source)
+      mountInlineContent(text, (offset) => source.detail(index, offset), true);
+    return text;
+  } };
+}
+function isCompactionPlaceholder(block) {
+  return block.type === "text" && block.content === "[Compacting context, writing handoff notes...]";
+}
+function isCompactionMessage(message) {
+  return message.compaction === true || message.blocks.some(isCompactionPlaceholder);
+}
+function compactionStatus(status) {
+  return el2("div", "la-compaction-status", status === "streaming" ? "Compacting context…" : "Context compaction");
+}
 function renderStaticAssistant(msg, deps, allEdits) {
   const lookup = (id) => allEdits instanceof Map ? allEdits.get(id) : allEdits.find((e) => e.id === id);
   const isPre = deps.isPreCompaction?.(msg.ts) ?? false;
   const wrap = el2("div", `la-msg la-msg-assistant${isPre ? " la-pre-compaction" : ""}`);
   const bubble = el2("div", "la-msg-bubble");
   const collected = [];
-  for (const block of msg.blocks) {
+  const source = deps.getMessageSource?.(msg.id);
+  if (isCompactionMessage(msg))
+    bubble.append(compactionStatus(msg.status));
+  const makeStep = (block, blockIndex) => {
+    const description = describeToolActivity(block.name, block.args);
+    return { id: block.call_id, title: `${description.verb} ${description.target}`, state: block.is_error ? "error" : block.result === undefined ? "running" : "done", render: () => {
+      const card = buildToolCard(block.call_id, block.name, block.args, deps);
+      card.classList.toggle("is-running", msg.status === "streaming" && block.result === undefined);
+      card.classList.add(block.is_error ? "is-error" : "is-done");
+      const result = card.querySelector(".la-tool-body-result pre");
+      if (result)
+        result.textContent = block.result ?? (msg.status === "streaming" ? "Waiting for result" : "No result received");
+      applyToolCardFreed(card, block.freed);
+      if (source)
+        hydrateToolCard(card, source, blockIndex);
+      return card;
+    } };
+  };
+  const activity = createActivitySummary(source ? { load: async (start, callId) => {
+    const page = await source.activity("tools", start, callId);
+    return { ...page, steps: page.items.flatMap((item) => item.block.type === "tool" ? [makeStep(item.block, item.blockIndex)] : []) };
+  } } : {});
+  const reasoning = createActivitySummary({ label: "Reasoning", className: "la-reasoning-summary", ...source ? { load: async (start) => {
+    const page = await source.activity("timeline", start);
+    return { ...page, steps: page.items.map((item) => timelineStep(item.block, item.blockIndex, activity.reveal, source)) };
+  } } : {} });
+  const progress = mountAssistantProgress(reasoning);
+  activity.setActive(msg.status === "streaming");
+  progress.update(msg.activity && msg.status !== "streaming" ? { ...msg.activity, phase: msg.status, thinkingSince: undefined } : msg.activity);
+  if (msg.blocks.some((block) => block.type === "tool") || msg.preview?.toolCount)
+    bubble.append(activity.root);
+  if (msg.blocks.some((block) => block.type === "tool" || block.type === "reasoning") || msg.preview?.toolCount)
+    bubble.append(reasoning.root);
+  for (const [index, block] of msg.blocks.entries()) {
+    if (isCompactionPlaceholder(block))
+      continue;
+    const blockIndex = (msg.preview?.blocksBefore ?? 0) + index;
     if (block.type === "text") {
       if (block.content.length === 0)
         continue;
       const textBlock = el2("div", "la-msg-block la-text-block");
       textBlock.appendChild(renderMarkdown(block.content));
       bubble.appendChild(textBlock);
+      const truncated = msg.preview?.truncatedTextBlocks?.includes(blockIndex) ?? msg.preview?.truncated;
+      if (truncated && source)
+        mountInlineContent(textBlock, (offset) => source.detail(blockIndex, offset), true);
+    } else if (block.type === "warning") {
+      bubble.append(runNotice(block.message));
     } else if (block.type === "reasoning") {
-      if (block.content.length === 0)
-        continue;
-      const r = el2("div", "la-reasoning la-msg-block");
-      const t = el2("div", "la-reasoning-toggle", "▸ Thinking");
-      const b = el2("div", "la-reasoning-body");
-      b.textContent = block.content;
-      r.append(t, b);
-      t.addEventListener("click", () => r.classList.toggle("is-open"));
-      bubble.appendChild(r);
+      reasoning.add(timelineStep(block, blockIndex, activity.reveal, source));
     } else if (block.type === "tool") {
-      const card = buildToolCard(block.call_id, block.name, block.args, deps);
-      card.classList.remove("is-running");
-      card.classList.add(block.is_error ? "is-error" : "is-done");
-      const resultPre = card.querySelector(".la-tool-body-result pre");
-      if (resultPre)
-        resultPre.textContent = block.result ?? "";
-      applyToolCardFreed(card, block.freed);
-      bubble.appendChild(card);
+      activity.add(makeStep(block, blockIndex));
+      reasoning.add(timelineStep(block, blockIndex, activity.reveal, source));
       for (const eid of block.edit_ids) {
         const entry = lookup(eid);
         if (entry)
@@ -10183,6 +13303,10 @@ function renderStaticAssistant(msg, deps, allEdits) {
       }
     }
   }
+  if (msg.preview?.toolCount !== undefined)
+    activity.setTotal(msg.preview.toolCount);
+  if (msg.error)
+    bubble.append(runNotice(msg.error, true));
   if (collected.length > 0) {
     const editsCard = buildEditsCard(wrap, deps);
     editsCard.rebuild(collected);
@@ -10262,24 +13386,26 @@ function renderStaticAssistant(msg, deps, allEdits) {
   }
   return wrap;
 }
-function createStreamingAssistant(deps) {
+function createStreamingAssistant(deps, source, compaction = false) {
   const wrap = el2("div", "la-msg la-msg-assistant");
+  wrap.dataset.liveMessage = "true";
   const bubble = el2("div", "la-msg-bubble");
   wrap.appendChild(bubble);
+  const compactionLabel = compaction ? compactionStatus("streaming") : null;
+  if (compactionLabel)
+    bubble.append(compactionLabel);
   let loadingHandle = null;
+  let responseStatus = "streaming";
+  let destroyed = false;
   const loadingHost = el2("div", "la-streaming-loading");
-  const moveLoadingToTail = () => {
-    if (!loadingHandle)
-      return;
-    bubble.appendChild(loadingHost);
-  };
   const setLoading = (active) => {
+    active = active && responseStatus === "streaming" && !destroyed;
     const isActive = loadingHandle !== null;
     if (active === isActive)
       return;
     if (active) {
       loadingHandle = mountLoading(loadingHost);
-      moveLoadingToTail();
+      bubble.after(loadingHost);
     } else if (loadingHandle) {
       loadingHandle.destroy();
       loadingHandle = null;
@@ -10288,9 +13414,36 @@ function createStreamingAssistant(deps) {
     }
   };
   let textBlock = null;
-  let reasoningBlock = null;
-  let reasoningBody = null;
-  const toolCardsByCallId = new Map;
+  let liveReasoning = null;
+  let reasoningSequence = 0;
+  const activity = createActivitySummary(source ? { load: async (start, callId) => {
+    const page = await source.activity("tools", start, callId);
+    return { ...page, steps: page.items.flatMap(({ block, blockIndex }) => block.type !== "tool" ? [] : [{ id: block.call_id, title: block.name, state: block.is_error ? "error" : block.result === undefined ? "running" : "done", render() {
+      const card = buildToolCard(block.call_id, block.name, block.args, deps);
+      card.classList.toggle("is-running", block.result === undefined);
+      const pre = card.querySelector(".la-tool-body-result pre");
+      if (pre)
+        pre.textContent = block.result ?? "Waiting for result";
+      hydrateToolCard(card, source, blockIndex);
+      return card;
+    } }]) };
+  } } : {});
+  const reasoning = createActivitySummary({ label: "Reasoning", className: "la-reasoning-summary", ...source ? { load: async (start) => {
+    const page = await source.activity("timeline", start);
+    return { ...page, steps: page.items.map((item) => timelineStep(item.block, item.blockIndex, activity.reveal, source)) };
+  } } : {} });
+  const progress = mountAssistantProgress(reasoning, (label) => {
+    let caption = loadingHost.querySelector(".la-progress-label");
+    if (label !== null) {
+      if (!caption) {
+        caption = el2("span", "la-progress-label");
+        loadingHost.prepend(caption);
+      }
+      caption.textContent = label;
+    } else
+      caption?.remove();
+  });
+  const toolStates = new Map;
   let editsCardHandle = null;
   let metaLine = null;
   const editIndex = new Map;
@@ -10298,6 +13451,8 @@ function createStreamingAssistant(deps) {
   const dirtyBlocks = new Set;
   let pendingRenderTimer = null;
   const flushDirtyBlocks = () => {
+    if (liveReasoning)
+      reasoning.refresh(liveReasoning.id);
     for (const tb of dirtyBlocks) {
       const raw = textRaw.get(tb) ?? "";
       tb.innerHTML = "";
@@ -10320,8 +13475,22 @@ function createStreamingAssistant(deps) {
     bubble.appendChild(editsCardHandle.card);
     return editsCardHandle;
   };
+  setLoading(true);
   return {
     root: wrap,
+    destroy() {
+      destroyed = true;
+      delete wrap.dataset.liveMessage;
+      setLoading(false);
+      activity.destroy();
+      reasoning.destroy();
+      progress.destroy();
+      if (pendingRenderTimer !== null)
+        clearTimeout(pendingRenderTimer);
+      dirtyBlocks.clear();
+      textRaw.clear();
+      toolStates.clear();
+    },
     appendToken(token) {
       if (token.length === 0)
         return;
@@ -10330,41 +13499,66 @@ function createStreamingAssistant(deps) {
         bubble.appendChild(textBlock);
         textRaw.set(textBlock, "");
       }
-      textRaw.set(textBlock, (textRaw.get(textBlock) ?? "") + token);
+      textRaw.set(textBlock, ((textRaw.get(textBlock) ?? "") + token).slice(-24000));
       dirtyBlocks.add(textBlock);
       scheduleStreamingRender();
-      moveLoadingToTail();
     },
     appendReasoning(token) {
       if (token.length === 0)
         return;
-      if (!reasoningBlock) {
-        reasoningBlock = el2("div", "la-reasoning la-msg-block");
-        const t = el2("div", "la-reasoning-toggle", "▸ Thinking");
-        reasoningBody = el2("div", "la-reasoning-body");
-        reasoningBlock.append(t, reasoningBody);
-        t.addEventListener("click", () => reasoningBlock.classList.toggle("is-open"));
-        bubble.appendChild(reasoningBlock);
+      if (!reasoning.root.parentElement)
+        bubble.prepend(reasoning.root);
+      if (!liveReasoning) {
+        const record = { id: `live-reasoning-${reasoningSequence++}`, content: "" };
+        liveReasoning = record;
+        reasoning.add({ id: record.id, title: "Reasoning", state: "done", render() {
+          const text = el2("div", "la-reasoning-text");
+          text.append(renderMarkdown(record.content));
+          return text;
+        } });
       }
-      reasoningBody.textContent = (reasoningBody.textContent ?? "") + token;
-      moveLoadingToTail();
+      liveReasoning.content = (liveReasoning.content + token).slice(-8000);
+      scheduleStreamingRender();
     },
     startTool(callId, name, args) {
       textBlock = null;
-      const card = buildToolCard(callId, name, args, deps);
-      bubble.appendChild(card);
-      toolCardsByCallId.set(callId, card);
-      moveLoadingToTail();
+      liveReasoning = null;
+      if (!reasoning.root.parentElement)
+        bubble.prepend(reasoning.root);
+      if (!activity.root.parentElement)
+        bubble.prepend(activity.root);
+      const record = { name, args };
+      toolStates.set(callId, record);
+      const description = describeToolActivity(name, args);
+      reasoning.add({ id: callId, title: name, state: "done", render() {
+        const link = el2("button", "la-reasoning-tool", `${description.verb} ${description.target}`);
+        link.onclick = () => activity.reveal(callId);
+        return link;
+      } });
+      activity.add({ id: callId, title: `${description.verb} ${description.target}`, state: "running", render: () => {
+        const card = buildToolCard(callId, record.name, record.args, deps);
+        if (record.result !== undefined) {
+          card.classList.remove("is-running");
+          card.classList.add(record.error ? "is-error" : "is-done");
+          const pre = card.querySelector(".la-tool-body-result pre");
+          if (pre)
+            pre.textContent = record.result;
+        }
+        return card;
+      } });
     },
     finishTool(callId, result, isError, editIds) {
-      const card = toolCardsByCallId.get(callId);
-      if (!card)
+      const record = toolStates.get(callId);
+      if (!record)
         return;
-      card.classList.remove("is-running");
-      card.classList.add(isError ? "is-error" : "is-done");
-      const resultPre = card.querySelector(".la-tool-body-result pre");
-      if (resultPre)
-        resultPre.textContent = result;
+      record.result = result.slice(0, 8000);
+      if (toolStates.size > 128) {
+        const oldest = toolStates.keys().next().value;
+        if (oldest !== undefined && toolStates.get(oldest)?.result !== undefined)
+          toolStates.delete(oldest);
+      }
+      record.error = isError;
+      activity.finish(callId, isError);
       pendingForTools.set(callId, [...editIds]);
       if (editIds.length === 0)
         return;
@@ -10392,13 +13586,29 @@ function createStreamingAssistant(deps) {
       if (all.length > 0)
         card.rebuild(all);
     },
-    addWarning(_message) {},
-    setLoading(active) {
-      setLoading(active);
+    addWarning(message) {
+      bubble.append(runNotice(message));
+    },
+    setLoading,
+    setActivity(value) {
+      if (destroyed || responseStatus !== "streaming")
+        return;
+      progress.update(value);
+      if (value && (value.phase === "complete" || value.phase === "cancelled" || value.phase === "errored"))
+        responseStatus = value.phase;
+      setLoading(responseStatus === "streaming");
     },
     setStatus(status) {
+      responseStatus = status;
+      setLoading(status === "streaming");
+      if (compactionLabel)
+        compactionLabel.textContent = status === "streaming" ? "Compacting context…" : "Context compaction";
       if (status !== "streaming")
-        setLoading(false);
+        delete wrap.dataset.liveMessage;
+      if (status !== "streaming") {
+        progress.destroy();
+        activity.setActive(false);
+      }
       if (status === "cancelled") {
         if (!metaLine) {
           metaLine = el2("div", "la-msg-meta", "cancelled");
@@ -10444,1097 +13654,6 @@ function renderMessage(msg, deps, allEdits) {
   if (msg.role === "user")
     return renderUserMessage(msg, deps);
   return renderStaticAssistant(msg, deps, allEdits);
-}
-
-// ../../../node_modules/@tanstack/virtual-core/dist/esm/utils.js
-function memo(getDeps, fn, opts) {
-  let deps = opts.initialDeps ?? [];
-  let result;
-  let isInitial = true;
-  function memoizedFunction() {
-    var _a, _b, _c;
-    let depTime;
-    if (opts.key && ((_a = opts.debug) == null ? undefined : _a.call(opts)))
-      depTime = Date.now();
-    const newDeps = getDeps();
-    const depsChanged = newDeps.length !== deps.length || newDeps.some((dep, index) => deps[index] !== dep);
-    if (!depsChanged) {
-      return result;
-    }
-    deps = newDeps;
-    let resultTime;
-    if (opts.key && ((_b = opts.debug) == null ? undefined : _b.call(opts)))
-      resultTime = Date.now();
-    result = fn(...newDeps);
-    if (opts.key && ((_c = opts.debug) == null ? undefined : _c.call(opts))) {
-      const depEndTime = Math.round((Date.now() - depTime) * 100) / 100;
-      const resultEndTime = Math.round((Date.now() - resultTime) * 100) / 100;
-      const resultFpsPercentage = resultEndTime / 16;
-      const pad = (str, num) => {
-        str = String(str);
-        while (str.length < num) {
-          str = " " + str;
-        }
-        return str;
-      };
-      console.info(`%c⏱ ${pad(resultEndTime, 5)} /${pad(depEndTime, 5)} ms`, `
-            font-size: .6rem;
-            font-weight: bold;
-            color: hsl(${Math.max(0, Math.min(120 - 120 * resultFpsPercentage, 120))}deg 100% 31%);`, opts == null ? undefined : opts.key);
-    }
-    if ((opts == null ? undefined : opts.onChange) && !(isInitial && opts.skipInitialOnChange)) {
-      opts.onChange(result);
-    }
-    isInitial = false;
-    return result;
-  }
-  memoizedFunction.updateDeps = (newDeps) => {
-    deps = newDeps;
-  };
-  return memoizedFunction;
-}
-function notUndefined(value, msg) {
-  if (value === undefined) {
-    throw new Error(`Unexpected undefined${msg ? `: ${msg}` : ""}`);
-  } else {
-    return value;
-  }
-}
-var approxEqual = (a, b) => Math.abs(a - b) < 1.01;
-var debounce = (targetWindow, fn, ms) => {
-  let timeoutId;
-  return function(...args) {
-    targetWindow.clearTimeout(timeoutId);
-    timeoutId = targetWindow.setTimeout(() => fn.apply(this, args), ms);
-  };
-};
-
-// ../../../node_modules/@tanstack/virtual-core/dist/esm/index.js
-var getRect = (element) => {
-  const { offsetWidth, offsetHeight } = element;
-  return { width: offsetWidth, height: offsetHeight };
-};
-var defaultKeyExtractor = (index) => index;
-var defaultRangeExtractor = (range) => {
-  const start = Math.max(range.startIndex - range.overscan, 0);
-  const end = Math.min(range.endIndex + range.overscan, range.count - 1);
-  const arr = [];
-  for (let i = start;i <= end; i++) {
-    arr.push(i);
-  }
-  return arr;
-};
-var observeElementRect = (instance, cb) => {
-  const element = instance.scrollElement;
-  if (!element) {
-    return;
-  }
-  const targetWindow = instance.targetWindow;
-  if (!targetWindow) {
-    return;
-  }
-  const handler = (rect) => {
-    const { width, height } = rect;
-    cb({ width: Math.round(width), height: Math.round(height) });
-  };
-  handler(getRect(element));
-  if (!targetWindow.ResizeObserver) {
-    return () => {};
-  }
-  const observer = new targetWindow.ResizeObserver((entries) => {
-    const run = () => {
-      const entry = entries[0];
-      if (entry == null ? undefined : entry.borderBoxSize) {
-        const box = entry.borderBoxSize[0];
-        if (box) {
-          handler({ width: box.inlineSize, height: box.blockSize });
-          return;
-        }
-      }
-      handler(getRect(element));
-    };
-    instance.options.useAnimationFrameWithResizeObserver ? requestAnimationFrame(run) : run();
-  });
-  observer.observe(element, { box: "border-box" });
-  return () => {
-    observer.unobserve(element);
-  };
-};
-var addEventListenerOptions = {
-  passive: true
-};
-var supportsScrollend = typeof window == "undefined" ? true : ("onscrollend" in window);
-var observeElementOffset = (instance, cb) => {
-  const element = instance.scrollElement;
-  if (!element) {
-    return;
-  }
-  const targetWindow = instance.targetWindow;
-  if (!targetWindow) {
-    return;
-  }
-  let offset = 0;
-  const fallback = instance.options.useScrollendEvent && supportsScrollend ? () => {
-    return;
-  } : debounce(targetWindow, () => {
-    cb(offset, false);
-  }, instance.options.isScrollingResetDelay);
-  const createHandler = (isScrolling) => () => {
-    const { horizontal, isRtl } = instance.options;
-    offset = horizontal ? element["scrollLeft"] * (isRtl && -1 || 1) : element["scrollTop"];
-    fallback();
-    cb(offset, isScrolling);
-  };
-  const handler = createHandler(true);
-  const endHandler = createHandler(false);
-  element.addEventListener("scroll", handler, addEventListenerOptions);
-  const registerScrollendEvent = instance.options.useScrollendEvent && supportsScrollend;
-  if (registerScrollendEvent) {
-    element.addEventListener("scrollend", endHandler, addEventListenerOptions);
-  }
-  return () => {
-    element.removeEventListener("scroll", handler);
-    if (registerScrollendEvent) {
-      element.removeEventListener("scrollend", endHandler);
-    }
-  };
-};
-var measureElement = (element, entry, instance) => {
-  if (entry == null ? undefined : entry.borderBoxSize) {
-    const box = entry.borderBoxSize[0];
-    if (box) {
-      const size = Math.round(box[instance.options.horizontal ? "inlineSize" : "blockSize"]);
-      return size;
-    }
-  }
-  return element[instance.options.horizontal ? "offsetWidth" : "offsetHeight"];
-};
-var elementScroll = (offset, {
-  adjustments = 0,
-  behavior
-}, instance) => {
-  var _a, _b;
-  const toOffset = offset + adjustments;
-  (_b = (_a = instance.scrollElement) == null ? undefined : _a.scrollTo) == null || _b.call(_a, {
-    [instance.options.horizontal ? "left" : "top"]: toOffset,
-    behavior
-  });
-};
-
-class Virtualizer {
-  constructor(opts) {
-    this.unsubs = [];
-    this.scrollElement = null;
-    this.targetWindow = null;
-    this.isScrolling = false;
-    this.scrollState = null;
-    this.measurementsCache = [];
-    this.itemSizeCache = /* @__PURE__ */ new Map;
-    this.laneAssignments = /* @__PURE__ */ new Map;
-    this.pendingMeasuredCacheIndexes = [];
-    this.prevLanes = undefined;
-    this.lanesChangedFlag = false;
-    this.lanesSettling = false;
-    this.scrollRect = null;
-    this.scrollOffset = null;
-    this.scrollDirection = null;
-    this.scrollAdjustments = 0;
-    this.elementsCache = /* @__PURE__ */ new Map;
-    this.now = () => {
-      var _a, _b, _c;
-      return ((_c = (_b = (_a = this.targetWindow) == null ? undefined : _a.performance) == null ? undefined : _b.now) == null ? undefined : _c.call(_b)) ?? Date.now();
-    };
-    this.observer = /* @__PURE__ */ (() => {
-      let _ro = null;
-      const get = () => {
-        if (_ro) {
-          return _ro;
-        }
-        if (!this.targetWindow || !this.targetWindow.ResizeObserver) {
-          return null;
-        }
-        return _ro = new this.targetWindow.ResizeObserver((entries) => {
-          entries.forEach((entry) => {
-            const run = () => {
-              const node = entry.target;
-              const index = this.indexFromElement(node);
-              if (!node.isConnected) {
-                this.observer.unobserve(node);
-                return;
-              }
-              if (this.shouldMeasureDuringScroll(index)) {
-                this.resizeItem(index, this.options.measureElement(node, entry, this));
-              }
-            };
-            this.options.useAnimationFrameWithResizeObserver ? requestAnimationFrame(run) : run();
-          });
-        });
-      };
-      return {
-        disconnect: () => {
-          var _a;
-          (_a = get()) == null || _a.disconnect();
-          _ro = null;
-        },
-        observe: (target) => {
-          var _a;
-          return (_a = get()) == null ? undefined : _a.observe(target, { box: "border-box" });
-        },
-        unobserve: (target) => {
-          var _a;
-          return (_a = get()) == null ? undefined : _a.unobserve(target);
-        }
-      };
-    })();
-    this.range = null;
-    this.setOptions = (opts2) => {
-      Object.entries(opts2).forEach(([key, value]) => {
-        if (typeof value === "undefined")
-          delete opts2[key];
-      });
-      this.options = {
-        debug: false,
-        initialOffset: 0,
-        overscan: 1,
-        paddingStart: 0,
-        paddingEnd: 0,
-        scrollPaddingStart: 0,
-        scrollPaddingEnd: 0,
-        horizontal: false,
-        getItemKey: defaultKeyExtractor,
-        rangeExtractor: defaultRangeExtractor,
-        onChange: () => {},
-        measureElement,
-        initialRect: { width: 0, height: 0 },
-        scrollMargin: 0,
-        gap: 0,
-        indexAttribute: "data-index",
-        initialMeasurementsCache: [],
-        lanes: 1,
-        isScrollingResetDelay: 150,
-        enabled: true,
-        isRtl: false,
-        useScrollendEvent: false,
-        useAnimationFrameWithResizeObserver: false,
-        laneAssignmentMode: "estimate",
-        ...opts2
-      };
-    };
-    this.notify = (sync) => {
-      var _a, _b;
-      (_b = (_a = this.options).onChange) == null || _b.call(_a, this, sync);
-    };
-    this.maybeNotify = memo(() => {
-      this.calculateRange();
-      return [
-        this.isScrolling,
-        this.range ? this.range.startIndex : null,
-        this.range ? this.range.endIndex : null
-      ];
-    }, (isScrolling) => {
-      this.notify(isScrolling);
-    }, {
-      key: "maybeNotify",
-      debug: () => this.options.debug,
-      initialDeps: [
-        this.isScrolling,
-        this.range ? this.range.startIndex : null,
-        this.range ? this.range.endIndex : null
-      ]
-    });
-    this.cleanup = () => {
-      this.unsubs.filter(Boolean).forEach((d) => d());
-      this.unsubs = [];
-      this.observer.disconnect();
-      if (this.rafId != null && this.targetWindow) {
-        this.targetWindow.cancelAnimationFrame(this.rafId);
-        this.rafId = null;
-      }
-      this.scrollState = null;
-      this.scrollElement = null;
-      this.targetWindow = null;
-    };
-    this._didMount = () => {
-      return () => {
-        this.cleanup();
-      };
-    };
-    this._willUpdate = () => {
-      var _a;
-      const scrollElement = this.options.enabled ? this.options.getScrollElement() : null;
-      if (this.scrollElement !== scrollElement) {
-        this.cleanup();
-        if (!scrollElement) {
-          this.maybeNotify();
-          return;
-        }
-        this.scrollElement = scrollElement;
-        if (this.scrollElement && "ownerDocument" in this.scrollElement) {
-          this.targetWindow = this.scrollElement.ownerDocument.defaultView;
-        } else {
-          this.targetWindow = ((_a = this.scrollElement) == null ? undefined : _a.window) ?? null;
-        }
-        this.elementsCache.forEach((cached) => {
-          this.observer.observe(cached);
-        });
-        this.unsubs.push(this.options.observeElementRect(this, (rect) => {
-          this.scrollRect = rect;
-          this.maybeNotify();
-        }));
-        this.unsubs.push(this.options.observeElementOffset(this, (offset, isScrolling) => {
-          this.scrollAdjustments = 0;
-          this.scrollDirection = isScrolling ? this.getScrollOffset() < offset ? "forward" : "backward" : null;
-          this.scrollOffset = offset;
-          this.isScrolling = isScrolling;
-          if (this.scrollState) {
-            this.scheduleScrollReconcile();
-          }
-          this.maybeNotify();
-        }));
-        this._scrollToOffset(this.getScrollOffset(), {
-          adjustments: undefined,
-          behavior: undefined
-        });
-      }
-    };
-    this.rafId = null;
-    this.getSize = () => {
-      if (!this.options.enabled) {
-        this.scrollRect = null;
-        return 0;
-      }
-      this.scrollRect = this.scrollRect ?? this.options.initialRect;
-      return this.scrollRect[this.options.horizontal ? "width" : "height"];
-    };
-    this.getScrollOffset = () => {
-      if (!this.options.enabled) {
-        this.scrollOffset = null;
-        return 0;
-      }
-      this.scrollOffset = this.scrollOffset ?? (typeof this.options.initialOffset === "function" ? this.options.initialOffset() : this.options.initialOffset);
-      return this.scrollOffset;
-    };
-    this.getFurthestMeasurement = (measurements, index) => {
-      const furthestMeasurementsFound = /* @__PURE__ */ new Map;
-      const furthestMeasurements = /* @__PURE__ */ new Map;
-      for (let m = index - 1;m >= 0; m--) {
-        const measurement = measurements[m];
-        if (furthestMeasurementsFound.has(measurement.lane)) {
-          continue;
-        }
-        const previousFurthestMeasurement = furthestMeasurements.get(measurement.lane);
-        if (previousFurthestMeasurement == null || measurement.end > previousFurthestMeasurement.end) {
-          furthestMeasurements.set(measurement.lane, measurement);
-        } else if (measurement.end < previousFurthestMeasurement.end) {
-          furthestMeasurementsFound.set(measurement.lane, true);
-        }
-        if (furthestMeasurementsFound.size === this.options.lanes) {
-          break;
-        }
-      }
-      return furthestMeasurements.size === this.options.lanes ? Array.from(furthestMeasurements.values()).sort((a, b) => {
-        if (a.end === b.end) {
-          return a.index - b.index;
-        }
-        return a.end - b.end;
-      })[0] : undefined;
-    };
-    this.getMeasurementOptions = memo(() => [
-      this.options.count,
-      this.options.paddingStart,
-      this.options.scrollMargin,
-      this.options.getItemKey,
-      this.options.enabled,
-      this.options.lanes,
-      this.options.laneAssignmentMode
-    ], (count, paddingStart, scrollMargin, getItemKey, enabled, lanes, laneAssignmentMode) => {
-      const lanesChanged = this.prevLanes !== undefined && this.prevLanes !== lanes;
-      if (lanesChanged) {
-        this.lanesChangedFlag = true;
-      }
-      this.prevLanes = lanes;
-      this.pendingMeasuredCacheIndexes = [];
-      return {
-        count,
-        paddingStart,
-        scrollMargin,
-        getItemKey,
-        enabled,
-        lanes,
-        laneAssignmentMode
-      };
-    }, {
-      key: false
-    });
-    this.getMeasurements = memo(() => [this.getMeasurementOptions(), this.itemSizeCache], ({
-      count,
-      paddingStart,
-      scrollMargin,
-      getItemKey,
-      enabled,
-      lanes,
-      laneAssignmentMode
-    }, itemSizeCache) => {
-      if (!enabled) {
-        this.measurementsCache = [];
-        this.itemSizeCache.clear();
-        this.laneAssignments.clear();
-        return [];
-      }
-      if (this.laneAssignments.size > count) {
-        for (const index of this.laneAssignments.keys()) {
-          if (index >= count) {
-            this.laneAssignments.delete(index);
-          }
-        }
-      }
-      if (this.lanesChangedFlag) {
-        this.lanesChangedFlag = false;
-        this.lanesSettling = true;
-        this.measurementsCache = [];
-        this.itemSizeCache.clear();
-        this.laneAssignments.clear();
-        this.pendingMeasuredCacheIndexes = [];
-      }
-      if (this.measurementsCache.length === 0 && !this.lanesSettling) {
-        this.measurementsCache = this.options.initialMeasurementsCache;
-        this.measurementsCache.forEach((item) => {
-          this.itemSizeCache.set(item.key, item.size);
-        });
-      }
-      const min = this.lanesSettling ? 0 : this.pendingMeasuredCacheIndexes.length > 0 ? Math.min(...this.pendingMeasuredCacheIndexes) : 0;
-      this.pendingMeasuredCacheIndexes = [];
-      if (this.lanesSettling && this.measurementsCache.length === count) {
-        this.lanesSettling = false;
-      }
-      const measurements = this.measurementsCache.slice(0, min);
-      const laneLastIndex = new Array(lanes).fill(undefined);
-      for (let m = 0;m < min; m++) {
-        const item = measurements[m];
-        if (item) {
-          laneLastIndex[item.lane] = m;
-        }
-      }
-      for (let i = min;i < count; i++) {
-        const key = getItemKey(i);
-        const cachedLane = this.laneAssignments.get(i);
-        let lane;
-        let start;
-        const shouldCacheLane = laneAssignmentMode === "estimate" || itemSizeCache.has(key);
-        if (cachedLane !== undefined && this.options.lanes > 1) {
-          lane = cachedLane;
-          const prevIndex = laneLastIndex[lane];
-          const prevInLane = prevIndex !== undefined ? measurements[prevIndex] : undefined;
-          start = prevInLane ? prevInLane.end + this.options.gap : paddingStart + scrollMargin;
-        } else {
-          const furthestMeasurement = this.options.lanes === 1 ? measurements[i - 1] : this.getFurthestMeasurement(measurements, i);
-          start = furthestMeasurement ? furthestMeasurement.end + this.options.gap : paddingStart + scrollMargin;
-          lane = furthestMeasurement ? furthestMeasurement.lane : i % this.options.lanes;
-          if (this.options.lanes > 1 && shouldCacheLane) {
-            this.laneAssignments.set(i, lane);
-          }
-        }
-        const measuredSize = itemSizeCache.get(key);
-        const size = typeof measuredSize === "number" ? measuredSize : this.options.estimateSize(i);
-        const end = start + size;
-        measurements[i] = {
-          index: i,
-          start,
-          size,
-          end,
-          key,
-          lane
-        };
-        laneLastIndex[lane] = i;
-      }
-      this.measurementsCache = measurements;
-      return measurements;
-    }, {
-      key: "getMeasurements",
-      debug: () => this.options.debug
-    });
-    this.calculateRange = memo(() => [
-      this.getMeasurements(),
-      this.getSize(),
-      this.getScrollOffset(),
-      this.options.lanes
-    ], (measurements, outerSize, scrollOffset, lanes) => {
-      return this.range = measurements.length > 0 && outerSize > 0 ? calculateRange({
-        measurements,
-        outerSize,
-        scrollOffset,
-        lanes
-      }) : null;
-    }, {
-      key: "calculateRange",
-      debug: () => this.options.debug
-    });
-    this.getVirtualIndexes = memo(() => {
-      let startIndex = null;
-      let endIndex = null;
-      const range = this.calculateRange();
-      if (range) {
-        startIndex = range.startIndex;
-        endIndex = range.endIndex;
-      }
-      this.maybeNotify.updateDeps([this.isScrolling, startIndex, endIndex]);
-      return [
-        this.options.rangeExtractor,
-        this.options.overscan,
-        this.options.count,
-        startIndex,
-        endIndex
-      ];
-    }, (rangeExtractor, overscan, count, startIndex, endIndex) => {
-      return startIndex === null || endIndex === null ? [] : rangeExtractor({
-        startIndex,
-        endIndex,
-        overscan,
-        count
-      });
-    }, {
-      key: "getVirtualIndexes",
-      debug: () => this.options.debug
-    });
-    this.indexFromElement = (node) => {
-      const attributeName = this.options.indexAttribute;
-      const indexStr = node.getAttribute(attributeName);
-      if (!indexStr) {
-        console.warn(`Missing attribute name '${attributeName}={index}' on measured element.`);
-        return -1;
-      }
-      return parseInt(indexStr, 10);
-    };
-    this.shouldMeasureDuringScroll = (index) => {
-      var _a;
-      if (!this.scrollState || this.scrollState.behavior !== "smooth") {
-        return true;
-      }
-      const scrollIndex = this.scrollState.index ?? ((_a = this.getVirtualItemForOffset(this.scrollState.lastTargetOffset)) == null ? undefined : _a.index);
-      if (scrollIndex !== undefined && this.range) {
-        const bufferSize = Math.max(this.options.overscan, Math.ceil((this.range.endIndex - this.range.startIndex) / 2));
-        const minIndex = Math.max(0, scrollIndex - bufferSize);
-        const maxIndex = Math.min(this.options.count - 1, scrollIndex + bufferSize);
-        return index >= minIndex && index <= maxIndex;
-      }
-      return true;
-    };
-    this.measureElement = (node) => {
-      if (!node) {
-        this.elementsCache.forEach((cached, key2) => {
-          if (!cached.isConnected) {
-            this.observer.unobserve(cached);
-            this.elementsCache.delete(key2);
-          }
-        });
-        return;
-      }
-      const index = this.indexFromElement(node);
-      const key = this.options.getItemKey(index);
-      const prevNode = this.elementsCache.get(key);
-      if (prevNode !== node) {
-        if (prevNode) {
-          this.observer.unobserve(prevNode);
-        }
-        this.observer.observe(node);
-        this.elementsCache.set(key, node);
-      }
-      if ((!this.isScrolling || this.scrollState) && this.shouldMeasureDuringScroll(index)) {
-        this.resizeItem(index, this.options.measureElement(node, undefined, this));
-      }
-    };
-    this.resizeItem = (index, size) => {
-      var _a;
-      const item = this.measurementsCache[index];
-      if (!item)
-        return;
-      const itemSize = this.itemSizeCache.get(item.key) ?? item.size;
-      const delta = size - itemSize;
-      if (delta !== 0) {
-        if (((_a = this.scrollState) == null ? undefined : _a.behavior) !== "smooth" && (this.shouldAdjustScrollPositionOnItemSizeChange !== undefined ? this.shouldAdjustScrollPositionOnItemSizeChange(item, delta, this) : item.start < this.getScrollOffset() + this.scrollAdjustments)) {
-          if (this.options.debug) {
-            console.info("correction", delta);
-          }
-          this._scrollToOffset(this.getScrollOffset(), {
-            adjustments: this.scrollAdjustments += delta,
-            behavior: undefined
-          });
-        }
-        this.pendingMeasuredCacheIndexes.push(item.index);
-        this.itemSizeCache = new Map(this.itemSizeCache.set(item.key, size));
-        this.notify(false);
-      }
-    };
-    this.getVirtualItems = memo(() => [this.getVirtualIndexes(), this.getMeasurements()], (indexes, measurements) => {
-      const virtualItems = [];
-      for (let k = 0, len = indexes.length;k < len; k++) {
-        const i = indexes[k];
-        const measurement = measurements[i];
-        virtualItems.push(measurement);
-      }
-      return virtualItems;
-    }, {
-      key: "getVirtualItems",
-      debug: () => this.options.debug
-    });
-    this.getVirtualItemForOffset = (offset) => {
-      const measurements = this.getMeasurements();
-      if (measurements.length === 0) {
-        return;
-      }
-      return notUndefined(measurements[findNearestBinarySearch(0, measurements.length - 1, (index) => notUndefined(measurements[index]).start, offset)]);
-    };
-    this.getMaxScrollOffset = () => {
-      if (!this.scrollElement)
-        return 0;
-      if ("scrollHeight" in this.scrollElement) {
-        return this.options.horizontal ? this.scrollElement.scrollWidth - this.scrollElement.clientWidth : this.scrollElement.scrollHeight - this.scrollElement.clientHeight;
-      } else {
-        const doc = this.scrollElement.document.documentElement;
-        return this.options.horizontal ? doc.scrollWidth - this.scrollElement.innerWidth : doc.scrollHeight - this.scrollElement.innerHeight;
-      }
-    };
-    this.getOffsetForAlignment = (toOffset, align, itemSize = 0) => {
-      if (!this.scrollElement)
-        return 0;
-      const size = this.getSize();
-      const scrollOffset = this.getScrollOffset();
-      if (align === "auto") {
-        align = toOffset >= scrollOffset + size ? "end" : "start";
-      }
-      if (align === "center") {
-        toOffset += (itemSize - size) / 2;
-      } else if (align === "end") {
-        toOffset -= size;
-      }
-      const maxOffset = this.getMaxScrollOffset();
-      return Math.max(Math.min(maxOffset, toOffset), 0);
-    };
-    this.getOffsetForIndex = (index, align = "auto") => {
-      index = Math.max(0, Math.min(index, this.options.count - 1));
-      const size = this.getSize();
-      const scrollOffset = this.getScrollOffset();
-      const item = this.measurementsCache[index];
-      if (!item)
-        return;
-      if (align === "auto") {
-        if (item.end >= scrollOffset + size - this.options.scrollPaddingEnd) {
-          align = "end";
-        } else if (item.start <= scrollOffset + this.options.scrollPaddingStart) {
-          align = "start";
-        } else {
-          return [scrollOffset, align];
-        }
-      }
-      if (align === "end" && index === this.options.count - 1) {
-        return [this.getMaxScrollOffset(), align];
-      }
-      const toOffset = align === "end" ? item.end + this.options.scrollPaddingEnd : item.start - this.options.scrollPaddingStart;
-      return [
-        this.getOffsetForAlignment(toOffset, align, item.size),
-        align
-      ];
-    };
-    this.scrollToOffset = (toOffset, { align = "start", behavior = "auto" } = {}) => {
-      const offset = this.getOffsetForAlignment(toOffset, align);
-      const now = this.now();
-      this.scrollState = {
-        index: null,
-        align,
-        behavior,
-        startedAt: now,
-        lastTargetOffset: offset,
-        stableFrames: 0
-      };
-      this._scrollToOffset(offset, { adjustments: undefined, behavior });
-      this.scheduleScrollReconcile();
-    };
-    this.scrollToIndex = (index, {
-      align: initialAlign = "auto",
-      behavior = "auto"
-    } = {}) => {
-      index = Math.max(0, Math.min(index, this.options.count - 1));
-      const offsetInfo = this.getOffsetForIndex(index, initialAlign);
-      if (!offsetInfo) {
-        return;
-      }
-      const [offset, align] = offsetInfo;
-      const now = this.now();
-      this.scrollState = {
-        index,
-        align,
-        behavior,
-        startedAt: now,
-        lastTargetOffset: offset,
-        stableFrames: 0
-      };
-      this._scrollToOffset(offset, { adjustments: undefined, behavior });
-      this.scheduleScrollReconcile();
-    };
-    this.scrollBy = (delta, { behavior = "auto" } = {}) => {
-      const offset = this.getScrollOffset() + delta;
-      const now = this.now();
-      this.scrollState = {
-        index: null,
-        align: "start",
-        behavior,
-        startedAt: now,
-        lastTargetOffset: offset,
-        stableFrames: 0
-      };
-      this._scrollToOffset(offset, { adjustments: undefined, behavior });
-      this.scheduleScrollReconcile();
-    };
-    this.getTotalSize = () => {
-      var _a;
-      const measurements = this.getMeasurements();
-      let end;
-      if (measurements.length === 0) {
-        end = this.options.paddingStart;
-      } else if (this.options.lanes === 1) {
-        end = ((_a = measurements[measurements.length - 1]) == null ? undefined : _a.end) ?? 0;
-      } else {
-        const endByLane = Array(this.options.lanes).fill(null);
-        let endIndex = measurements.length - 1;
-        while (endIndex >= 0 && endByLane.some((val) => val === null)) {
-          const item = measurements[endIndex];
-          if (endByLane[item.lane] === null) {
-            endByLane[item.lane] = item.end;
-          }
-          endIndex--;
-        }
-        end = Math.max(...endByLane.filter((val) => val !== null));
-      }
-      return Math.max(end - this.options.scrollMargin + this.options.paddingEnd, 0);
-    };
-    this._scrollToOffset = (offset, {
-      adjustments,
-      behavior
-    }) => {
-      this.options.scrollToFn(offset, { behavior, adjustments }, this);
-    };
-    this.measure = () => {
-      this.itemSizeCache = /* @__PURE__ */ new Map;
-      this.laneAssignments = /* @__PURE__ */ new Map;
-      this.notify(false);
-    };
-    this.setOptions(opts);
-  }
-  scheduleScrollReconcile() {
-    if (!this.targetWindow) {
-      this.scrollState = null;
-      return;
-    }
-    if (this.rafId != null)
-      return;
-    this.rafId = this.targetWindow.requestAnimationFrame(() => {
-      this.rafId = null;
-      this.reconcileScroll();
-    });
-  }
-  reconcileScroll() {
-    if (!this.scrollState)
-      return;
-    const el = this.scrollElement;
-    if (!el)
-      return;
-    const MAX_RECONCILE_MS = 5000;
-    if (this.now() - this.scrollState.startedAt > MAX_RECONCILE_MS) {
-      this.scrollState = null;
-      return;
-    }
-    const offsetInfo = this.scrollState.index != null ? this.getOffsetForIndex(this.scrollState.index, this.scrollState.align) : undefined;
-    const targetOffset = offsetInfo ? offsetInfo[0] : this.scrollState.lastTargetOffset;
-    const STABLE_FRAMES = 1;
-    const targetChanged = targetOffset !== this.scrollState.lastTargetOffset;
-    if (!targetChanged && approxEqual(targetOffset, this.getScrollOffset())) {
-      this.scrollState.stableFrames++;
-      if (this.scrollState.stableFrames >= STABLE_FRAMES) {
-        this.scrollState = null;
-        return;
-      }
-    } else {
-      this.scrollState.stableFrames = 0;
-      if (targetChanged) {
-        this.scrollState.lastTargetOffset = targetOffset;
-        this.scrollState.behavior = "auto";
-        this._scrollToOffset(targetOffset, {
-          adjustments: undefined,
-          behavior: "auto"
-        });
-      }
-    }
-    this.scheduleScrollReconcile();
-  }
-}
-var findNearestBinarySearch = (low, high, getCurrentValue, value) => {
-  while (low <= high) {
-    const middle = (low + high) / 2 | 0;
-    const currentValue = getCurrentValue(middle);
-    if (currentValue < value) {
-      low = middle + 1;
-    } else if (currentValue > value) {
-      high = middle - 1;
-    } else {
-      return middle;
-    }
-  }
-  if (low > 0) {
-    return low - 1;
-  } else {
-    return 0;
-  }
-};
-function calculateRange({
-  measurements,
-  outerSize,
-  scrollOffset,
-  lanes
-}) {
-  const lastIndex = measurements.length - 1;
-  const getOffset = (index) => measurements[index].start;
-  if (measurements.length <= lanes) {
-    return {
-      startIndex: 0,
-      endIndex: lastIndex
-    };
-  }
-  let startIndex = findNearestBinarySearch(0, lastIndex, getOffset, scrollOffset);
-  let endIndex = startIndex;
-  if (lanes === 1) {
-    while (endIndex < lastIndex && measurements[endIndex].end < scrollOffset + outerSize) {
-      endIndex++;
-    }
-  } else if (lanes > 1) {
-    const endPerLane = Array(lanes).fill(0);
-    while (endIndex < lastIndex && endPerLane.some((pos) => pos < scrollOffset + outerSize)) {
-      const item = measurements[endIndex];
-      endPerLane[item.lane] = item.end;
-      endIndex++;
-    }
-    const startPerLane = Array(lanes).fill(scrollOffset + outerSize);
-    while (startIndex >= 0 && startPerLane.some((pos) => pos >= scrollOffset)) {
-      const item = measurements[startIndex];
-      startPerLane[item.lane] = item.start;
-      startIndex--;
-    }
-    startIndex = Math.max(0, startIndex - startIndex % lanes);
-    endIndex = Math.min(lastIndex, endIndex + (lanes - 1 - endIndex % lanes));
-  }
-  return { startIndex, endIndex };
-}
-
-// src/ui/chat-virtualizer.ts
-var STICKY_THRESHOLD_PX = 80;
-var DEFAULT_ESTIMATE = 220;
-var OVERSCAN = 4;
-
-class ChatVirtualizer {
-  deps;
-  spacer;
-  inner;
-  virt;
-  nodeByKey = new Map;
-  cleanup = null;
-  stickyToBottom = true;
-  scrollListener = null;
-  wheelListener = null;
-  pointerDownListener = null;
-  forceBottomOnNextSync = false;
-  hasFirstRenderHappened = false;
-  lastTotalSize = 0;
-  constructor(deps) {
-    this.deps = deps;
-    deps.scrollContainer.style.overflowAnchor = "none";
-    deps.scrollContainer.style.contain = "strict";
-    this.spacer = document.createElement("div");
-    this.spacer.className = "la-virt-spacer";
-    this.spacer.style.position = "relative";
-    this.spacer.style.width = "100%";
-    deps.scrollContainer.appendChild(this.spacer);
-    this.inner = document.createElement("div");
-    this.inner.className = "la-virt-inner";
-    this.inner.style.position = "absolute";
-    this.inner.style.top = "0";
-    this.inner.style.left = "0";
-    this.inner.style.width = "100%";
-    this.spacer.appendChild(this.inner);
-    this.virt = new Virtualizer({
-      count: deps.getMessages().length,
-      getScrollElement: () => deps.scrollContainer,
-      estimateSize: (i) => {
-        const m = deps.getMessages()[i];
-        return m ? deps.estimateSize?.(m) ?? DEFAULT_ESTIMATE : DEFAULT_ESTIMATE;
-      },
-      getItemKey: (i) => deps.getMessages()[i]?.id ?? i,
-      observeElementOffset,
-      observeElementRect,
-      scrollToFn: elementScroll,
-      overscan: OVERSCAN,
-      onChange: () => this.sync()
-    });
-    this.virt.shouldAdjustScrollPositionOnItemSizeChange = (_item, _delta, instance) => instance.scrollDirection !== "backward";
-    this.cleanup = this.virt._didMount();
-    this.scrollListener = () => this.updateStickiness();
-    deps.scrollContainer.addEventListener("scroll", this.scrollListener, { passive: true });
-    this.wheelListener = (raw) => {
-      const e = raw;
-      if (e.deltaY < 0)
-        this.stickyToBottom = false;
-    };
-    this.pointerDownListener = () => {
-      this.stickyToBottom = false;
-    };
-    deps.scrollContainer.addEventListener("wheel", this.wheelListener, { passive: true });
-    deps.scrollContainer.addEventListener("pointerdown", this.pointerDownListener, { passive: true });
-    this.sync();
-  }
-  setCount() {
-    this.virt.setOptions({ ...this.virt.options, count: this.deps.getMessages().length });
-    this.sync();
-  }
-  requestMeasure(messageId) {
-    const node = this.nodeByKey.get(messageId);
-    if (node)
-      this.virt.measureElement(node);
-  }
-  evict(messageId) {
-    const node = this.nodeByKey.get(messageId);
-    if (node?.parentElement)
-      node.remove();
-    this.nodeByKey.delete(messageId);
-  }
-  clear() {
-    for (const node of this.nodeByKey.values()) {
-      if (node.parentElement)
-        node.remove();
-    }
-    this.nodeByKey.clear();
-  }
-  clearExcept(messageId) {
-    const keep = this.nodeByKey.get(messageId);
-    for (const [key, node] of this.nodeByKey) {
-      if (key === messageId)
-        continue;
-      if (node.parentElement)
-        node.remove();
-    }
-    this.nodeByKey.clear();
-    if (keep)
-      this.nodeByKey.set(messageId, keep);
-  }
-  scrollToBottom() {
-    const count = this.deps.getMessages().length;
-    if (count === 0)
-      return;
-    this.forceBottomOnNextSync = true;
-    this.virt.scrollToIndex(count - 1, { align: "end" });
-    this.stickyToBottom = true;
-  }
-  isNearBottom() {
-    return this.stickyToBottom;
-  }
-  destroy() {
-    if (this.cleanup) {
-      this.cleanup();
-      this.cleanup = null;
-    }
-    if (this.scrollListener) {
-      this.deps.scrollContainer.removeEventListener("scroll", this.scrollListener);
-      this.scrollListener = null;
-    }
-    if (this.wheelListener) {
-      this.deps.scrollContainer.removeEventListener("wheel", this.wheelListener);
-      this.wheelListener = null;
-    }
-    if (this.pointerDownListener) {
-      this.deps.scrollContainer.removeEventListener("pointerdown", this.pointerDownListener);
-      this.pointerDownListener = null;
-    }
-    this.clear();
-    if (this.spacer.parentElement)
-      this.spacer.parentElement.removeChild(this.spacer);
-  }
-  updateStickiness() {
-    const el = this.deps.scrollContainer;
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    this.stickyToBottom = distanceFromBottom <= STICKY_THRESHOLD_PX;
-  }
-  normaliseItemStyle(node) {
-    if (node.style.position)
-      node.style.position = "";
-    if (node.style.top)
-      node.style.top = "";
-    if (node.style.left)
-      node.style.left = "";
-    if (node.style.right)
-      node.style.right = "";
-    if (node.style.transform)
-      node.style.transform = "";
-  }
-  sync() {
-    this.virt._willUpdate();
-    const items = this.virt.getVirtualItems();
-    const totalSize = this.virt.getTotalSize();
-    this.spacer.style.height = `${totalSize}px`;
-    this.inner.style.transform = `translateY(${items[0]?.start ?? 0}px)`;
-    const activeKeys = new Set;
-    for (const it of items)
-      activeKeys.add(String(it.key));
-    for (const [key, node] of this.nodeByKey) {
-      if (!activeKeys.has(key) && node.parentElement === this.inner) {
-        this.inner.removeChild(node);
-      }
-    }
-    const messages = this.deps.getMessages();
-    let cursor = this.inner.firstChild;
-    for (const item of items) {
-      const key = String(item.key);
-      const msg = messages[item.index];
-      if (!msg)
-        continue;
-      let node = this.nodeByKey.get(key);
-      if (!node) {
-        node = this.deps.renderMessage(msg, item.index);
-        node.setAttribute("data-virt-key", key);
-        this.nodeByKey.set(key, node);
-      }
-      this.normaliseItemStyle(node);
-      node.setAttribute("data-index", String(item.index));
-      if (node === cursor) {
-        cursor = node.nextSibling;
-      } else {
-        this.inner.insertBefore(node, cursor);
-        cursor = node.nextSibling;
-      }
-      this.virt.measureElement(node);
-    }
-    const stickBottom = () => {
-      const count = this.deps.getMessages().length;
-      if (count === 0)
-        return;
-      this.virt.scrollToIndex(count - 1, { align: "end" });
-    };
-    const isCurrentlyAtBottom = () => {
-      const el = this.deps.scrollContainer;
-      const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
-      return distance >= 0 && distance <= STICKY_THRESHOLD_PX;
-    };
-    const grew = totalSize > this.lastTotalSize;
-    this.lastTotalSize = totalSize;
-    if (!this.hasFirstRenderHappened) {
-      this.hasFirstRenderHappened = items.length > 0;
-      if (this.hasFirstRenderHappened && this.stickyToBottom)
-        stickBottom();
-    } else if (this.forceBottomOnNextSync) {
-      this.forceBottomOnNextSync = false;
-      stickBottom();
-    } else if (this.stickyToBottom && grew && this.virt.scrollDirection !== "backward") {
-      stickBottom();
-    } else if (!isCurrentlyAtBottom()) {
-      this.stickyToBottom = false;
-    }
-  }
 }
 
 // src/ui/combo.ts
@@ -11757,6 +13876,9 @@ function mountCombo(root) {
 
 // src/ui/diff-modal.ts
 var SURFACE_LABELS = {
+  variable: "Variables",
+  active_persona: "Active persona",
+  agent_macro: "Macros",
   character_field: "Character",
   alternate_greeting: "Alternate greetings",
   alternate_field_variant: "Alternate field variants",
@@ -11773,28 +13895,34 @@ var SURFACE_LABELS = {
   global_addon: "Global add-ons",
   memory_vault: "Memory vaults",
   memory_link: "Memory links",
-  external: "External (other extensions)"
+  external: "Other changes"
 };
-var SURFACE_ORDER = ["character_field", "alternate_greeting", "alternate_field_variant", "world_book_entry", "world_book", "regex_script", "extension", "persona_field", "persona_addon", "chat_message", "preset_block", "preset", "persona", "global_addon", "memory_vault", "memory_link", "external"];
+var SURFACE_ORDER = ["agent_macro", "variable", "active_persona", "character_field", "alternate_greeting", "alternate_field_variant", "world_book_entry", "world_book", "regex_script", "extension", "persona_field", "persona_addon", "chat_message", "preset_block", "preset", "persona", "global_addon", "memory_vault", "memory_link", "external"];
 var MOBILE_BREAKPOINT_PX = 720;
 var DESKTOP_WIDTH_CAP = 1700;
-var DESKTOP_WIDTH_MIN = 720;
 var DESKTOP_MARGIN_PX = 80;
 var DESKTOP_HEIGHT_CAP = 1400;
-var DESKTOP_HEIGHT_MIN = 480;
 var HOST_MODAL_CHROME_PX = 72;
 function computeModalWidth() {
   const vw = typeof window !== "undefined" && window.innerWidth ? window.innerWidth : 1180;
-  return Math.max(DESKTOP_WIDTH_MIN, Math.min(DESKTOP_WIDTH_CAP, vw - DESKTOP_MARGIN_PX));
+  return Math.max(280, Math.min(DESKTOP_WIDTH_CAP, vw - (vw < MOBILE_BREAKPOINT_PX ? 16 : DESKTOP_MARGIN_PX)));
 }
 function computeModalMaxHeight() {
   const vh = typeof window !== "undefined" && window.innerHeight ? window.innerHeight : 880;
-  return Math.max(DESKTOP_HEIGHT_MIN, Math.min(DESKTOP_HEIGHT_CAP, vh - DESKTOP_MARGIN_PX));
+  return Math.max(200, Math.min(DESKTOP_HEIGHT_CAP, vh - (window.innerWidth < MOBILE_BREAKPOINT_PX ? 16 : DESKTOP_MARGIN_PX)));
 }
 function isLumiverseKind(k) {
   return k !== "character";
 }
 var LUMI_CATEGORY = {
+  theme: "Themes",
+  cortex: "Cortex",
+  variables: "Variables",
+  images: "Images",
+  databank: "Databanks",
+  global_addon: "Global add-ons",
+  memory_vault: "Memory vaults",
+  settings: "Settings",
   persona: "Personas",
   preset: "Presets",
   world_book: "Lorebooks",
@@ -11826,7 +13954,7 @@ function groupBySurface(edits) {
 function describeRecord(entry) {
   const r = entry.record;
   const cat = SURFACE_LABELS[r.surface] ?? r.surface;
-  const named = r.surfaceLabel ? `${cat} (${r.surfaceLabel})` : cat;
+  const named = r.surfaceLabel || cat;
   if (r.op === "create") {
     return { primary: `+ ${named}`, secondary: "created", statSummary: "created" };
   }
@@ -11843,7 +13971,7 @@ function describeRecord(entry) {
 }
 function openDiffModal(ctx, deps, opts) {
   const maxH = computeModalMaxHeight();
-  const rootH = Math.max(DESKTOP_HEIGHT_MIN, maxH - HOST_MODAL_CHROME_PX);
+  const rootH = Math.max(128, maxH - HOST_MODAL_CHROME_PX);
   const modal = ctx.ui.showModal({
     title: "Workshop",
     width: computeModalWidth(),
@@ -11858,6 +13986,7 @@ function openDiffModal(ctx, deps, opts) {
     if (!open)
       return;
     open = false;
+    disposeTree(root);
     try {
       combo.destroy();
     } catch {}
@@ -11870,6 +13999,7 @@ function openDiffModal(ctx, deps, opts) {
     if (!open)
       return;
     open = false;
+    disposeTree(root);
     try {
       combo.destroy();
     } catch {}
@@ -11879,10 +14009,14 @@ function openDiffModal(ctx, deps, opts) {
   let scopes = deps.getScopes();
   const remembered = { characters: null, lumiverse: null };
   const tabs = el4("div", "la-workshop-tabs");
+  tabs.setAttribute("role", "tablist");
+  tabs.setAttribute("aria-label", "Workshop");
   const charsTabBtn = el4("button", "la-workshop-tab is-active", "Characters");
   const lumiTabBtn = el4("button", "la-workshop-tab", "Lumiverse");
   const filesTabBtn = el4("button", "la-workshop-tab", "Files");
   tabs.append(charsTabBtn, lumiTabBtn, filesTabBtn);
+  for (const tab of [charsTabBtn, lumiTabBtn, filesTabBtn])
+    tab.setAttribute("role", "tab");
   if (!deps.filesPanel)
     filesTabBtn.style.display = "none";
   const toolbar = el4("div", "la-diff-modal-toolbar");
@@ -11950,6 +14084,29 @@ function openDiffModal(ctx, deps, opts) {
   if (deps.filesPanel)
     filesView.appendChild(deps.filesPanel);
   root.append(tabs, editsView, filesView);
+  const panelId = `workshop-${crypto.randomUUID()}`;
+  editsView.id = `${panelId}-edits`;
+  filesView.id = `${panelId}-files`;
+  editsView.setAttribute("role", "tabpanel");
+  filesView.setAttribute("role", "tabpanel");
+  const syncTabs = () => {
+    for (const [tab, name] of [[charsTabBtn, "characters"], [lumiTabBtn, "lumiverse"], [filesTabBtn, "files"]]) {
+      tab.setAttribute("aria-selected", String(activeTab === name));
+      tab.tabIndex = activeTab === name ? 0 : -1;
+      tab.setAttribute("aria-controls", name === "files" ? filesView.id : editsView.id);
+    }
+  };
+  syncTabs();
+  tabs.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key))
+      return;
+    const buttons = [charsTabBtn, lumiTabBtn, ...deps.filesPanel ? [filesTabBtn] : []];
+    const index = buttons.indexOf(document.activeElement);
+    const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + buttons.length) % buttons.length;
+    event.preventDefault();
+    buttons[next].click();
+    buttons[next].focus();
+  });
   charsTabBtn.classList.toggle("is-active", activeTab === "characters");
   lumiTabBtn.classList.toggle("is-active", activeTab === "lumiverse");
   filesTabBtn.classList.toggle("is-active", activeTab === "files");
@@ -11980,6 +14137,8 @@ function openDiffModal(ctx, deps, opts) {
         const cr = (CAT_RANK[a.c.cat] ?? 99) - (CAT_RANK[b.c.cat] ?? 99);
         if (cr !== 0)
           return cr;
+        if (a.c.cat !== b.c.cat)
+          return a.c.cat.localeCompare(b.c.cat);
         if (a.c.ownerKey !== b.c.ownerKey)
           return a.c.ownerKey.localeCompare(b.c.ownerKey);
         if (a.c.sub !== b.c.sub)
@@ -12033,7 +14192,7 @@ function openDiffModal(ctx, deps, opts) {
     const liveCount = edits.filter((e) => !e.reverted).length;
     stats.textContent = `· ${liveCount} changes`;
     const o = selectedOption();
-    revertAllBtn.disabled = !o || o.changeCount === 0;
+    revertAllBtn.disabled = !o || !edits.some(canRevertEdit);
     forgetBtn.disabled = !o || o.changeCount === 0;
     renderTree();
     renderPane();
@@ -12113,11 +14272,19 @@ function openDiffModal(ctx, deps, opts) {
     });
     section.appendChild(row);
   };
+  let paneVersion = 0;
   const renderPane = () => {
+    const version = ++paneVersion;
+    disposeTree(pane);
     pane.innerHTML = "";
     if (edits.length === 0) {
       if (loading) {
-        pane.appendChild(el4("div", "la-diff-pane-empty", "Loading…"));
+        const pending = el4("div", "la-files-loading");
+        pending.setAttribute("role", "status");
+        const spinner = el4("span", "la-pending-spinner");
+        spinner.setAttribute("aria-hidden", "true");
+        pending.append(spinner, document.createTextNode("Loading changes…"));
+        pane.append(pending);
         return;
       }
       const o = selectedOption();
@@ -12141,7 +14308,11 @@ function openDiffModal(ctx, deps, opts) {
     const meta = el4("div", "la-diff-pane-meta", `Turn ${target.turn} · ${desc.statSummary} · tool ${target.toolName} · ${new Date(target.ts).toLocaleString()}`);
     const paneActions = el4("div", "la-diff-pane-actions");
     const revertBtn = el4("button", `la-btn ${target.reverted ? "la-btn-disabled" : "la-btn-danger"}`, target.reverted ? "Reverted" : "Revert this edit");
-    revertBtn.disabled = target.reverted;
+    revertBtn.disabled = !canRevertEdit(target);
+    if (target.record.surface === "external" && target.record.op === "edit" && target.record.auditOnly) {
+      revertBtn.textContent = "History only";
+      revertBtn.title = target.record.auditOnly;
+    }
     revertBtn.addEventListener("click", async () => {
       if (target.reverted)
         return;
@@ -12149,11 +14320,51 @@ function openDiffModal(ctx, deps, opts) {
       revertBtn.textContent = "Reverting…";
       await deps.onRevert(target.id);
     });
-    paneActions.appendChild(revertBtn);
+    if (target.record.surface === "external" && target.record.op === "edit" && target.record.auditOnly) {
+      const note = document.createElement("details");
+      note.className = "la-history-only";
+      note.append(el4("summary", "", "History only"), el4("p", "", target.record.auditOnly));
+      paneActions.append(note);
+    } else
+      paneActions.appendChild(revertBtn);
     paneToolbar.appendChild(heading);
     paneToolbar.appendChild(meta);
     paneToolbar.appendChild(paneActions);
     pane.appendChild(paneToolbar);
+    if (target.preview && deps.readEdit) {
+      const content = el4("div", "la-diff-pane-body");
+      const pending = el4("div", "la-files-loading");
+      pending.append(el4("span", "la-pending-spinner"), document.createTextNode("Loading changes…"));
+      content.append(pending);
+      pane.append(content);
+      const load = async () => {
+        try {
+          const [before, after] = await Promise.all([deps.readEdit(target, "before", 0), deps.readEdit(target, "after", 0)]);
+          if (!open || version !== paneVersion)
+            return;
+          content.replaceChildren();
+          if (before.total <= 24000 && after.total <= 24000)
+            content.append(window.innerWidth < MOBILE_BREAKPOINT_PX ? renderUnifiedDiff(before.content, after.content, 3) : renderSideBySideDiff(before.content, after.content));
+          else {
+            content.classList.add("la-long-diff");
+            for (const [part, first] of [["before", before], ["after", after]]) {
+              const column = el4("section"), value = el4("div", "la-inline-content");
+              column.append(el4("h4", "", part === "before" ? "Before" : "After"), value);
+              content.append(column);
+              mountInlineContent(value, (offset) => offset === 0 ? Promise.resolve(first) : deps.readEdit(target, part, offset));
+            }
+          }
+        } catch (error) {
+          if (!open || version !== paneVersion)
+            return;
+          const retry = el4("button", "la-btn la-btn-mini", "Retry");
+          retry.onclick = () => void load();
+          content.replaceChildren(el4("p", "la-form-error", error.message), retry);
+        }
+      };
+      load();
+      return;
+    }
     const isMobile = window.innerWidth < MOBILE_BREAKPOINT_PX;
     if (r.op === "create") {
       const snap = r.snapshot;
@@ -12188,6 +14399,7 @@ function openDiffModal(ctx, deps, opts) {
       return;
     const prev = activeTab;
     activeTab = next;
+    syncTabs();
     charsTabBtn.classList.toggle("is-active", next === "characters");
     lumiTabBtn.classList.toggle("is-active", next === "lumiverse");
     filesTabBtn.classList.toggle("is-active", next === "files");
@@ -12250,458 +14462,563 @@ function openDiffModal(ctx, deps, opts) {
 }
 
 // src/ui/workspace-panel.ts
-function el5(tag, cls, text) {
-  const e = document.createElement(tag);
-  if (cls)
-    e.className = cls;
-  if (text !== undefined)
-    e.textContent = text;
-  return e;
-}
-function joinPath(parent, name) {
-  return parent === "" ? name : `${parent}/${name}`;
-}
-function dirname(path) {
-  const ix = path.lastIndexOf("/");
-  return ix < 0 ? "" : path.slice(0, ix);
-}
-function basename(path) {
-  const ix = path.lastIndexOf("/");
-  return ix < 0 ? path : path.slice(ix + 1);
-}
-function fmtBytes(n) {
-  if (n < 1024)
-    return `${n} B`;
-  if (n < 1024 * 1024)
-    return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 / 1024).toFixed(2)} MB`;
-}
-function base64ToBlob(b64, mime) {
-  const binary = atob(b64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0;i < binary.length; i++)
-    bytes[i] = binary.charCodeAt(i);
-  return new Blob([bytes], { type: mime });
-}
-function triggerDownload(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 60000);
-}
-function previewKind(path) {
-  const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
-  if (["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "svg", "avif"].includes(ext))
-    return "image";
-  if (["mp3", "wav", "ogg", "m4a", "flac", "opus"].includes(ext))
-    return "audio";
-  if (["mp4", "webm", "mov", "mkv"].includes(ext))
-    return "video";
-  if (["zip", "tar", "gz", "7z", "rar", "exe", "dll", "so", "dylib", "pdf", "wasm", "bin"].includes(ext))
-    return "binary";
-  return "text";
-}
-function mimeFromKind(kind, path) {
-  const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
-  if (kind === "image") {
-    if (ext === "jpg" || ext === "jpeg")
-      return "image/jpeg";
-    if (ext === "svg")
-      return "image/svg+xml";
-    return `image/${ext}`;
-  }
-  if (kind === "audio") {
-    if (ext === "mp3")
-      return "audio/mpeg";
-    if (ext === "m4a")
-      return "audio/mp4";
-    return `audio/${ext}`;
-  }
-  if (ext === "mov")
-    return "video/quicktime";
-  if (ext === "mkv")
-    return "video/x-matroska";
-  return `video/${ext}`;
-}
+var node = (tag, cls = "", text = "") => {
+  const element = document.createElement(tag);
+  element.className = cls;
+  element.textContent = text;
+  return element;
+};
+var parentPath = (path) => path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+var fileName = (path) => path.split("/").at(-1) ?? path;
+var join = (path, name) => path ? `${path}/${name}` : name;
+var size = (bytes) => bytes < 1024 ? `${bytes} B` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1048576).toFixed(1)} MB`;
+var mime = (path) => ({ jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp", avif: "image/avif", bmp: "image/bmp", ico: "image/x-icon", mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", m4a: "audio/mp4", flac: "audio/flac", opus: "audio/opus", mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime" })[path.split(".").at(-1)?.toLowerCase() ?? ""];
 function mountWorkspacePanel(deps) {
-  const root = el5("div", "la-ws");
-  const toolbar = el5("div", "la-ws-toolbar");
-  const refreshBtn = el5("button", "la-btn la-btn-mini", "Refresh");
-  const uploadBtn = el5("button", "la-btn la-btn-mini la-btn-primary", "Upload...");
-  const newFolderBtn = el5("button", "la-btn la-btn-mini", "New folder");
-  const newFileBtn = el5("button", "la-btn la-btn-mini", "New file");
-  const downloadZipBtn = el5("button", "la-btn la-btn-mini", "Download .zip");
-  const spacer = el5("span", "la-flex-spacer");
-  const status = el5("div", "la-ws-status");
-  toolbar.append(refreshBtn, uploadBtn, newFolderBtn, newFileBtn, downloadZipBtn, spacer, status);
-  root.appendChild(toolbar);
-  const split = el5("div", "la-ws-split");
-  const treeWrap = el5("aside", "la-ws-tree");
-  const pane = el5("section", "la-ws-pane");
-  split.append(treeWrap, pane);
-  root.appendChild(split);
-  const dirCache = new Map;
-  const expanded = new Set([""]);
-  let selectedPath = null;
-  let selectedIsDirectory = false;
-  let selectedSize = 0;
-  let selectedIsSystem = false;
-  let editorDirty = false;
-  const pendingList = new Set;
-  const setStatus = (text, isError = false) => {
+  const root = node("div", "la-files");
+  const toolbar = node("div", "la-files-toolbar");
+  const breadcrumbs = node("nav", "la-files-breadcrumbs");
+  breadcrumbs.setAttribute("aria-label", "Folder location");
+  const actions = node("div", "la-files-actions");
+  const status = node("div", "la-files-status");
+  status.setAttribute("role", "status");
+  const split = node("div", "la-files-split");
+  const list = node("div", "la-files-list");
+  list.setAttribute("role", "listbox");
+  list.setAttribute("aria-label", "Files");
+  list.tabIndex = 0;
+  const pane = node("section", "la-files-preview");
+  split.append(list, pane);
+  root.append(toolbar, breadcrumbs, actions, status, split);
+  let directory = "";
+  let entries = [];
+  let selected = null;
+  let clipboard = null;
+  let dirty = false, saving = false, busy = false, destroyed = false, refreshQueued = false;
+  let listing = 0, preview = 0;
+  const pending = new Map;
+  const request = (input) => new Promise((resolve, reject) => {
+    const requestId = crypto.randomUUID();
+    const timer = setTimeout(() => {
+      pending.delete(requestId);
+      reject(new Error("The server has not responded. Refresh to check the latest state."));
+    }, input.action === "download" ? 120000 : 30000);
+    pending.set(requestId, { resolve, reject, timer });
+    try {
+      deps.sendBackend({ type: "workspace_request", requestId, input });
+    } catch (error) {
+      clearTimeout(timer);
+      pending.delete(requestId);
+      reject(error);
+    }
+  });
+  const report = (text, error = false) => {
     status.textContent = text;
-    status.classList.toggle("is-error", isError);
-    if (!isError && text) {
-      setTimeout(() => {
-        if (status.textContent === text)
-          status.textContent = "";
-      }, 3000);
-    }
+    status.classList.toggle("is-error", error);
   };
-  const requestList = (path) => {
-    if (pendingList.has(path))
-      return;
-    pendingList.add(path);
-    deps.sendBackend({ type: "ws_list", path });
+  const loading = (target, label) => {
+    const state = node("div", "la-files-loading");
+    state.setAttribute("role", "status");
+    const spinner = node("span", "la-pending-spinner");
+    spinner.setAttribute("aria-hidden", "true");
+    state.append(spinner, node("span", "", label));
+    target.replaceChildren(state);
   };
-  const renderTree = () => {
-    treeWrap.innerHTML = "";
-    const renderDir = (path, depth, parentEl) => {
-      const children = dirCache.get(path);
-      if (children === undefined) {
-        const placeholder = el5("div", "la-ws-row la-ws-loading");
-        placeholder.style.paddingLeft = `${depth * 14 + 8}px`;
-        placeholder.textContent = "Loading...";
-        parentEl.appendChild(placeholder);
-        requestList(path);
+  const button = (text, action, disabled = false) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "la-btn la-btn-mini";
+    b.textContent = text;
+    b.disabled = disabled;
+    b.onclick = action;
+    return b;
+  };
+  const discardDraft = async () => !dirty || (await deps.ctx.ui.showConfirm({ title: "Discard changes?", message: "This file has unsaved changes.", confirmLabel: "Discard", variant: "danger" })).confirmed;
+  const nameDialog = (title, initial = "") => new Promise((resolve) => {
+    const dialog = document.createElement("dialog");
+    dialog.className = "la-file-name-dialog";
+    const form = document.createElement("form");
+    form.method = "dialog";
+    const label = document.createElement("label");
+    label.textContent = title;
+    const input = document.createElement("input");
+    input.value = initial;
+    input.required = true;
+    input.setAttribute("aria-label", title);
+    const error = node("span", "la-files-status is-error");
+    label.append(input);
+    const controls = node("div", "la-files-actions");
+    const cancel = button("Cancel", () => dialog.close());
+    const save = button("Save", () => {});
+    save.type = "submit";
+    controls.append(cancel, save);
+    form.append(label, error, controls);
+    dialog.append(form);
+    root.append(dialog);
+    let value = null;
+    form.onsubmit = (event) => {
+      const text = input.value.trim();
+      if (!text || text === "." || text === ".." || /[\\/\x00]/.test(text)) {
+        event.preventDefault();
+        error.textContent = "Enter a name without slashes.";
         return;
       }
-      if (children.length === 0 && depth === 0) {
-        const empty = el5("div", "la-ws-empty");
-        empty.textContent = "Workspace is empty. Upload a file or have the agent write one.";
-        parentEl.appendChild(empty);
-        return;
-      }
-      for (const entry of children) {
-        const row = el5("div", `la-ws-row ${selectedPath === entry.path ? "is-selected" : ""}`);
-        row.style.paddingLeft = `${depth * 14 + 6}px`;
-        const caret = el5("span", "la-ws-caret");
-        const icon = el5("span", "la-ws-icon");
-        const name = el5("span", "la-ws-name", entry.name);
-        const size = el5("span", "la-ws-size", entry.isDirectory ? "" : fmtBytes(entry.sizeBytes));
-        if (entry.isDirectory) {
-          caret.textContent = expanded.has(entry.path) ? "▾" : "▸";
-          icon.textContent = "\uD83D\uDCC1";
-        } else {
-          caret.textContent = " ";
-          icon.textContent = "\uD83D\uDCC4";
-        }
-        row.append(caret, icon, name);
-        if (entry.isSystem) {
-          const tag = el5("span", "la-ws-system-tag", "system");
-          tag.title = "System file — needed by the agent. You can read and edit it, but deleting or renaming is blocked.";
-          row.appendChild(tag);
-        }
-        row.appendChild(size);
-        row.addEventListener("click", (ev) => {
-          ev.stopPropagation();
-          selectedPath = entry.path;
-          selectedIsDirectory = entry.isDirectory;
-          selectedSize = entry.sizeBytes;
-          selectedIsSystem = !!entry.isSystem;
-          if (entry.isDirectory) {
-            if (expanded.has(entry.path))
-              expanded.delete(entry.path);
-            else {
-              expanded.add(entry.path);
-              if (!dirCache.has(entry.path))
-                requestList(entry.path);
-            }
-          }
-          renderTree();
-          renderPane();
-        });
-        parentEl.appendChild(row);
-        if (entry.isDirectory && expanded.has(entry.path)) {
-          renderDir(entry.path, depth + 1, parentEl);
-        }
-      }
+      value = text;
     };
-    renderDir("", 0, treeWrap);
+    dialog.addEventListener("close", () => {
+      dialog.remove();
+      resolve(value);
+    }, { once: true });
+    dialog.showModal();
+    input.focus();
+    input.select();
+  });
+  const renderBreadcrumbs = () => {
+    breadcrumbs.replaceChildren(button("Files", () => void navigate("")));
+    let path = "";
+    for (const segment of directory.split("/").filter(Boolean)) {
+      path = join(path, segment);
+      const target = path;
+      breadcrumbs.append(node("span", "", "/"), button(segment, () => void navigate(target)));
+    }
+    breadcrumbs.lastElementChild?.setAttribute("aria-current", "location");
   };
-  const renderPane = () => {
-    pane.innerHTML = "";
-    editorDirty = false;
-    if (!selectedPath) {
-      pane.appendChild(el5("div", "la-ws-pane-empty", "Select a file or folder."));
+  const setClipboard = (mode) => {
+    if (!selected || mode === "move" && selected.isSystem || busy)
+      return;
+    clipboard = { path: selected.path, mode };
+    report(`${mode === "copy" ? "Copied" : "Cut"} ${selected.name}`);
+    renderActions();
+    renderRows();
+  };
+  const transfer = async (from, destination, mode) => {
+    if (busy || !await discardDraft())
+      return;
+    let to = join(destination, fileName(from));
+    if (mode === "copy" && to.toLowerCase() === from.toLowerCase()) {
+      const original = fileName(from), dot = original.lastIndexOf(".");
+      const suggestion = dot > 0 ? `${original.slice(0, dot)} copy${original.slice(dot)}` : `${original} copy`;
+      const name = await nameDialog("Copy as", suggestion);
+      if (!name)
+        return;
+      to = join(destination, name);
+    }
+    if (to.toLowerCase() === from.toLowerCase() || to.toLowerCase().startsWith(`${from.toLowerCase()}/`)) {
+      report("Choose a different destination folder.", true);
       return;
     }
-    const header = el5("div", "la-ws-pane-header");
-    const title = el5("div", "la-ws-pane-title", selectedPath);
-    const meta = el5("div", "la-ws-pane-meta", selectedIsDirectory ? "Directory" : fmtBytes(selectedSize));
-    header.append(title, meta);
-    pane.appendChild(header);
-    const actions = el5("div", "la-ws-pane-actions");
-    if (!selectedIsDirectory) {
-      const dl = el5("button", "la-btn la-btn-mini", "Download");
-      dl.addEventListener("click", () => deps.sendBackend({ type: "ws_download", path: selectedPath }));
-      actions.appendChild(dl);
+    await mutate({ action: mode, from, to }, mode === "copy" ? "Copying…" : "Moving…");
+  };
+  const paste = () => {
+    if (clipboard)
+      transfer(clipboard.path, selected?.isDirectory ? selected.path : directory, clipboard.mode);
+  };
+  const download = async (path, archive) => {
+    if (busy)
+      return;
+    busy = true;
+    renderActions();
+    loading(status, "Preparing download…");
+    try {
+      const result = await request({ action: "download", path, archive });
+      if (result.kind === "file") {
+        deps.ctx.files.download(result.fileId);
+        report("");
+      }
+    } catch (error) {
+      report(error.message, true);
+    } finally {
+      busy = false;
+      renderActions();
     }
-    const dlZip = el5("button", "la-btn la-btn-mini", selectedIsDirectory ? "Download as .zip" : "Download in zip");
-    dlZip.addEventListener("click", () => deps.sendBackend({ type: "ws_download_zip", paths: [selectedPath] }));
-    actions.appendChild(dlZip);
-    const rename = el5("button", `la-btn la-btn-mini${selectedIsSystem ? " la-btn-disabled" : ""}`, "Rename");
-    rename.disabled = selectedIsSystem;
-    if (selectedIsSystem)
-      rename.title = "System paths can't be renamed.";
-    rename.addEventListener("click", () => {
-      const newName = window.prompt(`Rename '${basename(selectedPath)}' to:`, basename(selectedPath));
-      if (!newName || newName === basename(selectedPath))
+  };
+  const renderActions = () => {
+    toolbar.replaceChildren(button("Upload", () => uploadInput.click(), busy), button("New folder", () => void create(true), busy), button("New file", () => void create(false), busy), button("Refresh", () => void refresh(), busy));
+    actions.replaceChildren();
+    if (selected) {
+      if (selected.isDirectory)
+        actions.append(button("Open", () => void navigate(selected.path), busy));
+      actions.append(button("Cut", () => setClipboard("move"), busy || !!selected.isSystem), button("Copy", () => setClipboard("copy"), busy), button("Rename", () => void rename(), busy || !!selected.isSystem), button("Delete", () => void remove(), busy || !!selected.isSystem));
+    }
+    actions.append(button("Paste", paste, busy || !clipboard), button(selected && !selected.isDirectory ? "Download" : "Download ZIP", () => void download(selected?.path ?? directory, selected?.isDirectory ?? true), busy));
+  };
+  const wireDrop = (target, destination) => {
+    target.ondragover = (event) => {
+      if (!event.dataTransfer?.types.includes("application/x-lumiagent-path"))
         return;
-      const to = joinPath(dirname(selectedPath), newName);
-      deps.sendBackend({ type: "ws_move", from: selectedPath, to });
-      selectedPath = to;
-      renderPane();
-    });
-    actions.appendChild(rename);
-    if (!selectedIsDirectory) {
-      const dup = el5("button", "la-btn la-btn-mini", "Duplicate");
-      dup.title = "Copy this file to a new name in the same folder.";
-      dup.addEventListener("click", () => deps.sendBackend({ type: "ws_duplicate", path: selectedPath }));
-      actions.appendChild(dup);
+      event.preventDefault();
+      event.stopPropagation();
+      target.classList.add("is-drop-target");
+      event.dataTransfer.dropEffect = event.ctrlKey || event.metaKey ? "copy" : "move";
+    };
+    target.ondragleave = () => target.classList.remove("is-drop-target");
+    target.ondrop = (event) => {
+      const from = event.dataTransfer?.getData("application/x-lumiagent-path");
+      target.classList.remove("is-drop-target");
+      if (!from)
+        return;
+      event.preventDefault();
+      event.stopPropagation();
+      transfer(from, destination(), event.ctrlKey || event.metaKey ? "copy" : "move");
+    };
+  };
+  const renderRows = () => {
+    if (list.getAttribute("aria-busy") === "true")
+      return;
+    const start = Math.max(0, Math.floor(list.scrollTop / 44) - 5), end = Math.min(entries.length, start + Math.ceil((list.clientHeight || 500) / 44) + 10);
+    const spacer = node("div", "la-files-list-space");
+    spacer.style.height = `${entries.length * 44}px`;
+    for (let i = start;i < end; i++) {
+      const entry = entries[i];
+      const row = node("div", `la-file-row${selected?.path === entry.path ? " is-selected" : ""}${clipboard?.mode === "move" && clipboard.path === entry.path ? " is-cut" : ""}`);
+      row.style.top = `${i * 44}px`;
+      row.dataset.path = entry.path;
+      row.setAttribute("role", "option");
+      row.setAttribute("aria-selected", String(selected?.path === entry.path));
+      row.id = `la-file-${i}`;
+      const icon = node("span", "la-file-icon");
+      icon.setAttribute("aria-hidden", "true");
+      icon.innerHTML = entry.isDirectory ? '<svg viewBox="0 0 24 24"><path d="M3 6h7l2 3h9v11H3z"/></svg>' : '<svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6zM14 3v5h4"/></svg>';
+      row.append(icon, node("span", "la-file-name", entry.name), node("span", "la-file-size", entry.isDirectory ? "Folder" : size(entry.sizeBytes)));
+      row.onclick = () => {
+        list.focus({ preventScroll: true });
+        select(entry);
+      };
+      row.ondblclick = () => {
+        if (entry.isDirectory)
+          navigate(entry.path);
+      };
+      row.draggable = !entry.isSystem;
+      row.ondragstart = (event) => {
+        event.dataTransfer?.setData("application/x-lumiagent-path", entry.path);
+        if (event.dataTransfer)
+          event.dataTransfer.effectAllowed = "copyMove";
+      };
+      if (entry.isDirectory)
+        wireDrop(row, () => entry.path);
+      spacer.append(row);
     }
-    const inCustomTools = !!selectedPath && (selectedPath === "custom_tools" || selectedPath.startsWith("custom_tools/"));
-    const del = el5("button", `la-btn la-btn-mini la-btn-danger${selectedIsSystem ? " la-btn-disabled" : ""}`, "Delete");
-    del.disabled = selectedIsSystem;
-    if (selectedIsSystem)
-      del.title = "This is a system file/folder — the agent depends on it. The backend will reject deletion.";
-    del.addEventListener("click", async () => {
-      const baseMsg = `Permanently delete '${selectedPath}'?${selectedIsDirectory ? " This removes the folder and everything in it." : ""}`;
-      const message = inCustomTools ? `${baseMsg}
-
-This lives under custom_tools/. The agent's saved tool recipes are stored here — only delete if you know what you're doing.` : baseMsg;
-      const c = await deps.ctx.ui.showConfirm({
-        title: "Delete",
-        message,
-        variant: "danger",
-        confirmLabel: "Delete"
-      });
-      if (c.confirmed) {
-        deps.sendBackend({ type: "ws_delete", path: selectedPath, recursive: selectedIsDirectory });
-        selectedPath = null;
-        renderPane();
+    list.replaceChildren(spacer);
+    if (!entries.length)
+      list.append(node("div", "la-files-empty", "Empty folder"));
+    const index = entries.findIndex((entry) => entry.path === selected?.path);
+    if (index >= start && index < end)
+      list.setAttribute("aria-activedescendant", `la-file-${index}`);
+    else
+      list.removeAttribute("aria-activedescendant");
+  };
+  wireDrop(list, () => directory);
+  wireDrop(breadcrumbs, () => directory);
+  list.addEventListener("scroll", renderRows, { passive: true });
+  const resize = new ResizeObserver(renderRows);
+  resize.observe(list);
+  async function refresh() {
+    const version = ++listing, path = directory;
+    list.setAttribute("aria-busy", "true");
+    if (!entries.length)
+      loading(list, "Loading files…");
+    try {
+      const result = await request({ action: "list", path });
+      if (destroyed || version !== listing || result.kind !== "entries")
+        return;
+      entries = [...result.entries].sort((a, b) => Number(b.isDirectory) - Number(a.isDirectory) || a.name.localeCompare(b.name, undefined, { numeric: true }));
+      if (selected && !entries.some((entry) => entry.path === selected.path) && !dirty && !saving) {
+        selected = null;
+        preview++;
+        pane.replaceChildren();
+        root.classList.remove("has-preview");
       }
-    });
-    actions.appendChild(del);
-    pane.appendChild(actions);
-    if (selectedPath === "agent/agent.md") {
-      pane.appendChild(el5("div", "la-ws-pane-note la-ws-pane-note-info", "Saved edits apply to new chats automatically. To pick them up in the current chat, ask the agent to re-read this file."));
+      list.removeAttribute("aria-busy");
+      renderRows();
+      renderActions();
+    } catch (error) {
+      if (version !== listing || destroyed)
+        return;
+      list.removeAttribute("aria-busy");
+      renderRows();
+      report(error.message, true);
+      list.append(button("Retry", () => void refresh()));
     }
-    if (!selectedIsDirectory) {
-      const kind = previewKind(selectedPath);
-      if (kind === "binary") {
-        pane.appendChild(el5("div", "la-ws-pane-note", "Binary file. Download to inspect."));
-      } else if (selectedSize >= 4 * 1024 * 1024) {
-        pane.appendChild(el5("div", "la-ws-pane-note", "File is larger than 4 MB. Download to view."));
-      } else {
-        const previewWrap = el5("div", "la-ws-preview");
-        previewWrap.textContent = "Loading preview...";
-        pane.appendChild(previewWrap);
-        if (kind === "text")
-          deps.sendBackend({ type: "ws_read_text", path: selectedPath });
+  }
+  async function navigate(path) {
+    if (saving || !await discardDraft())
+      return;
+    directory = path;
+    selected = null;
+    entries = [];
+    dirty = false;
+    preview++;
+    pane.replaceChildren();
+    root.classList.remove("has-preview");
+    list.scrollTop = 0;
+    renderBreadcrumbs();
+    renderActions();
+    await refresh();
+  }
+  async function mutate(input, label) {
+    if (busy || saving)
+      return false;
+    busy = true;
+    renderActions();
+    loading(status, label);
+    try {
+      await request(input);
+      if (input.action === "move" && clipboard?.path === input.from)
+        clipboard = null;
+      if (input.action === "move" || input.action === "delete") {
+        dirty = false;
+        selected = null;
+        preview++;
+        pane.replaceChildren();
+        root.classList.remove("has-preview");
+      }
+      report("");
+      await refresh();
+      return true;
+    } catch (error) {
+      report(error.message, true);
+      return false;
+    } finally {
+      busy = false;
+      renderActions();
+    }
+  }
+  async function create(folder) {
+    const name = await nameDialog(folder ? "Folder name" : "File name");
+    if (name)
+      await mutate(folder ? { action: "mkdir", path: join(directory, name) } : { action: "write", path: join(directory, name), content: "", create: true }, "Creating…");
+  }
+  async function rename() {
+    const entry = selected;
+    if (!entry || !await discardDraft())
+      return;
+    const name = await nameDialog("Rename", entry.name);
+    if (name && name !== entry.name)
+      await mutate({ action: "move", from: entry.path, to: join(parentPath(entry.path), name) }, "Renaming…");
+  }
+  async function remove() {
+    const entry = selected;
+    if (!entry)
+      return;
+    const confirmed = await deps.ctx.ui.showConfirm({ title: `Delete ${entry.name}?`, message: entry.isDirectory ? "This deletes the folder and its contents." : "This permanently deletes the file.", confirmLabel: "Delete", variant: "danger" });
+    if (confirmed.confirmed)
+      await mutate({ action: "delete", path: entry.path }, "Deleting…");
+  }
+  async function select(entry) {
+    if (entry.path === selected?.path) {
+      root.classList.add("has-preview");
+      return;
+    }
+    if (saving || !await discardDraft())
+      return;
+    selected = entry;
+    dirty = false;
+    renderRows();
+    renderActions();
+    await showPreview(entry);
+  }
+  async function showPreview(entry) {
+    const version = ++preview;
+    pane.replaceChildren();
+    root.classList.add("has-preview");
+    const header = node("header", "la-files-preview-header");
+    header.append(button("Back", () => {
+      root.classList.remove("has-preview");
+      list.focus();
+    }), node("strong", "", entry.name));
+    pane.append(header);
+    if (entry.isDirectory) {
+      pane.append(button("Open folder", () => void navigate(entry.path)));
+      return;
+    }
+    if (/\.(zip|charx|tar|gz|7z|rar|exe|dll|so|pdf|wasm|bin)$/i.test(entry.path) || entry.sizeBytes > 2097152) {
+      pane.append(node("div", "la-files-empty", "Download to open this file."));
+      return;
+    }
+    const body = node("div", "la-files-preview-body");
+    pane.append(body);
+    loading(body, "Loading preview…");
+    try {
+      const result = await request({ action: "preview", path: entry.path });
+      if (destroyed || version !== preview)
+        return;
+      body.replaceChildren();
+      if (result.kind === "text") {
+        const editor = document.createElement("textarea");
+        editor.className = "la-files-editor";
+        editor.value = result.content;
+        editor.spellcheck = false;
+        editor.setAttribute("aria-label", `Edit ${entry.name}`);
+        let saved = result.content;
+        const bar = node("div", "la-files-editor-bar"), label = node("span", "", "Saved");
+        const save = button("Save", () => void saveDraft(), true);
+        const mark = () => {
+          dirty = editor.value !== saved;
+          save.disabled = !dirty || saving;
+          label.textContent = saving ? "Saving…" : dirty ? "Unsaved changes" : "Saved";
+        };
+        async function saveDraft() {
+          if (saving || !dirty)
+            return;
+          const content = editor.value;
+          saving = true;
+          mark();
+          try {
+            await request({ action: "write", path: entry.path, content, expectedContent: saved });
+            saved = content;
+            report("");
+          } catch (error) {
+            report(error.message, true);
+          } finally {
+            saving = false;
+            mark();
+            refresh();
+          }
+        }
+        editor.oninput = mark;
+        editor.onkeydown = (event) => {
+          if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+            event.preventDefault();
+            saveDraft();
+          }
+        };
+        bar.append(label, save);
+        body.append(bar, editor);
+      } else if (result.kind === "media") {
+        const type = mime(entry.path) ?? "application/octet-stream";
+        const media = document.createElement(type.startsWith("image/") ? "img" : type.startsWith("audio/") ? "audio" : "video");
+        media.src = `data:${type};base64,${result.dataBase64}`;
+        if (media instanceof HTMLImageElement)
+          media.alt = entry.name;
         else
-          deps.sendBackend({ type: "ws_download", path: selectedPath });
+          media.controls = true;
+        body.append(media);
       }
+    } catch (error) {
+      if (version === preview && !destroyed)
+        body.replaceChildren(node("div", "la-files-empty", error.message), button("Retry", () => void showPreview(entry)));
     }
-  };
-  const refresh = () => {
-    dirCache.clear();
-    pendingList.clear();
-    requestList("");
-    renderTree();
-  };
-  refreshBtn.addEventListener("click", refresh);
+  }
+  root.addEventListener("keydown", (event) => {
+    if (event.target.closest("input,textarea,[contenteditable=true],dialog"))
+      return;
+    if (event.ctrlKey || event.metaKey) {
+      const key = event.key.toLowerCase();
+      if (["x", "c", "v"].includes(key)) {
+        event.preventDefault();
+        if (key === "v")
+          paste();
+        else
+          setClipboard(key === "x" ? "move" : "copy");
+      }
+      return;
+    }
+    if (event.target !== list)
+      return;
+    const index = entries.findIndex((entry) => entry.path === selected?.path);
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const next = Math.min(entries.length - 1, Math.max(0, index + (event.key === "ArrowDown" ? 1 : -1))), entry = entries[next];
+      if (!entry)
+        return;
+      if (next * 44 < list.scrollTop)
+        list.scrollTop = next * 44;
+      if ((next + 1) * 44 > list.scrollTop + list.clientHeight)
+        list.scrollTop = (next + 1) * 44 - list.clientHeight;
+      select(entry);
+    } else if (event.key === "Enter" && selected?.isDirectory) {
+      event.preventDefault();
+      navigate(selected.path);
+    } else if (event.key === "Backspace" && directory) {
+      event.preventDefault();
+      navigate(parentPath(directory));
+    } else if (event.key === "F2") {
+      event.preventDefault();
+      rename();
+    } else if (event.key === "Delete" && selected && !selected.isSystem) {
+      event.preventDefault();
+      remove();
+    } else if (event.key === "Escape") {
+      clipboard = null;
+      renderActions();
+      renderRows();
+    }
+  });
   const uploadInput = document.createElement("input");
   uploadInput.type = "file";
   uploadInput.multiple = true;
   uploadInput.hidden = true;
-  root.appendChild(uploadInput);
-  uploadBtn.addEventListener("click", () => uploadInput.click());
-  uploadInput.addEventListener("change", async () => {
-    const files = Array.from(uploadInput.files ?? []);
+  root.append(uploadInput);
+  uploadInput.onchange = async () => {
+    const files = [...uploadInput.files ?? []];
     uploadInput.value = "";
-    const targetDir = selectedPath && selectedIsDirectory ? selectedPath : "";
-    uploadBtn.disabled = true;
+    if (!files.length || busy)
+      return;
+    const target = directory;
+    busy = true;
+    renderActions();
     try {
-      for (const file of files) {
-        await deps.upload(file, joinPath(targetDir, file.name), (fraction) => {
-          setStatus(fraction >= 0.95 ? `Saving ${file.name}...` : `Uploading ${file.name}: ${Math.round(fraction / 0.95 * 100)}%`);
-        });
-      }
-      if (files.length) {
-        refresh();
-        setStatus("Upload complete.");
-      }
-    } catch (err) {
-      setStatus(`Upload failed: ${err.message}`, true);
+      for (const file of files)
+        await deps.upload(file, join(target, file.name), (progress) => report(`${file.name} · ${Math.round(progress * 100)}%`));
+      report("");
+      await refresh();
+    } catch (error) {
+      report(error.message, true);
     } finally {
-      uploadBtn.disabled = false;
+      busy = false;
+      renderActions();
     }
-  });
-  newFolderBtn.addEventListener("click", () => {
-    const targetDir = selectedPath && selectedIsDirectory ? selectedPath : "";
-    const name = window.prompt(`New folder name under '${targetDir || "/"}':`);
-    if (!name)
-      return;
-    deps.sendBackend({ type: "ws_mkdir", path: joinPath(targetDir, name) });
-  });
-  newFileBtn.addEventListener("click", () => {
-    const targetDir = selectedPath && selectedIsDirectory ? selectedPath : "";
-    const name = window.prompt(`New file name under '${targetDir || "/"}':`);
-    if (!name)
-      return;
-    deps.sendBackend({ type: "ws_write_text", path: joinPath(targetDir, name), content: "" });
-  });
-  downloadZipBtn.addEventListener("click", () => {
-    deps.sendBackend({ type: "ws_download_zip", paths: selectedPath ? [selectedPath] : [] });
-    setStatus("Building zip...");
-  });
+  };
+  renderActions();
+  renderBreadcrumbs();
   refresh();
   return {
     root,
-    onListed(path, entries) {
-      pendingList.delete(path);
-      dirCache.set(path, [...entries]);
-      renderTree();
-    },
-    onTextPushed(path, content) {
-      if (path !== selectedPath)
+    receive(message) {
+      if (message.type !== "workspace_response")
         return;
-      const wrap = pane.querySelector(".la-ws-preview");
-      if (!wrap)
+      const item = pending.get(message.requestId);
+      if (!item)
         return;
-      wrap.innerHTML = "";
-      const editor = document.createElement("textarea");
-      editor.className = "la-ws-editor";
-      editor.value = content;
-      editor.spellcheck = false;
-      const bar = document.createElement("div");
-      bar.className = "la-ws-editor-bar";
-      const statusLabel = document.createElement("span");
-      statusLabel.className = "la-ws-editor-status";
-      statusLabel.textContent = "Saved";
-      const saveBtn = document.createElement("button");
-      saveBtn.className = "la-btn la-btn-mini la-btn-primary";
-      saveBtn.textContent = "Save";
-      saveBtn.disabled = true;
-      let savedValue = content;
-      const markDirty = () => {
-        const dirty = editor.value !== savedValue;
-        editorDirty = dirty;
-        saveBtn.disabled = !dirty;
-        statusLabel.textContent = dirty ? "Unsaved changes" : "Saved";
-        statusLabel.classList.toggle("is-dirty", dirty);
-      };
-      const doSave = () => {
-        if (editor.value === savedValue)
-          return;
-        const next = editor.value;
-        deps.sendBackend({ type: "ws_write_text", path, content: next });
-        savedValue = next;
-        editorDirty = false;
-        saveBtn.disabled = true;
-        statusLabel.textContent = "Saved";
-        statusLabel.classList.remove("is-dirty");
-      };
-      editor.addEventListener("input", markDirty);
-      editor.addEventListener("keydown", (ev) => {
-        if ((ev.ctrlKey || ev.metaKey) && (ev.key === "s" || ev.key === "S")) {
-          ev.preventDefault();
-          doSave();
-        }
-      });
-      saveBtn.addEventListener("click", doSave);
-      bar.append(statusLabel, saveBtn);
-      wrap.appendChild(bar);
-      wrap.appendChild(editor);
+      pending.delete(message.requestId);
+      clearTimeout(item.timer);
+      if (message.error)
+        item.reject(new Error(message.error));
+      else if (message.result)
+        item.resolve(message.result);
+      else
+        item.reject(new Error("Invalid server response"));
     },
     onChanged() {
-      refresh();
-      const wrap = pane.querySelector(".la-ws-preview");
-      if (wrap && wrap.contains(document.activeElement) || editorDirty) {
-        setStatus("Workspace updated.");
+      if (refreshQueued || destroyed)
         return;
-      }
-      renderPane();
-      setStatus("Workspace updated.");
-    },
-    onDownloadReady(path, dataBase64, mimeType) {
-      if (path === selectedPath) {
-        const kind = previewKind(path);
-        const wrap = pane.querySelector(".la-ws-preview");
-        if (wrap && (kind === "image" || kind === "audio" || kind === "video")) {
-          wrap.innerHTML = "";
-          const dataUrl = `data:${mimeType || mimeFromKind(kind, path)};base64,${dataBase64}`;
-          let media;
-          if (kind === "image") {
-            const img = document.createElement("img");
-            img.className = "la-ws-preview-img";
-            img.src = dataUrl;
-            img.alt = basename(path);
-            media = img;
-          } else if (kind === "audio") {
-            const a = document.createElement("audio");
-            a.className = "la-ws-preview-audio";
-            a.controls = true;
-            a.src = dataUrl;
-            media = a;
-          } else {
-            const v = document.createElement("video");
-            v.className = "la-ws-preview-video";
-            v.controls = true;
-            v.src = dataUrl;
-            media = v;
-          }
-          wrap.appendChild(media);
-          return;
-        }
-      }
-      const blob = base64ToBlob(dataBase64, mimeType);
-      triggerDownload(blob, basename(path));
-      setStatus("Downloaded.");
-    },
-    onZipReady(dataBase64, filename) {
-      const blob = base64ToBlob(dataBase64, "application/zip");
-      triggerDownload(blob, filename);
-      setStatus("Zip ready.");
+      refreshQueued = true;
+      queueMicrotask(() => {
+        refreshQueued = false;
+        if (!destroyed)
+          refresh();
+      });
     },
     onError(error) {
-      setStatus(error, true);
+      report(error, true);
     },
     focusFile(path) {
-      const parts = path.split("/").filter(Boolean);
-      let cur = "";
-      for (let i = 0;i < parts.length - 1; i++) {
-        cur = cur === "" ? parts[i] : `${cur}/${parts[i]}`;
-        expanded.add(cur);
-        if (!dirCache.has(cur))
-          requestList(cur);
+      (async () => {
+        await navigate(parentPath(path));
+        const entry = entries.find((entry) => entry.path === path);
+        if (entry)
+          await select(entry);
+      })();
+    },
+    destroy() {
+      destroyed = true;
+      listing++;
+      preview++;
+      resize.disconnect();
+      for (const item of pending.values()) {
+        clearTimeout(item.timer);
+        item.reject(new Error("Files closed"));
       }
-      selectedPath = path;
-      selectedIsDirectory = false;
-      selectedSize = 0;
-      selectedIsSystem = true;
-      const kind = previewKind(path);
-      if (kind === "text")
-        deps.sendBackend({ type: "ws_read_text", path });
-      else if (kind !== "binary")
-        deps.sendBackend({ type: "ws_download", path });
-      renderTree();
-      renderPane();
+      pending.clear();
     }
   };
 }
@@ -12714,6 +15031,8 @@ function setTurnStartBlocks(n) {
 function handleAgentEvent(ev, ctx) {
   switch (ev.type) {
     case "warning":
+      ctx.ensureStreamingTurn().addWarning(ev.message);
+      ctx.state.currentAssistantMessage?.blocks.push({ type: "warning", message: ev.message });
       return;
     case "turn_started":
       ctx.clearErrorBanners();
@@ -12728,8 +15047,8 @@ function handleAgentEvent(ev, ctx) {
       if (!a)
         return;
       const last = a.blocks[a.blocks.length - 1];
-      if (last && last.type === "text")
-        last.content += ev.token;
+      if (last && last.type === "text" && a.blocks.length > turnStartBlocks)
+        last.content = (last.content + ev.token).slice(-24000);
       else
         a.blocks.push({ type: "text", content: ev.token });
       return;
@@ -12740,14 +15059,20 @@ function handleAgentEvent(ev, ctx) {
       if (!a)
         return;
       const last = a.blocks[a.blocks.length - 1];
-      if (last && last.type === "reasoning")
-        last.content += ev.token;
+      if (last && last.type === "reasoning" && a.blocks.length > turnStartBlocks)
+        last.content = (last.content + ev.token).slice(-24000);
       else
         a.blocks.push({ type: "reasoning", content: ev.token });
       return;
     }
     case "tool_started":
       ctx.ensureStreamingTurn().startTool(ev.call_id, ev.name, ev.args);
+      const blocks = ctx.state.currentAssistantMessage?.blocks;
+      if (blocks && blocks.length >= 60) {
+        const dropped = blocks.length - 59;
+        blocks.splice(0, dropped);
+        turnStartBlocks = Math.max(0, turnStartBlocks - dropped);
+      }
       ctx.state.currentAssistantMessage?.blocks.push({
         type: "tool",
         call_id: ev.call_id,
@@ -12868,7 +15193,7 @@ var MOUSEY_EXPRESSIONS = {
 var POOF_GIF_DATA_URL = "data:image/gif;base64,R0lGODlh4AHgAfcAAP//AP//LP//NP//PP//DP//FP//HP//Q///TNfX19jY2OPj4+zs7P//////m///o///a///C///E///G///I///RP//Af//Av//A///BP//Bf//Bv//B///CP//Cf//Cv//Df//Dv//D///EP//Ef//Ev//Ff//Fv//F///GP//Gf//Gv//Hf//Hv//H///IP//If//Iv//JP//Jf//Jv//J///KP//Kf//Kv//K///Lf//Lv//L///MP//Mf//Mv//M///Nf//Nv//N///OP//Of//Ov//O///Pf//Pv//P///QP//Qf//Qv//Rf//Rv//R///Sv//S///Tf//Sf//T///Vv//av//f///Uv//cdnZ2dra2tvb29zc3N3d3d7e3t/f3+Dg4OHh4eLi4uTk5OXl5ebm5ufn5+np6erq6uvr6+3t7e7u7u/v7/Dw8PHx8fLy8vX19fb29vf39/j4+Pn5+fr6+vv7+/z8/P39/f7+/v//uf//1v//3v//4f//6P//+P//+f//+v//+////P///f//Vf//WP//YP//aP//cP//c///fv//h///iP//kP//mf//nv//qf//u///1P//2v//5///8///9v///v//Uf//Zf//Tv//W///VP//hf//hP//Wf//SP//UP//Wv//Xf//b///d///Y///XP//cv//gP//7f//7///vP//9P//0///lf//pf//t///xf//3///4v//6f//9fT09P//fP//V+jo6PPz8///af//bf//ev//ff//jf//lv//oP//ov//yerq6f//5fDw7v//8P//8f//dOfnhf//q9fX2///3P7+I/f3K/X1NPX1OvLyRe/vW/HxUO3tZezsav//ZPT0aunpefT0gP//i+Tkk+Pjnv//k9/fst7evOLio+DgrPDwq+Dgt///tNvbxNraytnZ1evrweLizu/vzP//w///y+Pj3O/v2///1d/f4OTk6P//5P//7P//X///Xv//Yf//Z///Zv//dtbW1iH/C05FVFNDQVBFMi4wAwEAAAAh+QQJAAAAACwAAAAA4AHgAQAI/wABCBxIsKDBgwgTKlzIsKHDhxAjSpxIsaLFixgzatzIsaPHjyBDihxJsqTJkyhTqlzJsqXLlzBjypxJs6bNmzhz6tzJs6fPn0CDCh1KtKjR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";
 
 // src/ui/change-approval-modal.ts
-function el6(tag, cls, text) {
+function el5(tag, cls, text) {
   const node = document.createElement(tag);
   if (cls)
     node.className = cls;
@@ -12916,29 +15241,29 @@ function createChangeApprovalController(ctx) {
       return;
     }
     const root = handle.root;
-    root.classList.add("la-approval");
+    root.classList.add("la-approval", "la-modal-body");
     root.setAttribute("role", "alertdialog");
     root.setAttribute("aria-modal", "true");
     const titleId = `la-approval-title-${item.rpcId.replace(/[^a-zA-Z0-9_-]/g, "")}`;
     root.setAttribute("aria-labelledby", titleId);
-    const heading = el6("h3", "la-approval-title", item.input.summary);
+    const heading = el5("h3", "la-approval-title", item.input.summary);
     heading.id = titleId;
-    const meta = el6("div", "la-approval-meta");
-    meta.append(el6("span", `la-approval-chip ${item.input.severity === "destructive" ? "is-danger" : ""}`, item.input.action), el6("code", "la-approval-tool", item.input.toolName));
-    const targetLabel = el6("div", "la-approval-label", "Target");
-    const target = el6("code", "la-approval-target", item.input.target);
-    const sessionLabel = el6("div", "la-approval-label", "Session");
-    const session = el6("code", "la-approval-target", item.input.sessionId);
-    const pathLabel = el6("div", "la-approval-label", "Invocation");
-    const path = el6("code", "la-approval-target", item.input.invocationPath.join(" -> "));
-    const detailsLabel = el6("div", "la-approval-label", "Proposed arguments");
-    const details = el6("pre", "la-approval-details");
+    const meta = el5("div", "la-approval-meta");
+    meta.append(el5("span", `la-approval-chip ${item.input.severity === "destructive" ? "is-danger" : ""}`, item.input.action), el5("code", "la-approval-tool", item.input.toolName));
+    const targetLabel = el5("div", "la-approval-label", "Target");
+    const target = el5("code", "la-approval-target", item.input.target);
+    const sessionLabel = el5("div", "la-approval-label", "Session");
+    const session = el5("code", "la-approval-target", item.input.sessionId);
+    const pathLabel = el5("div", "la-approval-label", "Invocation");
+    const path = el5("code", "la-approval-target", item.input.invocationPath.join(" -> "));
+    const detailsLabel = el5("div", "la-approval-label", "Proposed arguments");
+    const details = el5("pre", "la-approval-details");
     details.textContent = item.input.details;
-    const note = el6("p", "la-approval-note", "Rejecting leaves the target unchanged. Earlier chat history remains untouched.");
-    const actions = el6("div", "la-approval-actions");
-    const reject = el6("button", "la-btn la-btn-ghost", "Reject");
+    const note = el5("p", "la-approval-note", "Rejecting leaves the target unchanged. Earlier chat history remains untouched.");
+    const actions = el5("div", "la-approval-actions");
+    const reject = el5("button", "la-btn la-btn-ghost", "Reject");
     reject.type = "button";
-    const approve = el6("button", `la-btn ${item.input.severity === "destructive" ? "la-btn-danger" : "la-btn-primary"}`, item.input.severity === "destructive" ? "Approve destructive change" : "Approve change");
+    const approve = el5("button", `la-btn ${item.input.severity === "destructive" ? "la-btn-danger" : "la-btn-primary"}`, item.input.severity === "destructive" ? "Approve destructive change" : "Approve change");
     approve.type = "button";
     actions.append(reject, approve);
     root.append(heading, meta, targetLabel, target, sessionLabel, session, pathLabel, path, detailsLabel, details, note, actions);
@@ -13201,7 +15526,7 @@ var TUTORIAL_STEPS = [
     kind: "say",
     anchor: "compact",
     lines: [
-      s("This ring is my memory filling up as we talk. When it gets full I compact everything. You can click it to compact early."),
+      s("This ring shows how much context we've used. I compact automatically near the limit unless you turn off Automatic compaction in Agent settings. You can always click the ring to compact manually."),
       s("It's fine! Probably. But avoid it when you can!", "determined-2")
     ]
   },
@@ -13305,7 +15630,7 @@ function tutorialFinale(score, total) {
 }
 
 // src/ui/tutorial.ts
-function el7(tag, cls, text) {
+function el6(tag, cls, text) {
   const e = document.createElement(tag);
   if (cls)
     e.className = cls;
@@ -13557,7 +15882,7 @@ function createTutorial(deps) {
     return ln.kind === "speech" ? `“${ln.text}”` : ln.kind === "thought" ? `*${ln.text}*` : ln.text;
   }
   function wiggleChar(ch, i) {
-    const span = el7("span", "la-vn-wiggle", ch);
+    const span = el6("span", "la-vn-wiggle", ch);
     span.style.animationDelay = `-${i % 7 * 90}ms`;
     return span;
   }
@@ -13577,7 +15902,7 @@ function createTutorial(deps) {
   function renderLines(content, lines, animateFrom, upTo, onDone, instant = false) {
     let wrap = content.querySelector(":scope > .la-vn-lines");
     if (!wrap) {
-      const w = el7("div", "la-vn-lines");
+      const w = el6("div", "la-vn-lines");
       w.addEventListener("scroll", () => w.classList.toggle("is-scrolled", w.scrollTop > 4), { passive: true });
       content.appendChild(w);
       wrap = w;
@@ -13588,7 +15913,7 @@ function createTutorial(deps) {
     const targets = [];
     for (let i = 0;i < upTo; i++) {
       const ln = lines[i];
-      const div = el7("div", `la-vn-line la-vn-${ln.kind}`);
+      const div = el6("div", `la-vn-line la-vn-${ln.kind}`);
       if (i < animateFrom) {
         fillLine(div, ln);
         div.classList.add("is-settled");
@@ -13656,13 +15981,13 @@ function createTutorial(deps) {
     step();
   }
   function dotsRow() {
-    const row = el7("div", "la-tut-dots");
+    const row = el6("div", "la-tut-dots");
     let qn = 0;
     for (const st of TUTORIAL_STEPS) {
       if (st.kind !== "quiz")
         continue;
       qn++;
-      const dot = el7("span", "la-tut-dot");
+      const dot = el6("span", "la-tut-dot");
       const a = answers.get(st.id);
       if (a)
         dot.classList.add(a.correct ? "is-right" : "is-wrong");
@@ -13672,7 +15997,7 @@ function createTutorial(deps) {
     return row;
   }
   function capsButton(big) {
-    const b = el7("button", `la-tut-caps${big ? " is-big" : ""}`, "Read resume ✧");
+    const b = el6("button", `la-tut-caps${big ? " is-big" : ""}`, "Read resume ✧");
     b.type = "button";
     b.title = "Her full resume: everything she can read and write across Lumiverse";
     b.addEventListener("click", (ev) => {
@@ -13682,8 +16007,8 @@ function createTutorial(deps) {
     return b;
   }
   function navRow(opts) {
-    const nav = el7("div", "la-tut-nav");
-    const backBtn = el7("button", "la-btn la-btn-mini la-btn-ghost", "Back");
+    const nav = el6("div", "la-tut-nav");
+    const backBtn = el6("button", "la-btn la-btn-mini la-btn-ghost", "Back");
     backBtn.type = "button";
     backBtn.disabled = !opts.back;
     backBtn.addEventListener("click", (ev) => {
@@ -13695,7 +16020,7 @@ function createTutorial(deps) {
       nav.appendChild(capsButton(false));
     nav.appendChild(dotsRow());
     if (opts.continueLabel !== undefined) {
-      const cont = el7("button", "la-btn la-btn-mini la-tut-next", opts.continueLabel);
+      const cont = el6("button", "la-btn la-btn-mini la-tut-next", opts.continueLabel);
       cont.type = "button";
       cont.addEventListener("click", (ev) => {
         ev.stopPropagation();
@@ -13703,7 +16028,7 @@ function createTutorial(deps) {
       });
       nav.appendChild(cont);
     } else if (opts.waiting) {
-      nav.appendChild(el7("span", "la-tut-waiting", "your call…"));
+      nav.appendChild(el6("span", "la-tut-waiting", "your call…"));
     }
     return nav;
   }
@@ -13736,8 +16061,8 @@ function createTutorial(deps) {
       return null;
     card.replaceChildren();
     card.classList.remove("is-bonk");
-    card.appendChild(el7("div", "la-vn-nametag", "Mousey"));
-    const close = el7("button", "la-tut-close", "✕");
+    card.appendChild(el6("div", "la-vn-nametag", "Mousey"));
+    const close = el6("button", "la-tut-close", "✕");
     close.type = "button";
     close.setAttribute("aria-label", "Leave the tour");
     close.title = "Leave the tour (retake it anytime from the ⋯ menu)";
@@ -13746,7 +16071,7 @@ function createTutorial(deps) {
       closeTutorial();
     });
     card.appendChild(close);
-    const content = el7("div", "la-tut-content");
+    const content = el6("div", "la-tut-content");
     card.appendChild(content);
     return content;
   }
@@ -13786,7 +16111,7 @@ function createTutorial(deps) {
       enableClickAdvance();
       renderLines(content, lines, start, end, () => {
         const nav = navRow({ back: !atVeryStart() });
-        nav.appendChild(el7("div", "la-vn-adv", "▼"));
+        nav.appendChild(el6("div", "la-vn-adv", "▼"));
         content.appendChild(nav);
       });
     } else {
@@ -13795,19 +16120,19 @@ function createTutorial(deps) {
     placeSpot();
   }
   function renderQuiz(content, q, lines, beats, start, end) {
-    content.appendChild(el7("div", "la-tut-qlabel", `Question ${quizNumber(q)} of ${tutorialQuizCount()}`));
+    content.appendChild(el6("div", "la-tut-qlabel", `Question ${quizNumber(q)} of ${tutorialQuizCount()}`));
     const prior = answers.get(q.id) ?? null;
     const lastBeat = beatIdx >= beats.length - 1;
     if (!prior && !lastBeat) {
       enableClickAdvance();
       renderLines(content, lines, start, end, () => {
         const nav = navRow({ back: !atVeryStart() });
-        nav.appendChild(el7("div", "la-vn-adv", "▼"));
+        nav.appendChild(el6("div", "la-vn-adv", "▼"));
         content.appendChild(nav);
       });
       return;
     }
-    const group = el7("div", "la-tut-options");
+    const group = el6("div", "la-tut-options");
     group.setAttribute("role", "radiogroup");
     const options = shuffled(q);
     let locked = prior !== null;
@@ -13822,7 +16147,7 @@ function createTutorial(deps) {
         picked.classList.add("is-wrong");
       if (!pickedCorrect)
         card?.classList.add("is-bonk");
-      const reaction = el7("div", "la-vn-reaction");
+      const reaction = el6("div", "la-vn-reaction");
       content.appendChild(reaction);
       const verdict = pickedCorrect ? VERDICT_RIGHT : VERDICT_WRONG;
       const why = { kind: "speech", text: q.why };
@@ -13833,7 +16158,7 @@ function createTutorial(deps) {
       }, instant);
     };
     for (const o of options) {
-      const btn = el7("button", "la-tut-option", o.text);
+      const btn = el6("button", "la-tut-option", o.text);
       btn.type = "button";
       btn.setAttribute("role", "radio");
       btn.addEventListener("click", (ev) => {
@@ -13864,7 +16189,7 @@ function createTutorial(deps) {
     const content = cardShell();
     if (!content)
       return;
-    content.appendChild(el7("div", "la-tut-qlabel", "End of shift"));
+    content.appendChild(el6("div", "la-tut-qlabel", "End of shift"));
     const lines = currentLines();
     const beats = currentBeats();
     beatIdx = Math.min(beatIdx, beats.length - 1);
@@ -13877,7 +16202,7 @@ function createTutorial(deps) {
       enableClickAdvance();
       renderLines(content, lines, start, end, () => {
         const nav = navRow({ back: beatIdx > 0 });
-        nav.appendChild(el7("div", "la-vn-adv", "▼"));
+        nav.appendChild(el6("div", "la-vn-adv", "▼"));
         content.appendChild(nav);
       });
       return;
@@ -13892,8 +16217,8 @@ function createTutorial(deps) {
         { kind: "speech", text: "Oh! And my resume is right here, if you ever wonder just how much of Lumiverse I can reach. I may have gone a little overboard on it. It also lives under the ⋯ menu~" }
       ], 0, 1, () => {
         content.appendChild(capsButton(true));
-        const nav = el7("div", "la-tut-nav");
-        const retake = el7("button", "la-btn la-btn-mini la-btn-ghost", "Retake");
+        const nav = el6("div", "la-tut-nav");
+        const retake = el6("button", "la-btn la-btn-mini la-btn-ghost", "Retake");
         retake.type = "button";
         retake.addEventListener("click", () => {
           answers.clear();
@@ -13905,7 +16230,7 @@ function createTutorial(deps) {
         });
         nav.appendChild(retake);
         nav.appendChild(dotsRow());
-        const finish = el7("button", "la-btn la-btn-mini la-tut-next", "Finish");
+        const finish = el6("button", "la-btn la-btn-mini la-tut-next", "Finish");
         finish.type = "button";
         finish.addEventListener("click", () => {
           closeTutorial();
@@ -13925,7 +16250,7 @@ function createTutorial(deps) {
     finaleLines = null;
     completedFired = false;
     currentExpr = "cardboard";
-    overlay = el7("div", "la-tut-overlay");
+    overlay = el6("div", "la-tut-overlay");
     overlay.setAttribute("role", "dialog");
     overlay.setAttribute("aria-label", "LumiAgent tour");
     overlay.tabIndex = -1;
@@ -13946,14 +16271,14 @@ function createTutorial(deps) {
       if (clickAdvances)
         advance();
     });
-    spot = el7("div", "la-tut-spot");
+    spot = el6("div", "la-tut-spot");
     const sprite = document.createElement("img");
     sprite.className = "la-vn-sprite is-shaking";
     sprite.src = MOUSEY_EXPRESSIONS["cardboard"] ?? MOUSEY_EXPRESSIONS["neutral"] ?? "";
     sprite.alt = "";
     sprite.setAttribute("aria-hidden", "true");
     spriteEl = sprite;
-    card = el7("div", "la-tut-card");
+    card = el6("div", "la-tut-card");
     overlay.append(spot, sprite, card);
     deps.root.appendChild(overlay);
     resizeObs = new ResizeObserver(() => placeSpot());
@@ -14017,6 +16342,8 @@ var SECTIONS = [
   {
     title: "On the prompt going to the model",
     items: [
+      { rw: "R", text: "LumiCache reports and paged prompt diffs, when LumiCache is installed. I can explain a paused request, but Send anyway stays yours." },
+      { rw: "W", text: "LumiCache audits and five-prompt simulations, with progress and cancellation. Keep a browser connected. Simulations use a temporary copy, make no chat-model requests, and sit outside Workshop undo." },
       { rw: "R", text: "The full assembled prompt that would be sent to the LLM right now." },
       { rw: "R", text: "Which lorebook entries would actually activate for the next reply, and why." },
       { rw: "R", text: "Which regex scripts would actually fire on the response." },
@@ -14030,7 +16357,7 @@ var SECTIONS = [
       { rw: "W", text: "Your personas: read every one, edit names, titles, descriptions, their world books and add-on blocks, create new ones, and switch which is active." },
       { rw: "W", text: "Your prompt presets: full create, edit, and delete. Blocks, order, parameters, everything." },
       { rw: "W", text: "Your databanks: new banks and documents, global, per-character, or per-chat." },
-      { rw: "W", text: "Your theme: apply or clear live overrides, or save and install CSS theme packs with the host's existing theme editor. Theme-pack changes are outside Workshop undo." },
+      { rw: "W", text: "Your theme: edit saved settings and CSS, bundle assets, import/export packs, and restore backups. Source references depend on host support. Live inspection requires an open browser." },
       { rw: "W", text: "The Memory Cortex: curate entities and facts, pin the important ones, retire the wrong ones." },
       { rw: "W", text: "My own macros: I can mint {{lumiagent::...}} macros holding anything, for your prompts or wherever else." },
       { rw: "W", text: "Images: generate with your configured image provider, save to the workspace, tag into a gallery, or set as an avatar." },
@@ -14065,12 +16392,12 @@ var EXAMPLES = [
   "Change genders/sexes of characters in the story, or modify their personas.",
   "Change my personality in the settings... if you don't like it (╥﹏╥)",
   "Modify or help update/merge a preset!",
-  "Redecorate Lumiverse: ask for CSS styling, review the result, and save a theme pack.",
+  "Redecorate Lumiverse: ask for a theme, inspect the result, and restore a saved backup whenever you need~",
   "Generate images for a character's gallery, or a new avatar.",
   "Show me what my MCP servers can do, then use the right tools for my task."
 ];
 var WIP = ["Dreamweaver"];
-function el8(tag, cls, text) {
+function el7(tag, cls, text) {
   const e = document.createElement(tag);
   if (cls)
     e.className = cls;
@@ -14085,49 +16412,50 @@ function openCapabilitiesModal(ctx, mouseyUrl) {
     width: Math.max(420, Math.min(Math.floor(viewportW * 0.9), 760)),
     maxHeight: 860
   });
-  const wrap = el8("div", "la-caps");
-  const hero = el8("div", "la-caps-hero");
+  const wrap = el7("div", "la-caps");
+  const hero = el7("div", "la-caps-hero");
   const avatar = document.createElement("img");
   avatar.className = "la-caps-avatar";
   avatar.src = mouseyUrl;
   avatar.alt = "";
   avatar.setAttribute("aria-hidden", "true");
-  const heroText = el8("div", "la-caps-hero-text");
-  heroText.appendChild(el8("div", "la-caps-hero-title", "How much can I actually access?"));
-  heroText.appendChild(el8("div", "la-caps-hero-sub", "A lot~ ( ꈍ◡ꈍ) Here's the list so you know what to ask me about. As submitted with my job application. Every word is true!"));
-  const legend = el8("div", "la-caps-legend");
-  const legR = el8("span", "la-caps-chip is-r", "R");
-  const legW = el8("span", "la-caps-chip is-w", "W");
-  legend.append(legR, el8("span", "la-caps-legend-label", "I can read it"), legW, el8("span", "la-caps-legend-label", "I can write to it too"));
+  const heroText = el7("div", "la-caps-hero-text");
+  heroText.appendChild(el7("div", "la-caps-hero-title", "How much can I actually access?"));
+  heroText.appendChild(el7("div", "la-caps-hero-sub", "A lot~ ( ꈍ◡ꈍ) Here's the list so you know what to ask me about. As submitted with my job application. Every word is true!"));
+  const legend = el7("div", "la-caps-legend");
+  const legR = el7("span", "la-caps-chip is-r", "R");
+  const legW = el7("span", "la-caps-chip is-w", "W");
+  legend.append(legR, el7("span", "la-caps-legend-label", "I can read it"), legW, el7("span", "la-caps-legend-label", "I can write to it too"));
   heroText.appendChild(legend);
   hero.append(avatar, heroText);
   wrap.appendChild(hero);
   for (const section of SECTIONS) {
-    const sec = el8("div", "la-caps-section");
-    sec.appendChild(el8("div", "la-caps-section-title", `✧ ${section.title}`));
-    const list = el8("ul", "la-caps-list");
+    const sec = el7("div", "la-caps-section");
+    sec.appendChild(el7("div", "la-caps-section-title", `✧ ${section.title}`));
+    const list = el7("ul", "la-caps-list");
     for (const item of section.items) {
-      const li = el8("li", "la-caps-item");
-      li.appendChild(el8("span", `la-caps-chip ${item.rw === "W" ? "is-w" : "is-r"}`, item.rw));
-      li.appendChild(el8("span", "la-caps-item-text", item.text));
+      const li = el7("li", "la-caps-item");
+      li.appendChild(el7("span", `la-caps-chip ${item.rw === "W" ? "is-w" : "is-r"}`, item.rw));
+      li.appendChild(el7("span", "la-caps-item-text", item.text));
       list.appendChild(li);
     }
     sec.appendChild(list);
     wrap.appendChild(sec);
   }
-  const powahh = el8("div", "la-caps-section la-caps-powahh");
-  powahh.appendChild(el8("div", "la-caps-section-title", "Examples of my powahh ⎛⎝( ` ᢍ ´ )⎠⎞ᵐᵘʰᵃʰᵃ"));
-  powahh.appendChild(el8("div", "la-caps-powahh-sub", "You can get me to:"));
-  const ol = el8("ol", "la-caps-examples");
+  const powahh = el7("div", "la-caps-section la-caps-powahh");
+  powahh.appendChild(el7("div", "la-caps-section-title", "Examples of my powahh ⎛⎝( ` ᢍ ´ )⎠⎞ᵐᵘʰᵃʰᵃ"));
+  powahh.appendChild(el7("div", "la-caps-powahh-sub", "You can get me to:"));
+  const ol = el7("ol", "la-caps-examples");
   for (const ex of EXAMPLES)
-    ol.appendChild(el8("li", "la-caps-example", ex));
+    ol.appendChild(el7("li", "la-caps-example", ex));
   powahh.appendChild(ol);
   wrap.appendChild(powahh);
-  const wip = el8("div", "la-caps-wip");
-  wip.appendChild(el8("span", "la-caps-wip-label", "Still in the oven (WIP):"));
+  const wip = el7("div", "la-caps-wip");
+  wip.appendChild(el7("span", "la-caps-wip-label", "Still in the oven (WIP):"));
   for (const w of WIP)
-    wip.appendChild(el8("span", "la-caps-wip-chip", w));
+    wip.appendChild(el7("span", "la-caps-wip-chip", w));
   wrap.appendChild(wip);
+  handle.root.classList.add("la-modal-body");
   handle.root.appendChild(wrap);
 }
 
@@ -14178,7 +16506,7 @@ function showToast(text, durationMs = 4000) {
     setTimeout(() => t.remove(), 300);
   }, durationMs);
 }
-function el10(tag, cls, text) {
+function el9(tag, cls, text) {
   const e = document.createElement(tag);
   if (cls)
     e.className = cls;
@@ -14245,17 +16573,17 @@ function mountDrawer(ctx) {
     loading: false,
     editingMessageId: null
   };
-  const header = el10("header", "la-header");
+  const header = el9("header", "la-header");
   const makeIconBtn = (cls, svg, label, hint) => {
-    const b = el10("button", `la-btn la-icon-btn ${cls}`);
+    const b = el9("button", `la-btn la-icon-btn ${cls}`);
     b.type = "button";
     b.setAttribute("aria-label", label);
     b.title = hint;
     b.innerHTML = svg;
     return b;
   };
-  const rowChar = el10("div", "la-header-row la-header-row-char");
-  const charComboRoot = el10("div", "la-combo-host la-combo-host-char");
+  const rowChar = el9("div", "la-header-row la-header-row-char");
+  const charComboRoot = el9("div", "la-combo-host la-combo-host-char");
   charComboRoot.setAttribute("aria-label", "Character");
   const charCombo = mountCombo(charComboRoot);
   charCombo.setPlaceholder("Pick character");
@@ -14268,14 +16596,14 @@ function mountDrawer(ctx) {
   const newSessionBtn = makeIconBtn("", ICON_NEW, "Start a new chat session", "New session");
   const expandBtn = makeIconBtn("la-expand-btn", ICON_EXPAND, "Expand to fullscreen", "Expand to fullscreen");
   const settingsBtn = makeIconBtn("", ICON_SETTINGS, "Agent settings", "Agent settings (persona & prompt)");
-  const menuBtn = el10("button", "la-btn la-icon-btn");
+  const menuBtn = el9("button", "la-btn la-icon-btn");
   menuBtn.setAttribute("aria-label", "More");
   menuBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>';
-  const connComboRoot = el10("div", "la-combo-host la-combo-host-conn");
+  const connComboRoot = el9("div", "la-combo-host la-combo-host-conn");
   connComboRoot.setAttribute("aria-label", "Connection");
   const connCombo = mountCombo(connComboRoot);
   connCombo.setPlaceholder("Default connection");
-  const sessionBtns = el10("span", "la-session-btns");
+  const sessionBtns = el9("span", "la-session-btns");
   sessionBtns.append(switchSessionBtn, newSessionBtn);
   sessionBtns.setAttribute("data-tut", "sessions");
   rowChar.append(charComboRoot, chatPinBtn, sessionBtns);
@@ -14283,10 +16611,10 @@ function mountDrawer(ctx) {
   settingsBtn.setAttribute("data-tut", "settings");
   connComboRoot.setAttribute("data-tut", "conn");
   expandBtn.setAttribute("data-tut", "expand");
-  const rowMeta = el10("div", "la-header-row la-header-row-meta");
+  const rowMeta = el9("div", "la-header-row la-header-row-meta");
   const editsBadge = makeIconBtn("la-changes-btn", ICON_WORKSHOP, "Open diff viewer", "Workshop");
   editsBadge.setAttribute("data-tut", "workshop");
-  const editsCount = el10("span", "la-changes-count", "0");
+  const editsCount = el9("span", "la-changes-count", "0");
   editsBadge.appendChild(editsCount);
   rowMeta.append(connComboRoot, editsBadge, expandBtn, settingsBtn, menuBtn);
   let isExpanded = false;
@@ -14322,9 +16650,9 @@ function mountDrawer(ctx) {
     }
   });
   header.append(rowChar, rowMeta);
-  const thread = el10("div", "la-thread");
-  const emptyState = el10("div", "la-empty");
-  emptyState.append(Object.assign(el10("h3"), { textContent: "What can I do?" }), Object.assign(el10("p"), { textContent: "Pick a character and ask me to translate, refactor, audit, add lorebook entries, or anything else. Every edit shows as a diff you can review and revert. Here are some examples:" }));
+  const thread = el9("div", "la-thread");
+  const emptyState = el9("div", "la-empty");
+  emptyState.append(Object.assign(el9("h3"), { textContent: "What can I do?" }), Object.assign(el9("p"), { textContent: "Pick a character and ask me to translate, refactor, audit, add lorebook entries, or anything else. Every edit shows as a diff you can review and revert. Here are some examples:" }));
   const SUGGESTIONS = [
     {
       label: "Translate this card to English",
@@ -14343,7 +16671,7 @@ function mountDrawer(ctx) {
       send: "Help me change the gender of one or more characters. First ask which character(s) and what new gender for each. Then `grep` for every reference: name, pronouns, honorifics, gendered nouns. Map out the surfaces that need to change and show me the plan as (surface, what changes) before applying. Pronouns, possessives, and gendered nouns all need to flip together."
     }
   ];
-  const tourChip = el10("button", "la-empty-suggestion la-tour-chip", "New here? Take the two-minute tour ✨");
+  const tourChip = el9("button", "la-empty-suggestion la-tour-chip", "New here? Take the two-minute tour ✨");
   tourChip.type = "button";
   tourChip.style.display = "none";
   tourChip.addEventListener("click", () => tutorial.open());
@@ -14352,48 +16680,54 @@ function mountDrawer(ctx) {
   const updateTourChip = () => {
     tourChip.style.display = tutorialSeen ? "none" : "";
   };
-  const suggestions = el10("div", "la-empty-suggestions");
+  const suggestions = el9("div", "la-empty-suggestions");
   for (const item of SUGGESTIONS) {
-    const s = el10("button", "la-empty-suggestion", item.label);
+    const s = el9("button", "la-empty-suggestion", item.label);
     s.title = item.send;
     s.addEventListener("click", () => {
-      textarea.value = item.send;
-      autosizeTextarea();
+      setComposerText(item.send);
       doSend();
     });
     suggestions.appendChild(s);
   }
   emptyState.appendChild(suggestions);
-  const composer = el10("div", "la-composer");
+  const composer = el9("div", "la-composer");
   const mouseyImg = document.createElement("img");
   mouseyImg.className = "la-mousey";
   mouseyImg.src = resolveMouseyImageUrl();
   mouseyImg.alt = "";
   mouseyImg.setAttribute("aria-hidden", "true");
+  mouseyImg.draggable = false;
   composer.appendChild(mouseyImg);
-  const composerInner = el10("div", "la-composer-inner");
-  const composerArea = el10("div", "la-composer-area");
+  const mouseyHit = document.createElement("button");
+  mouseyHit.type = "button";
+  mouseyHit.className = "la-mousey-hit";
+  mouseyHit.setAttribute("aria-label", "Play Mousey animation");
+  mouseyHit.hidden = true;
+  composer.appendChild(mouseyHit);
+  const composerInner = el9("div", "la-composer-inner");
+  const composerArea = el9("div", "la-composer-area");
   const textarea = document.createElement("textarea");
   textarea.className = "la-textarea";
   textarea.rows = 1;
   textarea.placeholder = "Ask anything";
-  const composerActions = el10("div", "la-composer-actions");
-  const attachBtn = el10("button", "la-attach-btn");
+  const composerActions = el9("div", "la-composer-actions");
+  const attachBtn = el9("button", "la-attach-btn");
   attachBtn.type = "button";
-  attachBtn.setAttribute("aria-label", "Attach image");
+  attachBtn.setAttribute("aria-label", "Attach files or images");
   attachBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
   const fileInput = document.createElement("input");
   fileInput.type = "file";
   fileInput.multiple = true;
   fileInput.style.display = "none";
-  const sendBtn = el10("button", "la-send-btn");
+  const sendBtn = el9("button", "la-send-btn");
   sendBtn.setAttribute("aria-label", "Send");
   sendBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>';
-  const cancelBtn = el10("button", "la-cancel-btn");
+  const cancelBtn = el9("button", "la-cancel-btn");
   cancelBtn.setAttribute("aria-label", "Stop");
   cancelBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>';
   cancelBtn.style.display = "none";
-  const compactBtn = el10("button", "la-compact-btn");
+  const compactBtn = el9("button", "la-compact-btn");
   compactBtn.type = "button";
   compactBtn.setAttribute("aria-label", "Compact context");
   compactBtn.setAttribute("data-tut", "compact");
@@ -14405,19 +16739,20 @@ function mountDrawer(ctx) {
     <circle class="la-compact-fill" cx="18" cy="18" r="15" fill="none" stroke-width="3" stroke-dasharray="94.2 94.2" stroke-dashoffset="94.2" transform="rotate(-90 18 18)" stroke-linecap="round"/>
   `;
   compactBtn.appendChild(compactRing);
-  const compactTip = el10("div", "la-compact-tooltip");
-  const compactTipMain = el10("div", "la-compact-tooltip-main", "Context fully available.");
-  const compactTipSub = el10("div", "la-compact-tooltip-sub", "Click to compact now.");
+  const compactTip = el9("div", "la-compact-tooltip");
+  const compactTipMain = el9("div", "la-compact-tooltip-main", "Context fully available.");
+  const compactTipSub = el9("div", "la-compact-tooltip-sub", "Click to compact now.");
   compactTip.append(compactTipMain, compactTipSub);
   compactBtn.appendChild(compactTip);
   composerActions.append(compactBtn, attachBtn, sendBtn, cancelBtn);
   composerArea.append(textarea, composerActions);
   composerArea.setAttribute("data-tut", "composer");
-  const queuedWrap = el10("div", "la-queued");
+  const queuedWrap = el9("div", "la-queued");
   queuedWrap.style.display = "none";
-  const composerAttachments = el10("div", "la-attachments");
+  const composerAttachments = el9("div", "la-attachments");
   composerAttachments.style.display = "none";
-  const composerStatus = el10("div", "la-composer-status");
+  const composerStatus = el9("div", "la-composer-status");
+  composerStatus.setAttribute("role", "status");
   composerInner.append(queuedWrap, composerAttachments, composerArea, composerStatus);
   composer.appendChild(composerInner);
   composer.appendChild(fileInput);
@@ -14490,9 +16825,31 @@ function mountDrawer(ctx) {
   });
   const TEXTAREA_MAX_PX = 84;
   const autosizeTextarea = () => {
+    if (textarea.clientWidth === 0)
+      return;
     textarea.style.height = "auto";
-    textarea.style.height = Math.min(textarea.scrollHeight, TEXTAREA_MAX_PX) + "px";
+    const style = getComputedStyle(textarea);
+    const border = parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+    textarea.style.height = Math.min(textarea.scrollHeight + border, TEXTAREA_MAX_PX) + "px";
   };
+  const setComposerText = (value) => {
+    textarea.value = value;
+    autosizeTextarea();
+  };
+  let textareaWidth = 0;
+  let textareaResizeFrame = 0;
+  const textareaObserver = new ResizeObserver(([entry]) => {
+    const width = entry?.contentRect.width ?? 0;
+    if (width === textareaWidth)
+      return;
+    textareaWidth = width;
+    cancelAnimationFrame(textareaResizeFrame);
+    textareaResizeFrame = requestAnimationFrame(() => {
+      textareaResizeFrame = 0;
+      autosizeTextarea();
+    });
+  });
+  textareaObserver.observe(textarea);
   textarea.addEventListener("input", autosizeTextarea);
   textarea.addEventListener("input", () => updateComposer());
   let mouseyOverlapRaf = null;
@@ -14502,6 +16859,14 @@ function mountDrawer(ctx) {
     mouseyOverlapRaf = requestAnimationFrame(() => {
       mouseyOverlapRaf = null;
       const m = mouseyImg.getBoundingClientRect();
+      const parent = composer.getBoundingClientRect();
+      const inputTop = composerArea.getBoundingClientRect().top;
+      const hitHeight = Math.max(0, Math.min(m.bottom, inputTop) - m.top);
+      mouseyHit.hidden = m.width === 0 || hitHeight === 0;
+      mouseyHit.style.left = `${m.left - parent.left - composer.clientLeft}px`;
+      mouseyHit.style.top = `${m.top - parent.top - composer.clientTop}px`;
+      mouseyHit.style.width = `${m.width}px`;
+      mouseyHit.style.height = `${hitHeight}px`;
       if (m.width === 0 || m.height === 0) {
         mouseyImg.classList.remove("la-mousey-overlap");
         return;
@@ -14513,21 +16878,179 @@ function mountDrawer(ctx) {
   };
   textarea.addEventListener("input", detectMouseyOverlap);
   window.addEventListener("resize", detectMouseyOverlap);
-  const meetBanner = el10("button", "la-meet-banner");
+  mouseyImg.addEventListener("load", detectMouseyOverlap);
+  const mouseyObserver = new ResizeObserver(detectMouseyOverlap);
+  for (const element of [mouseyImg, composer, composerArea])
+    mouseyObserver.observe(element);
+  const meetBanner = el9("button", "la-meet-banner");
   meetBanner.type = "button";
   meetBanner.style.display = "none";
-  meetBanner.append(el10("span", "la-meet-banner-main", "Click to Meet Mousey!!!"), el10("span", "la-meet-banner-please", "(please)"));
+  meetBanner.append(el9("span", "la-meet-banner-main", "Click to Meet Mousey!!!"), el9("span", "la-meet-banner-please", "(please)"));
   meetBanner.addEventListener("click", () => tutorial.open());
   let tutorialDone = true;
   const updateMeetBanner = () => {
     meetBanner.style.display = tutorialDone ? "none" : "";
   };
-  root.append(meetBanner, header, thread, composer);
-  const sendBackend = (msg) => ctx.sendToBackend(msg);
+  const threadShell = el9("div", "la-thread-shell");
+  threadShell.append(thread);
+  root.append(meetBanner, header, threadShell, composer);
+  const historyFeedback = new RequestFeedback(threadShell);
+  const commandFeedback = new RequestFeedback(threadShell);
+  let waitingCommandSession = null;
+  let openingConversation = false;
+  const sessionSync = new SessionSync;
+  let historyPage = { start: 0, end: 0, total: 0 };
+  let pendingHistory = null;
+  let historySettling = false;
+  let historyScrollFrame = 0;
+  let historyRestoreFrame = 0;
+  let lastHistoryScroll = 0;
+  const sendBackend = (msg) => {
+    if (msg.type === "load_session") {
+      const requestId = sessionSync.request(msg.sessionId, msg.before);
+      if (!requestId)
+        return;
+      if (waitingCommandSession && waitingCommandSession !== msg.sessionId) {
+        commandFeedback.clear();
+        waitingCommandSession = null;
+      }
+      msg = { ...msg, requestId };
+      pendingHistory = null;
+      openingConversation = state.sessionId !== msg.sessionId;
+      const blocking = openingConversation || msg.before === undefined;
+      thread.inert = blocking;
+      threadShell.classList.toggle("is-syncing", blocking);
+      threadShell.classList.toggle("is-opening", openingConversation);
+      thread.setAttribute("aria-busy", "true");
+      updateComposer();
+      const request = msg;
+      historyFeedback.begin(msg.requestId, {
+        label: openingConversation ? "Loading conversation…" : blocking ? "Syncing…" : "Loading messages…",
+        position: state.messages.length && state.sessionId === msg.sessionId ? "top" : "center",
+        retry: () => sendBackend({ type: "load_session", sessionId: request.sessionId, ...request.before !== undefined ? { before: request.before } : {} }),
+        onTimeout: () => {
+          thread.removeAttribute("aria-busy");
+        }
+      });
+    }
+    if (["start_session", "send_message", "continue_session", "edit_user_message", "regenerate_assistant_message", "delete_message", "free_tool_result", "compact_session", "cancel_generation"].includes(msg.type) && "sessionId" in msg && typeof msg.sessionId === "string") {
+      const id = msg.sessionId;
+      waitingCommandSession = id;
+      commandFeedback.begin(id, {
+        label: msg.type === "delete_message" ? "Deleting…" : msg.type === "cancel_generation" ? "Stopping…" : "Waiting…",
+        position: "bottom",
+        timeoutMessage: "Still waiting for the server",
+        retryLabel: "Reconnect",
+        retry: () => sendBackend({ type: "load_session", sessionId: id })
+      });
+    }
+    try {
+      ctx.sendToBackend(msg);
+    } catch {
+      if (msg.type === "load_session" || msg.type === "load_session_page") {
+        historyFeedback.fail(msg.requestId, "Couldn’t reach the server");
+        if (msg.type === "load_session")
+          sessionSync.requestId = null;
+        else
+          pendingHistory = null;
+        thread.removeAttribute("aria-busy");
+      } else if (waitingCommandSession)
+        commandFeedback.fail(waitingCommandSession, "Couldn’t reach the server");
+    }
+  };
+  const messageReader = new MessageReader(sendBackend);
+  const requestHistory = (direction) => {
+    if (!state.sessionId || sessionSync.requestId || pendingHistory || historySettling)
+      return;
+    if (direction === "before" ? historyPage.start <= 0 : historyPage.end >= historyPage.total)
+      return;
+    const requestId = crypto.randomUUID();
+    pendingHistory = { requestId, sessionId: state.sessionId, direction };
+    historyFeedback.begin(requestId, {
+      label: "Loading messages…",
+      position: direction === "before" ? "top" : "bottom",
+      retry: () => requestHistory(direction),
+      onTimeout: () => {
+        if (pendingHistory?.requestId === requestId)
+          pendingHistory = null;
+        thread.removeAttribute("aria-busy");
+      }
+    });
+    thread.setAttribute("aria-busy", "true");
+    sendBackend({
+      type: "load_session_page",
+      sessionId: state.sessionId,
+      requestId,
+      before: direction === "before" ? historyPage.start : Math.min(historyPage.total, historyPage.end + 30)
+    });
+  };
+  const onHistoryScroll = () => {
+    if (historyScrollFrame)
+      return;
+    historyScrollFrame = requestAnimationFrame(() => {
+      historyScrollFrame = 0;
+      const position = thread.scrollTop;
+      const delta = position - lastHistoryScroll;
+      lastHistoryScroll = position;
+      if (historySettling || state.editingMessageId)
+        return;
+      if (delta < 0 && position < 600)
+        requestHistory("before");
+      else if (delta > 0 && thread.scrollHeight - position - thread.clientHeight < 600)
+        requestHistory("after");
+    });
+  };
+  const receiveHistoryPage = (msg) => {
+    const pending = pendingHistory;
+    if (!pending || pending.requestId !== msg.requestId || pending.sessionId !== msg.sessionId || state.sessionId !== msg.sessionId)
+      return;
+    pendingHistory = null;
+    historyFeedback.finish(msg.requestId);
+    thread.removeAttribute("aria-busy");
+    if (!msg.sync || msg.sync.epoch !== sessionSync.revision?.epoch || msg.sync.sequence < sessionSync.revision.sequence)
+      return;
+    const merged = mergeHistoryPage({ ...historyPage, messages: state.messages }, { ...msg.page, messages: msg.messages }, pending.direction);
+    if (!merged) {
+      const anchor = virtualizer.captureAnchor();
+      const index = anchor ? state.messages.findIndex((message) => message.id === anchor.id) : 0;
+      sendBackend({ type: "load_session", sessionId: msg.sessionId, before: Math.min(msg.page.total, historyPage.start + Math.max(0, index) + 15) });
+      return;
+    }
+    const anchor = virtualizer.captureAnchor();
+    historySettling = true;
+    state.messages = [...merged.messages];
+    historyPage = { start: merged.start, end: merged.end, total: merged.total };
+    if (state.currentAssistantMessage && !state.messages.some((message) => message.id === state.currentAssistantMessage.id)) {
+      state.streamingAssistant?.destroy();
+      state.streamingAssistant = null;
+      state.currentAssistantMessage = null;
+    }
+    if (merged.end === merged.total) {
+      sessionSync.revision = msg.sync;
+      if (!state.streamingAssistant && msg.status.phase !== "idle")
+        rehydrateStreamingTurn();
+      applyStatus(msg.status);
+    }
+    if (anchor)
+      virtualizer.restoreAnchor(anchor);
+    else
+      virtualizer.setCount();
+    historyRestoreFrame = requestAnimationFrame(() => {
+      historyRestoreFrame = 0;
+      if (state.sessionId !== msg.sessionId || sessionSync.requestId) {
+        historySettling = false;
+        return;
+      }
+      if (anchor)
+        virtualizer.restoreAnchor(anchor);
+      lastHistoryScroll = thread.scrollTop;
+      historySettling = false;
+    });
+  };
   Promise.resolve().then(() => (init_image_cache(), {})).then((m) => configureImageCache((path) => sendBackend({ type: "ws_read_image", path })));
   const withConnection = (msg) => {
-    let id = state.connectionId;
-    if (id && !state.connections.some((c) => c.id === id)) {
+    let id = connCombo.getValue() ?? state.connectionId;
+    if (!id || !state.connections.some((c) => c.id === id)) {
       id = state.connections.find((c) => c.is_default)?.id ?? null;
     }
     return id ? { ...msg, connectionId: id } : msg;
@@ -14638,11 +17161,11 @@ function mountDrawer(ctx) {
       compactTipSub.textContent = "Replacing history with a handoff primer.";
     } else if (state.contextPromptTokens === 0) {
       compactTipMain.textContent = "Context fully available.";
-      compactTipSub.textContent = "Click to compact now.";
     } else {
-      compactTipMain.textContent = `${remainingPct}% context remaining until auto-compact.`;
-      compactTipSub.textContent = "Click to compact now.";
+      compactTipMain.textContent = `${remainingPct}% context remaining.`;
     }
+    if (!state.compacting)
+      compactTipSub.textContent = state.settings?.autoCompaction === false ? "Automatic compaction is off. Click to compact manually." : "Automatic compaction at 84% used. Click to compact now.";
     const canClick = !!state.sessionId && !state.isGenerating && !state.startingSession && !state.compacting;
     compactBtn.disabled = !canClick;
   };
@@ -14652,7 +17175,7 @@ function mountDrawer(ctx) {
     state.compacting = true;
     updateCompactButton();
     updateComposer();
-    sendBackend({ type: "compact_session", sessionId: state.sessionId });
+    sendBackend(withConnection({ type: "compact_session", sessionId: state.sessionId }));
   });
   let sendMode = "disabled";
   const updateLocks = () => {
@@ -14670,6 +17193,13 @@ function mountDrawer(ctx) {
   let mouseyDead = false;
   let deathPending = false;
   const updateComposer = () => {
+    if (openingConversation) {
+      sendBtn.style.display = "flex";
+      sendBtn.disabled = true;
+      cancelBtn.style.display = "none";
+      sendMode = "disabled";
+      return;
+    }
     if (mouseyDead) {
       sendBtn.style.display = "";
       sendBtn.disabled = true;
@@ -14688,11 +17218,13 @@ function mountDrawer(ctx) {
     sendBtn.disabled = false;
     const busy = state.isGenerating || state.startingSession || state.compacting;
     if (busy) {
-      sendBtn.style.display = state.isGenerating ? "" : "none";
-      cancelBtn.style.display = "";
+      const hasDraft = textarea.value.trim().length > 0 || state.attachments.length > 0 || state.fileAttachments.length > 0;
+      sendBtn.style.display = hasDraft ? "flex" : "none";
+      cancelBtn.style.display = hasDraft ? "none" : "flex";
+      sendBtn.disabled = state.startingSession || state.compacting || state.fileAttachments.some((attachment) => attachment.status === "uploading");
       cancelBtn.disabled = state.startingSession;
       textarea.disabled = false;
-      setComposerStatus(state.startingSession ? "starting session..." : state.compacting ? "compacting context..." : queuedMessages.length > 0 ? `agent is working... ${queuedMessages.length} message${queuedMessages.length === 1 ? "" : "s"} queued` : "agent is working... new sends queue");
+      setComposerStatus("");
       sendMode = "disabled";
     } else {
       sendBtn.style.display = "";
@@ -14709,9 +17241,9 @@ function mountDrawer(ctx) {
       } else if (recoverable) {
         sendMode = "recover";
         setComposerStatus("Last response failed empty. Press Send to retry it.");
-      } else if (lastRole === "user" && !!state.sessionId) {
+      } else if (!!state.sessionId && (lastRole === "user" || statusFresh && (st.lastAssistantStatus === "errored" || st.lastAssistantStatus === "cancelled"))) {
         sendMode = "continue";
-        setComposerStatus("");
+        setComposerStatus("Continue from saved progress");
       } else {
         sendMode = "disabled";
         setComposerStatus(state.sessionId ? "" : "Type a message and press Send. A new session will start automatically.");
@@ -14730,9 +17262,11 @@ function mountDrawer(ctx) {
     state.sessionStatus = st;
     state.isGenerating = st.phase === "generating";
     state.compacting = st.phase === "compacting";
-    if (st.phase !== "idle") {
-      state.startingSession = false;
-      clearStartTimeout();
+    state.startingSession = false;
+    clearStartTimeout();
+    if (st.phase === "idle") {
+      state.streamingAssistant?.setLoading(false);
+      state.loading = false;
     }
     state.contextPromptTokens = st.promptTokens;
     if (st.contextTokens > 0)
@@ -14745,17 +17279,14 @@ function mountDrawer(ctx) {
     if (mouseyDead)
       return;
     mouseyDead = true;
-    textarea.value = "";
+    setComposerText("");
     mouseyImg.classList.remove("la-mousey-overlap");
     updateComposer();
     const becomeBlood = () => {
       mouseyImg.classList.remove("la-mousey-exploding");
       mouseyImg.src = BLOOD_POOL_DATA_URL;
       mouseyImg.classList.add("la-mousey-blood");
-      mouseyImg.title = "Restore Mousey from backup";
-      mouseyImg.setAttribute("aria-hidden", "false");
-      mouseyImg.setAttribute("role", "button");
-      mouseyImg.setAttribute("aria-label", "Restore Mousey from backup");
+      mouseyHit.setAttribute("aria-label", "Restore Mousey from backup");
     };
     if (animated) {
       mouseyImg.classList.add("la-mousey-exploding");
@@ -14794,11 +17325,12 @@ function mountDrawer(ctx) {
     mouseyImg.setAttribute("aria-hidden", "true");
     mouseyImg.removeAttribute("role");
     mouseyImg.removeAttribute("aria-label");
+    mouseyHit.setAttribute("aria-label", "Play Mousey animation");
     updateComposer();
     sendBackend({ type: "update_ui_prefs", connectionId: state.connectionId, lastSessionId: state.sessionId, mouseyDead: false });
     sendBackend({ type: "mousey_revived", sessionId: state.sessionId });
   };
-  mouseyImg.addEventListener("click", () => {
+  mouseyHit.addEventListener("click", () => {
     if (mouseyDead) {
       reviveMousey();
       return;
@@ -14890,6 +17422,7 @@ Force-revert anyway (this overwrites the external change)?`;
       getEdits: () => scopeEntries(workshopScope()),
       getScopes: () => buildScopeOptions(),
       getSelectedScope: () => workshopScope(),
+      readEdit: (entry, part, offset) => messageReader.edit(entry.scope, entry.id, part, offset),
       onSelectScope: (scope) => {
         state.workshopFocusScope = scope;
         sendBackend({ type: "load_character_workshop", characterId: scope.id, scope });
@@ -14945,8 +17478,8 @@ Force-revert anyway (this overwrites the external change)?`;
       if (anchorId !== null && msg.id === anchorId) {
         const wrap = document.createElement("div");
         wrap.appendChild(node);
-        const divider = el10("div", "la-cache-divider");
-        divider.appendChild(el10("span", "la-cache-divider-label", "messages above this line are cached"));
+        const divider = el9("div", "la-cache-divider");
+        divider.appendChild(el9("span", "la-cache-divider-label", "messages above this line are cached"));
         wrap.appendChild(divider);
         return wrap;
       }
@@ -14983,14 +17516,17 @@ Force-revert anyway (this overwrites the external change)?`;
     updateComposer();
   };
   const liveEditsForAssistantMessage = (assistantMessageId) => {
-    return state.edits.filter((e) => e.assistantMessageId === assistantMessageId && !e.reverted).length;
+    return state.messages.find((message) => message.id === assistantMessageId)?.editCounts?.own ?? state.edits.filter((e) => e.assistantMessageId === assistantMessageId && canRevertEdit(e)).length;
   };
   const liveEditsAfterUserMessage = (userMessageId) => {
     const idx = state.messages.findIndex((m) => m.id === userMessageId && m.role === "user");
     if (idx < 0)
       return 0;
+    const counts = state.messages[idx]?.editCounts;
+    if (counts)
+      return counts.following;
     const tailAssistantIds = new Set(state.messages.slice(idx + 1).filter((m) => m.role === "assistant").map((m) => m.id));
-    return state.edits.filter((e) => e.assistantMessageId !== undefined && tailAssistantIds.has(e.assistantMessageId) && !e.reverted).length;
+    return state.edits.filter((e) => e.assistantMessageId !== undefined && tailAssistantIds.has(e.assistantMessageId) && canRevertEdit(e)).length;
   };
   const promptEditsAction = async (opts) => {
     const verb = opts.action === "edit" ? "editing this message" : opts.action === "regenerate" ? "regenerating this response" : "deleting this message";
@@ -15008,6 +17544,7 @@ Revert those edits to the character now, or leave them applied?`;
   };
   function makeThreadDeps() {
     return {
+      getMessageSource: (id) => messageReader.source(state.sessionId, id),
       onRevertEdit: async (editId) => {
         const scope = state.edits.find((e) => e.id === editId)?.scope ?? activeScope();
         if (!scope)
@@ -15171,7 +17708,7 @@ Revert those edits to the character now, or leave them applied?`;
       const vw = typeof window !== "undefined" ? window.innerWidth : 1200;
       const vh = typeof window !== "undefined" ? window.innerHeight : 900;
       const handle = ctx.ui.showModal({ title: "Congrats!", width: Math.floor(vw * 0.96), maxHeight: Math.floor(vh * 0.96) });
-      const wrap = el10("div", "la-meet");
+      const wrap = el9("div", "la-meet");
       const img = document.createElement("img");
       img.className = "la-congrats-img";
       img.src = MOUSEY_EXPRESSIONS["done"] ?? "";
@@ -15189,19 +17726,20 @@ Revert those edits to the character now, or leave them applied?`;
       };
       img.addEventListener("load", () => requestAnimationFrame(sizeRoller));
       requestAnimationFrame(sizeRoller);
-      const row = el10("div", "la-meet-actions");
-      const thanks = el10("button", "la-btn la-meet-yes", "Thanks...");
+      const row = el9("div", "la-meet-actions");
+      const thanks = el9("button", "la-btn la-meet-yes", "Thanks...");
       thanks.type = "button";
       thanks.addEventListener("click", () => handle.dismiss());
       row.appendChild(thanks);
       wrap.appendChild(row);
+      handle.root.classList.add("la-modal-body");
       handle.root.appendChild(wrap);
     }
   });
   let meetPromptFired = false;
   const openMeetMouseyModal = () => {
     const handle = ctx.ui.showModal({ title: "A small introduction", width: 420, maxHeight: 680 });
-    const wrap = el10("div", "la-meet");
+    const wrap = el9("div", "la-meet");
     const stage = (expr, question, yesLabel, noLabel, onNo) => {
       wrap.replaceChildren();
       const img = document.createElement("img");
@@ -15209,16 +17747,16 @@ Revert those edits to the character now, or leave them applied?`;
       img.src = MOUSEY_EXPRESSIONS[expr] ?? "";
       img.alt = "";
       wrap.appendChild(img);
-      wrap.appendChild(el10("div", "la-meet-question", question));
-      const row = el10("div", "la-meet-actions");
-      const yes = el10("button", "la-btn la-meet-yes", yesLabel);
+      wrap.appendChild(el9("div", "la-meet-question", question));
+      const row = el9("div", "la-meet-actions");
+      const yes = el9("button", "la-btn la-meet-yes", yesLabel);
       yes.type = "button";
       yes.addEventListener("click", () => {
         handle.dismiss();
         tab.activate();
         tutorial.open();
       });
-      const no = el10("button", "la-btn la-btn-ghost", noLabel);
+      const no = el9("button", "la-btn la-btn-ghost", noLabel);
       no.type = "button";
       no.addEventListener("click", onNo);
       row.append(yes, no);
@@ -15227,6 +17765,7 @@ Revert those edits to the character now, or leave them applied?`;
     stage("bashful", "Do you want to meet Mousey?", "Yes!", "No", () => {
       stage("pleading", "Are... you sure, you don't want to meet Mousey?", "Okay, let's meet", "I'm sure", () => handle.dismiss());
     });
+    handle.root.classList.add("la-modal-body");
     handle.root.appendChild(wrap);
   };
   connCombo.onChange((id) => {
@@ -15315,31 +17854,31 @@ Revert those edits to the character now, or leave them applied?`;
   const openChatPickerModal = () => {
     sendBackend({ type: "list_chats", characterId: state.characterId, ...state.sessionId ? { sessionId: state.sessionId } : {} });
     const handle = ctx.ui.showModal({ title: "Pin a chat", width: 520, maxHeight: 560 });
-    const note = el10("p", "la-modal-note", "Pin a chat to avoid the agent having to search your chats to find the right one.");
-    const list = el10("div", "la-sessions-modal-list");
+    const note = el9("p", "la-modal-note", "Pin a chat to avoid the agent having to search your chats to find the right one.");
+    const list = el9("div", "la-sessions-modal-list");
     const render = () => {
       list.innerHTML = "";
-      const unpin = el10("button", `la-session-item ${state.pinnedChatId === null ? "is-active" : ""}`);
-      unpin.append(Object.assign(el10("div"), { textContent: "(No chat pinned)" }), el10("div", "la-session-item-meta", "Agent has no message-history access."));
+      const unpin = el9("button", `la-session-item ${state.pinnedChatId === null ? "is-active" : ""}`);
+      unpin.append(Object.assign(el9("div"), { textContent: "(No chat pinned)" }), el9("div", "la-session-item-meta", "Agent has no message-history access."));
       unpin.addEventListener("click", () => {
         pinChatOrQueue(null);
         handle.dismiss();
       });
       list.appendChild(unpin);
       if (state.chatsForCharacter.length === 0) {
-        list.appendChild(el10("div", "la-diff-pane-empty", state.characterId ? "No chats yet for this character." : "No chats available."));
+        list.appendChild(el9("div", "la-diff-pane-empty", state.characterId ? "No chats yet for this character." : "No chats available."));
         return;
       }
       for (const c of state.chatsForCharacter) {
-        const row = el10("div", `la-session-item ${c.isPinned ? "is-active" : ""}`);
-        const main = el10("div", "la-session-item-main");
-        main.append(Object.assign(el10("div"), { textContent: c.name + (c.isActive ? "  (currently open)" : "") }));
+        const row = el9("button", `la-session-item ${c.isPinned ? "is-active" : ""}`);
+        const main = el9("div", "la-session-item-main");
+        main.append(Object.assign(el9("div"), { textContent: c.name + (c.isActive ? "  (currently open)" : "") }));
         const memberNames = c.memberCharacterIds.map((id) => state.characters.find((character) => character.id === id)?.name ?? id).join(", ");
         const kind = c.isGroup ? `Group: ${memberNames} · ` : "";
-        main.append(el10("div", "la-session-item-meta", `${kind}updated ${new Date(c.updatedAt).toLocaleString()}`));
+        main.append(el9("div", "la-session-item-meta", `${kind}updated ${new Date(c.updatedAt).toLocaleString()}`));
         row.appendChild(main);
         if (c.isPinned) {
-          const tick = el10("span", "la-session-item-tick");
+          const tick = el9("span", "la-session-item-tick");
           tick.title = "Currently pinned";
           tick.setAttribute("aria-label", "Currently pinned");
           tick.innerHTML = ICON_TICK;
@@ -15352,6 +17891,7 @@ Revert those edits to the character now, or leave them applied?`;
         list.appendChild(row);
       }
     };
+    handle.root.classList.add("la-modal-body");
     handle.root.append(note, list);
     render();
     const detach = pushChatsListeners.push(render);
@@ -15378,21 +17918,17 @@ Revert those edits to the character now, or leave them applied?`;
   chatPinBtn.addEventListener("click", () => openChatPickerModal());
   const openSessionsModal = () => {
     const handle = ctx.ui.showModal({ title: "Sessions", width: 520 });
-    const list = el10("div", "la-sessions-modal-list");
-    handle.root.appendChild(list);
-    const render = () => {
-      list.innerHTML = "";
-      if (state.sessions.length === 0) {
-        list.appendChild(el10("div", "la-diff-pane-empty", "No sessions yet."));
-        return;
-      }
-      for (const s of state.sessions) {
+    const picker = mountRecordPicker(handle.root, {
+      label: "Search conversations",
+      reload: () => sendBackend({ type: "list_sessions" }),
+      search: (session) => `${session.title ?? ""} ${session.characterName} ${session.sessionId}`,
+      render: (s) => {
         const isCurrent = s.sessionId === state.sessionId;
-        const row = el10("div", `la-session-item ${isCurrent ? "is-active" : ""}`);
-        const main = el10("div", "la-session-item-main");
-        main.append(el10("div", undefined, s.characterId === null ? "(No character)" : s.characterName));
-        main.append(el10("div", "la-session-item-meta", `${s.messageCount} msg . ${s.editCount} edits${s.revertedEditCount ? ` (${s.revertedEditCount} reverted)` : ""} . ${new Date(s.lastActivityAt).toLocaleString()}`));
-        const exportBtn = el10("button", "la-session-item-delete");
+        const row = el9("div", `la-session-item ${isCurrent ? "is-active" : ""}`);
+        const main = el9("button", "la-session-item-main");
+        main.append(el9("div", "la-session-title", s.title || s.characterName || "Conversation"));
+        main.append(el9("div", "la-session-item-meta", `${s.messageCount} messages · ${s.editCount} changes · ${new Date(s.lastActivityAt).toLocaleDateString()}`));
+        const exportBtn = el9("button", "la-session-item-delete");
         exportBtn.type = "button";
         exportBtn.title = "Export session as Markdown";
         exportBtn.setAttribute("aria-label", "Export session as Markdown");
@@ -15401,7 +17937,7 @@ Revert those edits to the character now, or leave them applied?`;
           ev.stopPropagation();
           sendBackend({ type: "export_session_markdown", sessionId: s.sessionId });
         });
-        const delBtn = el10("button", "la-session-item-delete");
+        const delBtn = el9("button", "la-session-item-delete");
         delBtn.type = "button";
         delBtn.title = "Delete session";
         delBtn.setAttribute("aria-label", "Delete session");
@@ -15416,24 +17952,29 @@ Revert those edits to the character now, or leave them applied?`;
         });
         row.append(main);
         if (isCurrent) {
-          const tick = el10("span", "la-session-item-tick");
+          const tick = el9("span", "la-session-item-tick");
           tick.title = "Active session";
           tick.setAttribute("aria-label", "Active session");
           tick.innerHTML = ICON_TICK;
           row.appendChild(tick);
         }
         row.append(exportBtn, delBtn);
-        row.addEventListener("click", () => {
+        main.addEventListener("click", () => {
           sendBackend({ type: "load_session", sessionId: s.sessionId });
           handle.dismiss();
         });
-        list.appendChild(row);
+        return row;
       }
-    };
+    });
+    const render = () => picker.setItems(state.sessions.map((session) => ({ ...session, id: session.sessionId })));
     render();
-    sendBackend({ type: "list_sessions" });
     const detach = pushSessionsListeners.push(render);
-    handle.onDismiss(() => detach());
+    picker.refresh();
+    handle.onDismiss(() => {
+      detach();
+      picker.destroy();
+    });
+    picker.focus();
   };
   editsBadge.addEventListener("click", () => openDiffs());
   switchSessionBtn.addEventListener("click", () => openSessionsModal());
@@ -15491,48 +18032,48 @@ Revert those edits to the character now, or leave them applied?`;
   const openAgentSettingsModal = () => {
     sendBackend({ type: "get_settings" });
     const viewportW = typeof window !== "undefined" ? window.innerWidth : 1360;
-    const modalWidth = Math.max(560, Math.min(Math.floor(viewportW * 0.9), 1360));
+    const modalWidth = Math.max(280, Math.min(viewportW - 24, 1080));
     const handle = ctx.ui.showModal({ title: "Agent settings", width: modalWidth, maxHeight: 1080 });
-    const wrap = el10("div", "la-agent-settings");
-    wrap.appendChild(el10("p", "la-modal-note", "Customize how LumiAgent behaves. Changes save automatically on blur and on close, and apply to your next message."));
-    wrap.appendChild(el10("label", "la-settings-label", "Persona"));
-    wrap.appendChild(el10("div", "la-settings-hint", "Defines who the agent is. Prepended above the technical instructions. Default = the LumiAgent mousegirl persona."));
+    const wrap = el9("div", "la-agent-settings");
+    wrap.appendChild(el9("p", "la-modal-note", "Saves automatically. Applies to your next message."));
+    wrap.appendChild(el9("label", "la-settings-label", "Persona"));
+    wrap.appendChild(el9("div", "la-settings-hint", "The agent’s identity and voice."));
     const personaArea = document.createElement("textarea");
     personaArea.className = "la-settings-textarea";
     personaArea.rows = 8;
     wrap.appendChild(personaArea);
-    const personaResetRow = el10("div", "la-settings-reset-row");
-    const personaResetBtn = el10("button", "la-btn la-btn-mini la-btn-ghost", "Reset to default");
+    const personaResetRow = el9("div", "la-settings-reset-row");
+    const personaResetBtn = el9("button", "la-btn la-btn-mini la-btn-ghost", "Reset to default");
     personaResetRow.appendChild(personaResetBtn);
     wrap.appendChild(personaResetRow);
-    wrap.appendChild(el10("label", "la-settings-label", "System prompt body"));
-    wrap.appendChild(el10("div", "la-settings-hint", "The technical body. Tool guidance, working principles, edit discipline. The persona, LumiRealm, pinned-chat, and external-provider sections are appended automatically; you only own this body."));
+    wrap.appendChild(el9("label", "la-settings-label", "System prompt body"));
+    wrap.appendChild(el9("div", "la-settings-hint", "Core instructions. Character and tool context is added automatically."));
     const promptArea = document.createElement("textarea");
     promptArea.className = "la-settings-textarea la-settings-textarea-tall";
     promptArea.rows = 12;
     wrap.appendChild(promptArea);
-    const promptResetRow = el10("div", "la-settings-reset-row");
-    const promptResetBtn = el10("button", "la-btn la-btn-mini la-btn-ghost", "Reset to default");
+    const promptResetRow = el9("div", "la-settings-reset-row");
+    const promptResetBtn = el9("button", "la-btn la-btn-mini la-btn-ghost", "Reset to default");
     promptResetRow.appendChild(promptResetBtn);
     wrap.appendChild(promptResetRow);
-    wrap.appendChild(el10("label", "la-settings-label", "Samplers"));
-    wrap.appendChild(el10("div", "la-settings-hint", "Drag a slider to set, double-click to reset that sampler, empty number = inherit from the connection's preset."));
-    const samplersList = el10("div", "la-samplers-list");
+    wrap.appendChild(el9("label", "la-settings-label", "Samplers"));
+    wrap.appendChild(el9("div", "la-settings-hint", "Leave a value empty to use the connection preset."));
+    const samplersList = el9("div", "la-samplers-list");
     wrap.appendChild(samplersList);
-    const samplersResetRow = el10("div", "la-settings-reset-row");
-    const samplersResetBtn = el10("button", "la-btn la-btn-mini la-btn-ghost", "Reset all");
+    const samplersResetRow = el9("div", "la-settings-reset-row");
+    const samplersResetBtn = el9("button", "la-btn la-btn-mini la-btn-ghost", "Reset all");
     samplersResetRow.appendChild(samplersResetBtn);
     wrap.appendChild(samplersResetRow);
-    const jbHead = el10("div", "la-settings-section-head");
-    jbHead.append(el10("label", "la-settings-label", "Jailbreak / prefill"));
+    const jbHead = el9("div", "la-settings-section-head");
+    jbHead.append(el9("label", "la-settings-label", "Jailbreak / prefill"));
     wrap.appendChild(jbHead);
-    wrap.appendChild(el10("div", "la-settings-hint", "Optional text injected per message. Leave empty to disable."));
+    wrap.appendChild(el9("div", "la-settings-hint", "Optional text injected per message. Leave empty to disable."));
     const jbArea = document.createElement("textarea");
     jbArea.className = "la-settings-textarea";
     jbArea.rows = 4;
     wrap.appendChild(jbArea);
-    const jbPlacementRow = el10("div", "la-settings-row");
-    jbPlacementRow.append(el10("label", "la-settings-row-label", "Placement"));
+    const jbPlacementRow = el9("div", "la-settings-row");
+    jbPlacementRow.append(el9("label", "la-settings-row-label", "Placement"));
     const jbPlacement = document.createElement("select");
     jbPlacement.className = "la-select";
     for (const [val, lbl] of [
@@ -15547,22 +18088,22 @@ Revert those edits to the character now, or leave them applied?`;
     }
     jbPlacementRow.appendChild(jbPlacement);
     wrap.appendChild(jbPlacementRow);
-    wrap.appendChild(el10("hr", "la-settings-divider"));
-    wrap.appendChild(el10("label", "la-settings-label", "Agent notes"));
-    wrap.appendChild(el10("div", "la-settings-hint", "Long-term memory file the agent reads at the start of every session. Anything you put there is preloaded into context."));
-    const notesRow = el10("div", "la-settings-row");
-    const notesBtn = el10("button", "la-btn la-btn-mini", "Open agent notes");
+    wrap.appendChild(el9("hr", "la-settings-divider"));
+    wrap.appendChild(el9("label", "la-settings-label", "Agent notes"));
+    wrap.appendChild(el9("div", "la-settings-hint", "Long-term memory file the agent reads at the start of every session. Anything you put there is preloaded into context."));
+    const notesRow = el9("div", "la-settings-row");
+    const notesBtn = el9("button", "la-btn la-btn-mini", "Open agent notes");
     notesBtn.addEventListener("click", () => {
       handle.dismiss();
       openWorkshopOnFile("agent/agent.md");
     });
     notesRow.appendChild(notesBtn);
     wrap.appendChild(notesRow);
-    wrap.appendChild(el10("hr", "la-settings-divider"));
-    wrap.appendChild(el10("label", "la-settings-label", "Storage limits"));
-    wrap.appendChild(el10("div", "la-settings-hint", "Per-user storage cap for the workspace."));
-    const wsCapRow = el10("div", "la-settings-row");
-    wsCapRow.append(el10("label", "la-settings-row-label", "Workspace cap (MB)"));
+    wrap.appendChild(el9("hr", "la-settings-divider"));
+    wrap.appendChild(el9("label", "la-settings-label", "Storage limits"));
+    wrap.appendChild(el9("div", "la-settings-hint", "Per-user storage cap for the workspace."));
+    const wsCapRow = el9("div", "la-settings-row");
+    wsCapRow.append(el9("label", "la-settings-row-label", "Workspace cap (MB)"));
     const wsCapInput = document.createElement("input");
     wsCapInput.type = "number";
     wsCapInput.className = "la-slider-input";
@@ -15570,10 +18111,10 @@ Revert those edits to the character now, or leave them applied?`;
     wsCapInput.step = "1";
     wsCapRow.appendChild(wsCapInput);
     wrap.appendChild(wsCapRow);
-    wrap.appendChild(el10("label", "la-settings-label", "Tool output cap"));
-    wrap.appendChild(el10("div", "la-settings-hint", "Set to dump any single tool result over that many tokens to a tmp file the agent can grep/read to avoid blowing up context."));
-    const toolCapRow = el10("div", "la-settings-row");
-    toolCapRow.append(el10("label", "la-settings-row-label", "Tool output cap (tk)"));
+    wrap.appendChild(el9("label", "la-settings-label", "Tool output cap"));
+    wrap.appendChild(el9("div", "la-settings-hint", "Set to dump any single tool result over that many tokens to a tmp file the agent can grep/read to avoid blowing up context."));
+    const toolCapRow = el9("div", "la-settings-row");
+    toolCapRow.append(el9("label", "la-settings-row-label", "Tool output cap (tk)"));
     const toolCapInput = document.createElement("input");
     toolCapInput.type = "number";
     toolCapInput.className = "la-slider-input";
@@ -15581,8 +18122,8 @@ Revert those edits to the character now, or leave them applied?`;
     toolCapInput.step = "1";
     toolCapRow.appendChild(toolCapInput);
     wrap.appendChild(toolCapRow);
-    const tpmRow = el10("div", "la-settings-row");
-    tpmRow.append(el10("label", "la-settings-row-label", "TPM limit (tk/min)"));
+    const tpmRow = el9("div", "la-settings-row");
+    tpmRow.append(el9("label", "la-settings-row-label", "TPM limit (tk/min)"));
     const tpmInput = document.createElement("input");
     tpmInput.type = "number";
     tpmInput.className = "la-slider-input";
@@ -15591,9 +18132,9 @@ Revert those edits to the character now, or leave them applied?`;
     tpmInput.placeholder = "off";
     tpmRow.appendChild(tpmInput);
     wrap.appendChild(tpmRow);
-    wrap.appendChild(el10("div", "la-settings-hint", "Pauses requests when prompt+completion tokens in the last 60s would exceed this. Set to your provider's tokens-per-minute quota (e.g. 250000 for Gemini free tier). Empty = no throttle."));
-    const rpmRow = el10("div", "la-settings-row");
-    rpmRow.append(el10("label", "la-settings-row-label", "RPM limit (req/min)"));
+    wrap.appendChild(el9("div", "la-settings-hint", "Pauses requests when prompt+completion tokens in the last 60s would exceed this. Set to your provider's tokens-per-minute quota (e.g. 250000 for Gemini free tier). Empty = no throttle."));
+    const rpmRow = el9("div", "la-settings-row");
+    rpmRow.append(el9("label", "la-settings-row-label", "RPM limit (req/min)"));
     const rpmInput = document.createElement("input");
     rpmInput.type = "number";
     rpmInput.className = "la-slider-input";
@@ -15602,22 +18143,22 @@ Revert those edits to the character now, or leave them applied?`;
     rpmInput.placeholder = "off";
     rpmRow.appendChild(rpmInput);
     wrap.appendChild(rpmRow);
-    wrap.appendChild(el10("div", "la-settings-hint", "Caps agent LLM requests per rolling 60s, for providers whose quota is request count rather than tokens. Empty = no throttle."));
-    wrap.appendChild(el10("hr", "la-settings-divider"));
-    wrap.appendChild(el10("label", "la-settings-label", "Change approval"));
-    wrap.appendChild(el10("div", "la-settings-hint", "Pause before each card, chat, lorebook, regex, external-provider, or workspace write so you can approve or reject it."));
-    const changeApprovalRow = el10("div", "la-settings-row");
-    changeApprovalRow.append(el10("label", "la-settings-row-label", "Ask before changes"));
+    wrap.appendChild(el9("div", "la-settings-hint", "Caps agent LLM requests per rolling 60s, for providers whose quota is request count rather than tokens. Empty = no throttle."));
+    wrap.appendChild(el9("hr", "la-settings-divider"));
+    wrap.appendChild(el9("label", "la-settings-label", "Change approval"));
+    wrap.appendChild(el9("div", "la-settings-hint", "Pause before each card, chat, lorebook, regex, external-provider, or workspace write so you can approve or reject it."));
+    const changeApprovalRow = el9("div", "la-settings-row");
+    changeApprovalRow.append(el9("label", "la-settings-row-label", "Ask before changes"));
     const changeApprovalInput = document.createElement("input");
     changeApprovalInput.type = "checkbox";
     changeApprovalInput.className = "la-checkbox";
     changeApprovalRow.appendChild(changeApprovalInput);
     wrap.appendChild(changeApprovalRow);
-    wrap.appendChild(el10("hr", "la-settings-divider"));
-    wrap.appendChild(el10("label", "la-settings-label", "Prompt caching"));
-    wrap.appendChild(el10("div", "la-settings-hint", "Anthropic-only. OpenAI, Gemini, DeepSeek, and other providers cache the prompt prefix automatically upstream regardless of this setting."));
-    const cacheModeRow = el10("div", "la-settings-row");
-    cacheModeRow.append(el10("label", "la-settings-row-label", "Cache mode"));
+    wrap.appendChild(el9("hr", "la-settings-divider"));
+    wrap.appendChild(el9("label", "la-settings-label", "Prompt caching"));
+    wrap.appendChild(el9("div", "la-settings-hint", "Anthropic-only. OpenAI, Gemini, DeepSeek, and other providers cache the prompt prefix automatically upstream regardless of this setting."));
+    const cacheModeRow = el9("div", "la-settings-row");
+    cacheModeRow.append(el9("label", "la-settings-row-label", "Cache mode"));
     const cacheModeSelect = document.createElement("select");
     cacheModeSelect.className = "la-select";
     for (const [val, label] of [["full", "Full"], ["system_only", "System only"], ["off", "Off"]]) {
@@ -15628,8 +18169,9 @@ Revert those edits to the character now, or leave them applied?`;
     }
     cacheModeRow.appendChild(cacheModeSelect);
     wrap.appendChild(cacheModeRow);
-    const reasoningRow = el10("div", "la-settings-row");
-    reasoningRow.append(el10("label", "la-settings-row-label", "Reasoning effort"));
+    const reasoningRow = el9("div", "la-settings-row");
+    wrap.appendChild(el9("label", "la-settings-label", "Generation"));
+    reasoningRow.append(el9("label", "la-settings-row-label", "Reasoning effort"));
     const reasoningSelect = document.createElement("select");
     reasoningSelect.className = "la-select";
     for (const [val, label] of [["inherit", "Inherit connection"], ["off", "Off"], ["minimal", "Minimal"], ["low", "Low"], ["medium", "Medium"], ["high", "High"], ["max", "Max"]]) {
@@ -15640,43 +18182,51 @@ Revert those edits to the character now, or leave them applied?`;
     }
     reasoningRow.appendChild(reasoningSelect);
     wrap.appendChild(reasoningRow);
-    wrap.appendChild(el10("div", "la-settings-hint", "Thinking budget for agent turns only. Inherit keeps the connection's own reasoning settings; Off disables thinking on models that allow it."));
-    const parallelToolsRow = el10("div", "la-settings-row");
-    parallelToolsRow.append(el10("label", "la-settings-row-label", "Parallel tool calls"));
+    wrap.appendChild(el9("div", "la-settings-hint", "Thinking budget for agent turns only. Inherit keeps the connection's own reasoning settings; Off disables thinking on models that allow it."));
+    const parallelToolsRow = el9("div", "la-settings-row");
+    parallelToolsRow.append(el9("label", "la-settings-row-label", "Parallel tool calls"));
     const parallelToolsInput = document.createElement("input");
     parallelToolsInput.type = "checkbox";
     parallelToolsInput.className = "la-checkbox";
     parallelToolsRow.appendChild(parallelToolsInput);
     wrap.appendChild(parallelToolsRow);
-    wrap.appendChild(el10("div", "la-settings-hint", "Leave ON for Anthropic, OpenAI, Google, most OpenRouter routes. Turn OFF for providers that error on parallel tool emission."));
-    const debugLogRow = el10("div", "la-settings-row");
-    debugLogRow.append(el10("label", "la-settings-row-label", "Debug logging"));
+    wrap.appendChild(el9("div", "la-settings-hint", "Leave ON for Anthropic, OpenAI, Google, most OpenRouter routes. Turn OFF for providers that error on parallel tool emission."));
+    const autoCompactionRow = el9("div", "la-settings-row");
+    autoCompactionRow.append(el9("label", "la-settings-row-label", "Automatic compaction"));
+    const autoCompactionInput = document.createElement("input");
+    autoCompactionInput.type = "checkbox";
+    autoCompactionInput.className = "la-checkbox";
+    autoCompactionRow.appendChild(autoCompactionInput);
+    wrap.appendChild(autoCompactionRow);
+    wrap.appendChild(el9("div", "la-settings-hint", "Compact conversation history at 84% of the configured context size. Turn off to compact only when you click the context ring."));
+    const debugLogRow = el9("div", "la-settings-row");
+    debugLogRow.append(el9("label", "la-settings-row-label", "Debug logging"));
     const debugLogInput = document.createElement("input");
     debugLogInput.type = "checkbox";
     debugLogInput.className = "la-checkbox";
     debugLogRow.appendChild(debugLogInput);
     wrap.appendChild(debugLogRow);
-    wrap.appendChild(el10("div", "la-settings-hint", "OFF by default. When ON, verbose backend diagnostics (send_message, loop turns, llm stream, phone-line) are written to the host log. Warnings and errors always log."));
-    wrap.appendChild(el10("hr", "la-settings-divider"));
-    wrap.appendChild(el10("label", "la-settings-label", "Extension pairings"));
-    wrap.appendChild(el10("div", "la-settings-hint", "Other extensions that can communicate with LumiAgent."));
-    const pairingsPanel = el10("div", "la-pairings-panel");
-    pairingsPanel.appendChild(el10("div", "la-pairings-empty", "Loading..."));
+    wrap.appendChild(el9("div", "la-settings-hint", "OFF by default. When ON, verbose backend diagnostics (send_message, loop turns, llm stream, phone-line) are written to the host log. Warnings and errors always log."));
+    wrap.appendChild(el9("hr", "la-settings-divider"));
+    wrap.appendChild(el9("label", "la-settings-label", "Extension pairings"));
+    wrap.appendChild(el9("div", "la-settings-hint", "Other extensions that can communicate with LumiAgent."));
+    const pairingsPanel = el9("div", "la-pairings-panel");
+    pairingsPanel.appendChild(el9("div", "la-pairings-empty", "Loading..."));
     wrap.appendChild(pairingsPanel);
     const renderPairings = (pairings) => {
       while (pairingsPanel.firstChild)
         pairingsPanel.removeChild(pairingsPanel.firstChild);
       if (pairings.length === 0) {
-        pairingsPanel.appendChild(el10("div", "la-pairings-empty", "No pairings yet."));
+        pairingsPanel.appendChild(el9("div", "la-pairings-empty", "No pairings yet."));
         return;
       }
       for (const p of pairings) {
-        const row = el10("div", "la-pairing-row");
-        const nameCol = el10("div", "la-pairing-name-col");
-        nameCol.appendChild(el10("div", "la-pairing-name", p.displayName));
-        nameCol.appendChild(el10("div", "la-pairing-id", p.identifier));
+        const row = el9("div", "la-pairing-row");
+        const nameCol = el9("div", "la-pairing-name-col");
+        nameCol.appendChild(el9("div", "la-pairing-name", p.displayName));
+        nameCol.appendChild(el9("div", "la-pairing-id", p.identifier));
         row.appendChild(nameCol);
-        const toggleLabel = el10("label", "la-pairing-toggle");
+        const toggleLabel = el9("label", "la-pairing-toggle");
         const cb = document.createElement("input");
         cb.type = "checkbox";
         cb.className = "la-checkbox";
@@ -15696,9 +18246,9 @@ Revert those edits to the character now, or leave them applied?`;
           sendBackend({ type: "set_phoneline_pairing", identifier: p.identifier, allowed: nextAllowed });
         });
         toggleLabel.appendChild(cb);
-        toggleLabel.appendChild(el10("span", "la-pairing-toggle-label", "Allowed"));
+        toggleLabel.appendChild(el9("span", "la-pairing-toggle-label", "Allowed"));
         row.appendChild(toggleLabel);
-        const revokeBtn = el10("button", "la-btn la-btn-mini la-btn-ghost", "Forget");
+        const revokeBtn = el9("button", "la-btn la-btn-mini la-btn-ghost", "Forget");
         revokeBtn.addEventListener("click", async () => {
           const c = await ctx.ui.showConfirm({
             title: "Forget this pairing?",
@@ -15717,8 +18267,17 @@ Revert those edits to the character now, or leave them applied?`;
     const unregisterPairings = pairingsListeners.push((p) => renderPairings(p));
     handle.onDismiss(unregisterPairings);
     sendBackend({ type: "get_phoneline_pairings" });
-    const status = el10("div", "la-composer-status");
+    const status = el9("div", "la-composer-status");
+    status.setAttribute("role", "status");
     wrap.appendChild(status);
+    let pendingSave = false;
+    let formDirty = false;
+    let formRevision = 0;
+    wrap.addEventListener("input", () => {
+      formDirty = true;
+      formRevision++;
+      status.textContent = "Unsaved changes";
+    });
     let commit = () => {};
     let samplerBag = {
       temperature: null,
@@ -15732,6 +18291,8 @@ Revert those edits to the character now, or leave them applied?`;
       repetitionPenalty: null
     };
     const populate = () => {
+      if (pendingSave || formDirty)
+        return;
       const s = state.settings;
       if (!s) {
         personaArea.value = "";
@@ -15758,6 +18319,7 @@ Revert those edits to the character now, or leave them applied?`;
       cacheModeSelect.value = s.cacheMode ?? "full";
       reasoningSelect.value = s.reasoningEffort ?? "inherit";
       parallelToolsInput.checked = s.parallelToolCalls ?? true;
+      autoCompactionInput.checked = s.autoCompaction ?? true;
       debugLogInput.checked = s.debugLogging ?? false;
       changeApprovalInput.checked = s.requireChangeApproval ?? false;
       tpmInput.value = s.tpmLimit ? String(s.tpmLimit) : "";
@@ -15781,9 +18343,9 @@ Revert those edits to the character now, or leave them applied?`;
       { key: "repetitionPenalty", label: "Rep Penalty", type: "float", min: 0, max: 2, step: 0.01, defaultHint: 0 }
     ];
     const buildSamplerSlider = (def) => {
-      const row = el10("div", "la-slider-row");
-      const header = el10("div", "la-slider-header");
-      const label = el10("span", "la-slider-label", def.label);
+      const row = el9("div", "la-slider-row");
+      const header = el9("div", "la-slider-header");
+      const label = el9("span", "la-slider-label", def.label);
       const numInput = document.createElement("input");
       numInput.type = "number";
       numInput.className = "la-slider-input";
@@ -15792,11 +18354,17 @@ Revert those edits to the character now, or leave them applied?`;
       numInput.step = String(def.step);
       numInput.placeholder = String(def.defaultHint);
       header.append(label, numInput);
-      const track = el10("div", "la-slider-track");
-      track.title = "Drag to set, double-click to reset";
-      const fill = el10("div", "la-slider-fill");
-      const thumb = el10("div", "la-slider-thumb");
-      track.append(fill, thumb);
+      numInput.setAttribute("aria-label", def.label);
+      const track = document.createElement("input");
+      track.type = "range";
+      track.className = "la-slider-native";
+      track.min = String(def.min);
+      track.max = String(def.max);
+      track.step = String(def.step);
+      track.setAttribute("aria-label", def.label);
+      const reset = el9("button", "la-slider-reset", "Reset");
+      reset.setAttribute("aria-label", `Reset ${def.label}`);
+      header.append(reset);
       row.append(header, track);
       const decimals = (String(def.step).split(".")[1] || "").length;
       const snap = (raw) => {
@@ -15804,19 +18372,9 @@ Revert those edits to the character now, or leave them applied?`;
         const stepped = Math.round((clamped - def.min) / def.step) * def.step + def.min;
         return def.type === "int" ? Math.round(stepped) : parseFloat(stepped.toFixed(decimals));
       };
-      const posToValue = (clientX) => {
-        const rect = track.getBoundingClientRect();
-        if (!rect || rect.width === 0)
-          return def.defaultHint;
-        const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-        return snap(def.min + ratio * (def.max - def.min));
-      };
       const applyVisual = (displayValue, isSet) => {
-        const range = def.max - def.min;
-        const pct = range > 0 ? Math.max(0, Math.min(100, (displayValue - def.min) / range * 100)) : 0;
-        fill.style.width = `${pct}%`;
-        thumb.style.left = `${pct}%`;
-        track.classList.toggle("la-slider-track-set", isSet);
+        track.value = String(displayValue);
+        track.setAttribute("aria-valuetext", isSet ? String(displayValue) : `Connection preset (${displayValue})`);
         label.classList.toggle("la-slider-label-set", isSet);
         numInput.classList.toggle("la-slider-input-set", isSet);
       };
@@ -15828,38 +18386,15 @@ Revert those edits to the character now, or leave them applied?`;
           numInput.value = isSet ? String(v) : "";
         applyVisual(display, isSet);
       };
-      let dragging = false;
-      let dragValue = null;
-      track.addEventListener("pointerdown", (e) => {
-        e.preventDefault();
-        dragging = true;
-        try {
-          track.setPointerCapture(e.pointerId);
-        } catch {}
-        dragValue = posToValue(e.clientX);
-        applyVisual(dragValue, true);
+      track.addEventListener("input", () => {
+        numInput.value = track.value;
       });
-      track.addEventListener("pointermove", (e) => {
-        if (!dragging)
-          return;
-        dragValue = posToValue(e.clientX);
-        applyVisual(dragValue, true);
+      track.addEventListener("change", () => {
+        samplerBag[def.key] = snap(Number(track.value));
+        sync();
+        commit();
       });
-      track.addEventListener("pointerup", (e) => {
-        if (!dragging)
-          return;
-        dragging = false;
-        try {
-          track.releasePointerCapture(e.pointerId);
-        } catch {}
-        if (dragValue !== null) {
-          samplerBag[def.key] = dragValue;
-          sync();
-          commit();
-        }
-        dragValue = null;
-      });
-      track.addEventListener("dblclick", () => {
+      reset.addEventListener("click", () => {
         samplerBag[def.key] = null;
         sync();
         commit();
@@ -15905,6 +18440,8 @@ Revert those edits to the character now, or leave them applied?`;
     };
     let lastCommitted = "";
     commit = () => {
+      if (!state.settings)
+        return;
       const persona = personaArea.value.trim();
       const promptValue = promptArea.value.trim();
       const defaultBody = state.settings?.defaultSystemPromptBody?.trim() ?? "";
@@ -15922,6 +18459,7 @@ Revert those edits to the character now, or leave them applied?`;
         toolOutputCapTokens: parsePosInt(toolCapInput.value),
         cacheMode: newCacheMode,
         parallelToolCalls: parallelToolsInput.checked,
+        autoCompaction: autoCompactionInput.checked,
         reasoningEffort: reasoningSelect.value,
         tpmLimit: parsePosInt(tpmInput.value),
         rpmLimit: parsePosInt(rpmInput.value),
@@ -15934,8 +18472,38 @@ Revert those edits to the character now, or leave them applied?`;
       lastCommitted = key;
       const before = state.settings;
       const promptCacheBroken = !!before && (before.persona !== persona || (before.systemPromptOverride ?? null) !== systemPromptOverride || (before.jailbreak ?? "") !== jbArea.value || (before.jailbreakPlacement ?? "system_suffix") !== placement || (before.cacheMode ?? "full") !== newCacheMode);
-      sendBackend(payload);
-      status.textContent = promptCacheBroken ? "Saved. Prompt cache invalidates on next message." : "Saved.";
+      const requestId = crypto.randomUUID();
+      const submittedRevision = formRevision;
+      pendingSave = true;
+      status.textContent = "Saving…";
+      const timer = setTimeout(() => {
+        settingsSaveListeners.delete(requestId);
+        if (lastCommitted !== key)
+          return;
+        pendingSave = false;
+        lastCommitted = "";
+        status.textContent = "Save not confirmed. Try again.";
+        status.classList.add("is-error");
+        const retry = el9("button", "la-btn la-btn-mini", "Retry");
+        retry.onclick = () => commit();
+        status.append(retry);
+      }, 15000);
+      settingsSaveListeners.set(requestId, (error) => {
+        clearTimeout(timer);
+        if (lastCommitted !== key)
+          return;
+        pendingSave = false;
+        formDirty = !!error || submittedRevision !== formRevision;
+        status.textContent = error ? `Couldn’t save: ${error}` : formDirty ? "Unsaved changes" : promptCacheBroken ? "Saved. Applies to the next message." : "Saved";
+        status.classList.toggle("is-error", !!error);
+        if (error) {
+          lastCommitted = "";
+          const retry = el9("button", "la-btn la-btn-mini", "Retry");
+          retry.onclick = () => commit();
+          status.append(retry);
+        }
+      });
+      sendBackend({ ...payload, requestId });
       status.classList.remove("is-error");
     };
     populate();
@@ -15960,14 +18528,17 @@ Revert those edits to the character now, or leave them applied?`;
       resetAllSamplers();
       commit();
     });
-    for (const inp of [personaArea, promptArea, jbArea, wsCapInput, toolCapInput, tpmInput]) {
+    for (const inp of [personaArea, promptArea, jbArea, wsCapInput, toolCapInput, tpmInput, rpmInput]) {
       inp.addEventListener("blur", () => commit());
     }
-    for (const inp of [jbPlacement, cacheModeSelect, parallelToolsInput, debugLogInput, changeApprovalInput]) {
+    for (const inp of [jbPlacement, cacheModeSelect, parallelToolsInput, autoCompactionInput, debugLogInput, changeApprovalInput, reasoningSelect]) {
       inp.addEventListener("change", () => commit());
     }
+    organizeSettings(wrap);
+    handle.root.classList.add("la-modal-body");
     handle.root.appendChild(wrap);
   };
+  const settingsSaveListeners = new Map;
   const pairingsListeners = {
     handlers: [],
     push(h) {
@@ -15989,14 +18560,14 @@ Revert those edits to the character now, or leave them applied?`;
   const MAX_MOUSEY_BYTES = 4194304;
   const openIconSettingsModal = () => {
     const handle = ctx.ui.showModal({ title: "Visuals & display name", width: 520, maxHeight: 720 });
-    const wrap = el10("div", "la-icon-settings");
-    const note = el10("p", "la-modal-note", "Customise the drawer icon, the sitting character image, and the display name. Stored in your browser. Reload the tab to apply.");
+    const wrap = el9("div", "la-icon-settings");
+    const note = el9("p", "la-modal-note", "Customise the drawer icon, the sitting character image, and the display name. Stored in your browser. Reload the tab to apply.");
     wrap.appendChild(note);
-    const status = el10("div", "la-composer-status");
-    const nameHead = el10("div", "la-settings-section-head");
-    nameHead.append(el10("label", "la-settings-label", "Display name"));
+    const status = el9("div", "la-composer-status");
+    const nameHead = el9("div", "la-settings-section-head");
+    nameHead.append(el9("label", "la-settings-label", "Display name"));
     wrap.appendChild(nameHead);
-    wrap.appendChild(el10("div", "la-settings-hint", "What this extension calls itself in the drawer tab + sidebar. Default: LumiAgent."));
+    wrap.appendChild(el9("div", "la-settings-hint", "What this extension calls itself in the drawer tab + sidebar. Default: LumiAgent."));
     const nameInput = document.createElement("input");
     nameInput.type = "text";
     nameInput.className = "la-input";
@@ -16005,9 +18576,9 @@ Revert those edits to the character now, or leave them applied?`;
     nameInput.placeholder = DEFAULT_DISPLAY_NAME;
     nameInput.maxLength = 40;
     wrap.appendChild(nameInput);
-    const nameActions = el10("div", "la-icon-settings-actions");
-    const nameSaveBtn = el10("button", "la-btn la-btn-primary", "Save name");
-    const nameResetBtn = el10("button", "la-btn", "Reset");
+    const nameActions = el9("div", "la-icon-settings-actions");
+    const nameSaveBtn = el9("button", "la-btn la-btn-primary", "Save name");
+    const nameResetBtn = el9("button", "la-btn", "Reset");
     nameActions.append(nameSaveBtn, nameResetBtn);
     wrap.appendChild(nameActions);
     nameSaveBtn.addEventListener("click", () => {
@@ -16029,12 +18600,12 @@ Revert those edits to the character now, or leave them applied?`;
       status.textContent = "Display name reset. Reload to apply.";
       status.classList.remove("is-error");
     });
-    const iconHead = el10("div", "la-settings-section-head");
-    iconHead.append(el10("label", "la-settings-label", "Drawer icon"));
+    const iconHead = el9("div", "la-settings-section-head");
+    iconHead.append(el9("label", "la-settings-label", "Drawer icon"));
     wrap.appendChild(iconHead);
-    wrap.appendChild(el10("div", "la-settings-hint", "Replaces the icon shown in the Lumiverse sidebar."));
-    const iconPreview = el10("div", "la-icon-settings-preview");
-    const iconFrame = el10("div", "la-icon-settings-frame");
+    wrap.appendChild(el9("div", "la-settings-hint", "Replaces the icon shown in the Lumiverse sidebar."));
+    const iconPreview = el9("div", "la-icon-settings-preview");
+    const iconFrame = el9("div", "la-icon-settings-frame");
     const setIconPreview = (customUrl) => {
       if (customUrl) {
         iconFrame.innerHTML = "";
@@ -16047,12 +18618,12 @@ Revert those edits to the character now, or leave them applied?`;
       }
     };
     setIconPreview(resolveCustomIconUrl());
-    const iconCaption = el10("div", "la-icon-settings-caption", "Current");
+    const iconCaption = el9("div", "la-icon-settings-caption", "Current");
     iconPreview.append(iconCaption, iconFrame);
     wrap.appendChild(iconPreview);
-    const iconActions = el10("div", "la-icon-settings-actions");
-    const iconPickBtn = el10("button", "la-btn la-btn-primary", "Choose image...");
-    const iconResetBtn = el10("button", "la-btn la-btn-danger", "Reset to default");
+    const iconActions = el9("div", "la-icon-settings-actions");
+    const iconPickBtn = el9("button", "la-btn la-btn-primary", "Choose image...");
+    const iconResetBtn = el9("button", "la-btn la-btn-danger", "Reset to default");
     iconActions.append(iconPickBtn, iconResetBtn);
     wrap.appendChild(iconActions);
     iconPickBtn.addEventListener("click", async () => {
@@ -16093,21 +18664,21 @@ Revert those edits to the character now, or leave them applied?`;
       status.textContent = "Icon reset. Reload to apply.";
       status.classList.remove("is-error");
     });
-    const mouseyHead = el10("div", "la-settings-section-head");
-    mouseyHead.append(el10("label", "la-settings-label", "Sitting character image"));
+    const mouseyHead = el9("div", "la-settings-section-head");
+    mouseyHead.append(el9("label", "la-settings-label", "Sitting character image"));
     wrap.appendChild(mouseyHead);
-    wrap.appendChild(el10("div", "la-settings-hint", "The image perched on the composer ledge. Transparent PNG works best. For correct positioning the figure should be sitting around 2/3 of the way down the image."));
-    const mouseyPreview = el10("div", "la-icon-settings-preview");
+    wrap.appendChild(el9("div", "la-settings-hint", "The image perched on the composer ledge. Transparent PNG works best. For correct positioning the figure should be sitting around 2/3 of the way down the image."));
+    const mouseyPreview = el9("div", "la-icon-settings-preview");
     const mouseyImgPreview = document.createElement("img");
     mouseyImgPreview.src = resolveMouseyImageUrl();
     mouseyImgPreview.alt = "current sitting image";
     mouseyImgPreview.className = "la-icon-settings-image la-icon-settings-image-tall";
-    const mouseyCaption = el10("div", "la-icon-settings-caption", "Current");
+    const mouseyCaption = el9("div", "la-icon-settings-caption", "Current");
     mouseyPreview.append(mouseyCaption, mouseyImgPreview);
     wrap.appendChild(mouseyPreview);
-    const mouseyActions = el10("div", "la-icon-settings-actions");
-    const mouseyPickBtn = el10("button", "la-btn la-btn-primary", "Choose image...");
-    const mouseyResetBtn = el10("button", "la-btn la-btn-danger", "Reset to default");
+    const mouseyActions = el9("div", "la-icon-settings-actions");
+    const mouseyPickBtn = el9("button", "la-btn la-btn-primary", "Choose image...");
+    const mouseyResetBtn = el9("button", "la-btn la-btn-danger", "Reset to default");
     mouseyActions.append(mouseyPickBtn, mouseyResetBtn);
     wrap.appendChild(mouseyActions);
     mouseyPickBtn.addEventListener("click", async () => {
@@ -16151,6 +18722,7 @@ Revert those edits to the character now, or leave them applied?`;
       status.classList.remove("is-error");
     });
     wrap.appendChild(status);
+    handle.root.classList.add("la-modal-body");
     handle.root.appendChild(wrap);
   };
   const formatBytes = (n) => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1048576).toFixed(1)} MB`;
@@ -16163,11 +18735,11 @@ Revert those edits to the character now, or leave them applied?`;
     }
     composerAttachments.style.display = "";
     for (const att of state.attachments) {
-      const chip = el10("div", "la-attachment");
+      const chip = el9("div", "la-attachment");
       const img = document.createElement("img");
       img.src = `data:${att.mime_type};base64,${att.data}`;
       img.alt = "attachment";
-      const rm = el10("button", "la-attachment-remove");
+      const rm = el9("button", "la-attachment-remove");
       rm.type = "button";
       rm.setAttribute("aria-label", "Remove attachment");
       rm.textContent = "×";
@@ -16179,16 +18751,16 @@ Revert those edits to the character now, or leave them applied?`;
       composerAttachments.appendChild(chip);
     }
     for (const att of state.fileAttachments) {
-      const chip = el10("div", `la-file-attachment${att.status === "uploading" ? " is-uploading" : ""}${att.status === "error" ? " is-error" : ""}`);
+      const chip = el9("div", `la-file-attachment${att.status === "uploading" ? " is-uploading" : ""}${att.status === "error" ? " is-error" : ""}`);
       chip.setAttribute("data-att-id", att.id);
       const sizeText = att.status === "error" ? `failed: ${att.error ?? "upload error"}` : formatBytes(att.size);
-      chip.append(el10("span", "la-file-attachment-name", att.name), el10("span", "la-file-attachment-size", sizeText));
-      const progress = el10("div", "la-file-progress");
-      const bar = el10("div", "la-file-progress-bar");
+      chip.append(el9("span", "la-file-attachment-name", att.name), el9("span", "la-file-attachment-size", sizeText));
+      const progress = el9("div", "la-file-progress");
+      const bar = el9("div", "la-file-progress-bar");
       bar.style.width = `${Math.round(att.progress * 100)}%`;
       progress.appendChild(bar);
       chip.appendChild(progress);
-      const rm = el10("button", "la-attachment-remove");
+      const rm = el9("button", "la-attachment-remove");
       rm.type = "button";
       rm.setAttribute("aria-label", "Remove file");
       rm.textContent = "×";
@@ -16321,10 +18893,16 @@ Revert those edits to the character now, or leave them applied?`;
       ...files && files.length > 0 ? { files } : {}
     };
     state.messages.push(msg);
+    historyPage.end++;
+    historyPage.total = Math.max(historyPage.total, historyPage.end);
+    if (state.messages.length > HISTORY_WINDOW_SIZE) {
+      const trim = state.messages.length - HISTORY_WINDOW_SIZE;
+      state.messages.splice(0, trim);
+      historyPage.start += trim;
+    }
     if (state.messages.length === 1 && thread.contains(emptyState))
       thread.removeChild(emptyState);
     virtualizer.setCount();
-    virtualizer.scrollToBottom();
     return msg;
   };
   const dispatchSendForExisting = (sessionId, messageId, text, images, files) => {
@@ -16350,13 +18928,15 @@ Revert those edits to the character now, or leave them applied?`;
   const queuedMessages = [];
   let steerText = null;
   const doSend = async () => {
+    if (openingConversation)
+      return;
     if (mouseyDead)
       return;
     const text = textarea.value.trim();
     if (sending || state.isGenerating || state.startingSession || state.compacting) {
       if (text.length > 0 && !sending) {
         queuedMessages.push(text);
-        textarea.value = "";
+        setComposerText("");
         renderQueue();
         updateComposer();
       }
@@ -16399,7 +18979,7 @@ Revert those edits to the character now, or leave them applied?`;
       composerStatus.classList.add("is-error");
       return;
     }
-    textarea.value = "";
+    setComposerText("");
     composerStatus.classList.remove("is-error");
     const isNew = !state.sessionId;
     const sid = composerSid();
@@ -16468,22 +19048,22 @@ Revert those edits to the character now, or leave them applied?`;
     queuedWrap.replaceChildren();
     queuedWrap.style.display = queuedMessages.length > 0 ? "" : "none";
     queuedMessages.forEach((text, i) => {
-      const chip = el10("div", "la-queued-chip");
-      const label = el10("span", "la-queued-text", text.length > 120 ? `${text.slice(0, 117)}...` : text);
+      const chip = el9("div", "la-queued-chip");
+      const label = el9("span", "la-queued-text", text.length > 120 ? `${text.slice(0, 117)}...` : text);
       label.title = text;
-      const steerBtn = el10("button", "la-queued-btn", "Steer");
+      const steerBtn = el9("button", "la-queued-btn", "Steer");
       steerBtn.title = "Stop the current run and send this now";
       steerBtn.addEventListener("click", () => requestSteer(i));
-      const editBtn = el10("button", "la-queued-btn", "Edit");
+      const editBtn = el9("button", "la-queued-btn", "Edit");
       editBtn.addEventListener("click", () => {
         const [t] = queuedMessages.splice(i, 1);
-        textarea.value = textarea.value.trim().length > 0 ? `${textarea.value}
-${t}` : t;
+        setComposerText(textarea.value.trim().length > 0 ? `${textarea.value}
+${t}` : t);
         renderQueue();
         updateComposer();
         textarea.focus();
       });
-      const delBtn = el10("button", "la-queued-btn", "×");
+      const delBtn = el9("button", "la-queued-btn", "×");
       delBtn.setAttribute("aria-label", "Discard queued message");
       delBtn.addEventListener("click", () => {
         queuedMessages.splice(i, 1);
@@ -16506,14 +19086,14 @@ ${t}` : t;
       return;
     }
     const draft = textarea.value;
-    textarea.value = text;
+    setComposerText(text);
     await doSend();
     if (textarea.value === text) {
       queuedMessages.unshift(text);
-      textarea.value = draft;
+      setComposerText(draft);
       renderQueue();
     } else if (textarea.value.trim() === "" && draft.trim() !== "") {
-      textarea.value = draft;
+      setComposerText(draft);
     }
     updateComposer();
   }
@@ -16634,7 +19214,7 @@ ${t}` : t;
     state.loading = false;
     state.streamingAssistant?.setLoading(false);
   };
-  const makeStreamingHandle = () => createStreamingAssistant({
+  const makeStreamingHandle = (id) => createStreamingAssistant({
     onRevertEdit: async (editId) => {
       const scope = state.edits.find((e) => e.id === editId)?.scope ?? activeScope();
       if (!scope)
@@ -16642,22 +19222,31 @@ ${t}` : t;
       sendBackend({ type: "revert_edit", characterId: scope.id, editId, scope });
     },
     onOpenDiffModal: (eid) => openDiffs(eid)
-  });
+  }, messageReader.source(state.sessionId, id), !!state.currentAssistantMessage && isCompactionMessage(state.currentAssistantMessage));
+  let provisionalAssistantId = null;
   const createStreamingTurn = (id) => {
+    provisionalAssistantId = null;
     const assistant = {
       id,
       role: "assistant",
       ts: Date.now(),
       turn: 0,
       blocks: [],
-      status: "streaming"
+      status: "streaming",
+      ...state.compacting ? { compaction: true } : {}
     };
     state.messages.push(assistant);
+    historyPage.end++;
+    historyPage.total = Math.max(historyPage.total, historyPage.end);
+    if (state.messages.length > HISTORY_WINDOW_SIZE) {
+      const trim = state.messages.length - HISTORY_WINDOW_SIZE;
+      state.messages.splice(0, trim);
+      historyPage.start += trim;
+    }
     state.currentAssistantMessage = assistant;
-    const handle = makeStreamingHandle();
+    const handle = makeStreamingHandle(id);
     state.streamingAssistant = handle;
     virtualizer.setCount();
-    virtualizer.scrollToBottom();
     handle.setLoading(true);
     state.loading = true;
     return handle;
@@ -16667,8 +19256,10 @@ ${t}` : t;
     if (!last || last.role !== "assistant" || last.status !== "streaming")
       return;
     state.currentAssistantMessage = last;
-    const handle = makeStreamingHandle();
+    const handle = makeStreamingHandle(last.id);
     for (const b of last.blocks) {
+      if (isCompactionPlaceholder(b))
+        continue;
       if (b.type === "text")
         handle.appendToken(b.content);
       else if (b.type === "reasoning")
@@ -16695,6 +19286,7 @@ ${t}` : t;
     setTurnStartBlocks(boundary);
     state.streamingAssistant = handle;
     handle.setLoading(true);
+    handle.setActivity(last.activity);
     state.loading = true;
   };
   const rebindCurrentAssistantMessage = () => {
@@ -16711,7 +19303,21 @@ ${t}` : t;
   const adoptStreamingTurn = (assistantMessageId) => {
     if (state.streamingAssistant) {
       rebindCurrentAssistantMessage();
-      return state.streamingAssistant;
+      const current = state.currentAssistantMessage;
+      if (current?.id === assistantMessageId)
+        return state.streamingAssistant;
+      if (current && current.id === provisionalAssistantId) {
+        const index = state.messages.indexOf(current);
+        state.messages[index] = { ...current, id: assistantMessageId };
+        state.streamingAssistant.destroy();
+        state.streamingAssistant = null;
+        virtualizer.evict(current.id);
+        provisionalAssistantId = null;
+        rehydrateStreamingTurn();
+        virtualizer.setCount();
+        return state.streamingAssistant;
+      }
+      finalizeAssistantTurn("complete");
     }
     return createStreamingTurn(assistantMessageId);
   };
@@ -16720,7 +19326,10 @@ ${t}` : t;
       rebindCurrentAssistantMessage();
       return state.streamingAssistant;
     }
-    return createStreamingTurn(makeId("msg"));
+    const id = makeId("msg");
+    const handle = createStreamingTurn(id);
+    provisionalAssistantId = id;
+    return handle;
   };
   const finalizeAssistantTurn = (status) => {
     hideLoading();
@@ -16748,7 +19357,61 @@ ${t}` : t;
   const frontendRequests = new Map;
   const offBackendMessages = ctx.onBackendMessage((raw) => {
     const msg = raw;
+    messageReader.receive(msg);
+    if (msg.type === "session_page") {
+      receiveHistoryPage(msg);
+      return;
+    }
+    if (msg.type === "session_loaded") {
+      if (!msg.requestId && msg.sessionId === state.sessionId) {
+        sendBackend({ type: "load_session", sessionId: msg.sessionId });
+        return;
+      }
+      if (!sessionSync.snapshot(msg.sessionId, msg.requestId, msg.sync))
+        return;
+      historyFeedback.finish(msg.requestId);
+      openingConversation = false;
+      thread.inert = false;
+      threadShell.classList.remove("is-opening", "is-syncing");
+    } else if (msg.sync && msg.type !== "session_started") {
+      const id = messageSessionId(msg);
+      if (id) {
+        const action = sessionSync.event(id, msg.sync);
+        if (action === "resync")
+          sendBackend({ type: "load_session", sessionId: id });
+        if (action !== "apply")
+          return;
+        if (historyPage.end < historyPage.total && ["chat_event", "generation_done", "generation_cancelled", "generation_error", "session_truncated"].includes(msg.type)) {
+          if (msg.type === "session_truncated") {
+            pendingHistory = null;
+            sendBackend({ type: "load_session", sessionId: msg.sessionId, before: historyPage.end });
+          }
+          return;
+        }
+      }
+    }
+    if (waitingCommandSession && "sessionId" in msg && msg.sessionId === waitingCommandSession && ["session_started", "session_loaded", "session_deleted", "chat_event", "generation_done", "generation_error", "generation_cancelled", "session_truncated", "compaction_started", "compaction_completed"].includes(msg.type)) {
+      commandFeedback.finish(waitingCommandSession);
+      waitingCommandSession = null;
+    }
+    if (msg.type !== "chat_event" && msg.assistantActivity && "sessionId" in msg && msg.sessionId === state.sessionId) {
+      const message = state.messages.find((item) => item.id === msg.assistantActivity.messageId);
+      if (message?.role === "assistant")
+        message.activity = msg.assistantActivity.activity;
+      if (state.currentAssistantMessage?.id === msg.assistantActivity.messageId)
+        state.streamingAssistant?.setActivity(msg.assistantActivity.activity);
+    }
+    if (msg.type === "session_deleted" && sessionSync.sessionId === msg.sessionId)
+      historyFeedback.clear();
     switch (msg.type) {
+      case "session_probe": {
+        const wasLatest = historyPage.end === historyPage.total;
+        if (msg.sessionId === state.sessionId && msg.total !== undefined)
+          historyPage.total = msg.total;
+        if (msg.sessionId === state.sessionId && (msg.changed || state.isGenerating !== (msg.phase === "generating") || state.compacting !== (msg.phase === "compacting")) && !sessionSync.requestId && wasLatest)
+          sendBackend({ type: "load_session", sessionId: msg.sessionId });
+        break;
+      }
       case "characters_pushed":
         state.characters = [...msg.characters];
         renderCharOptions();
@@ -16763,6 +19426,13 @@ ${t}` : t;
           h();
         break;
       case "session_started":
+        historyFeedback.clear();
+        openingConversation = false;
+        thread.inert = false;
+        threadShell.classList.remove("is-opening", "is-syncing");
+        sessionSync.sessionId = msg.sessionId;
+        sessionSync.requestId = null;
+        sessionSync.revision = msg.sync ?? null;
         clearStartTimeout();
         dlog("session_started received", { sessionId: msg.sessionId, characterId: msg.characterId, pendingPinChatId: state.pendingPinChatId, pendingMessage: state.pendingMessage, pendingMessageId: state.pendingMessageId });
         state.sessionId = msg.sessionId;
@@ -16797,13 +19467,21 @@ ${t}` : t;
           state.edits = [];
           render();
         }
+        historyPage = { start: 0, end: state.messages.length, total: state.messages.length };
+        pendingHistory = null;
         break;
       case "session_loaded":
+        const switchedSession = msg.sessionId !== state.sessionId;
+        const restoreHistoryAnchor = !switchedSession && !virtualizer.isNearBottom() ? virtualizer.captureAnchor() : null;
+        historyPage = msg.page ?? { start: 0, end: msg.messages.length, total: msg.messages.length };
+        pendingHistory = null;
+        thread.removeAttribute("aria-busy");
         clearErrorBanners();
         if (msg.sessionId !== state.sessionId)
           clearQueue();
         composerStatus.classList.remove("is-error");
         composerStatus.textContent = "";
+        state.streamingAssistant?.destroy();
         state.streamingAssistant = null;
         state.currentAssistantMessage = null;
         state.sessionId = msg.sessionId;
@@ -16812,19 +19490,27 @@ ${t}` : t;
         state.messages = [...msg.messages];
         state.edits = [...msg.edits];
         state.compactedAt = msg.compactedAt ?? null;
-        state.attachments = [];
-        state.fileAttachments = [];
-        state.attachmentSessionId = null;
-        renderAttachments();
+        if (switchedSession) {
+          state.attachments = [];
+          for (const attachment of state.fileAttachments)
+            attachment.uploadController?.abort();
+          state.fileAttachments = [];
+          state.attachmentSessionId = null;
+          renderAttachments();
+        }
         if (msg.characterId === null)
           charCombo.setValue(NO_CHARACTER_SENTINEL, true);
         else if (state.characters.some((c) => c.id === msg.characterId))
           charCombo.setValue(msg.characterId, true);
         renderCharOptions();
-        if (msg.status.phase === "generating")
+        if (msg.status.phase !== "idle" && historyPage.end === historyPage.total)
           rehydrateStreamingTurn();
         render();
-        virtualizer.scrollToBottom();
+        if (restoreHistoryAnchor)
+          virtualizer.restoreAnchor(restoreHistoryAnchor);
+        else
+          virtualizer.scrollToBottom();
+        lastHistoryScroll = thread.scrollTop;
         persistUiPrefs();
         applyStatus(msg.status);
         if (msg.characterId !== null) {
@@ -16844,6 +19530,16 @@ ${t}` : t;
         break;
       }
       case "session_deleted":
+        if (sessionSync.sessionId === msg.sessionId) {
+          openingConversation = false;
+          thread.inert = false;
+          threadShell.classList.remove("is-opening", "is-syncing");
+        }
+        if (sessionSync.sessionId === msg.sessionId) {
+          sessionSync.sessionId = null;
+          sessionSync.requestId = null;
+          sessionSync.revision = null;
+        }
         if (state.sessionId === msg.sessionId) {
           state.isGenerating = false;
           state.startingSession = false;
@@ -16879,7 +19575,8 @@ ${t}` : t;
       case "session_reverted":
         composerStatus.textContent = `Session reverted: ${msg.entriesRestored} entries, ${msg.scriptsRestored} scripts. ${msg.entriesFailed + msg.scriptsFailed} failed.`;
         for (const e of state.edits)
-          e.reverted = true;
+          if (canRevertEdit(e))
+            e.reverted = true;
         rerenderThread();
         updateSessionBar();
         if (state.diffModal)
@@ -16895,7 +19592,17 @@ ${t}` : t;
           if (!msg.event.is_error)
             deathPending = true;
         }
+        if (msg.assistantActivity) {
+          adoptStreamingTurn(msg.assistantActivity.messageId);
+          const message = state.messages.find((item) => item.id === msg.assistantActivity.messageId);
+          if (message?.role === "assistant")
+            message.activity = msg.assistantActivity.activity;
+        }
         handleAgentEvent(msg.event, agentEventCtx);
+        if (msg.assistantActivity && state.currentAssistantMessage?.id === msg.assistantActivity.messageId) {
+          state.currentAssistantMessage.activity = msg.assistantActivity.activity;
+          state.streamingAssistant?.setActivity(msg.assistantActivity.activity);
+        }
         break;
       case "generation_done":
         if (msg.sessionId !== state.sessionId)
@@ -16959,22 +19666,28 @@ ${t}` : t;
         state.startingSession = false;
         state.pendingMessage = null;
         state.pendingMessageId = null;
+        const hasFailedAssistant = !!state.currentAssistantMessage;
+        if (state.currentAssistantMessage)
+          state.currentAssistantMessage.error = msg.error;
         finalizeAssistantTurn("errored");
         rerenderThread();
-        const errBlock = el10("div", "la-error-banner");
-        const errHeader = el10("div", "la-error-banner-header");
-        const errTitle = el10("div", "la-error-banner-title", "Generation failed");
-        const errDismiss = el10("button", "la-error-banner-dismiss", "✕");
-        errDismiss.setAttribute("aria-label", "Dismiss error");
-        errDismiss.title = "Dismiss";
-        errDismiss.addEventListener("click", () => {
-          errBlock.remove();
-        });
-        errHeader.append(errTitle, errDismiss);
-        const errBody = el10("pre", "la-error-banner-body", msg.error);
-        errBlock.append(errHeader, errBody);
-        thread.appendChild(errBlock);
-        virtualizer.scrollToBottom();
+        if (!hasFailedAssistant) {
+          const errBlock = el9("div", "la-error-banner");
+          const errHeader = el9("div", "la-error-banner-header");
+          const errTitle = el9("div", "la-error-banner-title", "Generation failed");
+          const errDismiss = el9("button", "la-error-banner-dismiss", "✕");
+          errDismiss.setAttribute("aria-label", "Dismiss error");
+          errDismiss.title = "Dismiss";
+          errDismiss.addEventListener("click", () => {
+            errBlock.remove();
+          });
+          errHeader.append(errTitle, errDismiss);
+          const errBody = el9("pre", "la-error-banner-body", msg.error);
+          errBlock.append(errHeader, errBody);
+          thread.appendChild(errBlock);
+        }
+        if (virtualizer.isNearBottom())
+          virtualizer.scrollToBottom();
         composerStatus.textContent = "";
         composerStatus.classList.remove("is-error");
         updateComposer();
@@ -17033,7 +19746,17 @@ ${t}` : t;
         }
         break;
       }
-      case "session_truncated":
+      case "session_truncated": {
+        const anchor = !virtualizer.isNearBottom() ? virtualizer.captureAnchor() : null;
+        if (msg.sessionId !== state.sessionId)
+          break;
+        if (pendingHistory)
+          historyFeedback.clear();
+        pendingHistory = null;
+        thread.removeAttribute("aria-busy");
+        if (msg.page) {
+          historyPage = msg.page;
+        }
         state.messages = [...msg.messages];
         state.edits = [...msg.edits];
         if (state.streamingAssistant && state.currentAssistantMessage) {
@@ -17041,14 +19764,21 @@ ${t}` : t;
           const rebound = state.messages.find((m) => m.id === reboundId && m.role === "assistant");
           if (rebound && rebound.role === "assistant")
             state.currentAssistantMessage = rebound;
+          else {
+            state.streamingAssistant.destroy();
+            state.streamingAssistant = null;
+            state.currentAssistantMessage = null;
+          }
         }
         rerenderThread();
-        virtualizer.scrollToBottom();
+        if (anchor)
+          virtualizer.restoreAnchor(anchor);
         updateSessionBar();
         updateComposer();
         if (state.characterId)
           sendBackend({ type: "list_character_edits", characterId: state.characterId });
         break;
+      }
       case "chats_pushed":
         dlog("chats_pushed received", { msgCharacterId: msg.characterId, stateCharacterId: state.characterId, pinnedChatId: msg.pinnedChatId, chatCount: msg.chats.length, applies: state.characterId === msg.characterId });
         if (state.characterId === msg.characterId) {
@@ -17104,6 +19834,12 @@ ${t}` : t;
           composerStatus.classList.add("is-error");
         }
         break;
+      case "settings_saved": {
+        const listener = settingsSaveListeners.get(msg.requestId);
+        settingsSaveListeners.delete(msg.requestId);
+        listener?.(msg.error);
+        break;
+      }
       case "settings_pushed":
         state.settings = {
           persona: msg.persona,
@@ -17120,6 +19856,7 @@ ${t}` : t;
           toolOutputCapDefaultTokens: msg.toolOutputCapDefaultTokens,
           cacheMode: msg.cacheMode,
           parallelToolCalls: msg.parallelToolCalls,
+          autoCompaction: msg.autoCompaction ?? true,
           tpmLimit: msg.tpmLimit,
           rpmLimit: msg.rpmLimit,
           debugLogging: msg.debugLogging,
@@ -17128,6 +19865,7 @@ ${t}` : t;
         };
         for (const h of settingsListeners.handlers)
           h();
+        updateCompactButton();
         break;
       case "phoneline_pairings_pushed":
         for (const h of pairingsListeners.handlers)
@@ -17152,17 +19890,11 @@ ${t}` : t;
           sendBackend({ type: "load_session", sessionId: msg.lastSessionId });
         }
         break;
-      case "ws_listed":
-        state.workspacePanel?.onListed(msg.path, msg.entries);
-        break;
-      case "ws_text_pushed":
-        state.workspacePanel?.onTextPushed(msg.path, msg.content, msg.sizeBytes);
+      case "workspace_response":
+        state.workspacePanel?.receive(msg);
         break;
       case "ws_changed":
         state.workspacePanel?.onChanged();
-        break;
-      case "ws_download_ready":
-        state.workspacePanel?.onDownloadReady(msg.path, msg.dataBase64, msg.mimeType);
         break;
       case "ws_image_ready":
         Promise.resolve().then(() => (init_image_cache(), {})).then((m) => resolveImage(msg.path, `data:${msg.mimeType};base64,${msg.dataBase64}`));
@@ -17174,9 +19906,6 @@ ${t}` : t;
         workspaceUploads.complete(msg.transferId, msg.error);
         break;
       }
-      case "ws_zip_ready":
-        state.workspacePanel?.onZipReady(msg.dataBase64, msg.filename);
-        break;
       case "ws_error":
         state.workspacePanel?.onError(msg.error);
         break;
@@ -17234,12 +19963,15 @@ ${t}` : t;
               } finally {
                 frontendRequests.delete(msg.rpcId);
               }
-            } else if (msg.op === "theme_catalog") {
+            } else if (msg.op === "theme_workbench") {
               await Promise.resolve();
-              result = handleThemeCatalog(ctx);
-            } else if (msg.op === "theme_install_pack") {
-              await Promise.resolve();
-              result = await handleThemeInstallPack(ctx, msg.args);
+              const controller = new AbortController;
+              frontendRequests.set(msg.rpcId, controller);
+              try {
+                result = await handleThemeWorkbench(ctx, msg.args, controller.signal);
+              } finally {
+                frontendRequests.delete(msg.rpcId);
+              }
             } else {
               sendBackend({ type: "frontend_rpc_response", rpcId: msg.rpcId, error: `unknown rpc op '${msg.op}'` });
               return;
@@ -17291,6 +20023,7 @@ ${t}` : t;
   };
   adoptActiveChat();
   const offChatSwitched = ctx.events.on("CHAT_SWITCHED", () => adoptActiveChat());
+  thread.addEventListener("scroll", onHistoryScroll, { passive: true });
   const off = tab.onActivate(() => {
     refreshLists();
     adoptActiveChat();
@@ -17299,7 +20032,38 @@ ${t}` : t;
     else if (state.characterId)
       sendBackend({ type: "list_character_edits", characterId: state.characterId });
   });
+  const resumeSync = () => {
+    if (!document.hidden && state.sessionId)
+      sendBackend({ type: "load_session", sessionId: state.sessionId });
+  };
+  document.addEventListener("visibilitychange", resumeSync);
+  window.addEventListener("online", resumeSync);
+  const recoveryTimer = setInterval(() => {
+    if (document.hidden || !state.sessionId)
+      return;
+    if (!sessionSync.requestId)
+      sendBackend({ type: "probe_session", sessionId: state.sessionId, revision: sessionSync.revision });
+  }, 15000);
   return () => {
+    textareaObserver.disconnect();
+    cancelAnimationFrame(textareaResizeFrame);
+    mouseyObserver.disconnect();
+    window.removeEventListener("resize", detectMouseyOverlap);
+    mouseyImg.removeEventListener("load", detectMouseyOverlap);
+    if (mouseyOverlapRaf !== null)
+      cancelAnimationFrame(mouseyOverlapRaf);
+    clearInterval(recoveryTimer);
+    cancelAnimationFrame(historyScrollFrame);
+    cancelAnimationFrame(historyRestoreFrame);
+    thread.removeEventListener("scroll", onHistoryScroll);
+    document.removeEventListener("visibilitychange", resumeSync);
+    window.removeEventListener("online", resumeSync);
+    state.streamingAssistant?.destroy();
+    historyFeedback.destroy();
+    commandFeedback.destroy();
+    state.workspacePanel?.destroy();
+    messageReader.destroy();
+    virtualizer.destroy();
     off();
     workspaceUploads.dispose();
     offBackendMessages();
@@ -17350,7 +20114,7 @@ function setupPermissionsModal(opts) {
     }
     current = modal;
     const root = modal.root;
-    root.classList.add("la-perm-modal");
+    root.classList.add("la-perm-modal", "la-modal-body");
     const lead = document.createElement("p");
     lead.className = "la-perm-lead";
     lead.textContent = msg.missing.length === 1 ? "LumiAgent needs one permission that hasn't been granted." : `LumiAgent needs ${msg.missing.length} permissions that haven't been granted.`;
@@ -17424,7 +20188,8 @@ function setupPermissionsModal(opts) {
 // src/ui/bridge-status-banner.ts
 var EXT_LABELS = {
   lumiagent: "LumiAgent",
-  lumirealm: "LumiRealm"
+  lumirealm: "LumiRealm",
+  lumicache: "LumiCache"
 };
 function labelFor(id) {
   if (!id)
@@ -17477,10 +20242,10 @@ function setupBridgeStatusBanner(opts) {
     });
     return chip;
   }
-  function show(missing, missingForId) {
-    const otherSide = "LumiRealm";
+  function show(missing, missingForId, providerId) {
+    const otherSide = labelFor(providerId ?? "lumirealm");
     const missingSide = labelFor(missingForId ?? "lumiagent");
-    const key = `${missingSide}::${[...missing].sort().join(",")}`;
+    const key = `${otherSide}::${missingSide}::${[...missing].sort().join(",")}`;
     if (lastKey === key && host)
       return;
     lastKey = key;
@@ -17559,7 +20324,7 @@ function setupBridgeStatusBanner(opts) {
         clearBanner();
         return;
       }
-      show(msg.missingPermissions, msg.missingFor ?? null);
+      show(msg.missingPermissions, msg.missingFor ?? null, msg.providerId);
     },
     destroy() {
       clearBanner();

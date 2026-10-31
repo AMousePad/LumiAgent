@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import { recordChange } from "./_change-history";
 import { resolveCharacterTarget, noTargetResult } from "./_context";
 import description from "../prompts/claude/tools/attach-world-book/description.txt";
 import argWorldBookId from "../prompts/claude/tools/attach-world-book/arg_world_book_id.txt";
@@ -51,7 +52,10 @@ export const attachWorldBookTool = defineTool({
         if (!character) return { content: `Error: character '${target}' not found`, isError: true };
         const current = (character.world_book_ids ?? []).filter((v): v is string => typeof v === "string");
         const next = applyAction(current, wbId, action);
-        if (next) await ctx.spindle.characters.update(target, { world_book_ids: next }, ctx.userId);
+        if (next) {
+          await ctx.spindle.characters.update(target, { world_book_ids: next }, ctx.userId);
+          ctx.pushEdit({ op: "edit", surface: "character_field", surfaceId: target, surfaceLabel: character.name, field: "world_book_ids", before: JSON.stringify(current), after: JSON.stringify(next), valueEncoding: "json", scope: { kind: "character", id: target } });
+        }
         return result("character", target, wbId, action, next ?? current, next !== null);
       }
 
@@ -68,6 +72,7 @@ export const attachWorldBookTool = defineTool({
           // chats.update replaces the whole metadata blob, so write it back merged.
           metadata["chat_world_book_ids"] = next;
           await ctx.spindle.chats.update(chatId, { metadata }, ctx.userId);
+          recordChange(ctx, { kind: "chat", id: chatId }, "Chat lorebooks", "world_book_ids", current, next);
         }
         return result("chat", chatId, wbId, action, next ?? current, next !== null);
       }
@@ -79,6 +84,7 @@ export const attachWorldBookTool = defineTool({
       let changed = false;
       if (action === "attach" && !has) { next = await ctx.spindle.world_books.activateGlobal(wbId, ctx.userId); changed = true; }
       else if (action === "detach" && has) { next = await ctx.spindle.world_books.deactivateGlobal(wbId, ctx.userId); changed = true; }
+      if (changed) recordChange(ctx, { kind: "settings", id: "global-lorebooks" }, "Global lorebooks", "world_book_ids", current, next);
       return result("global", null, wbId, action, next, changed);
     } catch (err) {
       return { content: `Error: ${(err as Error).message}`, isError: true };

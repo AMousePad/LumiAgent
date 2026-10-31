@@ -343,6 +343,7 @@ export async function revertEdit(
   const r = entry.record;
   try {
     if (r.op === "edit" && r.surface === "external") {
+      if (r.auditOnly) return { success: false, error: r.auditOnly };
       // External provider revert routes through the owning extension's phone
       // line. Branch sits before the EditEdit one since EditEdit excludes
       // surface === "external" via the type union.
@@ -510,6 +511,17 @@ export async function readLiveValue(
   // External surfaces: the owning extension owns its own concurrency model.
   if (r.surface === "external") return null;
   switch (r.surface) {
+    case "agent_macro": {
+      const { listMacros } = await import("./agent-macros");
+      return JSON.stringify((await listMacros(spindle, userId))[r.surfaceId] ?? null);
+    }
+    case "variable": {
+      const [kind, ...parts] = r.surfaceId.split(":"); const id = parts.join(":");
+      if (kind === "global") return JSON.stringify(await spindle.variables.global.has(r.field, userId) ? await spindle.variables.global.get(r.field, userId) : null);
+      const bag = kind === "chat" ? spindle.variables.chat : spindle.variables.local;
+      return JSON.stringify(await bag.has(id, r.field) ? await bag.get(id, r.field) : null);
+    }
+    case "active_persona": return JSON.stringify((await spindle.personas.getActive(userId))?.id ?? null);
     case "memory_vault": {
       const value = await readVaultMetadata(spindle, userId, r.surfaceId);
       return value && r.field === "name" ? value.name : null;
@@ -737,6 +749,20 @@ export async function writeFieldValue(
   valueEncoding?: "json",
 ): Promise<void> {
   switch (surface) {
+    case "agent_macro": {
+      const { setMacro, clearMacro } = await import("./agent-macros"); const decoded = JSON.parse(value);
+      if (decoded === null) await clearMacro(spindle, userId, surfaceId); else if (typeof decoded === "string") await setMacro(spindle, userId, surfaceId, decoded); else throw new Error("Macro value must be text or null");
+      return;
+    }
+    case "variable": {
+      const decoded = JSON.parse(value) as string | null;
+      if (decoded !== null && typeof decoded !== "string") throw new Error("Variable value must be text or null");
+      const [kind, ...parts] = surfaceId.split(":"); const id = parts.join(":");
+      if (kind === "global") { if (decoded === null) await spindle.variables.global.delete(field, userId); else await spindle.variables.global.set(field, decoded, userId); }
+      else { const bag = kind === "chat" ? spindle.variables.chat : spindle.variables.local; if (decoded === null) await bag.delete(id, field); else await bag.set(id, field, decoded); }
+      return;
+    }
+    case "active_persona": await spindle.personas.switchActive(JSON.parse(value) as string | null, userId); return;
     case "memory_vault": {
       if (field !== "name" || !value.trim() || value.length > 200) throw new Error("vault name must contain 1 to 200 characters");
       if (!await spindle.memories.vaults.rename(surfaceId, value, userId)) throw new Error("memory vault not found");

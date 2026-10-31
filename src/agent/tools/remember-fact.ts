@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import { observeChange } from "./_change-history";
 import { resolveMemoryChat, NO_CHAT_ERROR, memoryError } from "./_memory";
 import description from "../prompts/claude/tools/remember-fact/description.txt";
 
@@ -32,6 +33,10 @@ export const rememberFactTool = defineTool({
     const chatId = resolveMemoryChat(ctx, input.chat_id);
     if (!chatId) return { content: NO_CHAT_ERROR, isError: true };
     try {
+      return await observeChange(ctx, { kind: "cortex", id: chatId }, input.entity, "facts", async () => {
+        const entity = await ctx.spindle.memories.entities.findByName(chatId, input.entity, ctx.userId);
+        return entity ? { entity, facts: await ctx.spindle.memories.entities.getFacts(entity.id, ctx.userId) } : null;
+      }, async () => {
       let entity = await ctx.spindle.memories.entities.findByName(chatId, input.entity, ctx.userId);
       let created = false;
       if (!entity) {
@@ -57,6 +62,7 @@ export const rememberFactTool = defineTool({
           last_6_in_prompt: facts.slice(-6),
         }, null, 2),
       };
+      });
     } catch (err) { return { content: memoryError(err), isError: true }; }
   },
 });

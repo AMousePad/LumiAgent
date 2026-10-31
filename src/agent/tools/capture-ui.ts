@@ -76,7 +76,7 @@ export const captureUiTool = defineTool({
           method: result.method,
           warnings: result.warnings,
           viewing:
-            "The image is attached to your next step. Evaluate only what is visible.",
+            "The image is attached to your next step. Check warnings before judging missing text, icons or assets; capture omissions need live-page verification.",
         }),
       };
     } catch (error) {

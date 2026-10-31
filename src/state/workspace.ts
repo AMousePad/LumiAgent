@@ -219,9 +219,13 @@ export async function readBinary(spindle: SpindleAPI, userId: string, relPath: s
   return spindle.userStorage.readBinary(absPath(relPath), userId);
 }
 
-export async function writeText(spindle: SpindleAPI, userId: string, relPath: string, content: string, caps: WorkspaceCaps = DEFAULT_WORKSPACE_CAPS): Promise<void> {
+export async function writeText(spindle: SpindleAPI, userId: string, relPath: string, content: string, caps: WorkspaceCaps = DEFAULT_WORKSPACE_CAPS, condition?: { expectedContent?: string; create?: boolean }): Promise<void> {
   await meteredWrite(spindle, userId, relPath, new TextEncoder().encode(content).byteLength, caps,
-    () => spindle.userStorage.write(absPath(relPath), content, userId));
+    async () => {
+      if (condition?.create && await spindle.userStorage.exists(absPath(relPath), userId)) throw new Error("A file with that name already exists");
+      if (condition?.expectedContent !== undefined && await spindle.userStorage.read(absPath(relPath), userId) !== condition.expectedContent) throw new Error("This file changed since you opened it. Your draft is preserved.");
+      await spindle.userStorage.write(absPath(relPath), content, userId);
+    });
 }
 
 export async function writeBinary(spindle: SpindleAPI, userId: string, relPath: string, data: Uint8Array, caps: WorkspaceCaps = DEFAULT_WORKSPACE_CAPS): Promise<void> {
@@ -280,6 +284,7 @@ async function movePathUnlocked(spindle: SpindleAPI, userId: string, fromRel: st
   const a = normaliseRelPath(fromRel);
   const b = normaliseRelPath(toRel);
   if (a === "" || b === "") throw new Error("source and destination must be non-empty");
+  if (b.toLowerCase().startsWith(`${a.toLowerCase()}/`)) throw new Error("Cannot move a folder into itself");
   const { checkMoveAllowed } = await import("./system-files");
   const guard = checkMoveAllowed(a);
   if (guard.protected) throw new Error(guard.reason ?? "protected path");

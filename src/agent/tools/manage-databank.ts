@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { DatabankCreateDTO, DatabankUpdateDTO } from "lumiverse-spindle-types";
 import { defineTool } from "./_framework";
+import { recordChange } from "./_change-history";
 import description from "../prompts/claude/tools/manage-databank/description.txt";
 
 const inputSchema = z.object({
@@ -48,6 +49,7 @@ export const manageDatabankTool = defineTool({
             ...(str(v["scope_id"]) !== undefined ? { scope_id: str(v["scope_id"])! } : {}),
           };
           const bank = await ctx.spindle.databanks.create(dto, ctx.userId);
+          recordChange(ctx, { kind: "databank", id: bank.id }, bank.name, "created", null, bank);
           return { content: JSON.stringify({ created: { id: bank.id, name: bank.name, scope: bank.scope } }) };
         }
         case "update_bank": {
@@ -58,12 +60,16 @@ export const manageDatabankTool = defineTool({
             ...(typeof v["enabled"] === "boolean" ? { enabled: v["enabled"] } : {}),
           };
           if (Object.keys(patch).length === 0) return { content: "Error: [INVALID_INPUT] nothing to update; value takes name / description / enabled", isError: true };
+          const before = await ctx.spindle.databanks.get(input.databank_id, ctx.userId);
           const bank = await ctx.spindle.databanks.update(input.databank_id, patch, ctx.userId);
+          recordChange(ctx, { kind: "databank", id: bank.id }, bank.name, "metadata", before, bank);
           return { content: JSON.stringify({ updated: { id: bank.id, name: bank.name, enabled: bank.enabled } }) };
         }
         case "delete_bank": {
           if (!input.databank_id) return { content: "Error: [INVALID_INPUT] delete_bank needs databank_id", isError: true };
+          const before = await ctx.spindle.databanks.get(input.databank_id, ctx.userId);
           const ok = await ctx.spindle.databanks.delete(input.databank_id, ctx.userId);
+          if (ok) recordChange(ctx, { kind: "databank", id: input.databank_id }, before?.name ?? "Databank", "deleted", before, null);
           return { content: JSON.stringify({ deleted: ok }) };
         }
         case "add_document": {
@@ -79,23 +85,29 @@ export const manageDatabankTool = defineTool({
             mime_type: "text/plain",
             name,
           }, ctx.userId);
+          recordChange(ctx, { kind: "databank", id: input.databank_id }, name, "document created", null, doc);
           return { content: JSON.stringify({ added: { id: doc.id, name: doc.name, status: doc.status }, note: "Chunking and embedding are asynchronous; list_databank_documents shows when it is processed." }) };
         }
         case "rename_document": {
           if (!input.document_id) return { content: "Error: [INVALID_INPUT] rename_document needs document_id", isError: true };
           const name = str(v["name"]);
           if (!name) return { content: "Error: [INVALID_INPUT] rename_document needs value.name", isError: true };
+          const before = await ctx.spindle.databanks.documents.get(input.document_id, ctx.userId);
           const doc = await ctx.spindle.databanks.documents.update(input.document_id, { name }, ctx.userId);
+          recordChange(ctx, { kind: "databank", id: input.databank_id ?? input.document_id }, name, "document", before, doc);
           return { content: JSON.stringify({ renamed: { id: doc.id, name: doc.name } }) };
         }
         case "delete_document": {
           if (!input.document_id) return { content: "Error: [INVALID_INPUT] delete_document needs document_id", isError: true };
+          const before = await ctx.spindle.databanks.documents.get(input.document_id, ctx.userId);
           const ok = await ctx.spindle.databanks.documents.delete(input.document_id, ctx.userId);
+          if (ok) recordChange(ctx, { kind: "databank", id: input.databank_id ?? input.document_id }, before?.name ?? "Document", "document deleted", before, null);
           return { content: JSON.stringify({ deleted: ok }) };
         }
         case "reprocess_document": {
           if (!input.document_id) return { content: "Error: [INVALID_INPUT] reprocess_document needs document_id", isError: true };
           const res = await ctx.spindle.databanks.documents.reprocess(input.document_id, ctx.userId);
+          recordChange(ctx, { kind: "databank", id: input.databank_id ?? input.document_id }, "Document", "reprocess requested", null, res);
           return { content: JSON.stringify(res) };
         }
       }

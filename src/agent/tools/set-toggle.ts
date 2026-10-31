@@ -1,3 +1,4 @@
+import { recordChange } from "./_change-history";
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import type { ToolCtx } from "./_context";
@@ -43,6 +44,7 @@ export const setToggleTool = defineTool({
       value: input.value,
     });
     if (!res.ok) return { content: `Error: ${res.error ?? "set_toggle failed"}`, isError: true };
+    recordChange(ctx, { kind: "chat", id: input.chat_id }, "Toggle", "applied", { snapshot: "unavailable" }, { key: input.key, value: input.value }, "The extension confirms the write but does not expose a prior-value snapshot for this operation.");
     return { content: JSON.stringify({ ok: true, chat_id: input.chat_id, key: input.key, value: input.value }) };
   },
 });

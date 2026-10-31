@@ -585,7 +585,7 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
 
     if (usage !== undefined) recordTpm(input.userId, usage.total);
 
-    if (turnNum === startingTurn + 1 && content.trim().length === 0 && toolCalls.length === 0) {
+    if (content.trim().length === 0 && toolCalls.length === 0) {
       const lastUser = [...conv].reverse().find((m) => m.role === "user");
       const lastUserPreview = typeof lastUser?.content === "string"
         ? lastUser.content.slice(0, 200)
@@ -638,9 +638,9 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
         advice = "Check the Lumiverse server log for a `[lumiverse.*.sse]` line. An error frame means the gateway returned an upstream error.";
       } else if (priorToolCalled) {
         diag = `the provider returned a complete but empty response (finish_reason=${finishReason || "unknown"}) on a continuation whose history already contains ${toolUseParts} tool call(s) and ${toolResultParts} tool result(s) (largest ${largestToolResultChars} chars).`;
-        advice = "The model DID emit tool calls earlier in this conversation, so it is tool-call capable. An empty completion specifically on a tool-history continuation is a gateway defect, not a model or LumiAgent issue. NanoGPT exhibits this serving DeepSeek-v4 (both thinking and non-thinking) while the same model works through OpenRouter. Run this model via a different gateway (OpenRouter is confirmed working) for tool-driven sessions.";
+        advice = "Earlier tool calls do not prove this turn completed. Check the finish reason and response limit, then continue from the saved conversation. Reasoning text alone does not execute tools.";
       } else {
-        diag = `the provider returned a complete response (finish_reason=${finishReason || "unknown"}) with no content, no tool calls, and no reasoning, while ${toolsOffered} tools were offered and no tool call has succeeded yet in this conversation.`;
+        diag = `the provider returned a complete response (finish_reason=${finishReason || "unknown"}) with no answer or tool calls (${streamedReasoningChars} reasoning characters), while ${toolsOffered} tools were offered and no tool call has succeeded yet in this conversation.`;
         advice = "Re-send once. If it stays empty, this connection likely is not emitting native tool calls at all, try a function-calling-capable connection (Claude, GPT-4-class, Gemini, DeepSeek-v4 via OpenRouter).";
       }
       throw new Error(

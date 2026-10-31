@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { ImageGenRequestDTO } from "lumiverse-spindle-types";
 import { defineTool } from "./_framework";
+import { recordChange, observeChange } from "./_change-history";
 import { resolveCharacterTargetOptional } from "./_context";
 import description from "../prompts/claude/tools/generate-image/description.txt";
 import argPrompt from "../prompts/claude/tools/generate-image/arg_prompt.txt";
@@ -106,6 +107,7 @@ export const generateImageTool = defineTool({
       provider: result.provider,
       owner_character_id: owner,
     };
+    if (result.imageId) recordChange(ctx, { kind: "images", id: result.imageId }, "Generated image", "created", null, out);
 
     if (wantsBytes) {
       const decoded = result.imageDataUrl ? decodeDataUrl(result.imageDataUrl) : null;
@@ -124,11 +126,11 @@ export const generateImageTool = defineTool({
       }
       if (input.set_as_avatar === true && owner !== null) {
         try {
-          await ctx.spindle.characters.setAvatar(owner, {
+          await observeChange(ctx, { kind: "character", id: owner }, "Character avatar", "avatar", () => ctx.spindle.characters.get(owner, ctx.userId), () => ctx.spindle.characters.setAvatar(owner, {
             data: decoded.bytes,
             filename: `avatar.${extensionFor(decoded.mime)}`,
             mime_type: decoded.mime,
-          }, ctx.userId);
+          }, ctx.userId));
           out["avatar_set"] = true;
         } catch (err) { out["avatar_error"] = (err as Error).message; }
       }

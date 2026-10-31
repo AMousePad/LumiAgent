@@ -9,6 +9,7 @@ import { dlog } from "../log";
 // response. Mismatch skips the dial silently before any consent UI fires.
 export const KNOWN_PHONELINES: ReadonlyArray<{ identifier: string; name: string }> = [
   { identifier: "lumirealm", name: "LumiRealm" },
+  { identifier: "lumicache", name: "LumiCache" },
 ];
 
 export interface CachedProvider {
@@ -28,6 +29,7 @@ export interface DialFailureInfo {
   // LumiAgent itself is missing them on the outbound read, "lumirealm" when
   // LumiRealm's handler can't read the request envelope back.
   readonly missingFor: string;
+  readonly providerId?: string;
   readonly missingPerms: readonly string[];
 }
 const lastDialFailure = new Map<string, DialFailureInfo | null>();
@@ -131,7 +133,7 @@ export async function discoverProviders(
       } catch (err) {
         const msg = (err as Error).message;
         const parsed = parseInheritanceError(msg);
-        lastDialFailure.set(dialKey(userId, entry.identifier), parsed);
+        lastDialFailure.set(dialKey(userId, entry.identifier), parsed ? { ...parsed, providerId: entry.identifier } : null);
         // A not-registered endpoint just means the extension isn't installed:
         // benign and spammy (fires on every discover). Only a parsed
         // permission-inheritance failure is actionable, keep that at warn.

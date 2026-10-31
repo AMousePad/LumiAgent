@@ -1,4 +1,3 @@
-// Cycling-verb "thinking" indicator with a scramble-sweep transition.
 
 import { pickLoaderVariant } from "./loaders";
 
@@ -47,6 +46,8 @@ export interface LoadingHandle {
 export function mountLoading(parent: HTMLElement): LoadingHandle {
   const wrap = document.createElement("div");
   wrap.className = "la-thinking";
+  wrap.setAttribute("role", "status");
+  wrap.setAttribute("aria-label", "Working");
   const spinner = document.createElement("span");
   spinner.className = `la-ld ${pickLoaderVariant()}`;
   const word = document.createElement("span");
@@ -54,6 +55,7 @@ export function mountLoading(parent: HTMLElement): LoadingHandle {
   const dots = document.createElement("span");
   dots.className = "la-thinking-dots";
   dots.innerHTML = "<span>.</span><span>.</span><span>.</span>";
+  for (const child of [spinner, word, dots]) child.setAttribute("aria-hidden", "true");
   wrap.append(spinner, word, dots);
   parent.appendChild(wrap);
 
@@ -78,14 +80,10 @@ export function mountLoading(parent: HTMLElement): LoadingHandle {
       for (let i = 0; i < maxLen; i++) {
         const lockAt = i * stepMs;
         if (elapsed >= lockAt + 60) {
-          // Settled — show target character if any.
           if (i < targetLen) out += target[i]!;
         } else if (elapsed >= lockAt) {
-          // Coin-flip between target and random while settling.
           out += Math.random() < 0.5 && i < targetLen ? target[i]! : randomChar();
         } else {
-          // Pre-lock — pure scramble, but only emit if the source or target
-          // still wants a char in this slot (avoids tail overflow on shorter target).
           if (i < Math.max(sourceLen, targetLen)) out += randomChar();
         }
       }
@@ -109,7 +107,7 @@ export function mountLoading(parent: HTMLElement): LoadingHandle {
     timeoutHandle = setTimeout(cycle, HOLD_MIN_MS + Math.random() * HOLD_JITTER_MS);
   };
 
-  timeoutHandle = setTimeout(cycle, 1400);
+  if (!matchMedia("(prefers-reduced-motion: reduce)").matches) timeoutHandle = setTimeout(cycle, 1400);
 
   return {
     destroy() {

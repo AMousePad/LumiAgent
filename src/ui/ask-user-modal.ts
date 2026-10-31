@@ -40,6 +40,8 @@ export function showAskUserQuestion(input: AskUserInput): Promise<AskUserResult>
   return new Promise<AskUserResult>((resolve) => {
     const overlay = el("div", "la-modal-overlay la-ask-overlay");
     const modal = el("div", "la-modal la-ask-modal");
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    modal.setAttribute("role", "dialog"); modal.setAttribute("aria-modal", "true"); modal.setAttribute("aria-label", "Your input");
     overlay.appendChild(modal);
 
     // Selection state per question. For single-select: stores a string. For
@@ -51,8 +53,6 @@ export function showAskUserQuestion(input: AskUserInput): Promise<AskUserResult>
 
     const header = el("div", "la-ask-header");
     header.appendChild(el("div", "la-ask-title", "Pick an option"));
-    const subtitle = el("div", "la-ask-subtitle", `The agent paused with ${input.questions.length} question${input.questions.length === 1 ? "" : "s"}.`);
-    header.appendChild(subtitle);
     modal.appendChild(header);
 
     const body = el("div", "la-ask-body");
@@ -150,15 +150,23 @@ export function showAskUserQuestion(input: AskUserInput): Promise<AskUserResult>
     cancelBtn.type = "button";
     submitBtn.type = "button";
     footer.append(cancelBtn, submitBtn);
+    const error = el("div", "la-form-error"); error.setAttribute("role", "alert"); modal.append(error);
     modal.appendChild(footer);
 
     const finish = (result: AskUserResult): void => {
       window.removeEventListener("keydown", onKey);
       overlay.remove();
+      if (previousFocus?.isConnected) previousFocus.focus();
       resolve(result);
     };
 
     const onKey = (ev: KeyboardEvent): void => {
+      if (ev.key === "Tab") {
+        const controls = [...modal.querySelectorAll<HTMLElement>("button,input,textarea,select,[tabindex='0']")].filter(item => !item.hasAttribute("disabled") && item.getClientRects().length > 0);
+        const first = controls[0], last = controls.at(-1);
+        if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last?.focus(); }
+        else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first?.focus(); }
+      }
       if (ev.key === "Escape") {
         ev.preventDefault();
         finish({ cancelled: true });
@@ -174,7 +182,8 @@ export function showAskUserQuestion(input: AskUserInput): Promise<AskUserResult>
         const raw = selections.get(q.question);
         if (raw === undefined || (raw instanceof Set && raw.size === 0)) {
           // Treat missing answer as cancellation rather than submitting partials.
-          finish({ cancelled: true });
+          error.textContent = "Choose an option for each question.";
+          modal.querySelector<HTMLInputElement>(`input[name="q-${input.questions.indexOf(q)}"]`)?.focus();
           return;
         }
         let answer: string;
@@ -189,11 +198,11 @@ export function showAskUserQuestion(input: AskUserInput): Promise<AskUserResult>
               parts.push(label);
             }
           }
-          if (parts.length === 0) { finish({ cancelled: true }); return; }
+          if (parts.length === 0) { error.textContent = "Enter your answer."; return; }
           answer = parts.join(", ");
         } else if (raw === OTHER_LABEL) {
           const txt = (otherText.get(q.question) ?? "").trim();
-          if (!txt) { finish({ cancelled: true }); return; }
+          if (!txt) { error.textContent = "Enter your answer."; return; }
           answer = txt;
           notes[q.question] = "custom answer";
         } else {
@@ -210,5 +219,6 @@ export function showAskUserQuestion(input: AskUserInput): Promise<AskUserResult>
     });
 
     document.body.appendChild(overlay);
+    modal.querySelector<HTMLElement>("input,button")?.focus();
   });
 }

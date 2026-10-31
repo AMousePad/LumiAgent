@@ -706,6 +706,7 @@ export function laterEditsOnSameFile(_ledger: ScopedLedger, _editId: string): Ed
 // instead of following the current focus (bulk tag edits can touch hundreds of
 // character scopes in one call).
 const LEDGER_SCOPE_KINDS: readonly ScopeKind[] = [
+  "theme", "cortex", "settings",
   "memory_vault",
   "character",
   "persona",

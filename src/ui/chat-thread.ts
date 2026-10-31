@@ -1,3 +1,9 @@
+import { mountAssistantProgress } from "./assistant-progress";
+import { createActivitySummary } from "./activity-summary";
+import type { ActivityStep } from "./activity-summary";
+import type { MessageSource } from "./message-reader";
+import { mountInlineContent } from "./inline-content";
+import { canRevertEdit } from "../types";
 import type {
   ChatAssistantMessage,
   ChatMessage,
@@ -8,12 +14,13 @@ import type {
 } from "../types";
 import { renderMarkdown } from "./markdown";
 import { renderInlineFieldDiff, renderUnifiedDiff, computeDiffStats, isShortField } from "./diff";
-import { ICON_EDIT, ICON_RETRY, ICON_TRASH, ICON_FORK } from "./icons";
+import { ICON_EDIT, ICON_RETRY, ICON_TRASH, ICON_FORK, ICON_CHEVRON_DOWN } from "./icons";
 import { mountLoading, type LoadingHandle } from "./loading";
 
 const MAX_ARGS_PREVIEW = 80;
 
 export interface ChatThreadDeps {
+  getMessageSource?(messageId: string): MessageSource;
   onRevertEdit(editId: string): Promise<void>;
   onRevertManyEdits?(editIds: readonly string[]): Promise<void>;
   onOpenDiffModal(initialEditId?: string): void;
@@ -40,6 +47,7 @@ export interface ChatThreadDeps {
 
 export interface AssistantHandle {
   root: HTMLElement;
+  destroy(): void;
   appendToken(token: string): void;
   appendReasoning(token: string): void;
   startTool(callId: string, name: string, args: Record<string, unknown>): void;
@@ -48,10 +56,8 @@ export interface AssistantHandle {
   addWarning(message: string): void;
   setStatus(status: ChatAssistantMessage["status"]): void;
   setUsage(usage: ChatAssistantMessage["usage"]): void;
-  // Show / hide the cycling "thinking" indicator inside the bubble. Pinned
-  // to the bottom of the bubble so it visually trails whatever content has
-  // streamed in. Cleared automatically on completion.
   setLoading(active: boolean): void;
+  setActivity(activity: ChatAssistantMessage["activity"]): void;
 }
 
 function el(tag: string, cls?: string, text?: string): HTMLElement {
@@ -59,6 +65,19 @@ function el(tag: string, cls?: string, text?: string): HTMLElement {
   if (cls) e.className = cls;
   if (text !== undefined) e.textContent = text;
   return e;
+}
+
+function runNotice(message: string, error = false): HTMLElement {
+  const root = el("div", `la-run-notice${error ? " is-error" : ""}`);
+  if (message.length < 240 && !message.includes("\n")) { root.textContent = message; return root; }
+  const details = document.createElement("details");
+  const summary = document.createElement("summary");
+  summary.textContent = message.split("\n")[0]!.slice(0, 180);
+  const body = document.createElement("pre");
+  body.textContent = message.slice(0, 16000);
+  details.append(summary, body);
+  root.append(details);
+  return root;
 }
 
 function previewArgs(args: Record<string, unknown>): string {
@@ -131,6 +150,14 @@ function describeExternalTarget(surfaceId: string | undefined, itemId: string | 
 function describeToolActivity(name: string, args: Record<string, unknown>): { kind: "read" | "write" | "create" | "delete" | "search" | "test" | "finish"; verb: string; target: string } {
   const s = (k: string): string | undefined => typeof args[k] === "string" ? args[k] as string : undefined;
   switch (name) {
+    case "workspace": {
+      const action = s("action") ?? "inspect";
+      const verb = ({ read: "Reading", list: "Listing", write: "Writing", edit: "Editing", copy: "Copying", move: "Moving", unzip: "Extracting", zip: "Archiving", delete: "Deleting", mkdir: "Creating folder" } as Record<string, string>)[action] ?? "Inspecting";
+      return { kind: ["write", "edit", "move", "delete", "mkdir", "unzip"].includes(action) ? "write" : "read", verb, target: s("path") ?? s("from") ?? "workspace" };
+    }
+    case "inspect_theme": return { kind: "read", verb: "Inspecting", target: s("query") ?? s("selector") ?? s("component") ?? "theme" };
+    case "edit_theme": return { kind: "write", verb: args["validate_only"] ? "Validating" : "Updating", target: "theme" };
+    case "capture_ui": return { kind: "read", verb: "Capturing", target: "current interface" };
     // Path-based read/edit/inspect/list/grep — the workhorses.
     case "read": return { kind: "read", verb: "Reading", target: describePath(s("path")) };
     case "inspect": return { kind: "read", verb: "Inspecting", target: describePath(s("path")) };
@@ -225,7 +252,12 @@ function buildToolCard(callId: string, name: string, args: Record<string, unknow
   const desc = describeToolActivity(name, args);
   card.dataset["kind"] = desc.kind;
   const head = el("div", "la-tool-head");
-  const caret = el("span", "la-tool-caret", "▸");
+  head.tabIndex = 0;
+  head.setAttribute("role", "button");
+  head.setAttribute("aria-expanded", "false");
+  const caret = el("span", "la-tool-caret");
+  caret.setAttribute("aria-hidden", "true");
+  caret.innerHTML = '<svg viewBox="0 0 20 20" width="16" height="16"><path d="m8 6 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   const spinner = el("span", "la-tool-spinner");
   spinner.setAttribute("aria-hidden", "true");
   const activity = el("span", "la-tool-activity");
@@ -234,15 +266,17 @@ function buildToolCard(callId: string, name: string, args: Record<string, unknow
   activity.append(verbSpan, targetSpan);
   const sensBadge = el("span", "la-tool-sens");
   sensBadge.style.display = "none";
-  const freeBtn = el("button", "la-tool-free-btn", "free") as HTMLButtonElement;
+  const freeBtn = el("button", "la-tool-free-btn", "Forget result") as HTMLButtonElement;
   freeBtn.type = "button";
+  freeBtn.dataset.canFree = String(!!deps?.onFreeToolResult);
+  freeBtn.hidden = !deps?.onFreeToolResult;
   freeBtn.title = "Replace this result with a stub to save context. The model loses access to its content.";
   freeBtn.style.display = "none";
   let confirmTimer: ReturnType<typeof setTimeout> | null = null;
   const resetConfirm = () => {
     if (confirmTimer !== null) { clearTimeout(confirmTimer); confirmTimer = null; }
     freeBtn.classList.remove("is-confirming");
-    freeBtn.textContent = "free";
+    freeBtn.textContent = "Forget result";
   };
   freeBtn.addEventListener("click", (ev) => {
     ev.stopPropagation();
@@ -287,8 +321,10 @@ function buildToolCard(callId: string, name: string, args: Record<string, unknow
     const t = ev.target as HTMLElement;
     if (t.closest(".la-tool-free-btn")) return;
     card.classList.toggle("is-open");
-    caret.textContent = card.classList.contains("is-open") ? "▾" : "▸";
+    head.setAttribute("aria-expanded", String(card.classList.contains("is-open")));
+
   });
+  head.addEventListener("keydown", event => { if (event.target === head && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); head.click(); } });
   return card;
 }
 
@@ -296,6 +332,7 @@ function applyToolCardFreed(card: HTMLElement, freed: boolean | undefined): void
   const badge = card.querySelector(".la-tool-sens") as HTMLElement | null;
   const freeBtn = card.querySelector(".la-tool-free-btn") as HTMLButtonElement | null;
   if (!badge || !freeBtn) return;
+  freeBtn.hidden = freed === true || freeBtn.dataset.canFree !== "true";
   if (freed) {
     badge.textContent = "freed";
     badge.className = "la-tool-sens la-tool-sens-freed";
@@ -331,7 +368,7 @@ function buildEditRow(entry: EditLogEntry, deps: ChatThreadDeps): HTMLElement {
   const fullBtn = el("button", "la-btn la-btn-mini la-btn-ghost", "Open full diff");
   fullBtn.addEventListener("click", () => deps.onOpenDiffModal(entry.id));
   actions.appendChild(fullBtn);
-  if (!entry.reverted) {
+  if (canRevertEdit(entry)) {
     const revertBtn = el("button", "la-btn la-btn-mini la-btn-danger", "Revert") as HTMLButtonElement;
     revertBtn.addEventListener("click", async () => {
       revertBtn.disabled = true;
@@ -371,16 +408,20 @@ function buildEditsCard(parentMsg: HTMLElement, deps: ChatThreadDeps): {
   rebuild(entries: readonly EditLogEntry[]): void;
   count(): number;
 } {
-  const card = el("div", "la-edits-card la-msg-block");
-  const head = el("div", "la-edits-head");
-  const caret = el("span", "la-edits-caret", "▸");
-  const title = el("span", "la-edits-title", "Edits (0)");
-  const right = el("span", "la-edits-head-right");
+  const card = el("details", "la-edits-card la-msg-block");
+  const head = el("summary", "la-edits-head");
+  const indicator = el("span", "la-activity-indicator");
+  indicator.setAttribute("aria-hidden", "true");
+  const title = el("span", "la-activity-label", "Edits");
+  const count = el("span", "la-activity-count");
+  const caret = el("span", "la-activity-chevron");
+  caret.innerHTML = ICON_CHEVRON_DOWN;
+  const actions = el("div", "la-edits-actions");
   const revertAllBtn = el("button", "la-btn la-btn-mini la-btn-danger", "Revert all") as HTMLButtonElement;
   revertAllBtn.style.display = "none";
   revertAllBtn.addEventListener("click", async (ev) => {
     ev.stopPropagation();
-    const liveIds = entries.filter((e) => !e.reverted).map((e) => e.id);
+    const liveIds = entries.filter(canRevertEdit).map((e) => e.id);
     if (liveIds.length === 0) return;
     revertAllBtn.disabled = true;
     revertAllBtn.textContent = "Reverting…";
@@ -391,20 +432,16 @@ function buildEditsCard(parentMsg: HTMLElement, deps: ChatThreadDeps): {
     revertAllBtn.disabled = false;
     revertAllBtn.textContent = "Revert all";
   });
-  const allBtn = el("button", "la-btn la-btn-mini", "See Workshop");
+  const allBtn = el("button", "la-btn la-btn-mini", "Workshop");
   allBtn.addEventListener("click", (ev) => { ev.stopPropagation(); deps.onOpenDiffModal(undefined); });
-  right.append(revertAllBtn, allBtn);
-  head.append(caret, title, right);
+  actions.append(revertAllBtn, allBtn);
+  head.append(indicator, title, count, caret);
   const list = el("div", "la-edits-list");
-  card.append(head, list);
-  head.addEventListener("click", () => {
-    card.classList.toggle("is-open");
-    caret.textContent = card.classList.contains("is-open") ? "▾" : "▸";
-  });
+  card.append(head, list, actions);
   const entries: EditLogEntry[] = [];
   const setTitle = () => {
-    const liveCount = entries.filter((e) => !e.reverted).length;
-    title.textContent = `Edits (${entries.length})`;
+    const liveCount = entries.filter(canRevertEdit).length;
+    count.textContent = `${entries.length} ${entries.length === 1 ? "change" : "changes"}`;
     revertAllBtn.style.display = liveCount > 0 ? "" : "none";
   };
   const append = (entry: EditLogEntry) => {
@@ -463,6 +500,7 @@ export function renderUserMessage(msg: ChatUserMessage, deps?: ChatThreadDeps): 
     bubble.textContent = msg.content;
   }
   wrap.appendChild(bubble);
+  if (msg.preview?.truncated && deps?.getMessageSource) mountInlineContent(bubble, offset => deps.getMessageSource!(msg.id).detail(0, offset));
 
   // Pre-compaction: model-level actions would silently undo the compaction.
   // Show only the fork button (always safe; creates a new session).
@@ -482,7 +520,7 @@ export function renderUserMessage(msg: ChatUserMessage, deps?: ChatThreadDeps): 
 
   if (deps?.onEditUserMessage || deps?.onDeleteMessage || deps?.onForkMessage) {
     const actions = el("div", "la-msg-actions");
-    if (deps?.onEditUserMessage) {
+    if (deps?.onEditUserMessage && !msg.preview?.truncated) {
       const editBtn = el("button", "la-msg-action-btn la-msg-action-btn-icon") as HTMLButtonElement;
       editBtn.innerHTML = ICON_EDIT;
       editBtn.setAttribute("aria-label", "Edit message");
@@ -587,6 +625,46 @@ export function buildEditIndex(edits: readonly EditLogEntry[]): EditIndex {
   return m;
 }
 
+function hydrateToolCard(card: HTMLElement, source: MessageSource, blockIndex: number): void {
+  let loaded = false;
+  card.querySelector(".la-tool-head")?.addEventListener("click", () => {
+    if (loaded || !card.classList.contains("is-open")) return;
+    loaded = true;
+    const sections = card.querySelectorAll<HTMLElement>(".la-tool-body-section");
+    for (const [index, section] of sections.entries()) {
+      const content = el("div", "la-inline-content");
+      section.querySelector("pre")?.replaceWith(content);
+      mountInlineContent(content, offset => source.detail(blockIndex, offset, index === 0 ? "args" : "content"));
+    }
+  });
+}
+
+function timelineStep(block: ChatAssistantMessage["blocks"][number], index: number, reveal: (id: string) => void, source?: MessageSource): ActivityStep {
+  return { id: block.type === "tool" ? block.call_id : `reasoning-${index}`, title: "Reasoning", state: "done", render: () => {
+    if (block.type === "tool") {
+      const description = describeToolActivity(block.name, block.args);
+      const link = el("button", "la-reasoning-tool", `${description.verb} ${description.target}`);
+      link.addEventListener("click", () => reveal(block.call_id)); return link;
+    }
+    const text = el("div", "la-reasoning-text");
+    if (block.type === "reasoning") text.append(renderMarkdown(block.content));
+    if (source) mountInlineContent(text, offset => source.detail(index, offset), true);
+    return text;
+  } };
+}
+
+export function isCompactionPlaceholder(block: ChatAssistantMessage["blocks"][number]): boolean {
+  return block.type === "text" && block.content === "[Compacting context, writing handoff notes...]";
+}
+
+export function isCompactionMessage(message: ChatAssistantMessage): boolean {
+  return message.compaction === true || message.blocks.some(isCompactionPlaceholder);
+}
+
+function compactionStatus(status: ChatAssistantMessage["status"]): HTMLElement {
+  return el("div", "la-compaction-status", status === "streaming" ? "Compacting context…" : "Context compaction");
+}
+
 export function renderStaticAssistant(msg: ChatAssistantMessage, deps: ChatThreadDeps, allEdits: EditIndex | readonly EditLogEntry[]): HTMLElement {
   const lookup = (id: string): EditLogEntry | undefined =>
     allEdits instanceof Map ? allEdits.get(id) : (allEdits as readonly EditLogEntry[]).find((e) => e.id === id);
@@ -594,32 +672,52 @@ export function renderStaticAssistant(msg: ChatAssistantMessage, deps: ChatThrea
   const wrap = el("div", `la-msg la-msg-assistant${isPre ? " la-pre-compaction" : ""}`);
   const bubble = el("div", "la-msg-bubble");
   const collected: EditLogEntry[] = [];
+  const source = deps.getMessageSource?.(msg.id);
+  if (isCompactionMessage(msg)) bubble.append(compactionStatus(msg.status));
+  const makeStep = (block: Extract<ChatAssistantMessage["blocks"][number], { type: "tool" }>, blockIndex: number): ActivityStep => {
+    const description = describeToolActivity(block.name, block.args);
+    return { id: block.call_id, title: `${description.verb} ${description.target}`, state: block.is_error ? "error" : block.result === undefined ? "running" : "done", render: () => {
+      const card = buildToolCard(block.call_id, block.name, block.args, deps);
+      card.classList.toggle("is-running", msg.status === "streaming" && block.result === undefined);
+      card.classList.add(block.is_error ? "is-error" : "is-done");
+      const result = card.querySelector(".la-tool-body-result pre"); if (result) result.textContent = block.result ?? (msg.status === "streaming" ? "Waiting for result" : "No result received");
+      applyToolCardFreed(card, block.freed);
+      if (source) hydrateToolCard(card, source, blockIndex);
+      return card;
+    } };
+  };
+  const activity = createActivitySummary(source ? { load: async (start, callId) => {
+    const page = await source.activity("tools", start, callId);
+    return { ...page, steps: page.items.flatMap(item => item.block.type === "tool" ? [makeStep(item.block, item.blockIndex)] : []) };
+  } } : {});
+  const reasoning = createActivitySummary({ label: "Reasoning", className: "la-reasoning-summary", ...(source ? { load: async (start?: number) => {
+    const page = await source.activity("timeline", start);
+    return { ...page, steps: page.items.map(item => timelineStep(item.block, item.blockIndex, activity.reveal, source)) };
+  } } : {}) });
+  const progress = mountAssistantProgress(reasoning);
+  activity.setActive(msg.status === "streaming");
+  progress.update(msg.activity && msg.status !== "streaming" ? { ...msg.activity, phase: msg.status, thinkingSince: undefined } : msg.activity);
+  if (msg.blocks.some(block => block.type === "tool") || msg.preview?.toolCount) bubble.append(activity.root);
+  if (msg.blocks.some(block => block.type === "tool" || block.type === "reasoning") || msg.preview?.toolCount) bubble.append(reasoning.root);
 
-  for (const block of msg.blocks) {
+
+  for (const [index, block] of msg.blocks.entries()) {
+    if (isCompactionPlaceholder(block)) continue;
+    const blockIndex = (msg.preview?.blocksBefore ?? 0) + index;
     if (block.type === "text") {
       if (block.content.length === 0) continue;
       const textBlock = el("div", "la-msg-block la-text-block");
       textBlock.appendChild(renderMarkdown(block.content));
       bubble.appendChild(textBlock);
+      const truncated = msg.preview?.truncatedTextBlocks?.includes(blockIndex) ?? msg.preview?.truncated;
+      if (truncated && source) mountInlineContent(textBlock, offset => source.detail(blockIndex, offset), true);
+    } else if (block.type === "warning") {
+      bubble.append(runNotice(block.message));
     } else if (block.type === "reasoning") {
-      if (block.content.length === 0) continue;
-      const r = el("div", "la-reasoning la-msg-block");
-      const t = el("div", "la-reasoning-toggle", "▸ Thinking");
-      const b = el("div", "la-reasoning-body");
-      b.textContent = block.content;
-      r.append(t, b);
-      t.addEventListener("click", () => r.classList.toggle("is-open"));
-      bubble.appendChild(r);
+      reasoning.add(timelineStep(block, blockIndex, activity.reveal, source));
     } else if (block.type === "tool") {
-      const card = buildToolCard(block.call_id, block.name, block.args, deps);
-      // Mark finished (this is the static-render path for reloaded history).
-      // is-done / is-error drive the caret color.
-      card.classList.remove("is-running");
-      card.classList.add(block.is_error ? "is-error" : "is-done");
-      const resultPre = card.querySelector(".la-tool-body-result pre") as HTMLElement | null;
-      if (resultPre) resultPre.textContent = block.result ?? "";
-      applyToolCardFreed(card, block.freed);
-      bubble.appendChild(card);
+      activity.add(makeStep(block, blockIndex));
+      reasoning.add(timelineStep(block, blockIndex, activity.reveal, source));
       for (const eid of block.edit_ids) {
         const entry = lookup(eid);
         if (entry) collected.push(entry);
@@ -627,6 +725,8 @@ export function renderStaticAssistant(msg: ChatAssistantMessage, deps: ChatThrea
     }
   }
 
+  if (msg.preview?.toolCount !== undefined) activity.setTotal(msg.preview.toolCount);
+  if (msg.error) bubble.append(runNotice(msg.error, true));
   if (collected.length > 0) {
     const editsCard = buildEditsCard(wrap, deps);
     editsCard.rebuild(collected);
@@ -708,26 +808,25 @@ export function renderStaticAssistant(msg: ChatAssistantMessage, deps: ChatThrea
   return wrap;
 }
 
-export function createStreamingAssistant(deps: ChatThreadDeps): AssistantHandle {
+export function createStreamingAssistant(deps: ChatThreadDeps, source?: MessageSource, compaction = false): AssistantHandle {
   const wrap = el("div", "la-msg la-msg-assistant");
+  wrap.dataset.liveMessage = "true";
   const bubble = el("div", "la-msg-bubble");
   wrap.appendChild(bubble);
+  const compactionLabel = compaction ? compactionStatus("streaming") : null;
+  if (compactionLabel) bubble.append(compactionLabel);
 
-  // Loading indicator lives inside the bubble so it tracks the streaming
-  // message's actual position. Always re-appended as the last child so it
-  // appears below whatever streamed in most recently.
   let loadingHandle: LoadingHandle | null = null;
+  let responseStatus: ChatAssistantMessage["status"] = "streaming";
+  let destroyed = false;
   const loadingHost = el("div", "la-streaming-loading");
-  const moveLoadingToTail = (): void => {
-    if (!loadingHandle) return;
-    bubble.appendChild(loadingHost);
-  };
   const setLoading = (active: boolean): void => {
+    active = active && responseStatus === "streaming" && !destroyed;
     const isActive = loadingHandle !== null;
     if (active === isActive) return;
     if (active) {
       loadingHandle = mountLoading(loadingHost);
-      moveLoadingToTail();
+      bubble.after(loadingHost);
     } else if (loadingHandle) {
       loadingHandle.destroy();
       loadingHandle = null;
@@ -736,9 +835,29 @@ export function createStreamingAssistant(deps: ChatThreadDeps): AssistantHandle 
   };
 
   let textBlock: HTMLElement | null = null;
-  let reasoningBlock: HTMLElement | null = null;
-  let reasoningBody: HTMLElement | null = null;
-  const toolCardsByCallId = new Map<string, HTMLElement>();
+  let liveReasoning: { id: string; content: string } | null = null;
+  let reasoningSequence = 0;
+  const activity = createActivitySummary(source ? { load: async (start, callId) => {
+    const page = await source.activity("tools", start, callId);
+    return { ...page, steps: page.items.flatMap(({ block, blockIndex }): ActivityStep[] => block.type !== "tool" ? [] : [{ id: block.call_id, title: block.name, state: block.is_error ? "error" : block.result === undefined ? "running" : "done", render() {
+      const card = buildToolCard(block.call_id, block.name, block.args, deps);
+      card.classList.toggle("is-running", block.result === undefined);
+      const pre = card.querySelector(".la-tool-body-result pre"); if (pre) pre.textContent = block.result ?? "Waiting for result";
+      hydrateToolCard(card, source, blockIndex); return card;
+    } }]) };
+  } } : {});
+  const reasoning = createActivitySummary({ label: "Reasoning", className: "la-reasoning-summary", ...(source ? { load: async (start?: number) => {
+    const page = await source.activity("timeline", start);
+    return { ...page, steps: page.items.map(item => timelineStep(item.block, item.blockIndex, activity.reveal, source)) };
+  } } : {}) });
+  const progress = mountAssistantProgress(reasoning, label => {
+    let caption = loadingHost.querySelector<HTMLSpanElement>(".la-progress-label");
+    if (label !== null) {
+      if (!caption) { caption = el("span", "la-progress-label"); loadingHost.prepend(caption); }
+      caption.textContent = label;
+    } else caption?.remove();
+  });
+  const toolStates = new Map<string, { name: string; args: Record<string, unknown>; result?: string; error?: boolean }>();
   let editsCardHandle: ReturnType<typeof buildEditsCard> | null = null;
   let metaLine: HTMLElement | null = null;
   const editIndex = new Map<string, EditLogEntry>();
@@ -747,6 +866,7 @@ export function createStreamingAssistant(deps: ChatThreadDeps): AssistantHandle 
   const dirtyBlocks = new Set<HTMLElement>();
   let pendingRenderTimer: ReturnType<typeof setTimeout> | null = null;
   const flushDirtyBlocks = (): void => {
+    if (liveReasoning) reasoning.refresh(liveReasoning.id);
     for (const tb of dirtyBlocks) {
       const raw = textRaw.get(tb) ?? "";
       tb.innerHTML = "";
@@ -772,8 +892,19 @@ export function createStreamingAssistant(deps: ChatThreadDeps): AssistantHandle 
     return editsCardHandle;
   };
 
+  setLoading(true);
   return {
     root: wrap,
+    destroy() {
+      destroyed = true;
+      delete wrap.dataset.liveMessage;
+      setLoading(false);
+      activity.destroy(); reasoning.destroy(); progress.destroy();
+      if (pendingRenderTimer !== null) clearTimeout(pendingRenderTimer);
+      dirtyBlocks.clear();
+      textRaw.clear();
+      toolStates.clear();
+    },
     appendToken(token) {
       if (token.length === 0) return;
       if (!textBlock) {
@@ -781,39 +912,48 @@ export function createStreamingAssistant(deps: ChatThreadDeps): AssistantHandle 
         bubble.appendChild(textBlock);
         textRaw.set(textBlock, "");
       }
-      textRaw.set(textBlock, (textRaw.get(textBlock) ?? "") + token);
+      textRaw.set(textBlock, ((textRaw.get(textBlock) ?? "") + token).slice(-24000));
       dirtyBlocks.add(textBlock);
       scheduleStreamingRender();
-      moveLoadingToTail();
     },
     appendReasoning(token) {
       if (token.length === 0) return;
-      if (!reasoningBlock) {
-        reasoningBlock = el("div", "la-reasoning la-msg-block");
-        const t = el("div", "la-reasoning-toggle", "▸ Thinking");
-        reasoningBody = el("div", "la-reasoning-body");
-        reasoningBlock.append(t, reasoningBody);
-        t.addEventListener("click", () => reasoningBlock!.classList.toggle("is-open"));
-        bubble.appendChild(reasoningBlock);
+      if (!reasoning.root.parentElement) bubble.prepend(reasoning.root);
+      if (!liveReasoning) {
+        const record = { id: `live-reasoning-${reasoningSequence++}`, content: "" }; liveReasoning = record;
+        reasoning.add({ id: record.id, title: "Reasoning", state: "done", render() { const text = el("div", "la-reasoning-text"); text.append(renderMarkdown(record.content)); return text; } });
       }
-      reasoningBody!.textContent = (reasoningBody!.textContent ?? "") + token;
-      moveLoadingToTail();
+      liveReasoning.content = (liveReasoning.content + token).slice(-8000);
+      scheduleStreamingRender();
     },
     startTool(callId, name, args) {
       // End any open text block so subsequent tokens start a new one after the tool card.
       textBlock = null;
-      const card = buildToolCard(callId, name, args, deps);
-      bubble.appendChild(card);
-      toolCardsByCallId.set(callId, card);
-      moveLoadingToTail();
+      liveReasoning = null;
+      if (!reasoning.root.parentElement) bubble.prepend(reasoning.root);
+      if (!activity.root.parentElement) bubble.prepend(activity.root);
+      const record: { name: string; args: Record<string, unknown>; result?: string; error?: boolean } = { name, args };
+      toolStates.set(callId, record);
+      const description = describeToolActivity(name, args);
+      reasoning.add({ id: callId, title: name, state: "done", render() { const link = el("button", "la-reasoning-tool", `${description.verb} ${description.target}`); link.onclick = () => activity.reveal(callId); return link; } });
+      activity.add({ id: callId, title: `${description.verb} ${description.target}`, state: "running", render: () => {
+        const card = buildToolCard(callId, record.name, record.args, deps);
+        if (record.result !== undefined) {
+          card.classList.remove("is-running");
+          card.classList.add(record.error ? "is-error" : "is-done");
+          const pre = card.querySelector(".la-tool-body-result pre");
+          if (pre) pre.textContent = record.result;
+        }
+        return card;
+      } });
     },
     finishTool(callId, result, isError, editIds) {
-      const card = toolCardsByCallId.get(callId);
-      if (!card) return;
-      card.classList.remove("is-running");
-      card.classList.add(isError ? "is-error" : "is-done");
-      const resultPre = card.querySelector(".la-tool-body-result pre") as HTMLElement | null;
-      if (resultPre) resultPre.textContent = result;
+      const record = toolStates.get(callId);
+      if (!record) return;
+      record.result = result.slice(0, 8000);
+      if (toolStates.size > 128) { const oldest = toolStates.keys().next().value; if (oldest !== undefined && toolStates.get(oldest)?.result !== undefined) toolStates.delete(oldest); }
+      record.error = isError;
+      activity.finish(callId, isError);
       pendingForTools.set(callId, [...editIds]);
       if (editIds.length === 0) return;
       const card2 = ensureEditsCard();
@@ -836,14 +976,20 @@ export function createStreamingAssistant(deps: ChatThreadDeps): AssistantHandle 
       }
       if (all.length > 0) card.rebuild(all);
     },
-    addWarning(_message) {
-      // Warnings are surfaced via toast / system prompt, not in the chat bubble.
+    addWarning(message) { bubble.append(runNotice(message)); },
+    setLoading,
+    setActivity(value) {
+      if (destroyed || responseStatus !== "streaming") return;
+      progress.update(value);
+      if (value && (value.phase === "complete" || value.phase === "cancelled" || value.phase === "errored")) responseStatus = value.phase;
+      setLoading(responseStatus === "streaming");
     },
-    setLoading(active) { setLoading(active); },
     setStatus(status) {
-      // Any terminal status clears the indicator so a stuck bubble can't keep
-      // animating after the agent's done.
-      if (status !== "streaming") setLoading(false);
+      responseStatus = status;
+      setLoading(status === "streaming");
+      if (compactionLabel) compactionLabel.textContent = status === "streaming" ? "Compacting context…" : "Context compaction";
+      if (status !== "streaming") delete wrap.dataset.liveMessage;
+      if (status !== "streaming") { progress.destroy(); activity.setActive(false); }
       if (status === "cancelled") {
         if (!metaLine) { metaLine = el("div", "la-msg-meta", "cancelled"); wrap.appendChild(metaLine); }
         else metaLine.textContent = "cancelled";

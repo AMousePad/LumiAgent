@@ -46,6 +46,8 @@ const SECTIONS: readonly CapSection[] = [
   {
     title: "On the prompt going to the model",
     items: [
+      { rw: "R", text: "LumiCache reports and paged prompt diffs, when LumiCache is installed. I can explain a paused request, but Send anyway stays yours." },
+      { rw: "W", text: "LumiCache audits and five-prompt simulations, with progress and cancellation. Keep a browser connected. Simulations use a temporary copy, make no chat-model requests, and sit outside Workshop undo." },
       { rw: "R", text: "The full assembled prompt that would be sent to the LLM right now." },
       { rw: "R", text: "Which lorebook entries would actually activate for the next reply, and why." },
       { rw: "R", text: "Which regex scripts would actually fire on the response." },
@@ -59,7 +61,7 @@ const SECTIONS: readonly CapSection[] = [
       { rw: "W", text: "Your personas: read every one, edit names, titles, descriptions, their world books and add-on blocks, create new ones, and switch which is active." },
       { rw: "W", text: "Your prompt presets: full create, edit, and delete. Blocks, order, parameters, everything." },
       { rw: "W", text: "Your databanks: new banks and documents, global, per-character, or per-chat." },
-      { rw: "W", text: "Your theme: apply or clear live overrides, or save and install CSS theme packs with the host's existing theme editor. Theme-pack changes are outside Workshop undo." },
+      { rw: "W", text: "Your theme: edit saved settings and CSS, bundle assets, import/export packs, and restore backups. Source references depend on host support. Live inspection requires an open browser." },
       { rw: "W", text: "The Memory Cortex: curate entities and facts, pin the important ones, retire the wrong ones." },
       { rw: "W", text: "My own macros: I can mint {{lumiagent::...}} macros holding anything, for your prompts or wherever else." },
       { rw: "W", text: "Images: generate with your configured image provider, save to the workspace, tag into a gallery, or set as an avatar." },
@@ -95,7 +97,7 @@ const EXAMPLES: readonly string[] = [
   "Change genders/sexes of characters in the story, or modify their personas.",
   "Change my personality in the settings... if you don't like it (╥﹏╥)",
   "Modify or help update/merge a preset!",
-  "Redecorate Lumiverse: ask for CSS styling, review the result, and save a theme pack.",
+  "Redecorate Lumiverse: ask for a theme, inspect the result, and restore a saved backup whenever you need~",
   "Generate images for a character's gallery, or a new avatar.",
   "Show me what my MCP servers can do, then use the right tools for my task.",
 ];
@@ -161,6 +163,8 @@ export function openCapabilitiesModal(ctx: SpindleFrontendContext, mouseyUrl: st
   wip.appendChild(el("span", "la-caps-wip-label", "Still in the oven (WIP):"));
   for (const w of WIP) wip.appendChild(el("span", "la-caps-wip-chip", w));
   wrap.appendChild(wip);
+
+  handle.root.classList.add("la-modal-body");
 
   handle.root.appendChild(wrap);
 }

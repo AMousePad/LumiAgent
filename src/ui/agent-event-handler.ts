@@ -48,7 +48,8 @@ export function setTurnStartBlocks(n: number): void {
 export function handleAgentEvent(ev: AgentEvent, ctx: AgentEventCtx): void {
   switch (ev.type) {
     case "warning":
-      // Routed to toast / system prompt; never render inline yellow boxes.
+      ctx.ensureStreamingTurn().addWarning(ev.message);
+      ctx.state.currentAssistantMessage?.blocks.push({ type: "warning", message: ev.message });
       return;
     case "turn_started":
       ctx.clearErrorBanners();
@@ -61,7 +62,7 @@ export function handleAgentEvent(ev: AgentEvent, ctx: AgentEventCtx): void {
       const a = ctx.state.currentAssistantMessage;
       if (!a) return;
       const last = a.blocks[a.blocks.length - 1];
-      if (last && last.type === "text") last.content += ev.token;
+      if (last && last.type === "text" && a.blocks.length > turnStartBlocks) last.content = (last.content + ev.token).slice(-24000);
       else a.blocks.push({ type: "text", content: ev.token });
       return;
     }
@@ -70,12 +71,18 @@ export function handleAgentEvent(ev: AgentEvent, ctx: AgentEventCtx): void {
       const a = ctx.state.currentAssistantMessage;
       if (!a) return;
       const last = a.blocks[a.blocks.length - 1];
-      if (last && last.type === "reasoning") last.content += ev.token;
+      if (last && last.type === "reasoning" && a.blocks.length > turnStartBlocks) last.content = (last.content + ev.token).slice(-24000);
       else a.blocks.push({ type: "reasoning", content: ev.token });
       return;
     }
     case "tool_started":
       ctx.ensureStreamingTurn().startTool(ev.call_id, ev.name, ev.args);
+      const blocks = ctx.state.currentAssistantMessage?.blocks;
+      if (blocks && blocks.length >= 60) {
+        const dropped = blocks.length - 59;
+        blocks.splice(0, dropped);
+        turnStartBlocks = Math.max(0, turnStartBlocks - dropped);
+      }
       ctx.state.currentAssistantMessage?.blocks.push({
         type: "tool", call_id: ev.call_id, name: ev.name, args: ev.args, edit_ids: [],
       });

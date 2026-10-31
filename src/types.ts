@@ -66,7 +66,7 @@ export type ChangeApprovalResultWire =
 // Ledger filing scope. Phase 0 only ever produces "character"; the other
 // kinds are filing drawers for non-character surfaces added in later phases.
 // variables/images are singleton pseudo-scopes (id is a fixed constant).
-export type ScopeKind = "character" | "persona" | "chat" | "databank" | "preset" | "world_book" | "regex_script" | "global_addon" | "variables" | "images" | "memory_vault";
+export type ScopeKind = "character" | "persona" | "chat" | "databank" | "preset" | "world_book" | "regex_script" | "global_addon" | "variables" | "images" | "memory_vault" | "theme" | "cortex" | "settings";
 
 export interface ScopeRef {
   readonly kind: ScopeKind;
@@ -88,6 +88,9 @@ export function parseScopeKey(s: string): ScopeRef {
 }
 
 export type EditSurface =
+  | "variable"
+  | "active_persona"
+  | "agent_macro"
   | "character_field"
   | "alternate_greeting"
   | "alternate_field_variant"
@@ -177,6 +180,7 @@ export interface EditDelete {
 }
 
 export interface EditExternal {
+  readonly auditOnly?: string;
   readonly op: "edit";
   readonly surface: "external";
   readonly providerId: string;
@@ -193,7 +197,12 @@ export interface EditExternal {
 
 export type EditRecord = EditEdit | EditCreate | EditDelete | EditExternal;
 
+export function canRevertEdit(entry: EditLogEntry): boolean {
+  return !entry.reverted && !(entry.record.surface === "external" && entry.record.op === "edit" && entry.record.auditOnly);
+}
+
 export interface EditLogEntry {
+  readonly preview?: boolean;
   readonly id: string;
   readonly ts: number;
   readonly sessionId: string;
@@ -264,7 +273,11 @@ export interface MessageFile {
 // the host upload endpoint. Messages carry references and small inline text.
 export type WireFile = MessageFile;
 
+export interface MessagePreview { truncated: boolean; blocksBefore: number; toolCount?: number; hasContent?: boolean; truncatedTextBlocks?: number[] }
+
 export interface ChatUserMessage {
+  readonly editCounts?: { own: number; following: number };
+  readonly preview?: MessagePreview | undefined;
   readonly id: string;
   readonly role: "user";
   readonly ts: number;
@@ -279,7 +292,21 @@ export type AssistantBlock =
   | { type: "tool"; call_id: string; name: string; args: Record<string, unknown>; result?: string | undefined; is_error?: boolean | undefined; edit_ids: readonly string[]; freed?: boolean }
   | { type: "warning"; message: string };
 
+export interface AssistantActivity {
+  phase: "waiting" | "thinking" | "responding" | "tools" | "complete" | "cancelled" | "errored";
+  reasoningMs: number;
+  thinkingSince?: number | undefined;
+  turnStartedAt: number;
+  updatedAt: number;
+  observedAt?: number;
+}
+
 export interface ChatAssistantMessage {
+  compaction?: boolean;
+  activity?: AssistantActivity | undefined;
+  readonly editCounts?: { own: number; following: number };
+  readonly preview?: MessagePreview | undefined;
+  error?: string;
   readonly id: string;
   readonly role: "assistant";
   readonly ts: number;
@@ -293,6 +320,7 @@ export interface ChatAssistantMessage {
 export type ChatMessage = ChatUserMessage | ChatAssistantMessage;
 
 export interface SessionSummaryWire {
+  readonly title?: string;
   readonly sessionId: string;
   readonly characterId: string | null;
   readonly characterName: string;
@@ -367,10 +395,14 @@ export type AgentEvent =
   | { type: "warning"; message: string };
 
 export type FrontendToBackend =
+  | { type: "probe_session"; sessionId: string; revision: import("./state/session-sync").SessionRevision | null }
   | { type: "list_characters" }
   | { type: "list_connections" }
   | { type: "list_sessions"; characterId?: string | null | undefined }
-  | { type: "load_session"; sessionId: string }
+  | { type: "load_session_page"; sessionId: string; requestId: string; before: number }
+  | { type: "load_session"; sessionId: string; requestId?: string; before?: number }
+  | { type: "read_message_detail"; sessionId: string; messageId: string; requestId: string; blockIndex: number; offset: number; part?: "content" | "args" }
+  | { type: "read_message_activity"; sessionId: string; messageId: string; requestId: string; kind: "tools" | "timeline"; start?: number; callId?: string }
   | { type: "start_session"; sessionId: string; characterId: string | null; connectionId?: string | undefined }
   | { type: "send_message"; sessionId: string; userMessageId: string; content: string; connectionId?: string | undefined; images?: readonly WireImage[] | undefined; files?: readonly WireFile[] | undefined }
   | { type: "continue_session"; sessionId: string; connectionId?: string | undefined }
@@ -390,10 +422,12 @@ export type FrontendToBackend =
   | { type: "set_pinned_chat"; sessionId: string; chatId: string | null }
   | { type: "set_focus"; sessionId: string; characterId: string | null }
   | { type: "get_settings" }
-  | { type: "update_settings"; persona: string; systemPromptOverride: string | null; samplers: Readonly<Record<string, number | null>>; jailbreak: string; jailbreakPlacement: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes: number | null; toolOutputCapTokens: number | null; cacheMode?: "off" | "system_only" | "full"; parallelToolCalls?: boolean; tpmLimit?: number | null; rpmLimit?: number | null; debugLogging?: boolean; requireChangeApproval?: boolean; reasoningEffort?: "inherit" | "off" | "minimal" | "low" | "medium" | "high" | "max" }
+  | { type: "update_settings"; requestId?: string; persona: string; systemPromptOverride: string | null; samplers: Readonly<Record<string, number | null>>; jailbreak: string; jailbreakPlacement: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes: number | null; toolOutputCapTokens: number | null; cacheMode?: "off" | "system_only" | "full"; parallelToolCalls?: boolean; autoCompaction?: boolean; tpmLimit?: number | null; rpmLimit?: number | null; debugLogging?: boolean; requireChangeApproval?: boolean; reasoningEffort?: "inherit" | "off" | "minimal" | "low" | "medium" | "high" | "max" }
   | { type: "get_ui_prefs" }
   | { type: "update_ui_prefs"; connectionId: string | null; lastSessionId: string | null; tutorialSeen?: boolean; mouseyDead?: boolean; meetPromptShown?: boolean; tutorialDone?: boolean }
   | { type: "mousey_revived"; sessionId: string | null }
+  | { type: "read_edit_content"; requestId: string; scope: ScopeRef; editId: string; part: "before" | "after"; offset: number }
+  | { type: "workspace_request"; requestId: string; input: import("./workspace-contract").WorkspaceAction }
   | { type: "ws_list"; path: string }
   | { type: "ws_read_image"; path: string }
   | { type: "ws_read_text"; path: string }
@@ -406,7 +440,7 @@ export type FrontendToBackend =
   | { type: "ws_mkdir"; path: string }
   | { type: "ws_download"; path: string }
   | { type: "ws_download_zip"; paths: readonly string[] }
-  | { type: "compact_session"; sessionId: string }
+  | { type: "compact_session"; sessionId: string; connectionId?: string | undefined }
   | { type: "list_characters_storage" }
   | { type: "squash_character"; characterId: string; scope?: ScopeRef }
   | { type: "revert_character_all"; characterId: string; scope?: ScopeRef }
@@ -418,12 +452,18 @@ export type FrontendToBackend =
   | { type: "frontend_ready" }
   | { type: "frontend_rpc_response"; rpcId: string; result?: unknown; error?: string };
 
-export type BackendToFrontend =
+export type BackendToFrontend = BackendMessage & { sync?: import("./state/session-sync").SessionRevision; assistantActivity?: { messageId: string; activity: AssistantActivity } };
+
+export type BackendMessage =
+  | { type: "session_page"; sessionId: string; requestId?: string; page: { start: number; end: number; total: number }; messages: readonly ChatMessage[]; status: SessionStatusWire }
+  | { type: "session_probe"; sessionId: string; total?: number; changed: boolean; phase: "idle" | "generating" | "compacting" }
+  | { type: "message_detail"; sessionId: string; messageId: string; requestId: string; detail: ReturnType<typeof import("./state/session-view").messageDetail> | null }
+  | { type: "message_activity"; requestId: string; page: ReturnType<typeof import("./state/session-view").messageActivity> | null }
   | { type: "characters_pushed"; characters: readonly CharacterSummary[] }
   | { type: "connections_pushed"; connections: readonly ConnectionSummary[] }
   | { type: "sessions_pushed"; sessions: readonly SessionSummaryWire[] }
   | { type: "session_started"; sessionId: string; characterId: string | null; characterName: string; createdAt: number }
-  | { type: "session_loaded"; sessionId: string; characterId: string | null; characterName: string; createdAt: number; messages: readonly ChatMessage[]; edits: readonly EditLogEntry[]; status: SessionStatusWire; compactedAt?: number }
+  | { type: "session_loaded"; requestId?: string | undefined; page?: { start: number; end: number; total: number }; sessionId: string; characterId: string | null; characterName: string; createdAt: number; messages: readonly ChatMessage[]; edits: readonly EditLogEntry[]; status: SessionStatusWire; compactedAt?: number }
   | { type: "session_forked"; sourceSessionId: string; newSessionId: string; messageId: string }
   | { type: "session_status"; status: SessionStatusWire }
   | { type: "session_deleted"; sessionId: string }
@@ -437,13 +477,16 @@ export type BackendToFrontend =
   | { type: "generation_cancelled"; sessionId: string }
   | { type: "edit_reverted"; scope: ScopeRef; editId: string; outcome: RevertOutcomeWire }
   | { type: "edits_reverted_bulk"; scope: ScopeRef; outcomes: ReadonlyArray<{ editId: string; outcome: RevertOutcomeWire }> }
-  | { type: "session_truncated"; sessionId: string; messages: readonly ChatMessage[]; edits: readonly EditLogEntry[] }
+  | { type: "session_truncated"; page?: { start: number; end: number; total: number }; sessionId: string; messages: readonly ChatMessage[]; edits: readonly EditLogEntry[] }
   | { type: "chats_pushed"; characterId: string | null; chats: readonly ChatSummary[]; pinnedChatId: string | null }
   | { type: "pinned_chat_set"; sessionId: string; chatId: string | null }
   | { type: "focus_set"; sessionId: string; characterId: string | null; characterName: string; pinnedChatId: string | null }
   | { type: "focus_rejected"; sessionId: string; reason: string }
-  | { type: "settings_pushed"; persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody: string; samplers: Readonly<Record<string, number | null>>; jailbreak: string; jailbreakPlacement: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes: number | null; workspaceCapDefaultBytes: number; workspaceFileCapBytes: number; toolOutputCapTokens: number | null; toolOutputCapDefaultTokens: number; cacheMode: "off" | "system_only" | "full"; parallelToolCalls: boolean; tpmLimit: number | null; rpmLimit: number | null; debugLogging: boolean; requireChangeApproval: boolean; reasoningEffort?: "inherit" | "off" | "minimal" | "low" | "medium" | "high" | "max" }
+  | { type: "settings_saved"; requestId: string; error?: string }
+  | { type: "settings_pushed"; persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody: string; samplers: Readonly<Record<string, number | null>>; jailbreak: string; jailbreakPlacement: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes: number | null; workspaceCapDefaultBytes: number; workspaceFileCapBytes: number; toolOutputCapTokens: number | null; toolOutputCapDefaultTokens: number; cacheMode: "off" | "system_only" | "full"; parallelToolCalls: boolean; autoCompaction: boolean; tpmLimit: number | null; rpmLimit: number | null; debugLogging: boolean; requireChangeApproval: boolean; reasoningEffort?: "inherit" | "off" | "minimal" | "low" | "medium" | "high" | "max" }
   | { type: "ui_prefs_pushed"; connectionId: string | null; lastSessionId: string | null; tutorialSeen: boolean; mouseyDead: boolean; meetPromptShown: boolean; tutorialDone: boolean }
+  | { type: "edit_content"; requestId: string; detail: { content: string; total: number } | null }
+  | { type: "workspace_response"; requestId: string; result?: import("./workspace-contract").WorkspaceResult; error?: string }
   | { type: "ws_listed"; path: string; entries: readonly WorkspaceEntry[] }
   | { type: "ws_text_pushed"; path: string; content: string; sizeBytes: number }
   | { type: "ws_changed" }
@@ -460,7 +503,7 @@ export type BackendToFrontend =
   | { type: "scope_squashed"; scope: ScopeRef; ledgerCleared: boolean }
   | { type: "phoneline_pairings_pushed"; pairings: ReadonlyArray<{ identifier: string; displayName: string; allowed: boolean; decidedAt: number }> }
   | { type: "notify_missing_permissions"; missing: readonly string[]; purposes: Readonly<Record<string, string>> }
-  | { type: "notify_bridge_status"; offline: boolean; missingPermissions: readonly string[]; missingFor?: string }
+  | { type: "notify_bridge_status"; offline: boolean; missingPermissions: readonly string[]; missingFor?: string; providerId?: string }
   | { type: "host_version_warning"; hostVersion: string | null; minimum: string; message: string }
   | { type: "frontend_rpc_request"; rpcId: string; op: string; args: unknown }
   | { type: "frontend_rpc_cancel"; rpcId: string; reason: string };

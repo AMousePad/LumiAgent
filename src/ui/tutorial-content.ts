@@ -214,7 +214,7 @@ export const TUTORIAL_STEPS: readonly TutStep[] = [
     kind: "say",
     anchor: "compact",
     lines: [
-      s("This ring is my memory filling up as we talk. When it gets full I compact everything. You can click it to compact early."),
+      s("This ring shows how much context we've used. I compact automatically near the limit unless you turn off Automatic compaction in Agent settings. You can always click the ring to compact manually."),
       s("It's fine! Probably. But avoid it when you can!", "determined-2"),
     ],
   },

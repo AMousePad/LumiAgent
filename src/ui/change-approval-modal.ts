@@ -74,7 +74,7 @@ export function createChangeApprovalController(ctx: SpindleFrontendContext): Cha
     }
 
     const root = handle.root;
-    root.classList.add("la-approval");
+    root.classList.add("la-approval", "la-modal-body");
     root.setAttribute("role", "alertdialog");
     root.setAttribute("aria-modal", "true");
     const titleId = `la-approval-title-${item.rpcId.replace(/[^a-zA-Z0-9_-]/g, "")}`;

@@ -11,4 +11,4 @@ Actions (each returns the affected row under a key named for the action: `create
 
 Typical loop: `web_search({save_to})` or research produces text, `add_document` makes it retrievable in generations for the bank's scope. Documents go in as text; binary uploads are not supported through this tool.
 
-Databank writes are NOT in the edit ledger; deletes are unrecoverable.
+Workshop records databank and document operations as history. Deleted content cannot be restored there.

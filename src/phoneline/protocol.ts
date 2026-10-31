@@ -149,7 +149,14 @@ export interface MutationResponse {
   readonly error?: string;
 }
 
+export interface CacheRequest extends BaseRequest {
+  readonly op: "cache";
+  readonly action: string;
+  readonly [key: string]: unknown;
+}
+
 export type PhoneLineRequest =
+  | CacheRequest
   | DescribeRequest
   | SystemPromptRequest
   | CheckWriteRequest

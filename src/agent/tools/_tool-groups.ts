@@ -133,6 +133,8 @@ const aliases = new Map(
     ),
   ),
 );
+aliases.set("get_theme", { name: "inspect_theme", action: "state" });
+aliases.set("install_theme_pack", { name: "edit_theme", action: "" });
 export const publicToolName = (name: string): string =>
   aliases.get(name)?.name ?? name;
 export const isPublicTool = (name: string): boolean => !aliases.has(name);

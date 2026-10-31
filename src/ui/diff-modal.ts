@@ -1,10 +1,13 @@
 import type { SpindleFrontendContext, SpindleModalHandle } from "lumiverse-spindle-types";
 import type { EditLogEntry, EditSurface, ScopeRef } from "../types";
-import { fileKeyOf, scopeKeyString } from "../types";
+import { fileKeyOf, scopeKeyString, canRevertEdit } from "../types";
 import { mountCombo } from "./combo";
+import { mountInlineContent } from "./inline-content";
+import { disposeTree } from "./dom-lifecycle";
 import { renderInlineFieldDiff, renderSideBySideDiff, renderUnifiedDiff, computeDiffStats, isShortField } from "./diff";
 
 const SURFACE_LABELS: Record<EditSurface, string> = {
+  variable: "Variables", active_persona: "Active persona", agent_macro: "Macros",
   character_field: "Character",
   alternate_greeting: "Alternate greetings",
   alternate_field_variant: "Alternate field variants",
@@ -21,34 +24,26 @@ const SURFACE_LABELS: Record<EditSurface, string> = {
   global_addon: "Global add-ons",
   memory_vault: "Memory vaults",
   memory_link: "Memory links",
-  external: "External (other extensions)",
+  external: "Other changes",
 };
 
-const SURFACE_ORDER: EditSurface[] = ["character_field", "alternate_greeting", "alternate_field_variant", "world_book_entry", "world_book", "regex_script", "extension", "persona_field", "persona_addon", "chat_message", "preset_block", "preset", "persona", "global_addon", "memory_vault", "memory_link", "external"];
+const SURFACE_ORDER: EditSurface[] = ["agent_macro", "variable", "active_persona", "character_field", "alternate_greeting", "alternate_field_variant", "world_book_entry", "world_book", "regex_script", "extension", "persona_field", "persona_addon", "chat_message", "preset_block", "preset", "persona", "global_addon", "memory_vault", "memory_link", "external"];
 
 const MOBILE_BREAKPOINT_PX = 720;
 const DESKTOP_WIDTH_CAP = 1700;
-const DESKTOP_WIDTH_MIN = 720;
 const DESKTOP_MARGIN_PX = 80;
 const DESKTOP_HEIGHT_CAP = 1400;
-const DESKTOP_HEIGHT_MIN = 480;
-// The host renders its own title bar + close button and pads the modal body
-// (16px, negated by .la-diff-modal-root's -16px margin). Forcing root height
-// to the full height budget stacks our root ON TOP of that chrome, pushing
-// the modal past the viewport so the host overlay grows a scrollbar even
-// when the change list is empty. Reserve a conservative allowance so
-// chrome + root always fits inside the budget. Slightly under-filling is the
-// correct trade: no outer scrollbar beats a few px of extra height.
+// Reserve space for the host's title bar and padding.
 const HOST_MODAL_CHROME_PX = 72;
 
 function computeModalWidth(): number {
   const vw = typeof window !== "undefined" && window.innerWidth ? window.innerWidth : 1180;
-  return Math.max(DESKTOP_WIDTH_MIN, Math.min(DESKTOP_WIDTH_CAP, vw - DESKTOP_MARGIN_PX));
+  return Math.max(280, Math.min(DESKTOP_WIDTH_CAP, vw - (vw < MOBILE_BREAKPOINT_PX ? 16 : DESKTOP_MARGIN_PX)));
 }
 
 function computeModalMaxHeight(): number {
   const vh = typeof window !== "undefined" && window.innerHeight ? window.innerHeight : 880;
-  return Math.max(DESKTOP_HEIGHT_MIN, Math.min(DESKTOP_HEIGHT_CAP, vh - DESKTOP_MARGIN_PX));
+  return Math.max(200, Math.min(DESKTOP_HEIGHT_CAP, vh - (window.innerWidth < MOBILE_BREAKPOINT_PX ? 16 : DESKTOP_MARGIN_PX)));
 }
 
 // A selectable ledger scope (one character / persona / chat / preset).
@@ -74,6 +69,7 @@ function isLumiverseKind(k: ScopeRef["kind"]): boolean {
 // Category header shown in the grouped Lumiverse selector, plus a stable
 // ordering so groups stay contiguous and consistent.
 const LUMI_CATEGORY: Partial<Record<ScopeRef["kind"], string>> = {
+  theme: "Themes", cortex: "Cortex", variables: "Variables", images: "Images", databank: "Databanks", global_addon: "Global add-ons", memory_vault: "Memory vaults", settings: "Settings",
   persona: "Personas",
   preset: "Presets",
   world_book: "Lorebooks",
@@ -85,6 +81,7 @@ function lumiCategory(k: ScopeRef["kind"]): string {
 }
 
 export interface DiffModalDeps {
+  readEdit?(entry: EditLogEntry, part: "before" | "after", offset: number): Promise<{ content: string; total: number }>;
   getEdits(): readonly EditLogEntry[];
   getScopes(): readonly ScopeOption[];
   getSelectedScope(): ScopeRef | null;
@@ -129,7 +126,7 @@ function describeRecord(entry: EditLogEntry): { primary: string; secondary: stri
   const r = entry.record;
   // Category (the surface type) leads; the specific name follows in parens.
   const cat = SURFACE_LABELS[r.surface] ?? r.surface;
-  const named = r.surfaceLabel ? `${cat} (${r.surfaceLabel})` : cat;
+  const named = r.surfaceLabel || cat;
   if (r.op === "create") {
     return { primary: `+ ${named}`, secondary: "created", statSummary: "created" };
   }
@@ -147,7 +144,7 @@ function describeRecord(entry: EditLogEntry): { primary: string; secondary: stri
 
 export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, opts?: { initialEditId?: string | undefined; initialTab?: WorkshopTab | undefined }): DiffModalHandle {
   const maxH = computeModalMaxHeight();
-  const rootH = Math.max(DESKTOP_HEIGHT_MIN, maxH - HOST_MODAL_CHROME_PX);
+  const rootH = Math.max(128, maxH - HOST_MODAL_CHROME_PX);
   const modal: SpindleModalHandle = ctx.ui.showModal({
     title: "Workshop",
     width: computeModalWidth(),
@@ -166,6 +163,7 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
   const handleClose = (): void => {
     if (!open) return;
     open = false;
+    disposeTree(root);
     try { combo.destroy(); } catch { /* combo may not be mounted */ }
     try { modal.dismiss(); } catch { /* already dismissed */ }
     deps.onClose?.();
@@ -173,6 +171,7 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
   modal.onDismiss(() => {
     if (!open) return;
     open = false;
+    disposeTree(root);
     // Tear down the combo's document-level mousedown listener so it doesn't
     // accumulate one per modal open across the session.
     try { combo.destroy(); } catch { /* combo may not be mounted */ }
@@ -186,10 +185,12 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
 
   // ── Tabs ──
   const tabs = el("div", "la-workshop-tabs");
+  tabs.setAttribute("role", "tablist"); tabs.setAttribute("aria-label", "Workshop");
   const charsTabBtn = el("button", "la-workshop-tab is-active", "Characters") as HTMLButtonElement;
   const lumiTabBtn = el("button", "la-workshop-tab", "Lumiverse") as HTMLButtonElement;
   const filesTabBtn = el("button", "la-workshop-tab", "Files") as HTMLButtonElement;
   tabs.append(charsTabBtn, lumiTabBtn, filesTabBtn);
+  for (const tab of [charsTabBtn, lumiTabBtn, filesTabBtn]) tab.setAttribute("role", "tab");
   if (!deps.filesPanel) filesTabBtn.style.display = "none";
 
   // ── Toolbar: [combo] · N live / N total ........ [by time|by file] [Revert all] [Forget changes] ──
@@ -259,6 +260,23 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
   if (deps.filesPanel) filesView.appendChild(deps.filesPanel);
 
   root.append(tabs, editsView, filesView);
+  const panelId = `workshop-${crypto.randomUUID()}`;
+  editsView.id = `${panelId}-edits`; filesView.id = `${panelId}-files`;
+  editsView.setAttribute("role", "tabpanel"); filesView.setAttribute("role", "tabpanel");
+  const syncTabs = () => {
+    for (const [tab, name] of [[charsTabBtn, "characters"], [lumiTabBtn, "lumiverse"], [filesTabBtn, "files"]] as const) {
+      tab.setAttribute("aria-selected", String(activeTab === name)); tab.tabIndex = activeTab === name ? 0 : -1;
+      tab.setAttribute("aria-controls", name === "files" ? filesView.id : editsView.id);
+    }
+  };
+  syncTabs();
+  tabs.addEventListener("keydown", event => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    const buttons = [charsTabBtn, lumiTabBtn, ...(deps.filesPanel ? [filesTabBtn] : [])];
+    const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + buttons.length) % buttons.length;
+    event.preventDefault(); buttons[next]!.click(); buttons[next]!.focus();
+  });
 
   // Apply the initial active tab (may be Lumiverse for a no-character chat).
   charsTabBtn.classList.toggle("is-active", activeTab === "characters");
@@ -290,11 +308,11 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
       type Cls = { cat: string; ownerKey: string; sub: number; display: string };
       const classify = (s: ScopeOption): Cls => {
         if (s.scope.kind === "persona") {
-          return { cat: "Personas", ownerKey: `${s.label} ${s.scope.id}`, sub: 0, display: s.label };
+          return { cat: "Personas", ownerKey: `${s.label}\u0000${s.scope.id}`, sub: 0, display: s.label };
         }
         if (s.scope.kind === "world_book" && s.attachedToPersona) {
           const o = s.attachedToPersona;
-          return { cat: "Personas", ownerKey: `${o.name} ${o.id}`, sub: 1, display: `${o.name} ↳ ${s.label}` };
+          return { cat: "Personas", ownerKey: `${o.name}\u0000${o.id}`, sub: 1, display: `${o.name} ↳ ${s.label}` };
         }
         const cat = lumiCategory(s.scope.kind);
         return { cat, ownerKey: s.label, sub: 0, display: s.label };
@@ -303,6 +321,7 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
       decorated.sort((a, b) => {
         const cr = (CAT_RANK[a.c.cat] ?? 99) - (CAT_RANK[b.c.cat] ?? 99);
         if (cr !== 0) return cr;
+        if (a.c.cat !== b.c.cat) return a.c.cat.localeCompare(b.c.cat);
         if (a.c.ownerKey !== b.c.ownerKey) return a.c.ownerKey.localeCompare(b.c.ownerKey);
         if (a.c.sub !== b.c.sub) return a.c.sub - b.c.sub;
         return a.c.display.localeCompare(b.c.display);
@@ -310,9 +329,9 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
       // Disambiguate identical display strings within a category (e.g. several
       // distinct personas all named "Mousey") with a short id suffix.
       const dispCount = new Map<string, number>();
-      for (const { c } of decorated) dispCount.set(`${c.cat} ${c.display}`, (dispCount.get(`${c.cat} ${c.display}`) ?? 0) + 1);
+      for (const { c } of decorated) dispCount.set(`${c.cat}\u0000${c.display}`, (dispCount.get(`${c.cat}\u0000${c.display}`) ?? 0) + 1);
       combo.setItems(decorated.map(({ s, c }) => {
-        const dup = (dispCount.get(`${c.cat} ${c.display}`) ?? 0) > 1;
+        const dup = (dispCount.get(`${c.cat}\u0000${c.display}`) ?? 0) > 1;
         return {
           id: scopeKeyString(s.scope),
           label: dup ? `${c.display} · ${s.scope.id.slice(0, 8)}` : c.display,
@@ -367,7 +386,7 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
     const liveCount = edits.filter((e) => !e.reverted).length;
     stats.textContent = `· ${liveCount} changes`;
     const o = selectedOption();
-    revertAllBtn.disabled = !o || o.changeCount === 0;
+    revertAllBtn.disabled = !o || !edits.some(canRevertEdit);
     forgetBtn.disabled = !o || o.changeCount === 0;
     renderTree();
     renderPane();
@@ -445,11 +464,16 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
     section.appendChild(row);
   };
 
+  let paneVersion = 0;
   const renderPane = (): void => {
+    const version = ++paneVersion;
+    disposeTree(pane);
     pane.innerHTML = "";
     if (edits.length === 0) {
       if (loading) {
-        pane.appendChild(el("div", "la-diff-pane-empty", "Loading…"));
+        const pending = el("div", "la-files-loading"); pending.setAttribute("role", "status");
+        const spinner = el("span", "la-pending-spinner"); spinner.setAttribute("aria-hidden", "true");
+        pending.append(spinner, document.createTextNode("Loading changes…")); pane.append(pending);
         return;
       }
       const o = selectedOption();
@@ -477,7 +501,11 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
 
     const paneActions = el("div", "la-diff-pane-actions");
     const revertBtn = el("button", `la-btn ${target.reverted ? "la-btn-disabled" : "la-btn-danger"}`, target.reverted ? "Reverted" : "Revert this edit") as HTMLButtonElement;
-    revertBtn.disabled = target.reverted;
+    revertBtn.disabled = !canRevertEdit(target);
+    if (target.record.surface === "external" && target.record.op === "edit" && target.record.auditOnly) {
+      revertBtn.textContent = "History only";
+      revertBtn.title = target.record.auditOnly;
+    }
     revertBtn.addEventListener("click", async () => {
       if (target.reverted) return;
       revertBtn.disabled = true;
@@ -485,12 +513,40 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
       await deps.onRevert(target.id);
       // Caller refreshes edits via setEdits().
     });
-    paneActions.appendChild(revertBtn);
+    if (target.record.surface === "external" && target.record.op === "edit" && target.record.auditOnly) {
+      const note = document.createElement("details"); note.className = "la-history-only";
+      note.append(el("summary", "", "History only"), el("p", "", target.record.auditOnly)); paneActions.append(note);
+    } else paneActions.appendChild(revertBtn);
 
     paneToolbar.appendChild(heading);
     paneToolbar.appendChild(meta);
     paneToolbar.appendChild(paneActions);
     pane.appendChild(paneToolbar);
+
+    if (target.preview && deps.readEdit) {
+      const content = el("div", "la-diff-pane-body");
+      const pending = el("div", "la-files-loading"); pending.append(el("span", "la-pending-spinner"), document.createTextNode("Loading changes…")); content.append(pending); pane.append(content);
+      const load = async () => {
+        try {
+          const [before, after] = await Promise.all([deps.readEdit!(target, "before", 0), deps.readEdit!(target, "after", 0)]);
+          if (!open || version !== paneVersion) return;
+          content.replaceChildren();
+          if (before.total <= 24000 && after.total <= 24000) content.append(window.innerWidth < MOBILE_BREAKPOINT_PX ? renderUnifiedDiff(before.content, after.content, 3) : renderSideBySideDiff(before.content, after.content));
+          else {
+            content.classList.add("la-long-diff");
+            for (const [part, first] of [["before", before], ["after", after]] as const) {
+              const column = el("section"), value = el("div", "la-inline-content"); column.append(el("h4", "", part === "before" ? "Before" : "After"), value); content.append(column);
+              mountInlineContent(value, offset => offset === 0 ? Promise.resolve(first) : deps.readEdit!(target, part, offset));
+            }
+          }
+        } catch (error) {
+          if (!open || version !== paneVersion) return;
+          const retry = el("button", "la-btn la-btn-mini", "Retry"); retry.onclick = () => void load();
+          content.replaceChildren(el("p", "la-form-error", (error as Error).message), retry);
+        }
+      };
+      void load(); return;
+    }
 
     const isMobile = window.innerWidth < MOBILE_BREAKPOINT_PX;
     if (r.op === "create") {
@@ -527,6 +583,7 @@ export function openDiffModal(ctx: SpindleFrontendContext, deps: DiffModalDeps, 
     if (activeTab === next) return;
     const prev = activeTab;
     activeTab = next;
+    syncTabs();
     charsTabBtn.classList.toggle("is-active", next === "characters");
     lumiTabBtn.classList.toggle("is-active", next === "lumiverse");
     filesTabBtn.classList.toggle("is-active", next === "files");

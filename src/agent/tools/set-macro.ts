@@ -36,12 +36,18 @@ export const setMacroTool = defineTool({
       return { content: `Error: [INVALID_VALUE_TYPE] macro name must match ${MACRO_NAME_RE}, got '${input.name}'`, isError: true };
     }
     try {
+      const before = (await listMacros(ctx.spindle, ctx.userId))[name] ?? null;
+      const track = (after: string | null) => {
+        if (before !== after) ctx.pushEdit({ op: "edit", surface: "agent_macro", surfaceId: name, surfaceLabel: name, field: "value", before: JSON.stringify(before), after: JSON.stringify(after), valueEncoding: "json", scope: { kind: "settings", id: "macros" } });
+      };
       if (input.clear === true) {
         const removed = await clearMacro(ctx.spindle, ctx.userId, name);
+        track(null);
         const remaining = Object.keys(await listMacros(ctx.spindle, ctx.userId)).sort();
         return { content: JSON.stringify({ cleared: removed, name, stored: remaining }) };
       }
       const res = await setMacro(ctx.spindle, ctx.userId, name, input.value!);
+      track(input.value!);
       return {
         content: JSON.stringify({
           [res.created ? "created" : "updated"]: name,

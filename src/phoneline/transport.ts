@@ -176,3 +176,7 @@ export function dialSetDefaultVariablesText(
 ): Promise<MutationResponse> {
   return dial<MutationResponse>(spindle, extId, { op: "set_default_variables_text", ...req });
 }
+
+export function dialCache(spindle: SpindleAPI, request: Omit<import("./protocol").CacheRequest, "op">): Promise<unknown> {
+  return dial(spindle, "lumicache", { ...request, op: "cache" } as import("./protocol").CacheRequest);
+}

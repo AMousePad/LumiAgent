@@ -43,7 +43,7 @@ export function setupPermissionsModal(opts: {
     current = modal;
 
     const root = modal.root;
-    root.classList.add("la-perm-modal");
+    root.classList.add("la-perm-modal", "la-modal-body");
 
     const lead = document.createElement("p");
     lead.className = "la-perm-lead";

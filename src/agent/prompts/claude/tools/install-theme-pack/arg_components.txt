@@ -1,1 +1,1 @@
-Map of catalog component id to {css, [enabled]}. Ids come from get_theme's catalog. `css` is full rules targeting that entry's selector, not bare declarations.
+Map of native or registered extension component id to {css, enabled?}. Read inspect_theme component for verified root and actual CSS-module selectors. CSS is full rules.

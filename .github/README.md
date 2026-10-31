@@ -102,7 +102,7 @@ A lot~ ( ꈍ◡ꈍ) Here's the list so you know what to ask me about. As submitt
 - **W** Your personas: read every one, edit names, titles, descriptions, their world books and add-on blocks, create new ones, and switch which is active.
 - **W** Your prompt presets: full create, edit, and delete. Blocks, order, parameters, everything.
 - **W** Your databanks: new banks and documents, global, per-character, or per-chat.
-- **W** Your theme: apply or clear live overrides, or save and install CSS theme packs with the host's existing theme editor. Theme-pack changes are outside Workshop undo.
+- **W** Your theme: inspect frontend source and real selectors, author native settings and CSS, bundle assets, import/export theme packs, and restore automatic backups from My Themes. Requires a host with theme authoring v2.
 - **W** The Memory Cortex: curate entities and facts, pin the important ones, retire the wrong ones.
 - **W** My own macros: I can mint {{lumiagent::...}} macros holding anything, for your prompts or wherever else.
 - **W** Images: generate with your configured image provider, save to the workspace, tag into a gallery, or set as an avatar.
@@ -143,7 +143,7 @@ You can get me to:
 9. Change genders/sexes of characters in the story, or modify their personas.
 10. Change my personality in the settings... if you don't like it (╥﹏╥)
 11. Modify or help update/merge a preset!
-12. Redecorate Lumiverse: ask for CSS styling, review the result, and save a theme pack.
+12. Redecorate Lumiverse: ask for a theme, inspect the result, and restore a saved backup whenever you need~
 13. Generate images for a character's gallery, or a new avatar.
 14. Show me what my MCP servers can do, then use the right tools for my task.
 
@@ -168,8 +168,30 @@ MCP (Model Context Protocol) lets Mousey use tools provided by other services. A
 
 MCP profile creation and remote changes are outside Workshop undo. See the [MCP setup guide](https://github.com/AMousePad/LumiAgent/wiki/MCP-Servers) for transports, permissions, and troubleshooting.
 
+## LumiCache diagnostics
+
+With the updated LumiCache extension installed, Mousey can inspect cache-health reports and paged prompt diffs, run audits, and simulate five future prompts plus available historical turns. Ask: **“Check why this chat keeps breaking cache and inspect the first changed section.”** Pin the chat or provide its ID.
+
+The additional tools are `inspect_cache` and `run_cache_diagnostic`. Diagnostics return a job ID for progress polling. Keep a Lumiverse browser connected with LumiCache enabled. Simulations use a disposable conversation copy and follow normal change approval. They do not send chat-model generation requests, although configured retrieval may run. Stopping Mousey's reply does not cancel a diagnostic job, use its cancel action.
+
+Update and restart both extensions, then reload the browser. Missing bridge permissions are shown with the affected extension's name. LumiCache retains the sending decision: Mousey can explain a paused prompt, but only you can choose **Send anyway**. Diagnostic jobs and temporary copies are outside Workshop undo.
+
 ## License
 
 [MIT](LICENSE) Baby~
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+Theme authoring requires the host’s `theme-authoring-v2` capability. The [theme guide](https://github.com/AMousePad/LumiAgent/wiki/Themes) covers source inspection, assets, drafts and backups. Workshop records theme state changes and asset operation metadata. Restore themes through My Themes backups. Cortex facts and entity changes, character creation and avatar changes, and databank operations also appear as history. Variables, active-persona changes, and character lorebook attachments support conflict-checked undo.
+
+### Conversation recovery and history
+
+The backend owns running conversations. Reopening LumiAgent restores the current run, and revision checks recover missed events after reconnecting. History loads as you scroll, and distant pages unload automatically while preserving your position. Tool activity is grouped into expandable summaries, with full message details available separately. Reasoning is labeled separately from executed tool actions. Failed or interrupted responses can continue from saved progress without discarding earlier tool results.
+
+History previews and rendered message nodes are bounded. Existing sessions build a view index the first time they are opened or saved after upgrading. Model generation and full-history edits still use the backend's complete session data, so available server memory and the model's context limit remain relevant.
+
+### Files and conversation activity
+
+Files supports Cut, Copy, Paste, folder drag-and-drop, and keyboard shortcuts. On touch screens, use the visible clipboard controls. Download exports the selected file or a ZIP of the selected folder. Downloads use native Spindle transfers. Preview and save failures retain the current selection and draft.
+
+Tool activity and reasoning expand in the conversation. Scroll to load more steps. Reasoning links open their tool cards, where arguments and results load inline. Workshop loads large before/after snapshots on demand. Conversation search uses the opening message as its title for newly saved sessions.

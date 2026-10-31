@@ -1,3 +1,5 @@
+import { inspectThemeTool, editThemeTool, themeAssetsTool, themeArchiveTool, openThemeEditorTool } from "./theme-workbench";
+import { inspectCacheTool, runCacheDiagnosticTool } from "./cache-diagnostics";
 import { ToolRegistry } from "./_framework";
 import { captureUiTool } from './capture-ui';
 import { isPublicTool, isToolGroup, registerToolGroups } from './_tool-groups';
@@ -122,6 +124,7 @@ import { listMcpServersTool, getMcpServerTool, createMcpServerTool, connectMcpSe
 export const registry = new ToolRegistry();
 
 const DEFERRED_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "inspect_cache", "run_cache_diagnostic",
   "about_memoria", "read_tutorial_script", "mousey_die",
   "translate_card_strings", "count_cjk_chars", "bulk_update_character_tags",
   "asset_rename", "asset_delete", "module_attach", "module_detach",
@@ -143,6 +146,7 @@ export function listDeferredToolNames(): readonly string[] {
 // in parallel batches (cap 5). Anything not listed runs serially, the safe
 // default for any tool that mutates state.
 const READ_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
+  "inspect_cache",
   "inspect_council", "inspect_dlc", "list_memory_vaults", "read_memory_vault", "list_memory_links",
   "list_mcp_servers", "get_mcp_server", "list_mcp_tools",
   // Path-based reads
@@ -160,7 +164,7 @@ const READ_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   "list_characters",
   // Lumiverse-state inspectors
   "dry_run_prompt", "resolve_macros", "count_tokens",
-  "list_image_models", "list_images", "list_global_addons", "get_theme",
+  "list_image_models", "list_images", "list_global_addons", "get_theme", "inspect_theme",
   "memory_stats", "list_memory_entities",
   "list_variables", "read_variable",
   "list_activated_world_info", "list_active_regex_scripts", "list_chat_memories",
@@ -190,6 +194,7 @@ export function isReadOnlyTool(name: string): boolean {
 // don't double-spill. Anything not listed falls through to the global
 // toolOutputCapTokens setting.
 const PER_TOOL_RESULT_CAP_CHARS: Readonly<Record<string, number>> = {
+  inspect_cache: Number.POSITIVE_INFINITY,
   // Spill internally already. Skip the loop's secondary cap.
   read: Number.POSITIVE_INFINITY,
   audit_card_coverage: Number.POSITIVE_INFINITY,
@@ -227,6 +232,8 @@ export function maxResultSizeCharsFor(name: string): number | null {
   return PER_TOOL_RESULT_CAP_CHARS[name] ?? null;
 }
 
+registry.register(inspectCacheTool);
+registry.register(runCacheDiagnosticTool);
 registry.register(inspectCouncilTool);
 registry.register(inspectDlcTool);
 for (const tool of memoryVaultLinkTools) registry.register(tool as import("./_framework").ToolDefinition);
@@ -282,6 +289,11 @@ registry.register(generateImageTool);
 registry.register(getThemeTool);
 registry.register(setThemeTool);
 registry.register(installThemePackTool);
+registry.register(inspectThemeTool);
+registry.register(editThemeTool);
+registry.register(themeAssetsTool);
+registry.register(themeArchiveTool);
+registry.register(openThemeEditorTool);
 registry.register(listImageModelsTool);
 registry.register(listImagesTool);
 registry.register(listGlobalAddonsTool);

@@ -1,508 +1,224 @@
 import type { SpindleFrontendContext } from "lumiverse-spindle-types";
-import type { FrontendToBackend, WorkspaceEntry } from "../types";
-
-// Tree-based file browser over the per-user workspace. Self-contained: the
-// caller wires the message-handler hook so this panel reacts to ws_listed /
-// ws_text_pushed / ws_changed / ws_download_ready / ws_zip_ready / ws_error.
+import type { BackendToFrontend, FrontendToBackend, WorkspaceEntry } from "../types";
+import type { WorkspaceAction, WorkspaceResult } from "../workspace-contract";
 
 export interface WorkspacePanelDeps {
   readonly ctx: SpindleFrontendContext;
   sendBackend(msg: FrontendToBackend): void;
   upload(file: File, path: string, onProgress: (fraction: number) => void): Promise<void>;
 }
-
 export interface WorkspacePanelHandle {
   readonly root: HTMLElement;
-  // Called by the drawer's onBackendMessage when the matching events arrive.
-  onListed(path: string, entries: readonly WorkspaceEntry[]): void;
-  onTextPushed(path: string, content: string, sizeBytes: number): void;
+  receive(message: BackendToFrontend): void;
   onChanged(): void;
-  onDownloadReady(path: string, dataBase64: string, mimeType: string): void;
-  onZipReady(dataBase64: string, filename: string): void;
   onError(error: string): void;
-  // Programmatically select a file as if the user clicked it. Expands parent
-  // directories, kicks off the preview fetch. Used by the Settings → Open
-  // agent notes shortcut.
   focusFile(path: string): void;
+  destroy(): void;
 }
-
-function el(tag: string, cls?: string, text?: string): HTMLElement {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (text !== undefined) e.textContent = text;
-  return e;
-}
-
-function joinPath(parent: string, name: string): string {
-  return parent === "" ? name : `${parent}/${name}`;
-}
-
-function dirname(path: string): string {
-  const ix = path.lastIndexOf("/");
-  return ix < 0 ? "" : path.slice(0, ix);
-}
-
-function basename(path: string): string {
-  const ix = path.lastIndexOf("/");
-  return ix < 0 ? path : path.slice(ix + 1);
-}
-
-function fmtBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 / 1024).toFixed(2)} MB`;
-}
-
-function base64ToBlob(b64: string, mime: string): Blob {
-  const binary = atob(b64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return new Blob([bytes], { type: mime });
-}
-
-function triggerDownload(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
-}
-
-// Pick a preview mode by extension. Binary previews go through ws_download
-// (returns base64 + mime); text previews go through ws_read_text. Unknown
-// types default to text and the user can still download to inspect.
-function previewKind(path: string): "text" | "image" | "audio" | "video" | "binary" {
-  const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
-  if (["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "svg", "avif"].includes(ext)) return "image";
-  if (["mp3", "wav", "ogg", "m4a", "flac", "opus"].includes(ext)) return "audio";
-  if (["mp4", "webm", "mov", "mkv"].includes(ext)) return "video";
-  if (["zip", "tar", "gz", "7z", "rar", "exe", "dll", "so", "dylib", "pdf", "wasm", "bin"].includes(ext)) return "binary";
-  return "text";
-}
-
-function mimeFromKind(kind: "image" | "audio" | "video", path: string): string {
-  const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
-  if (kind === "image") {
-    if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
-    if (ext === "svg") return "image/svg+xml";
-    return `image/${ext}`;
-  }
-  if (kind === "audio") {
-    if (ext === "mp3") return "audio/mpeg";
-    if (ext === "m4a") return "audio/mp4";
-    return `audio/${ext}`;
-  }
-  if (ext === "mov") return "video/quicktime";
-  if (ext === "mkv") return "video/x-matroska";
-  return `video/${ext}`;
-}
+const node = (tag: string, cls = "", text = "") => {
+  const element = document.createElement(tag); element.className = cls; element.textContent = text; return element;
+};
+const parentPath = (path: string) => path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+const fileName = (path: string) => path.split("/").at(-1) ?? path;
+const join = (path: string, name: string) => path ? `${path}/${name}` : name;
+const size = (bytes: number) => bytes < 1024 ? `${bytes} B` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1048576).toFixed(1)} MB`;
+const mime = (path: string) => ({ jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp", avif: "image/avif", bmp: "image/bmp", ico: "image/x-icon", mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", m4a: "audio/mp4", flac: "audio/flac", opus: "audio/opus", mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime" } as Record<string, string>)[path.split(".").at(-1)?.toLowerCase() ?? ""];
 
 export function mountWorkspacePanel(deps: WorkspacePanelDeps): WorkspacePanelHandle {
-  const root = el("div", "la-ws");
-
-  const toolbar = el("div", "la-ws-toolbar");
-  const refreshBtn = el("button", "la-btn la-btn-mini", "Refresh") as HTMLButtonElement;
-  const uploadBtn = el("button", "la-btn la-btn-mini la-btn-primary", "Upload...") as HTMLButtonElement;
-  const newFolderBtn = el("button", "la-btn la-btn-mini", "New folder") as HTMLButtonElement;
-  const newFileBtn = el("button", "la-btn la-btn-mini", "New file") as HTMLButtonElement;
-  const downloadZipBtn = el("button", "la-btn la-btn-mini", "Download .zip") as HTMLButtonElement;
-  const spacer = el("span", "la-flex-spacer");
-  const status = el("div", "la-ws-status");
-  toolbar.append(refreshBtn, uploadBtn, newFolderBtn, newFileBtn, downloadZipBtn, spacer, status);
-  root.appendChild(toolbar);
-
-  const split = el("div", "la-ws-split");
-  const treeWrap = el("aside", "la-ws-tree");
-  const pane = el("section", "la-ws-pane");
-  split.append(treeWrap, pane);
-  root.appendChild(split);
-
-  // State: a map of path -> entries (children). Empty path is root.
-  const dirCache = new Map<string, WorkspaceEntry[]>();
-  const expanded = new Set<string>([""]);
-  let selectedPath: string | null = null;
-  let selectedIsDirectory = false;
-  let selectedSize = 0;
-  let selectedIsSystem = false;
-  // Tracks an open text editor with unsaved changes, so a ws_changed echo (our
-  // own save fires one) doesn't tear the textarea down mid-edit.
-  let editorDirty = false;
-  // path -> bool indicating in-flight list request, to avoid duplicate requests.
-  const pendingList = new Set<string>();
-
-  const setStatus = (text: string, isError = false): void => {
-    status.textContent = text;
-    status.classList.toggle("is-error", isError);
-    if (!isError && text) {
-      setTimeout(() => { if (status.textContent === text) status.textContent = ""; }, 3000);
-    }
+  const root = node("div", "la-files");
+  const toolbar = node("div", "la-files-toolbar");
+  const breadcrumbs = node("nav", "la-files-breadcrumbs"); breadcrumbs.setAttribute("aria-label", "Folder location");
+  const actions = node("div", "la-files-actions");
+  const status = node("div", "la-files-status"); status.setAttribute("role", "status");
+  const split = node("div", "la-files-split");
+  const list = node("div", "la-files-list"); list.setAttribute("role", "listbox"); list.setAttribute("aria-label", "Files"); list.tabIndex = 0;
+  const pane = node("section", "la-files-preview");
+  split.append(list, pane); root.append(toolbar, breadcrumbs, actions, status, split);
+  let directory = "";
+  let entries: readonly WorkspaceEntry[] = [];
+  let selected: WorkspaceEntry | null = null;
+  let clipboard: { path: string; mode: "copy" | "move" } | null = null;
+  let dirty = false, saving = false, busy = false, destroyed = false, refreshQueued = false;
+  let listing = 0, preview = 0;
+  const pending = new Map<string, { resolve(value: WorkspaceResult): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>();
+  const request = (input: WorkspaceAction): Promise<WorkspaceResult> => new Promise((resolve, reject) => {
+    const requestId = crypto.randomUUID();
+    const timer = setTimeout(() => { pending.delete(requestId); reject(new Error("The server has not responded. Refresh to check the latest state.")); }, input.action === "download" ? 120000 : 30000);
+    pending.set(requestId, { resolve, reject, timer });
+    try { deps.sendBackend({ type: "workspace_request", requestId, input }); }
+    catch (error) { clearTimeout(timer); pending.delete(requestId); reject(error); }
+  });
+  const report = (text: string, error = false) => { status.textContent = text; status.classList.toggle("is-error", error); };
+  const loading = (target: HTMLElement, label: string) => {
+    const state = node("div", "la-files-loading"); state.setAttribute("role", "status");
+    const spinner = node("span", "la-pending-spinner"); spinner.setAttribute("aria-hidden", "true");
+    state.append(spinner, node("span", "", label)); target.replaceChildren(state);
   };
-
-  const requestList = (path: string): void => {
-    if (pendingList.has(path)) return;
-    pendingList.add(path);
-    deps.sendBackend({ type: "ws_list", path });
+  const button = (text: string, action: () => void, disabled = false) => {
+    const b = document.createElement("button"); b.type = "button"; b.className = "la-btn la-btn-mini"; b.textContent = text; b.disabled = disabled; b.onclick = action; return b;
   };
-
-  const renderTree = (): void => {
-    treeWrap.innerHTML = "";
-    const renderDir = (path: string, depth: number, parentEl: HTMLElement): void => {
-      const children = dirCache.get(path);
-      if (children === undefined) {
-        const placeholder = el("div", "la-ws-row la-ws-loading");
-        placeholder.style.paddingLeft = `${depth * 14 + 8}px`;
-        placeholder.textContent = "Loading...";
-        parentEl.appendChild(placeholder);
-        requestList(path);
-        return;
-      }
-      if (children.length === 0 && depth === 0) {
-        const empty = el("div", "la-ws-empty");
-        empty.textContent = "Workspace is empty. Upload a file or have the agent write one.";
-        parentEl.appendChild(empty);
-        return;
-      }
-      for (const entry of children) {
-        const row = el("div", `la-ws-row ${selectedPath === entry.path ? "is-selected" : ""}`);
-        row.style.paddingLeft = `${depth * 14 + 6}px`;
-        const caret = el("span", "la-ws-caret");
-        const icon = el("span", "la-ws-icon");
-        const name = el("span", "la-ws-name", entry.name);
-        const size = el("span", "la-ws-size", entry.isDirectory ? "" : fmtBytes(entry.sizeBytes));
-        if (entry.isDirectory) {
-          caret.textContent = expanded.has(entry.path) ? "▾" : "▸";
-          icon.textContent = "📁";
-        } else {
-          caret.textContent = " ";
-          icon.textContent = "📄";
-        }
-        row.append(caret, icon, name);
-        if (entry.isSystem) {
-          const tag = el("span", "la-ws-system-tag", "system");
-          tag.title = "System file — needed by the agent. You can read and edit it, but deleting or renaming is blocked.";
-          row.appendChild(tag);
-        }
-        row.appendChild(size);
-        row.addEventListener("click", (ev) => {
-          ev.stopPropagation();
-          selectedPath = entry.path;
-          selectedIsDirectory = entry.isDirectory;
-          selectedSize = entry.sizeBytes;
-          selectedIsSystem = !!entry.isSystem;
-          if (entry.isDirectory) {
-            if (expanded.has(entry.path)) expanded.delete(entry.path);
-            else { expanded.add(entry.path); if (!dirCache.has(entry.path)) requestList(entry.path); }
-          }
-          renderTree();
-          renderPane();
-        });
-        parentEl.appendChild(row);
-        if (entry.isDirectory && expanded.has(entry.path)) {
-          renderDir(entry.path, depth + 1, parentEl);
-        }
-      }
+  const discardDraft = async () => !dirty || (await deps.ctx.ui.showConfirm({ title: "Discard changes?", message: "This file has unsaved changes.", confirmLabel: "Discard", variant: "danger" })).confirmed;
+  const nameDialog = (title: string, initial = ""): Promise<string | null> => new Promise(resolve => {
+    const dialog = document.createElement("dialog"); dialog.className = "la-file-name-dialog";
+    const form = document.createElement("form"); form.method = "dialog";
+    const label = document.createElement("label"); label.textContent = title;
+    const input = document.createElement("input"); input.value = initial; input.required = true; input.setAttribute("aria-label", title);
+    const error = node("span", "la-files-status is-error"); label.append(input);
+    const controls = node("div", "la-files-actions"); const cancel = button("Cancel", () => dialog.close()); const save = button("Save", () => {}); save.type = "submit";
+    controls.append(cancel, save); form.append(label, error, controls); dialog.append(form); root.append(dialog);
+    let value: string | null = null;
+    form.onsubmit = event => {
+      const text = input.value.trim();
+      if (!text || text === "." || text === ".." || /[\\/\x00]/.test(text)) { event.preventDefault(); error.textContent = "Enter a name without slashes."; return; }
+      value = text;
     };
-    renderDir("", 0, treeWrap);
+    dialog.addEventListener("close", () => { dialog.remove(); resolve(value); }, { once: true }); dialog.showModal(); input.focus(); input.select();
+  });
+  const renderBreadcrumbs = () => {
+    breadcrumbs.replaceChildren(button("Files", () => void navigate("")));
+    let path = "";
+    for (const segment of directory.split("/").filter(Boolean)) { path = join(path, segment); const target = path; breadcrumbs.append(node("span", "", "/"), button(segment, () => void navigate(target))); }
+    breadcrumbs.lastElementChild?.setAttribute("aria-current", "location");
   };
-
-  const renderPane = (): void => {
-    pane.innerHTML = "";
-    editorDirty = false;
-    if (!selectedPath) {
-      pane.appendChild(el("div", "la-ws-pane-empty", "Select a file or folder."));
-      return;
-    }
-    const header = el("div", "la-ws-pane-header");
-    const title = el("div", "la-ws-pane-title", selectedPath);
-    const meta = el("div", "la-ws-pane-meta", selectedIsDirectory ? "Directory" : fmtBytes(selectedSize));
-    header.append(title, meta);
-    pane.appendChild(header);
-
-    const actions = el("div", "la-ws-pane-actions");
-    if (!selectedIsDirectory) {
-      const dl = el("button", "la-btn la-btn-mini", "Download");
-      dl.addEventListener("click", () => deps.sendBackend({ type: "ws_download", path: selectedPath! }));
-      actions.appendChild(dl);
-    }
-    const dlZip = el("button", "la-btn la-btn-mini", selectedIsDirectory ? "Download as .zip" : "Download in zip");
-    dlZip.addEventListener("click", () => deps.sendBackend({ type: "ws_download_zip", paths: [selectedPath!] }));
-    actions.appendChild(dlZip);
-    const rename = el("button", `la-btn la-btn-mini${selectedIsSystem ? " la-btn-disabled" : ""}`, "Rename") as HTMLButtonElement;
-    rename.disabled = selectedIsSystem;
-    if (selectedIsSystem) rename.title = "System paths can't be renamed.";
-    rename.addEventListener("click", () => {
-      const newName = window.prompt(`Rename '${basename(selectedPath!)}' to:`, basename(selectedPath!));
-      if (!newName || newName === basename(selectedPath!)) return;
-      const to = joinPath(dirname(selectedPath!), newName);
-      deps.sendBackend({ type: "ws_move", from: selectedPath!, to });
-      // Re-target the selection to the new path so the pane (title + Download /
-      // Delete buttons) doesn't keep acting on the now-vanished old path.
-      selectedPath = to;
-      renderPane();
-    });
-    actions.appendChild(rename);
-    if (!selectedIsDirectory) {
-      const dup = el("button", "la-btn la-btn-mini", "Duplicate") as HTMLButtonElement;
-      dup.title = "Copy this file to a new name in the same folder.";
-      dup.addEventListener("click", () => deps.sendBackend({ type: "ws_duplicate", path: selectedPath! }));
-      actions.appendChild(dup);
-    }
-    const inCustomTools = !!selectedPath && (selectedPath === "custom_tools" || selectedPath.startsWith("custom_tools/"));
-    const del = el("button", `la-btn la-btn-mini la-btn-danger${selectedIsSystem ? " la-btn-disabled" : ""}`, "Delete") as HTMLButtonElement;
-    del.disabled = selectedIsSystem;
-    if (selectedIsSystem) del.title = "This is a system file/folder — the agent depends on it. The backend will reject deletion.";
-    del.addEventListener("click", async () => {
-      const baseMsg = `Permanently delete '${selectedPath}'?${selectedIsDirectory ? " This removes the folder and everything in it." : ""}`;
-      const message = inCustomTools
-        ? `${baseMsg}\n\nThis lives under custom_tools/. The agent's saved tool recipes are stored here — only delete if you know what you're doing.`
-        : baseMsg;
-      const c = await deps.ctx.ui.showConfirm({
-        title: "Delete",
-        message,
-        variant: "danger",
-        confirmLabel: "Delete",
-      });
-      if (c.confirmed) {
-        deps.sendBackend({ type: "ws_delete", path: selectedPath!, recursive: selectedIsDirectory });
-        selectedPath = null;
-        renderPane();
-      }
-    });
-    actions.appendChild(del);
-    pane.appendChild(actions);
-
-    // Agent notes warning. The system prompt snapshots this file at the start
-    // of each session; edits here don't reach an already-running chat unless
-    // the user asks the agent to re-read the file.
-    if (selectedPath === "agent/agent.md") {
-      pane.appendChild(el(
-        "div",
-        "la-ws-pane-note la-ws-pane-note-info",
-        "Saved edits apply to new chats automatically. To pick them up in the current chat, ask the agent to re-read this file.",
-      ));
-    }
-
-    if (!selectedIsDirectory) {
-      const kind = previewKind(selectedPath);
-      if (kind === "binary") {
-        pane.appendChild(el("div", "la-ws-pane-note", "Binary file. Download to inspect."));
-      } else if (selectedSize >= 4 * 1024 * 1024) {
-        pane.appendChild(el("div", "la-ws-pane-note", "File is larger than 4 MB. Download to view."));
-      } else {
-        const previewWrap = el("div", "la-ws-preview");
-        previewWrap.textContent = "Loading preview...";
-        pane.appendChild(previewWrap);
-        // renderPane owns the fetch (not the tree-row click), so a re-render
-        // after save / rename / external change re-requests the content instead
-        // of leaving the wrap stuck on "Loading preview...". Content arrives via
-        // onTextPushed (text) or onDownloadReady (image / audio / video).
-        if (kind === "text") deps.sendBackend({ type: "ws_read_text", path: selectedPath });
-        else deps.sendBackend({ type: "ws_download", path: selectedPath });
-      }
-    }
+  const setClipboard = (mode: "copy" | "move") => {
+    if (!selected || (mode === "move" && selected.isSystem) || busy) return;
+    clipboard = { path: selected.path, mode }; report(`${mode === "copy" ? "Copied" : "Cut"} ${selected.name}`); renderActions(); renderRows();
   };
-
-  const refresh = (): void => {
-    dirCache.clear();
-    pendingList.clear();
-    requestList("");
-    renderTree();
+  const transfer = async (from: string, destination: string, mode: "copy" | "move") => {
+    if (busy || !(await discardDraft())) return;
+    let to = join(destination, fileName(from));
+    if (mode === "copy" && to.toLowerCase() === from.toLowerCase()) {
+      const original = fileName(from), dot = original.lastIndexOf(".");
+      const suggestion = dot > 0 ? `${original.slice(0, dot)} copy${original.slice(dot)}` : `${original} copy`;
+      const name = await nameDialog("Copy as", suggestion); if (!name) return; to = join(destination, name);
+    }
+    if (to.toLowerCase() === from.toLowerCase() || to.toLowerCase().startsWith(`${from.toLowerCase()}/`)) { report("Choose a different destination folder.", true); return; }
+    await mutate({ action: mode, from, to }, mode === "copy" ? "Copying…" : "Moving…");
   };
-
-  refreshBtn.addEventListener("click", refresh);
-
-  const uploadInput = document.createElement("input");
-  uploadInput.type = "file";
-  uploadInput.multiple = true;
-  uploadInput.hidden = true;
-  root.appendChild(uploadInput);
-  uploadBtn.addEventListener("click", () => uploadInput.click());
-  uploadInput.addEventListener("change", async () => {
-    const files = Array.from(uploadInput.files ?? []);
-    uploadInput.value = "";
-    const targetDir = selectedPath && selectedIsDirectory ? selectedPath : "";
-    uploadBtn.disabled = true;
+  const paste = () => { if (clipboard) void transfer(clipboard.path, selected?.isDirectory ? selected.path : directory, clipboard.mode); };
+  const download = async (path: string, archive: boolean) => {
+    if (busy) return; busy = true; renderActions(); loading(status, "Preparing download…");
+    try { const result = await request({ action: "download", path, archive }); if (result.kind === "file") { deps.ctx.files.download(result.fileId); report(""); } }
+    catch (error) { report((error as Error).message, true); }
+    finally { busy = false; renderActions(); }
+  };
+  const renderActions = () => {
+    toolbar.replaceChildren(button("Upload", () => uploadInput.click(), busy), button("New folder", () => void create(true), busy), button("New file", () => void create(false), busy), button("Refresh", () => void refresh(), busy));
+    actions.replaceChildren();
+    if (selected) {
+      if (selected.isDirectory) actions.append(button("Open", () => void navigate(selected!.path), busy));
+      actions.append(button("Cut", () => setClipboard("move"), busy || !!selected.isSystem), button("Copy", () => setClipboard("copy"), busy), button("Rename", () => void rename(), busy || !!selected.isSystem), button("Delete", () => void remove(), busy || !!selected.isSystem));
+    }
+    actions.append(button("Paste", paste, busy || !clipboard), button(selected && !selected.isDirectory ? "Download" : "Download ZIP", () => void download(selected?.path ?? directory, selected?.isDirectory ?? true), busy));
+  };
+  const wireDrop = (target: HTMLElement, destination: () => string) => {
+    target.ondragover = event => { if (!event.dataTransfer?.types.includes("application/x-lumiagent-path")) return; event.preventDefault(); event.stopPropagation(); target.classList.add("is-drop-target"); event.dataTransfer.dropEffect = event.ctrlKey || event.metaKey ? "copy" : "move"; };
+    target.ondragleave = () => target.classList.remove("is-drop-target");
+    target.ondrop = event => { const from = event.dataTransfer?.getData("application/x-lumiagent-path"); target.classList.remove("is-drop-target"); if (!from) return; event.preventDefault(); event.stopPropagation(); void transfer(from, destination(), event.ctrlKey || event.metaKey ? "copy" : "move"); };
+  };
+  const renderRows = () => {
+    if (list.getAttribute("aria-busy") === "true") return;
+    const start = Math.max(0, Math.floor(list.scrollTop / 44) - 5), end = Math.min(entries.length, start + Math.ceil((list.clientHeight || 500) / 44) + 10);
+    const spacer = node("div", "la-files-list-space"); spacer.style.height = `${entries.length * 44}px`;
+    for (let i = start; i < end; i++) {
+      const entry = entries[i]!;
+      const row = node("div", `la-file-row${selected?.path === entry.path ? " is-selected" : ""}${clipboard?.mode === "move" && clipboard.path === entry.path ? " is-cut" : ""}`);
+      row.style.top = `${i * 44}px`; row.dataset.path = entry.path; row.setAttribute("role", "option"); row.setAttribute("aria-selected", String(selected?.path === entry.path)); row.id = `la-file-${i}`;
+      const icon = node("span", "la-file-icon"); icon.setAttribute("aria-hidden", "true");
+      icon.innerHTML = entry.isDirectory ? '<svg viewBox="0 0 24 24"><path d="M3 6h7l2 3h9v11H3z"/></svg>' : '<svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6zM14 3v5h4"/></svg>';
+      row.append(icon, node("span", "la-file-name", entry.name), node("span", "la-file-size", entry.isDirectory ? "Folder" : size(entry.sizeBytes)));
+      row.onclick = () => { list.focus({ preventScroll: true }); void select(entry); }; row.ondblclick = () => { if (entry.isDirectory) void navigate(entry.path); }; row.draggable = !entry.isSystem;
+      row.ondragstart = event => { event.dataTransfer?.setData("application/x-lumiagent-path", entry.path); if (event.dataTransfer) event.dataTransfer.effectAllowed = "copyMove"; };
+      if (entry.isDirectory) wireDrop(row, () => entry.path); spacer.append(row);
+    }
+    list.replaceChildren(spacer); if (!entries.length) list.append(node("div", "la-files-empty", "Empty folder"));
+    const index = entries.findIndex(entry => entry.path === selected?.path);
+    if (index >= start && index < end) list.setAttribute("aria-activedescendant", `la-file-${index}`); else list.removeAttribute("aria-activedescendant");
+  };
+  wireDrop(list, () => directory); wireDrop(breadcrumbs, () => directory);
+  list.addEventListener("scroll", renderRows, { passive: true }); const resize = new ResizeObserver(renderRows); resize.observe(list);
+  async function refresh() {
+    const version = ++listing, path = directory; list.setAttribute("aria-busy", "true"); if (!entries.length) loading(list, "Loading files…");
     try {
-      for (const file of files) {
-        await deps.upload(file, joinPath(targetDir, file.name), fraction => {
-          setStatus(fraction >= 0.95 ? `Saving ${file.name}...` : `Uploading ${file.name}: ${Math.round(fraction / 0.95 * 100)}%`);
-        });
+      const result = await request({ action: "list", path }); if (destroyed || version !== listing || result.kind !== "entries") return;
+      entries = [...result.entries].sort((a, b) => Number(b.isDirectory) - Number(a.isDirectory) || a.name.localeCompare(b.name, undefined, { numeric: true }));
+      if (selected && !entries.some(entry => entry.path === selected!.path) && !dirty && !saving) { selected = null; preview++; pane.replaceChildren(); root.classList.remove("has-preview"); }
+      list.removeAttribute("aria-busy"); renderRows(); renderActions();
+    } catch (error) { if (version !== listing || destroyed) return; list.removeAttribute("aria-busy"); renderRows(); report((error as Error).message, true); list.append(button("Retry", () => void refresh())); }
+  }
+  async function navigate(path: string) {
+    if (saving || !(await discardDraft())) return;
+    directory = path; selected = null; entries = []; dirty = false; preview++; pane.replaceChildren(); root.classList.remove("has-preview"); list.scrollTop = 0;
+    renderBreadcrumbs(); renderActions(); await refresh();
+  }
+  async function mutate(input: WorkspaceAction, label: string): Promise<boolean> {
+    if (busy || saving) return false; busy = true; renderActions(); loading(status, label);
+    try {
+      await request(input);
+      if (input.action === "move" && clipboard?.path === input.from) clipboard = null;
+      if (input.action === "move" || input.action === "delete") { dirty = false; selected = null; preview++; pane.replaceChildren(); root.classList.remove("has-preview"); }
+      report(""); await refresh(); return true;
+    } catch (error) { report((error as Error).message, true); return false; }
+    finally { busy = false; renderActions(); }
+  }
+  async function create(folder: boolean) { const name = await nameDialog(folder ? "Folder name" : "File name"); if (name) await mutate(folder ? { action: "mkdir", path: join(directory, name) } : { action: "write", path: join(directory, name), content: "", create: true }, "Creating…"); }
+  async function rename() { const entry = selected; if (!entry || !(await discardDraft())) return; const name = await nameDialog("Rename", entry.name); if (name && name !== entry.name) await mutate({ action: "move", from: entry.path, to: join(parentPath(entry.path), name) }, "Renaming…"); }
+  async function remove() { const entry = selected; if (!entry) return; const confirmed = await deps.ctx.ui.showConfirm({ title: `Delete ${entry.name}?`, message: entry.isDirectory ? "This deletes the folder and its contents." : "This permanently deletes the file.", confirmLabel: "Delete", variant: "danger" }); if (confirmed.confirmed) await mutate({ action: "delete", path: entry.path }, "Deleting…"); }
+  async function select(entry: WorkspaceEntry) { if (entry.path === selected?.path) { root.classList.add("has-preview"); return; } if (saving || !(await discardDraft())) return; selected = entry; dirty = false; renderRows(); renderActions(); await showPreview(entry); }
+  async function showPreview(entry: WorkspaceEntry) {
+    const version = ++preview; pane.replaceChildren(); root.classList.add("has-preview");
+    const header = node("header", "la-files-preview-header"); header.append(button("Back", () => { root.classList.remove("has-preview"); list.focus(); }), node("strong", "", entry.name)); pane.append(header);
+    if (entry.isDirectory) { pane.append(button("Open folder", () => void navigate(entry.path))); return; }
+    if (/\.(zip|charx|tar|gz|7z|rar|exe|dll|so|pdf|wasm|bin)$/i.test(entry.path) || entry.sizeBytes > 2097152) { pane.append(node("div", "la-files-empty", "Download to open this file.")); return; }
+    const body = node("div", "la-files-preview-body"); pane.append(body); loading(body, "Loading preview…");
+    try {
+      const result = await request({ action: "preview", path: entry.path }); if (destroyed || version !== preview) return; body.replaceChildren();
+      if (result.kind === "text") {
+        const editor = document.createElement("textarea"); editor.className = "la-files-editor"; editor.value = result.content; editor.spellcheck = false; editor.setAttribute("aria-label", `Edit ${entry.name}`);
+        let saved = result.content;
+        const bar = node("div", "la-files-editor-bar"), label = node("span", "", "Saved"); const save = button("Save", () => void saveDraft(), true);
+        const mark = () => { dirty = editor.value !== saved; save.disabled = !dirty || saving; label.textContent = saving ? "Saving…" : dirty ? "Unsaved changes" : "Saved"; };
+        async function saveDraft() {
+          if (saving || !dirty) return; const content = editor.value; saving = true; mark();
+          try { await request({ action: "write", path: entry.path, content, expectedContent: saved }); saved = content; report(""); }
+          catch (error) { report((error as Error).message, true); }
+          finally { saving = false; mark(); void refresh(); }
+        }
+        editor.oninput = mark; editor.onkeydown = event => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") { event.preventDefault(); void saveDraft(); } };
+        bar.append(label, save); body.append(bar, editor);
+      } else if (result.kind === "media") {
+        const type = mime(entry.path) ?? "application/octet-stream"; const media = document.createElement(type.startsWith("image/") ? "img" : type.startsWith("audio/") ? "audio" : "video");
+        media.src = `data:${type};base64,${result.dataBase64}`; if (media instanceof HTMLImageElement) media.alt = entry.name; else media.controls = true; body.append(media);
       }
-      if (files.length) { refresh(); setStatus("Upload complete."); }
-    } catch (err) {
-      setStatus(`Upload failed: ${(err as Error).message}`, true);
-    } finally { uploadBtn.disabled = false; }
+    } catch (error) { if (version === preview && !destroyed) body.replaceChildren(node("div", "la-files-empty", (error as Error).message), button("Retry", () => void showPreview(entry))); }
+  }
+  root.addEventListener("keydown", event => {
+    if ((event.target as HTMLElement).closest("input,textarea,[contenteditable=true],dialog")) return;
+    if (event.ctrlKey || event.metaKey) { const key = event.key.toLowerCase(); if (["x", "c", "v"].includes(key)) { event.preventDefault(); if (key === "v") paste(); else setClipboard(key === "x" ? "move" : "copy"); } return; }
+    if (event.target !== list) return;
+    const index = entries.findIndex(entry => entry.path === selected?.path);
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault(); const next = Math.min(entries.length - 1, Math.max(0, index + (event.key === "ArrowDown" ? 1 : -1))), entry = entries[next]; if (!entry) return;
+      if (next * 44 < list.scrollTop) list.scrollTop = next * 44; if ((next + 1) * 44 > list.scrollTop + list.clientHeight) list.scrollTop = (next + 1) * 44 - list.clientHeight; void select(entry);
+    } else if (event.key === "Enter" && selected?.isDirectory) { event.preventDefault(); void navigate(selected.path); }
+    else if (event.key === "Backspace" && directory) { event.preventDefault(); void navigate(parentPath(directory)); }
+    else if (event.key === "F2") { event.preventDefault(); void rename(); }
+    else if (event.key === "Delete" && selected && !selected.isSystem) { event.preventDefault(); void remove(); }
+    else if (event.key === "Escape") { clipboard = null; renderActions(); renderRows(); }
   });
-
-  newFolderBtn.addEventListener("click", () => {
-    const targetDir = selectedPath && selectedIsDirectory ? selectedPath : "";
-    const name = window.prompt(`New folder name under '${targetDir || "/"}':`);
-    if (!name) return;
-    deps.sendBackend({ type: "ws_mkdir", path: joinPath(targetDir, name) });
-  });
-
-  newFileBtn.addEventListener("click", () => {
-    const targetDir = selectedPath && selectedIsDirectory ? selectedPath : "";
-    const name = window.prompt(`New file name under '${targetDir || "/"}':`);
-    if (!name) return;
-    deps.sendBackend({ type: "ws_write_text", path: joinPath(targetDir, name), content: "" });
-  });
-
-  downloadZipBtn.addEventListener("click", () => {
-    deps.sendBackend({ type: "ws_download_zip", paths: selectedPath ? [selectedPath] : [] });
-    setStatus("Building zip...");
-  });
-
-  // Kick off initial root load.
-  refresh();
-
+  const uploadInput = document.createElement("input"); uploadInput.type = "file"; uploadInput.multiple = true; uploadInput.hidden = true; root.append(uploadInput);
+  uploadInput.onchange = async () => {
+    const files = [...uploadInput.files ?? []]; uploadInput.value = ""; if (!files.length || busy) return; const target = directory; busy = true; renderActions();
+    try { for (const file of files) await deps.upload(file, join(target, file.name), progress => report(`${file.name} · ${Math.round(progress * 100)}%`)); report(""); await refresh(); }
+    catch (error) { report((error as Error).message, true); } finally { busy = false; renderActions(); }
+  };
+  renderActions(); renderBreadcrumbs(); void refresh();
   return {
     root,
-    onListed(path, entries) {
-      pendingList.delete(path);
-      dirCache.set(path, [...entries]);
-      renderTree();
-    },
-    onTextPushed(path, content) {
-      if (path !== selectedPath) return;
-      const wrap = pane.querySelector(".la-ws-preview") as HTMLElement | null;
-      if (!wrap) return;
-      wrap.innerHTML = "";
-      // Editable textarea. Native ctrl-z/y just work. Save flushes via
-      // ws_write_text; ws_changed comes back and we don't lose focus because
-      // the path didn't change.
-      const editor = document.createElement("textarea");
-      editor.className = "la-ws-editor";
-      editor.value = content;
-      editor.spellcheck = false;
-      const bar = document.createElement("div");
-      bar.className = "la-ws-editor-bar";
-      const statusLabel = document.createElement("span");
-      statusLabel.className = "la-ws-editor-status";
-      statusLabel.textContent = "Saved";
-      const saveBtn = document.createElement("button");
-      saveBtn.className = "la-btn la-btn-mini la-btn-primary";
-      saveBtn.textContent = "Save";
-      saveBtn.disabled = true;
-      let savedValue = content;
-      const markDirty = (): void => {
-        const dirty = editor.value !== savedValue;
-        editorDirty = dirty;
-        saveBtn.disabled = !dirty;
-        statusLabel.textContent = dirty ? "Unsaved changes" : "Saved";
-        statusLabel.classList.toggle("is-dirty", dirty);
-      };
-      const doSave = (): void => {
-        if (editor.value === savedValue) return;
-        const next = editor.value;
-        deps.sendBackend({ type: "ws_write_text", path, content: next });
-        savedValue = next;
-        editorDirty = false;
-        saveBtn.disabled = true;
-        statusLabel.textContent = "Saved";
-        statusLabel.classList.remove("is-dirty");
-      };
-      editor.addEventListener("input", markDirty);
-      editor.addEventListener("keydown", (ev) => {
-        if ((ev.ctrlKey || ev.metaKey) && (ev.key === "s" || ev.key === "S")) {
-          ev.preventDefault();
-          doSave();
-        }
-      });
-      saveBtn.addEventListener("click", doSave);
-      bar.append(statusLabel, saveBtn);
-      wrap.appendChild(bar);
-      wrap.appendChild(editor);
-    },
-    onChanged() {
-      // Wholesale-refresh so renames, deletes, and new folders all reflect.
-      // Cheap because list_text only requests immediate children of root and
-      // currently-expanded folders re-fetch on demand.
-      refresh();
-      // Re-render the pane too: a rename/delete that originated elsewhere (or
-      // the backend confirming one) must not leave the pane showing a stale or
-      // orphaned file. BUT our own ws_write_text save also echoes ws_changed, and
-      // renderPane re-fetches + remounts the textarea: skip it while the user is
-      // focused in or has unsaved changes in the editor, or we drop their work.
-      const wrap = pane.querySelector(".la-ws-preview");
-      if ((wrap && wrap.contains(document.activeElement)) || editorDirty) {
-        setStatus("Workspace updated.");
-        return;
-      }
-      renderPane();
-      setStatus("Workspace updated.");
-    },
-    onDownloadReady(path, dataBase64, mimeType) {
-      // Two callers land here: (1) the Download button — save to disk; (2) an
-      // image/audio/video auto-preview — render inline. Disambiguate by
-      // whether this is the selected file AND its kind is previewable AND a
-      // preview wrap is mounted waiting for content.
-      if (path === selectedPath) {
-        const kind = previewKind(path);
-        const wrap = pane.querySelector(".la-ws-preview") as HTMLElement | null;
-        if (wrap && (kind === "image" || kind === "audio" || kind === "video")) {
-          wrap.innerHTML = "";
-          const dataUrl = `data:${mimeType || mimeFromKind(kind, path)};base64,${dataBase64}`;
-          let media: HTMLElement;
-          if (kind === "image") {
-            const img = document.createElement("img");
-            img.className = "la-ws-preview-img";
-            img.src = dataUrl;
-            img.alt = basename(path);
-            media = img;
-          } else if (kind === "audio") {
-            const a = document.createElement("audio");
-            a.className = "la-ws-preview-audio";
-            a.controls = true;
-            a.src = dataUrl;
-            media = a;
-          } else {
-            const v = document.createElement("video");
-            v.className = "la-ws-preview-video";
-            v.controls = true;
-            v.src = dataUrl;
-            media = v;
-          }
-          wrap.appendChild(media);
-          return;
-        }
-      }
-      const blob = base64ToBlob(dataBase64, mimeType);
-      triggerDownload(blob, basename(path));
-      setStatus("Downloaded.");
-    },
-    onZipReady(dataBase64, filename) {
-      const blob = base64ToBlob(dataBase64, "application/zip");
-      triggerDownload(blob, filename);
-      setStatus("Zip ready.");
-    },
-    onError(error) {
-      setStatus(error, true);
-    },
-    focusFile(path) {
-      // Expand every ancestor so the row renders inside its tree, then act
-      // as if the user clicked the leaf. The actual selection and preview
-      // fetch happen synchronously; the row's row.click() reuses the same
-      // handler we registered above.
-      const parts = path.split("/").filter(Boolean);
-      let cur = "";
-      for (let i = 0; i < parts.length - 1; i++) {
-        cur = cur === "" ? parts[i]! : `${cur}/${parts[i]}`;
-        expanded.add(cur);
-        if (!dirCache.has(cur)) requestList(cur);
-      }
-      selectedPath = path;
-      selectedIsDirectory = false;
-      selectedSize = 0;
-      selectedIsSystem = true;
-      const kind = previewKind(path);
-      if (kind === "text") deps.sendBackend({ type: "ws_read_text", path });
-      else if (kind !== "binary") deps.sendBackend({ type: "ws_download", path });
-      renderTree();
-      renderPane();
-    },
+    receive(message) { if (message.type !== "workspace_response") return; const item = pending.get(message.requestId); if (!item) return; pending.delete(message.requestId); clearTimeout(item.timer); if (message.error) item.reject(new Error(message.error)); else if (message.result) item.resolve(message.result); else item.reject(new Error("Invalid server response")); },
+    onChanged() { if (refreshQueued || destroyed) return; refreshQueued = true; queueMicrotask(() => { refreshQueued = false; if (!destroyed) void refresh(); }); },
+    onError(error) { report(error, true); },
+    focusFile(path) { void (async () => { await navigate(parentPath(path)); const entry = entries.find(entry => entry.path === path); if (entry) await select(entry); })(); },
+    destroy() { destroyed = true; listing++; preview++; resize.disconnect(); for (const item of pending.values()) { clearTimeout(item.timer); item.reject(new Error("Files closed")); } pending.clear(); },
   };
 }

@@ -1,3 +1,4 @@
+import { recordChange } from "./_change-history";
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import type { ToolCtx } from "./_context";
@@ -38,6 +39,7 @@ export const setDefaultVariablesTextTool = defineTool({
       text: input.text,
     });
     if (!res.ok) return { content: `Error: ${res.error ?? "set_default_variables_text failed"}`, isError: true };
+    recordChange(ctx, { kind: "character", id: input.character_id }, "Default variables", "applied", { snapshot: "unavailable" }, { text: input.text }, "The extension confirms the write but does not expose a prior-value snapshot for this operation.");
     return { content: JSON.stringify({ ok: true, character_id: input.character_id, cleared: input.text === null }) };
   },
 });

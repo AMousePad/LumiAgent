@@ -1,4 +1,10 @@
-import { domToCanvas } from "modern-screenshot";
+import {
+  createContext,
+  destroyContext,
+  domToCanvas,
+  type Context,
+} from "modern-screenshot";
+import { embedCaptureFonts, waitForCaptureFonts } from "./capture-fonts";
 
 export interface UiCaptureInput {
   selector?: string;
@@ -28,58 +34,65 @@ export async function captureUi(
     throw new Error(
       "The originating Lumiverse tab is hidden. Bring it into view and retry.",
     );
-  const viewportWidth = Math.round(window.innerWidth),
-    viewportHeight = Math.round(window.innerHeight);
-  if (!viewportWidth || !viewportHeight)
-    throw new Error("The originating tab has no visible viewport.");
-  const maxEdge = input.max_edge ?? 1600;
-  if (!Number.isInteger(maxEdge) || maxEdge < 512 || maxEdge > 2048)
-    throw new Error("max_edge must be between 512 and 2048.");
-  let crop = { x: 0, y: 0, width: viewportWidth, height: viewportHeight };
-  if (input.selector) {
-    if (input.selector.length > 1000)
-      throw new Error("Capture selector is too long.");
-    const nodes = document.querySelectorAll(input.selector);
-    if (nodes.length !== 1)
-      throw new Error(
-        `Capture selector must match one element, found ${nodes.length}.`,
-      );
-    const node = nodes[0]!;
-    if (node.closest(PRIVATE))
-      throw new Error("This element is excluded from UI captures.");
-    const rect = node.getBoundingClientRect();
-    const x = Math.max(0, rect.x),
-      y = Math.max(0, rect.y);
-    crop = {
-      x,
-      y,
-      width: Math.min(viewportWidth, rect.right) - x,
-      height: Math.min(viewportHeight, rect.bottom) - y,
-    };
-    if (crop.width <= 0 || crop.height <= 0)
-      throw new Error(
-        "The selected element is outside the visible viewport. Open it before capturing.",
-      );
-  }
-  const warnings = new Set([
-    "Rendered UI snapshot, not native screen pixels. Backdrop blur, embedded frames, video and cross-origin resources may differ or be omitted.",
-  ]);
-  const scale = Math.min(1, maxEdge / Math.max(viewportWidth, viewportHeight));
-  const backgroundColor =
-    [document.body, document.documentElement]
-      .map((node) => getComputedStyle(node).backgroundColor)
-      .find(
-        (color) => color !== "transparent" && color !== "rgba(0, 0, 0, 0)",
-      ) ?? "#fff";
   capturing = true;
+  let renderer: Context | undefined;
   try {
-    const canvas = await domToCanvas(document.documentElement, {
+    await waitForCaptureFonts(signal);
+    signal.throwIfAborted();
+    const viewportWidth = Math.round(window.innerWidth),
+      viewportHeight = Math.round(window.innerHeight);
+    if (!viewportWidth || !viewportHeight)
+      throw new Error("The originating tab has no visible viewport.");
+    const maxEdge = input.max_edge ?? 1600;
+    if (!Number.isInteger(maxEdge) || maxEdge < 512 || maxEdge > 2048)
+      throw new Error("max_edge must be between 512 and 2048.");
+    let crop = { x: 0, y: 0, width: viewportWidth, height: viewportHeight };
+    if (input.selector) {
+      if (input.selector.length > 1000)
+        throw new Error("Capture selector is too long.");
+      const nodes = document.querySelectorAll(input.selector);
+      if (nodes.length !== 1)
+        throw new Error(
+          `Capture selector must match one element, found ${nodes.length}.`,
+        );
+      const node = nodes[0]!;
+      if (node.closest(PRIVATE))
+        throw new Error("This element is excluded from UI captures.");
+      const rect = node.getBoundingClientRect();
+      const x = Math.max(0, rect.x),
+        y = Math.max(0, rect.y);
+      crop = {
+        x,
+        y,
+        width: Math.min(viewportWidth, rect.right) - x,
+        height: Math.min(viewportHeight, rect.bottom) - y,
+      };
+      if (crop.width <= 0 || crop.height <= 0)
+        throw new Error(
+          "The selected element is outside the visible viewport. Open it before capturing.",
+        );
+    }
+    const warnings = new Set([
+      "Rendered UI snapshot, not native screen pixels. Backdrop blur, embedded frames, video and cross-origin resources may differ or be omitted.",
+    ]);
+    const scale = Math.min(
+      1,
+      maxEdge / Math.max(viewportWidth, viewportHeight),
+    );
+    const backgroundColor =
+      [document.body, document.documentElement]
+        .map((node) => getComputedStyle(node).backgroundColor)
+        .find(
+          (color) => color !== "transparent" && color !== "rgba(0, 0, 0, 0)",
+        ) ?? "#fff";
+    renderer = await createContext(document.documentElement, {
       width: viewportWidth,
       height: viewportHeight,
       scale,
       maximumCanvasSize: 2048,
       backgroundColor,
       timeout: 5000,
+      font: { cssText: " " },
       features: { restoreScrollPosition: true },
       fetch: { requestInit: { credentials: "same-origin", signal } },
       fetchFn: async (value) => {
@@ -103,7 +116,7 @@ export async function captureUi(
         signal.throwIfAborted();
         if (!(node instanceof Element)) return;
         if (node.matches(PRIVATE) && node instanceof HTMLElement)
-          node.style.setProperty('opacity', '0', 'important');
+          node.style.setProperty("opacity", "0", "important");
         if (
           node instanceof HTMLInputElement &&
           (node.type === "password" ||
@@ -117,6 +130,17 @@ export async function captureUi(
         }
       },
     });
+    const captureContext = renderer;
+    captureContext.onCloneNode = async () => {
+      captureContext.font = {
+        cssText: await embedCaptureFonts(captureContext, signal, warnings),
+      };
+    };
+    captureContext.log.warn = () =>
+      warnings.add(
+        "Some capture resources could not be rendered. Check the live page before changing missing text, icons or images.",
+      );
+    const canvas = await domToCanvas(captureContext);
     signal.throwIfAborted();
     const output = document.createElement("canvas");
     output.width = Math.max(1, Math.round(crop.width * scale));
@@ -156,6 +180,7 @@ export async function captureUi(
       warnings: [...warnings],
     };
   } finally {
+    if (renderer) destroyContext(renderer);
     capturing = false;
   }
 }

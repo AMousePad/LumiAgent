@@ -1,7 +1,3 @@
-// DOM: scrollContainer > spacer (height=getTotalSize) > inner
-// (absolute, translateY=items[0].start) > items in normal flow.
-// _didMount once, _willUpdate at every sync (per-render contract).
-
 import {
   Virtualizer,
   elementScroll,
@@ -9,40 +5,42 @@ import {
   observeElementRect,
 } from "@tanstack/virtual-core";
 import type { ChatMessage } from "../types";
+import { disposeTree } from "./dom-lifecycle";
 
-const STICKY_THRESHOLD_PX = 80;
+const END_THRESHOLD_PX = 2;
 const DEFAULT_ESTIMATE = 220;
 const OVERSCAN = 4;
 
-export interface ChatVirtualizerDeps {
+export interface ChatVirtualizerDeps<T extends { id: string } = ChatMessage> {
   // Needs overflow-y:auto and a height bound.
   readonly scrollContainer: HTMLElement;
-  getMessages(): readonly ChatMessage[];
+  getMessages(): readonly T[];
   // Returned node is cached and reused across re-syncs.
-  renderMessage(msg: ChatMessage, index: number): HTMLElement;
-  estimateSize?(msg: ChatMessage): number;
+  renderMessage(msg: T, index: number): HTMLElement;
+  estimateSize?(msg: T): number;
+  initialPosition?: "start" | "end";
+  followEnd?: boolean;
+  containSize?: boolean;
 }
 
-export class ChatVirtualizer {
-  private readonly deps: ChatVirtualizerDeps;
+export class ChatVirtualizer<T extends { id: string } = ChatMessage> {
+  private readonly deps: ChatVirtualizerDeps<T>;
   private readonly spacer: HTMLElement;
   private readonly inner: HTMLElement;
   private virt: Virtualizer<HTMLElement, HTMLElement>;
   private readonly nodeByKey = new Map<string, HTMLElement>();
   private cleanup: (() => void) | null = null;
-  private stickyToBottom = true;
-  private scrollListener: (() => void) | null = null;
-  private wheelListener: ((e: Event) => void) | null = null;
-  private pointerDownListener: ((e: Event) => void) | null = null;
-  private forceBottomOnNextSync = false;
   private hasFirstRenderHappened = false;
-  private lastTotalSize = 0;
+  private readonly cancelUserScroll = (event: Event): void => {
+    if (event instanceof KeyboardEvent && !["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key)) return;
+    this.virt.cancelScroll();
+  };
 
-  constructor(deps: ChatVirtualizerDeps) {
+  constructor(deps: ChatVirtualizerDeps<T>) {
     this.deps = deps;
 
     deps.scrollContainer.style.overflowAnchor = "none";
-    deps.scrollContainer.style.contain = "strict";
+    deps.scrollContainer.style.contain = deps.containSize === false ? "content" : "strict";
 
     this.spacer = document.createElement("div");
     this.spacer.className = "la-virt-spacer";
@@ -70,35 +68,16 @@ export class ChatVirtualizer {
       observeElementRect,
       scrollToFn: elementScroll,
       overscan: OVERSCAN,
+      anchorTo: deps.followEnd === false ? "start" : "end",
+      followOnAppend: deps.followEnd !== false,
+      scrollEndThreshold: END_THRESHOLD_PX,
       onChange: () => this.sync(),
     });
 
-    // Public instance field, not a constructor option in v3. Suppresses the
-    // built-in scroll-position adjustment while the user is scrolling up so a
-    // remeasure on a nearby item doesn't fight the wheel.
-    this.virt.shouldAdjustScrollPositionOnItemSizeChange = (_item, _delta, instance) =>
-      instance.scrollDirection !== "backward";
-
     this.cleanup = this.virt._didMount();
-
-    this.scrollListener = () => this.updateStickiness();
-    deps.scrollContainer.addEventListener("scroll", this.scrollListener, { passive: true });
-
-    // User-intent listeners. The 80px stickiness threshold serves a different
-    // purpose (re-anchor when the user scrolls back near the bottom); for
-    // *breaking* the stick, any upward gesture is enough — wait for actual
-    // movement away from bottom before letting `sync()` re-snap.
-    this.wheelListener = (raw: Event) => {
-      const e = raw as WheelEvent;
-      if (e.deltaY < 0) this.stickyToBottom = false;
-    };
-    this.pointerDownListener = () => {
-      // Touch / scrollbar drag start. Cheap to clear here, the next scroll
-      // event will re-evaluate via `updateStickiness()`.
-      this.stickyToBottom = false;
-    };
-    deps.scrollContainer.addEventListener("wheel", this.wheelListener, { passive: true });
-    deps.scrollContainer.addEventListener("pointerdown", this.pointerDownListener, { passive: true });
+    for (const event of ["wheel", "touchstart", "pointerdown", "keydown"]) {
+      deps.scrollContainer.addEventListener(event, this.cancelUserScroll, { passive: true });
+    }
 
     this.sync();
   }
@@ -106,7 +85,7 @@ export class ChatVirtualizer {
   // Reflect a change in message count (append, splice). Call whenever
   // state.messages length changes or whenever message order shifts.
   setCount(): void {
-    this.virt.setOptions({ ...this.virt.options, count: this.deps.getMessages().length });
+    this.virt.setOptions({ ...this.virt.options, count: this.deps.getMessages().length, getItemKey: i => this.deps.getMessages()[i]?.id ?? i });
     this.sync();
   }
 
@@ -123,6 +102,7 @@ export class ChatVirtualizer {
   // message's content needs to be rebuilt from scratch.
   evict(messageId: string): void {
     const node = this.nodeByKey.get(messageId);
+    if (node) disposeTree(node);
     if (node?.parentElement) node.remove();
     this.nodeByKey.delete(messageId);
   }
@@ -130,6 +110,7 @@ export class ChatVirtualizer {
   // Drop all cached nodes. Cheap nuke for session change.
   clear(): void {
     for (const node of this.nodeByKey.values()) {
+      disposeTree(node);
       if (node.parentElement) node.remove();
     }
     this.nodeByKey.clear();
@@ -142,6 +123,7 @@ export class ChatVirtualizer {
     const keep = this.nodeByKey.get(messageId);
     for (const [key, node] of this.nodeByKey) {
       if (key === messageId) continue;
+      disposeTree(node);
       if (node.parentElement) node.remove();
     }
     this.nodeByKey.clear();
@@ -151,43 +133,50 @@ export class ChatVirtualizer {
   scrollToBottom(): void {
     const count = this.deps.getMessages().length;
     if (count === 0) return;
-    this.forceBottomOnNextSync = true;
-    this.virt.scrollToIndex(count - 1, { align: "end" });
-    this.stickyToBottom = true;
+    this.virt.scrollToEnd();
+  }
+
+  scrollToItem(id: string): void {
+    const index = this.deps.getMessages().findIndex(item => item.id === id);
+    if (index < 0) return;
+    this.virt.scrollToIndex(index, { align: "start" });
+    this.sync();
   }
 
   isNearBottom(): boolean {
-    return this.stickyToBottom;
+    return this.deps.followEnd !== false && this.virt.isAtEnd();
+  }
+
+  captureAnchor(): { id: string; offset: number } | null {
+    const scrollTop = this.deps.scrollContainer.scrollTop;
+    const item = this.virt.getVirtualItems().find(item => item.end > scrollTop);
+    if (!item) return null;
+    return { id: String(item.key), offset: scrollTop - item.start };
+  }
+
+  restoreAnchor(anchor: { id: string; offset: number }): void {
+    this.hasFirstRenderHappened = true;
+    this.virt.setOptions({ ...this.virt.options, count: this.deps.getMessages().length, getItemKey: i => this.deps.getMessages()[i]?.id ?? i });
+    const index = this.deps.getMessages().findIndex(message => message.id === anchor.id);
+    if (index < 0) { this.sync(); return; }
+    const restore = () => {
+      const offset = this.virt.getOffsetForIndex(index, "start");
+      if (offset) this.virt.scrollToOffset(offset[0] + anchor.offset);
+    };
+    restore();
+    this.sync();
+    restore();
   }
 
   destroy(): void {
     if (this.cleanup) { this.cleanup(); this.cleanup = null; }
-    if (this.scrollListener) {
-      this.deps.scrollContainer.removeEventListener("scroll", this.scrollListener);
-      this.scrollListener = null;
-    }
-    if (this.wheelListener) {
-      this.deps.scrollContainer.removeEventListener("wheel", this.wheelListener);
-      this.wheelListener = null;
-    }
-    if (this.pointerDownListener) {
-      this.deps.scrollContainer.removeEventListener("pointerdown", this.pointerDownListener);
-      this.pointerDownListener = null;
+    for (const event of ["wheel", "touchstart", "pointerdown", "keydown"]) {
+      this.deps.scrollContainer.removeEventListener(event, this.cancelUserScroll);
     }
     this.clear();
     if (this.spacer.parentElement) this.spacer.parentElement.removeChild(this.spacer);
   }
 
-  private updateStickiness(): void {
-    const el = this.deps.scrollContainer;
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    this.stickyToBottom = distanceFromBottom <= STICKY_THRESHOLD_PX;
-  }
-
-  // Wipe any per-item styles a previous (absolute-position) layout era may
-  // have set on a cached node. Items in block-translation layout flow
-  // naturally; carrying over an absolute style would break ordering and
-  // create the same overflow bug the refactor fixes.
   private normaliseItemStyle(node: HTMLElement): void {
     if (node.style.position) node.style.position = "";
     if (node.style.top) node.style.top = "";
@@ -214,9 +203,11 @@ export class ChatVirtualizer {
     for (const [key, node] of this.nodeByKey) {
       if (!activeKeys.has(key) && node.parentElement === this.inner) {
         this.inner.removeChild(node);
+        if (!node.contains(document.activeElement)) { disposeTree(node); this.nodeByKey.delete(key); }
       }
     }
 
+    this.virt.measureElement(null);
     const messages = this.deps.getMessages();
     // Only move nodes whose DOM position is wrong. Re-attaching an already
     // positioned child detaches and reattaches it, blurring any focused
@@ -228,7 +219,10 @@ export class ChatVirtualizer {
       if (!msg) continue;
       let node = this.nodeByKey.get(key);
       if (!node) {
-        node = this.deps.renderMessage(msg, item.index);
+        node = document.createElement("div");
+        node.className = "la-virtual-row";
+        node.style.display = "flow-root";
+        node.append(this.deps.renderMessage(msg, item.index));
         node.setAttribute("data-virt-key", key);
         this.nodeByKey.set(key, node);
       }
@@ -247,37 +241,9 @@ export class ChatVirtualizer {
       this.virt.measureElement(node);
     }
 
-    const stickBottom = (): void => {
-      const count = this.deps.getMessages().length;
-      if (count === 0) return;
-      // Route through the virtualizer so its offset observer stays in sync
-      // with the new scrollTop. A direct `el.scrollTop = ...` write triggers
-      // a self-induced scroll event that re-enters sync() and re-pins the
-      // stickyToBottom flag against the user's intent.
-      this.virt.scrollToIndex(count - 1, { align: "end" });
-    };
-    const isCurrentlyAtBottom = (): boolean => {
-      const el = this.deps.scrollContainer;
-      const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
-      return distance >= 0 && distance <= STICKY_THRESHOLD_PX;
-    };
-
-    const grew = totalSize > this.lastTotalSize;
-    this.lastTotalSize = totalSize;
-
-    if (!this.hasFirstRenderHappened) {
-      this.hasFirstRenderHappened = items.length > 0;
-      if (this.hasFirstRenderHappened && this.stickyToBottom) stickBottom();
-    } else if (this.forceBottomOnNextSync) {
-      this.forceBottomOnNextSync = false;
-      stickBottom();
-    } else if (this.stickyToBottom && grew && this.virt.scrollDirection !== "backward") {
-      // Only re-anchor when the content grew (new message / streaming token).
-      // Pure remeasures (ResizeObserver tick on an existing item) leave the
-      // user's scroll position alone, which was the bounce bug.
-      stickBottom();
-    } else if (!isCurrentlyAtBottom()) {
-      this.stickyToBottom = false;
+    if (!this.hasFirstRenderHappened && items.length > 0) {
+      this.hasFirstRenderHappened = true;
+      if (this.deps.initialPosition !== "start" && this.deps.followEnd !== false) this.scrollToBottom();
     }
   }
 }

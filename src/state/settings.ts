@@ -40,6 +40,7 @@ export interface AgentSettings {
   // default). Disable for providers that choke on parallel emission (some
   // Mistral configurations, certain self-hosted setups).
   readonly parallelToolCalls: boolean;
+  readonly autoCompaction: boolean;
   // null = no throttle. Positive = max tokens (prompt + completion) the agent
   // loop may consume per rolling 60s before it pauses requests. Guards a
   // provider's tokens-per-minute quota (e.g. Gemini free tier 250k TPM).
@@ -106,6 +107,7 @@ export function defaultSettings(): AgentSettings {
     toolOutputCapTokens: null,
     cacheMode: "full",
     parallelToolCalls: true,
+    autoCompaction: true,
     tpmLimit: null,
     rpmLimit: null,
     debugLogging: false,
@@ -155,6 +157,7 @@ export async function loadSettings(spindle: SpindleAPI, userId: string): Promise
     toolOutputCapTokens: coercePositiveInt(s["toolOutputCapTokens"]),
     cacheMode: coerceCacheMode(s["cacheMode"]),
     parallelToolCalls: typeof s["parallelToolCalls"] === "boolean" ? (s["parallelToolCalls"] as boolean) : true,
+    autoCompaction: s["autoCompaction"] !== false,
     tpmLimit: coercePositiveInt(s["tpmLimit"]),
     rpmLimit: coercePositiveInt(s["rpmLimit"]),
     debugLogging: s["debugLogging"] === true,

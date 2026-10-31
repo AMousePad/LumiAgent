@@ -1,3 +1,10 @@
+import { RequestFeedback } from "./request-feedback";
+import { mergeHistoryPage, HISTORY_WINDOW_SIZE } from "./history-window";
+import { SessionSync } from "./session-sync";
+import { messageSessionId } from "../state/session-sync";
+import { MessageReader } from "./message-reader";
+import { organizeSettings } from "./settings-layout";
+import { mountRecordPicker } from "./record-picker";
 import { WorkspaceUploads } from "./workspace-upload";
 import type { SpindleFrontendContext, SpindleModalHandle } from "lumiverse-spindle-types";
 import type {
@@ -21,12 +28,14 @@ import type {
   SessionSummaryWire,
   ChangeApprovalRequestWire,
 } from "../types";
-import { characterScope, scopeKeyString } from "../types";
+import { characterScope, scopeKeyString, canRevertEdit } from "../types";
 import { STYLES } from "./styles";
 import {
   type AssistantHandle,
   buildEditIndex,
   createStreamingAssistant,
+  isCompactionMessage,
+  isCompactionPlaceholder,
   renderMessage,
 } from "./chat-thread";
 import { ChatVirtualizer } from "./chat-virtualizer";
@@ -98,7 +107,7 @@ interface UiState {
   scopeLedgers: Map<string, readonly EditLogEntry[]>;
   chatsForCharacter: ChatSummary[];
   pinnedChatId: string | null;
-  settings: { persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody?: string; samplers?: Readonly<Record<string, number | null>>; jailbreak?: string; jailbreakPlacement?: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes?: number | null; workspaceCapDefaultBytes?: number; workspaceFileCapBytes?: number; toolOutputCapTokens?: number | null; toolOutputCapDefaultTokens?: number; cacheMode?: "off" | "system_only" | "full"; parallelToolCalls?: boolean; tpmLimit?: number | null; rpmLimit?: number | null; debugLogging?: boolean; requireChangeApproval?: boolean; reasoningEffort?: "inherit" | "off" | "minimal" | "low" | "medium" | "high" | "max" } | null;
+  settings: { persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody?: string; samplers?: Readonly<Record<string, number | null>>; jailbreak?: string; jailbreakPlacement?: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes?: number | null; workspaceCapDefaultBytes?: number; workspaceFileCapBytes?: number; toolOutputCapTokens?: number | null; toolOutputCapDefaultTokens?: number; cacheMode?: "off" | "system_only" | "full"; parallelToolCalls?: boolean; autoCompaction?: boolean; tpmLimit?: number | null; rpmLimit?: number | null; debugLogging?: boolean; requireChangeApproval?: boolean; reasoningEffort?: "inherit" | "off" | "minimal" | "low" | "medium" | "high" | "max" } | null;
   pendingPinChatId: string | null;
   // Single-shot, reset after consume so a later list_chats won't re-pin after the user explicitly unpinned.
   autoPinNeeded: boolean;
@@ -137,9 +146,6 @@ interface UiState {
   // View-only: which scope the workshop combo is focused on. Null = follow
   // the active session's scope. Never an authority for the header badge.
   workshopFocusScope: ScopeRef | null;
-  // Whether the streaming bubble currently shows the cycling thinking
-  // indicator. The indicator itself lives inside the bubble; this flag just
-  // gates re-toggles so we don't churn DOM nodes on every event.
   loading: boolean;
   // Message id whose bubble currently hosts an inline edit textarea.
   // rerenderThread preserves that bubble while this is set.
@@ -363,8 +369,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     const s = el("button", "la-empty-suggestion", item.label);
     s.title = item.send;
     s.addEventListener("click", () => {
-      textarea.value = item.send;
-      autosizeTextarea();
+      setComposerText(item.send);
       void doSend();
     });
     suggestions.appendChild(s);
@@ -378,7 +383,14 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   mouseyImg.src = resolveMouseyImageUrl();
   mouseyImg.alt = "";
   mouseyImg.setAttribute("aria-hidden", "true");
+  mouseyImg.draggable = false;
   composer.appendChild(mouseyImg);
+  const mouseyHit = document.createElement("button");
+  mouseyHit.type = "button";
+  mouseyHit.className = "la-mousey-hit";
+  mouseyHit.setAttribute("aria-label", "Play Mousey animation");
+  mouseyHit.hidden = true;
+  composer.appendChild(mouseyHit);
   const composerInner = el("div", "la-composer-inner");
   const composerArea = el("div", "la-composer-area");
   const textarea = document.createElement("textarea");
@@ -388,7 +400,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   const composerActions = el("div", "la-composer-actions");
   const attachBtn = el("button", "la-attach-btn") as HTMLButtonElement;
   attachBtn.type = "button";
-  attachBtn.setAttribute("aria-label", "Attach image");
+  attachBtn.setAttribute("aria-label", "Attach files or images");
   attachBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
   const fileInput = document.createElement("input");
   fileInput.type = "file";
@@ -431,6 +443,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   const composerAttachments = el("div", "la-attachments");
   composerAttachments.style.display = "none";
   const composerStatus = el("div", "la-composer-status");
+  composerStatus.setAttribute("role", "status");
   composerInner.append(queuedWrap, composerAttachments, composerArea, composerStatus);
   composer.appendChild(composerInner);
   composer.appendChild(fileInput);
@@ -520,9 +533,29 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   // Auto-grow textarea
   const TEXTAREA_MAX_PX = 84;
   const autosizeTextarea = (): void => {
+    if (textarea.clientWidth === 0) return;
     textarea.style.height = "auto";
-    textarea.style.height = Math.min(textarea.scrollHeight, TEXTAREA_MAX_PX) + "px";
+    const style = getComputedStyle(textarea);
+    const border = parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+    textarea.style.height = Math.min(textarea.scrollHeight + border, TEXTAREA_MAX_PX) + "px";
   };
+  const setComposerText = (value: string): void => {
+    textarea.value = value;
+    autosizeTextarea();
+  };
+  let textareaWidth = 0;
+  let textareaResizeFrame = 0;
+  const textareaObserver = new ResizeObserver(([entry]) => {
+    const width = entry?.contentRect.width ?? 0;
+    if (width === textareaWidth) return;
+    textareaWidth = width;
+    cancelAnimationFrame(textareaResizeFrame);
+    textareaResizeFrame = requestAnimationFrame(() => {
+      textareaResizeFrame = 0;
+      autosizeTextarea();
+    });
+  });
+  textareaObserver.observe(textarea);
   textarea.addEventListener("input", autosizeTextarea);
   // Refresh send-button enabled state as the user types (text vs empty
   // changes whether send is allowed depending on last-message role).
@@ -537,6 +570,14 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     mouseyOverlapRaf = requestAnimationFrame(() => {
       mouseyOverlapRaf = null;
       const m = mouseyImg.getBoundingClientRect();
+      const parent = composer.getBoundingClientRect();
+      const inputTop = composerArea.getBoundingClientRect().top;
+      const hitHeight = Math.max(0, Math.min(m.bottom, inputTop) - m.top);
+      mouseyHit.hidden = m.width === 0 || hitHeight === 0;
+      mouseyHit.style.left = `${m.left - parent.left - composer.clientLeft}px`;
+      mouseyHit.style.top = `${m.top - parent.top - composer.clientTop}px`;
+      mouseyHit.style.width = `${m.width}px`;
+      mouseyHit.style.height = `${hitHeight}px`;
       if (m.width === 0 || m.height === 0) {
         mouseyImg.classList.remove("la-mousey-overlap");
         return;
@@ -554,6 +595,9 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   };
   textarea.addEventListener("input", detectMouseyOverlap);
   window.addEventListener("resize", detectMouseyOverlap);
+  mouseyImg.addEventListener("load", detectMouseyOverlap);
+  const mouseyObserver = new ResizeObserver(detectMouseyOverlap);
+  for (const element of [mouseyImg, composer, composerArea]) mouseyObserver.observe(element);
 
   // Meet-Mousey banner: sits above the header and pushes the UI down until
   // the tour has been played to its finale.
@@ -570,20 +614,135 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     meetBanner.style.display = tutorialDone ? "none" : "";
   };
 
-  root.append(meetBanner, header, thread, composer);
+  const threadShell = el("div", "la-thread-shell");
+  threadShell.append(thread);
+  root.append(meetBanner, header, threadShell, composer);
+  const historyFeedback = new RequestFeedback(threadShell);
+  const commandFeedback = new RequestFeedback(threadShell);
+  let waitingCommandSession: string | null = null;
+  let openingConversation = false;
 
-  const sendBackend = (msg: FrontendToBackend) => ctx.sendToBackend(msg);
+  const sessionSync = new SessionSync();
+  let historyPage = { start: 0, end: 0, total: 0 };
+  let pendingHistory: { requestId: string; sessionId: string; direction: "before" | "after" } | null = null;
+  let historySettling = false;
+  let historyScrollFrame = 0;
+  let historyRestoreFrame = 0;
+  let lastHistoryScroll = 0;
+  const sendBackend = (msg: FrontendToBackend) => {
+    if (msg.type === "load_session") {
+      const requestId = sessionSync.request(msg.sessionId, msg.before);
+      if (!requestId) return;
+      if (waitingCommandSession && waitingCommandSession !== msg.sessionId) {
+        commandFeedback.clear();
+        waitingCommandSession = null;
+      }
+      msg = { ...msg, requestId };
+      pendingHistory = null;
+
+      openingConversation = state.sessionId !== msg.sessionId;
+      const blocking = openingConversation || msg.before === undefined;
+      thread.inert = blocking;
+      threadShell.classList.toggle("is-syncing", blocking);
+      threadShell.classList.toggle("is-opening", openingConversation);
+      thread.setAttribute("aria-busy", "true");
+      updateComposer();
+      const request = msg;
+      historyFeedback.begin(msg.requestId!, { label: openingConversation ? "Loading conversation…" : blocking ? "Syncing…" : "Loading messages…",
+        position: state.messages.length && state.sessionId === msg.sessionId ? "top" : "center",
+        retry: () => sendBackend({ type: "load_session", sessionId: request.sessionId, ...(request.before !== undefined ? { before: request.before } : {}) }),
+        onTimeout: () => { thread.removeAttribute("aria-busy"); },
+      });
+    }
+    if (["start_session", "send_message", "continue_session", "edit_user_message", "regenerate_assistant_message", "delete_message", "free_tool_result", "compact_session", "cancel_generation"].includes(msg.type) && "sessionId" in msg && typeof msg.sessionId === "string") {
+      const id = msg.sessionId;
+      waitingCommandSession = id;
+      commandFeedback.begin(id, { label: msg.type === "delete_message" ? "Deleting…" : msg.type === "cancel_generation" ? "Stopping…" : "Waiting…", position: "bottom",
+        timeoutMessage: "Still waiting for the server", retryLabel: "Reconnect",
+        retry: () => sendBackend({ type: "load_session", sessionId: id }),
+      });
+    }
+    try { ctx.sendToBackend(msg); }
+    catch {
+      if (msg.type === "load_session" || msg.type === "load_session_page") {
+        historyFeedback.fail(msg.requestId!, "Couldn’t reach the server");
+        if (msg.type === "load_session") sessionSync.requestId = null;
+        else pendingHistory = null;
+        thread.removeAttribute("aria-busy");
+      } else if (waitingCommandSession) commandFeedback.fail(waitingCommandSession, "Couldn’t reach the server");
+    }
+  };
+  const messageReader = new MessageReader(sendBackend);
+  const requestHistory = (direction: "before" | "after") => {
+    if (!state.sessionId || sessionSync.requestId || pendingHistory || historySettling) return;
+    if (direction === "before" ? historyPage.start <= 0 : historyPage.end >= historyPage.total) return;
+    const requestId = crypto.randomUUID();
+    pendingHistory = { requestId, sessionId: state.sessionId, direction };
+    historyFeedback.begin(requestId, { label: "Loading messages…", position: direction === "before" ? "top" : "bottom",
+      retry: () => requestHistory(direction),
+      onTimeout: () => { if (pendingHistory?.requestId === requestId) pendingHistory = null; thread.removeAttribute("aria-busy"); },
+    });
+    thread.setAttribute("aria-busy", "true");
+    sendBackend({ type: "load_session_page", sessionId: state.sessionId, requestId,
+      before: direction === "before" ? historyPage.start : Math.min(historyPage.total, historyPage.end + 30) });
+  };
+  const onHistoryScroll = () => {
+    if (historyScrollFrame) return;
+    historyScrollFrame = requestAnimationFrame(() => {
+      historyScrollFrame = 0;
+      const position = thread.scrollTop;
+      const delta = position - lastHistoryScroll;
+      lastHistoryScroll = position;
+      if (historySettling || state.editingMessageId) return;
+      if (delta < 0 && position < 600) requestHistory("before");
+      else if (delta > 0 && thread.scrollHeight - position - thread.clientHeight < 600) requestHistory("after");
+    });
+  };
+  const receiveHistoryPage = (msg: Extract<BackendToFrontend, { type: "session_page" }>) => {
+    const pending = pendingHistory;
+    if (!pending || pending.requestId !== msg.requestId || pending.sessionId !== msg.sessionId || state.sessionId !== msg.sessionId) return;
+    pendingHistory = null;
+    historyFeedback.finish(msg.requestId!);
+
+    thread.removeAttribute("aria-busy");
+    if (!msg.sync || msg.sync.epoch !== sessionSync.revision?.epoch || msg.sync.sequence < sessionSync.revision.sequence) return;
+    const merged = mergeHistoryPage({ ...historyPage, messages: state.messages }, { ...msg.page, messages: msg.messages }, pending.direction);
+    if (!merged) {
+      const anchor = virtualizer.captureAnchor();
+      const index = anchor ? state.messages.findIndex(message => message.id === anchor.id) : 0;
+      sendBackend({ type: "load_session", sessionId: msg.sessionId, before: Math.min(msg.page.total, historyPage.start + Math.max(0, index) + 15) });
+      return;
+    }
+    const anchor = virtualizer.captureAnchor();
+    historySettling = true;
+    state.messages = [...merged.messages];
+    historyPage = { start: merged.start, end: merged.end, total: merged.total };
+    if (state.currentAssistantMessage && !state.messages.some(message => message.id === state.currentAssistantMessage!.id)) {
+      state.streamingAssistant?.destroy();
+      state.streamingAssistant = null;
+      state.currentAssistantMessage = null;
+    }
+    if (merged.end === merged.total) {
+      sessionSync.revision = msg.sync;
+      if (!state.streamingAssistant && msg.status.phase !== "idle") rehydrateStreamingTurn();
+      applyStatus(msg.status);
+    }
+    if (anchor) virtualizer.restoreAnchor(anchor);
+    else virtualizer.setCount();
+    historyRestoreFrame = requestAnimationFrame(() => {
+      historyRestoreFrame = 0;
+      if (state.sessionId !== msg.sessionId || sessionSync.requestId) { historySettling = false; return; }
+      if (anchor) virtualizer.restoreAnchor(anchor);
+      lastHistoryScroll = thread.scrollTop;
+      historySettling = false;
+    });
+  };
   void import("./image-cache").then((m) => m.configureImageCache((path) => sendBackend({ type: "ws_read_image", path })));
 
-  // Splice the currently-selected connection id into a wire message when set.
-  // Backend heals s.connectionId from this on every entry path; sites that
-  // skip the spread would silently use whatever was last persisted.
-  // Resolve against the live connection list: if the saved id was deleted, send
-  // the default the picker is actually showing (renderConnOptions falls back to
-  // it silently, so state.connectionId can hold a stale dead id otherwise).
+  // The picker may show a default before preferences arrive.
   const withConnection = <T extends object>(msg: T): T => {
-    let id = state.connectionId;
-    if (id && !state.connections.some((c) => c.id === id)) {
+    let id = connCombo.getValue() ?? state.connectionId;
+    if (!id || !state.connections.some((c) => c.id === id)) {
       id = state.connections.find((c) => c.is_default)?.id ?? null;
     }
     return id ? { ...msg, connectionId: id } : msg;
@@ -725,11 +884,12 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       compactTipSub.textContent = "Replacing history with a handoff primer.";
     } else if (state.contextPromptTokens === 0) {
       compactTipMain.textContent = "Context fully available.";
-      compactTipSub.textContent = "Click to compact now.";
     } else {
-      compactTipMain.textContent = `${remainingPct}% context remaining until auto-compact.`;
-      compactTipSub.textContent = "Click to compact now.";
+      compactTipMain.textContent = `${remainingPct}% context remaining.`;
     }
+    if (!state.compacting) compactTipSub.textContent = state.settings?.autoCompaction === false
+      ? "Automatic compaction is off. Click to compact manually."
+      : "Automatic compaction at 84% used. Click to compact now.";
     const canClick = !!state.sessionId && !state.isGenerating && !state.startingSession && !state.compacting;
     compactBtn.disabled = !canClick;
   };
@@ -742,7 +902,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     // seconds, during which Send must disable and the character / pin / connection
     // controls must lock, exactly as they do during a generation.
     updateComposer();
-    sendBackend({ type: "compact_session", sessionId: state.sessionId });
+    sendBackend(withConnection({ type: "compact_session", sessionId: state.sessionId }));
   });
 
   // What a Send click does, derived from the backend-authoritative status
@@ -775,6 +935,13 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   let deathPending = false;
 
   const updateComposer = () => {
+    if (openingConversation) {
+      sendBtn.style.display = "flex";
+      sendBtn.disabled = true;
+      cancelBtn.style.display = "none";
+      sendMode = "disabled";
+      return;
+    }
     if (mouseyDead) {
       sendBtn.style.display = "";
       sendBtn.disabled = true;
@@ -793,18 +960,13 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     sendBtn.disabled = false;
     const busy = state.isGenerating || state.startingSession || state.compacting;
     if (busy) {
-      // Send stays visible while generating: it queues instead of sending.
-      sendBtn.style.display = state.isGenerating ? "" : "none";
-      cancelBtn.style.display = "";
-      // Can't abort before the backend has acknowledged the session.
+      const hasDraft = textarea.value.trim().length > 0 || state.attachments.length > 0 || state.fileAttachments.length > 0;
+      sendBtn.style.display = hasDraft ? "flex" : "none";
+      cancelBtn.style.display = hasDraft ? "none" : "flex";
+      sendBtn.disabled = state.startingSession || state.compacting || state.fileAttachments.some(attachment => attachment.status === "uploading");
       cancelBtn.disabled = state.startingSession;
       textarea.disabled = false;
-      setComposerStatus(
-        state.startingSession ? "starting session..."
-        : state.compacting ? "compacting context..."
-        : queuedMessages.length > 0 ? `agent is working... ${queuedMessages.length} message${queuedMessages.length === 1 ? "" : "s"} queued`
-        : "agent is working... new sends queue",
-      );
+      setComposerStatus("");
       sendMode = "disabled";
     } else {
       sendBtn.style.display = "";
@@ -833,9 +995,9 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       } else if (recoverable) {
         sendMode = "recover";
         setComposerStatus("Last response failed empty. Press Send to retry it.");
-      } else if (lastRole === "user" && !!state.sessionId) {
+      } else if (!!state.sessionId && (lastRole === "user" || (statusFresh && (st!.lastAssistantStatus === "errored" || st!.lastAssistantStatus === "cancelled")))) {
         sendMode = "continue";
-        setComposerStatus("");
+        setComposerStatus("Continue from saved progress");
       } else {
         // Assistant message last (completed/cancelled), or empty thread with
         // no text: nothing to send.
@@ -859,9 +1021,11 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     state.sessionStatus = st;
     state.isGenerating = st.phase === "generating";
     state.compacting = st.phase === "compacting";
-    if (st.phase !== "idle") {
-      state.startingSession = false;
-      clearStartTimeout();
+    state.startingSession = false;
+    clearStartTimeout();
+    if (st.phase === "idle") {
+      state.streamingAssistant?.setLoading(false);
+      state.loading = false;
     }
     state.contextPromptTokens = st.promptTokens;
     if (st.contextTokens > 0) state.contextTokens = st.contextTokens;
@@ -877,7 +1041,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   const enterDeadState = (animated: boolean): void => {
     if (mouseyDead) return;
     mouseyDead = true;
-    textarea.value = "";
+    setComposerText("");
     // A lingering overlap mask would clip the blood pool's glow to the
     // image box (masks cut the drop-shadow painted outside it).
     mouseyImg.classList.remove("la-mousey-overlap");
@@ -886,10 +1050,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       mouseyImg.classList.remove("la-mousey-exploding");
       mouseyImg.src = BLOOD_POOL_DATA_URL;
       mouseyImg.classList.add("la-mousey-blood");
-      mouseyImg.title = "Restore Mousey from backup";
-      mouseyImg.setAttribute("aria-hidden", "false");
-      mouseyImg.setAttribute("role", "button");
-      mouseyImg.setAttribute("aria-label", "Restore Mousey from backup");
+      mouseyHit.setAttribute("aria-label", "Restore Mousey from backup");
     };
     if (animated) {
       mouseyImg.classList.add("la-mousey-exploding");
@@ -931,11 +1092,12 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     mouseyImg.setAttribute("aria-hidden", "true");
     mouseyImg.removeAttribute("role");
     mouseyImg.removeAttribute("aria-label");
+    mouseyHit.setAttribute("aria-label", "Play Mousey animation");
     updateComposer();
     sendBackend({ type: "update_ui_prefs", connectionId: state.connectionId, lastSessionId: state.sessionId, mouseyDead: false });
     sendBackend({ type: "mousey_revived", sessionId: state.sessionId });
   };
-  mouseyImg.addEventListener("click", () => {
+  mouseyHit.addEventListener("click", () => {
     if (mouseyDead) {
       reviveMousey();
       return;
@@ -1039,6 +1201,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       getEdits: () => scopeEntries(workshopScope()),
       getScopes: () => buildScopeOptions(),
       getSelectedScope: () => workshopScope(),
+      readEdit: (entry, part, offset) => messageReader.edit(entry.scope, entry.id, part, offset),
       onSelectScope: (scope) => {
         state.workshopFocusScope = scope;
         sendBackend({ type: "load_character_workshop", characterId: scope.id, scope });
@@ -1117,8 +1280,6 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   });
 
   const rerenderThread = () => {
-    // Loading lives inside the streaming bubble now; flipping the flag is
-    // sufficient. The bubble's own setLoading handler clears the DOM node.
     state.loading = false;
     if (!state.sessionId || state.messages.length === 0) {
       virtualizer.clear();
@@ -1159,13 +1320,15 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   // Per-message banners count edits this session attributed to a message,
   // across every scope, so the session mirror is the right source.
   const liveEditsForAssistantMessage = (assistantMessageId: string): number => {
-    return state.edits.filter((e) => e.assistantMessageId === assistantMessageId && !e.reverted).length;
+    return state.messages.find(message => message.id === assistantMessageId)?.editCounts?.own ?? state.edits.filter((e) => e.assistantMessageId === assistantMessageId && canRevertEdit(e)).length;
   };
   const liveEditsAfterUserMessage = (userMessageId: string): number => {
     const idx = state.messages.findIndex((m) => m.id === userMessageId && m.role === "user");
     if (idx < 0) return 0;
+    const counts = state.messages[idx]?.editCounts;
+    if (counts) return counts.following;
     const tailAssistantIds = new Set(state.messages.slice(idx + 1).filter((m) => m.role === "assistant").map((m) => m.id));
-    return state.edits.filter((e) => e.assistantMessageId !== undefined && tailAssistantIds.has(e.assistantMessageId) && !e.reverted).length;
+    return state.edits.filter((e) => e.assistantMessageId !== undefined && tailAssistantIds.has(e.assistantMessageId) && canRevertEdit(e)).length;
   };
   const promptEditsAction = async (opts: { liveEditCount: number; action: "edit" | "regenerate" | "delete" }): Promise<"keep" | "revert" | "cancel"> => {
     const verb = opts.action === "edit"
@@ -1188,6 +1351,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
 
   function makeThreadDeps() {
     return {
+      getMessageSource: (id: string) => messageReader.source(state.sessionId!, id),
       onRevertEdit: async (editId: string) => {
         // Use the edit's OWN scope, not state.characterId: an edit can be filed
         // under persona/chat/preset/wb/rx, and in a no-character session
@@ -1385,6 +1549,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       thanks.addEventListener("click", () => handle.dismiss());
       row.appendChild(thanks);
       wrap.appendChild(row);
+      handle.root.classList.add("la-modal-body");
       handle.root.appendChild(wrap);
     },
   });
@@ -1419,6 +1584,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     stage("bashful", "Do you want to meet Mousey?", "Yes!", "No", () => {
       stage("pleading", "Are... you sure, you don't want to meet Mousey?", "Okay, let's meet", "I'm sure", () => handle.dismiss());
     });
+    handle.root.classList.add("la-modal-body");
     handle.root.appendChild(wrap);
   };
 
@@ -1536,7 +1702,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         return;
       }
       for (const c of state.chatsForCharacter) {
-        const row = el("div", `la-session-item ${c.isPinned ? "is-active" : ""}`);
+        const row = el("button", `la-session-item ${c.isPinned ? "is-active" : ""}`);
         const main = el("div", "la-session-item-main");
         main.append(Object.assign(el("div"), { textContent: c.name + (c.isActive ? "  (currently open)" : "") }));
         const memberNames = c.memberCharacterIds
@@ -1562,6 +1728,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         list.appendChild(row);
       }
     };
+    handle.root.classList.add("la-modal-body");
     handle.root.append(note, list);
     render();
     // Re-render when chats_pushed arrives (e.g. after a pin click).
@@ -1585,21 +1752,16 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
 
   const openSessionsModal = (): void => {
     const handle: SpindleModalHandle = ctx.ui.showModal({ title: "Sessions", width: 520 });
-    const list = el("div", "la-sessions-modal-list");
-    handle.root.appendChild(list);
-
-    const render = (): void => {
-      list.innerHTML = "";
-      if (state.sessions.length === 0) {
-        list.appendChild(el("div", "la-diff-pane-empty", "No sessions yet."));
-        return;
-      }
-      for (const s of state.sessions) {
+    const picker = mountRecordPicker<(typeof state.sessions)[number] & { id: string }>(handle.root, {
+      label: "Search conversations",
+      reload: () => sendBackend({ type: "list_sessions" }),
+      search: session => `${session.title ?? ""} ${session.characterName} ${session.sessionId}`,
+      render: s => {
         const isCurrent = s.sessionId === state.sessionId;
         const row = el("div", `la-session-item ${isCurrent ? "is-active" : ""}`);
-        const main = el("div", "la-session-item-main");
-        main.append(el("div", undefined, s.characterId === null ? "(No character)" : s.characterName));
-        main.append(el("div", "la-session-item-meta", `${s.messageCount} msg . ${s.editCount} edits${s.revertedEditCount ? ` (${s.revertedEditCount} reverted)` : ""} . ${new Date(s.lastActivityAt).toLocaleString()}`));
+        const main = el("button", "la-session-item-main");
+        main.append(el("div", "la-session-title", s.title || s.characterName || "Conversation"));
+        main.append(el("div", "la-session-item-meta", `${s.messageCount} messages · ${s.editCount} changes · ${new Date(s.lastActivityAt).toLocaleDateString()}`));
         const exportBtn = el("button", "la-session-item-delete") as HTMLButtonElement;
         exportBtn.type = "button";
         exportBtn.title = "Export session as Markdown";
@@ -1632,20 +1794,22 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
           row.appendChild(tick);
         }
         row.append(exportBtn, delBtn);
-        row.addEventListener("click", () => {
+        main.addEventListener("click", () => {
           sendBackend({ type: "load_session", sessionId: s.sessionId });
           handle.dismiss();
         });
-        list.appendChild(row);
-      }
-    };
+        return row;
+      },
+    });
+    const render = () => picker.setItems(state.sessions.map(session => ({ ...session, id: session.sessionId })));
 
     render();
     // Refresh the list whenever sessions_pushed comes in (e.g. after a delete).
     // Also re-request immediately in case state.sessions is stale.
-    sendBackend({ type: "list_sessions" });
     const detach = pushSessionsListeners.push(render);
-    handle.onDismiss(() => detach());
+    picker.refresh();
+    handle.onDismiss(() => { detach(); picker.destroy(); });
+    picker.focus();
   };
 
   editsBadge.addEventListener("click", () => openDiffs());
@@ -1707,14 +1871,14 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     // viewport anyway, this just spends the slack on narrow screens
     // (laptops, side-by-side windows) instead of always hitting the cap.
     const viewportW = typeof window !== "undefined" ? window.innerWidth : 1360;
-    const modalWidth = Math.max(560, Math.min(Math.floor(viewportW * 0.9), 1360));
+    const modalWidth = Math.max(280, Math.min(viewportW - 24, 1080));
     const handle = ctx.ui.showModal({ title: "Agent settings", width: modalWidth, maxHeight: 1080 });
     const wrap = el("div", "la-agent-settings");
-    wrap.appendChild(el("p", "la-modal-note", "Customize how LumiAgent behaves. Changes save automatically on blur and on close, and apply to your next message."));
+    wrap.appendChild(el("p", "la-modal-note", "Saves automatically. Applies to your next message."));
 
     // --- Persona ---
     wrap.appendChild(el("label", "la-settings-label", "Persona"));
-    wrap.appendChild(el("div", "la-settings-hint", "Defines who the agent is. Prepended above the technical instructions. Default = the LumiAgent mousegirl persona."));
+    wrap.appendChild(el("div", "la-settings-hint", "The agent’s identity and voice."));
     const personaArea = document.createElement("textarea");
     personaArea.className = "la-settings-textarea";
     personaArea.rows = 8;
@@ -1726,7 +1890,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
 
     // --- System prompt body ---
     wrap.appendChild(el("label", "la-settings-label", "System prompt body"));
-    wrap.appendChild(el("div", "la-settings-hint", "The technical body. Tool guidance, working principles, edit discipline. The persona, LumiRealm, pinned-chat, and external-provider sections are appended automatically; you only own this body."));
+    wrap.appendChild(el("div", "la-settings-hint", "Core instructions. Character and tool context is added automatically."));
     const promptArea = document.createElement("textarea");
     promptArea.className = "la-settings-textarea la-settings-textarea-tall";
     promptArea.rows = 12;
@@ -1738,7 +1902,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
 
     // --- Samplers ---
     wrap.appendChild(el("label", "la-settings-label", "Samplers"));
-    wrap.appendChild(el("div", "la-settings-hint", "Drag a slider to set, double-click to reset that sampler, empty number = inherit from the connection's preset."));
+    wrap.appendChild(el("div", "la-settings-hint", "Leave a value empty to use the connection preset."));
     const samplersList = el("div", "la-samplers-list");
     wrap.appendChild(samplersList);
     const samplersResetRow = el("div", "la-settings-reset-row");
@@ -1867,6 +2031,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     wrap.appendChild(cacheModeRow);
 
     const reasoningRow = el("div", "la-settings-row");
+    wrap.appendChild(el("label", "la-settings-label", "Generation"));
     reasoningRow.append(el("label", "la-settings-row-label", "Reasoning effort"));
     const reasoningSelect = document.createElement("select");
     reasoningSelect.className = "la-select";
@@ -1888,6 +2053,15 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     parallelToolsRow.appendChild(parallelToolsInput);
     wrap.appendChild(parallelToolsRow);
     wrap.appendChild(el("div", "la-settings-hint", "Leave ON for Anthropic, OpenAI, Google, most OpenRouter routes. Turn OFF for providers that error on parallel tool emission."));
+
+    const autoCompactionRow = el("div", "la-settings-row");
+    autoCompactionRow.append(el("label", "la-settings-row-label", "Automatic compaction"));
+    const autoCompactionInput = document.createElement("input");
+    autoCompactionInput.type = "checkbox";
+    autoCompactionInput.className = "la-checkbox";
+    autoCompactionRow.appendChild(autoCompactionInput);
+    wrap.appendChild(autoCompactionRow);
+    wrap.appendChild(el("div", "la-settings-hint", "Compact conversation history at 84% of the configured context size. Turn off to compact only when you click the context ring."));
 
     const debugLogRow = el("div", "la-settings-row");
     debugLogRow.append(el("label", "la-settings-row-label", "Debug logging"));
@@ -1960,7 +2134,12 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     sendBackend({ type: "get_phoneline_pairings" });
 
     const status = el("div", "la-composer-status");
+    status.setAttribute("role", "status");
     wrap.appendChild(status);
+    let pendingSave = false;
+    let formDirty = false;
+    let formRevision = 0;
+    wrap.addEventListener("input", () => { formDirty = true; formRevision++; status.textContent = "Unsaved changes"; });
 
     // Forward-declared so the sampler slider closures can call it. Real impl
     // installs below once all inputs are in scope.
@@ -1973,6 +2152,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     };
 
     const populate = (): void => {
+      if (pendingSave || formDirty) return;
       const s = state.settings;
       if (!s) {
         personaArea.value = "";
@@ -2005,6 +2185,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       cacheModeSelect.value = s.cacheMode ?? "full";
       reasoningSelect.value = s.reasoningEffort ?? "inherit";
       parallelToolsInput.checked = s.parallelToolCalls ?? true;
+      autoCompactionInput.checked = s.autoCompaction ?? true;
       debugLogInput.checked = s.debugLogging ?? false;
       changeApprovalInput.checked = s.requireChangeApproval ?? false;
       tpmInput.value = s.tpmLimit ? String(s.tpmLimit) : "";
@@ -2042,12 +2223,14 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       numInput.step = String(def.step);
       numInput.placeholder = String(def.defaultHint);
       header.append(label, numInput);
-      const track = el("div", "la-slider-track");
-      track.title = "Drag to set, double-click to reset";
-      const fill = el("div", "la-slider-fill");
-      const thumb = el("div", "la-slider-thumb");
-      track.append(fill, thumb);
-      row.append(header, track);
+      numInput.setAttribute("aria-label", def.label);
+      const track = document.createElement("input");
+      track.type = "range"; track.className = "la-slider-native";
+      track.min = String(def.min); track.max = String(def.max); track.step = String(def.step);
+      track.setAttribute("aria-label", def.label);
+      const reset = el("button", "la-slider-reset", "Reset");
+      reset.setAttribute("aria-label", `Reset ${def.label}`);
+      header.append(reset); row.append(header, track);
 
       const decimals = (String(def.step).split(".")[1] || "").length;
       const snap = (raw: number): number => {
@@ -2055,18 +2238,9 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         const stepped = Math.round((clamped - def.min) / def.step) * def.step + def.min;
         return def.type === "int" ? Math.round(stepped) : parseFloat(stepped.toFixed(decimals));
       };
-      const posToValue = (clientX: number): number => {
-        const rect = track.getBoundingClientRect();
-        if (!rect || rect.width === 0) return def.defaultHint;
-        const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-        return snap(def.min + ratio * (def.max - def.min));
-      };
       const applyVisual = (displayValue: number, isSet: boolean): void => {
-        const range = def.max - def.min;
-        const pct = range > 0 ? Math.max(0, Math.min(100, ((displayValue - def.min) / range) * 100)) : 0;
-        fill.style.width = `${pct}%`;
-        thumb.style.left = `${pct}%`;
-        track.classList.toggle("la-slider-track-set", isSet);
+        track.value = String(displayValue);
+        track.setAttribute("aria-valuetext", isSet ? String(displayValue) : `Connection preset (${displayValue})`);
         label.classList.toggle("la-slider-label-set", isSet);
         numInput.classList.toggle("la-slider-input-set", isSet);
       };
@@ -2078,28 +2252,9 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         applyVisual(display, isSet);
       };
 
-      let dragging = false;
-      let dragValue: number | null = null;
-      track.addEventListener("pointerdown", (e) => {
-        e.preventDefault();
-        dragging = true;
-        try { track.setPointerCapture(e.pointerId); } catch { /* */ }
-        dragValue = posToValue(e.clientX);
-        applyVisual(dragValue, true);
-      });
-      track.addEventListener("pointermove", (e) => {
-        if (!dragging) return;
-        dragValue = posToValue(e.clientX);
-        applyVisual(dragValue, true);
-      });
-      track.addEventListener("pointerup", (e) => {
-        if (!dragging) return;
-        dragging = false;
-        try { track.releasePointerCapture(e.pointerId); } catch { /* */ }
-        if (dragValue !== null) { samplerBag[def.key] = dragValue; sync(); commit(); }
-        dragValue = null;
-      });
-      track.addEventListener("dblclick", () => { samplerBag[def.key] = null; sync(); commit(); });
+      track.addEventListener("input", () => { numInput.value = track.value; });
+      track.addEventListener("change", () => { samplerBag[def.key] = snap(Number(track.value)); sync(); commit(); });
+      reset.addEventListener("click", () => { samplerBag[def.key] = null; sync(); commit(); });
       const commitFromInput = (raw: string): void => {
         if (raw === "") { samplerBag[def.key] = null; sync(); commit(); return; }
         const num = def.type === "int" ? parseInt(raw, 10) : parseFloat(raw);
@@ -2130,6 +2285,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
 
     let lastCommitted = "";
     commit = (): void => {
+      if (!state.settings) return;
       const persona = personaArea.value.trim();
       const promptValue = promptArea.value.trim();
       const defaultBody = state.settings?.defaultSystemPromptBody?.trim() ?? "";
@@ -2149,6 +2305,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         toolOutputCapTokens: parsePosInt(toolCapInput.value),
         cacheMode: newCacheMode,
         parallelToolCalls: parallelToolsInput.checked,
+        autoCompaction: autoCompactionInput.checked,
         reasoningEffort: reasoningSelect.value as "inherit" | "off" | "minimal" | "low" | "medium" | "high" | "max",
         tpmLimit: parsePosInt(tpmInput.value),
         rpmLimit: parsePosInt(rpmInput.value),
@@ -2166,8 +2323,27 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         || (before.jailbreakPlacement ?? "system_suffix") !== placement
         || (before.cacheMode ?? "full") !== newCacheMode
       );
-      sendBackend(payload);
-      status.textContent = promptCacheBroken ? "Saved. Prompt cache invalidates on next message." : "Saved.";
+      const requestId = crypto.randomUUID();
+      const submittedRevision = formRevision;
+      pendingSave = true;
+      status.textContent = "Saving…";
+      const timer = setTimeout(() => {
+        settingsSaveListeners.delete(requestId);
+        if (lastCommitted !== key) return;
+        pendingSave = false; lastCommitted = "";
+        status.textContent = "Save not confirmed. Try again."; status.classList.add("is-error");
+        const retry = el("button", "la-btn la-btn-mini", "Retry"); retry.onclick = () => commit(); status.append(retry);
+      }, 15000);
+      settingsSaveListeners.set(requestId, error => {
+        clearTimeout(timer);
+        if (lastCommitted !== key) return;
+        pendingSave = false;
+        formDirty = !!error || submittedRevision !== formRevision;
+        status.textContent = error ? `Couldn’t save: ${error}` : formDirty ? "Unsaved changes" : promptCacheBroken ? "Saved. Applies to the next message." : "Saved";
+        status.classList.toggle("is-error", !!error);
+        if (error) { lastCommitted = ""; const retry = el("button", "la-btn la-btn-mini", "Retry"); retry.onclick = () => commit(); status.append(retry); }
+      });
+      sendBackend({ ...payload, requestId });
       status.classList.remove("is-error");
     };
 
@@ -2179,17 +2355,20 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     promptResetBtn.addEventListener("click", () => { if (state.settings?.defaultSystemPromptBody) { promptArea.value = state.settings.defaultSystemPromptBody; commit(); } });
     samplersResetBtn.addEventListener("click", () => { resetAllSamplers(); commit(); });
 
-    for (const inp of [personaArea, promptArea, jbArea, wsCapInput, toolCapInput, tpmInput]) {
+    for (const inp of [personaArea, promptArea, jbArea, wsCapInput, toolCapInput, tpmInput, rpmInput]) {
       inp.addEventListener("blur", () => commit());
     }
-    for (const inp of [jbPlacement, cacheModeSelect, parallelToolsInput, debugLogInput, changeApprovalInput]) {
+    for (const inp of [jbPlacement, cacheModeSelect, parallelToolsInput, autoCompactionInput, debugLogInput, changeApprovalInput, reasoningSelect]) {
       inp.addEventListener("change", () => commit());
     }
 
+    organizeSettings(wrap);
+    handle.root.classList.add("la-modal-body");
     handle.root.appendChild(wrap);
   };
 
   type PairingWire = { identifier: string; displayName: string; allowed: boolean; decidedAt: number };
+  const settingsSaveListeners = new Map<string, (error?: string) => void>();
   const pairingsListeners: { handlers: Array<(p: readonly PairingWire[]) => void>; push(h: (p: readonly PairingWire[]) => void): () => void } = {
     handlers: [],
     push(h) { this.handlers.push(h); return () => { this.handlers = this.handlers.filter((x) => x !== h); }; },
@@ -2362,6 +2541,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     });
 
     wrap.appendChild(status);
+    handle.root.classList.add("la-modal-body");
     handle.root.appendChild(wrap);
   };
 
@@ -2545,9 +2725,11 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       ...(files && files.length > 0 ? { files } : {}),
     };
     state.messages.push(msg);
+    historyPage.end++;
+    historyPage.total = Math.max(historyPage.total, historyPage.end);
+    if (state.messages.length > HISTORY_WINDOW_SIZE) { const trim = state.messages.length - HISTORY_WINDOW_SIZE; state.messages.splice(0, trim); historyPage.start += trim; }
     if (state.messages.length === 1 && thread.contains(emptyState)) thread.removeChild(emptyState);
     virtualizer.setCount();
-    virtualizer.scrollToBottom();
     return msg;
   };
 
@@ -2576,6 +2758,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   const queuedMessages: string[] = [];
   let steerText: string | null = null;
   const doSend = async (): Promise<void> => {
+    if (openingConversation) return;
     if (mouseyDead) return;
     const text = textarea.value.trim();
     if (sending || state.isGenerating || state.startingSession || state.compacting) {
@@ -2583,7 +2766,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       // natural completion; cancel keeps it queued.
       if (text.length > 0 && !sending) {
         queuedMessages.push(text);
-        textarea.value = "";
+        setComposerText("");
         renderQueue();
         updateComposer();
       }
@@ -2636,7 +2819,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       return;
     }
 
-    textarea.value = "";
+    setComposerText("");
     composerStatus.classList.remove("is-error");
 
     const isNew = !state.sessionId;
@@ -2720,7 +2903,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       const editBtn = el("button", "la-queued-btn", "Edit") as HTMLButtonElement;
       editBtn.addEventListener("click", () => {
         const [t] = queuedMessages.splice(i, 1);
-        textarea.value = textarea.value.trim().length > 0 ? `${textarea.value}\n${t}` : t!;
+        setComposerText(textarea.value.trim().length > 0 ? `${textarea.value}\n${t}` : t!);
         renderQueue();
         updateComposer();
         textarea.focus();
@@ -2750,16 +2933,16 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       return;
     }
     const draft = textarea.value;
-    textarea.value = text;
+    setComposerText(text);
     await doSend();
     if (textarea.value === text) {
       // Send didn't consume it (attachment failure etc). Put it back rather
       // than leaving it stranded in the composer over the user's draft.
       queuedMessages.unshift(text);
-      textarea.value = draft;
+      setComposerText(draft);
       renderQueue();
     } else if (textarea.value.trim() === "" && draft.trim() !== "") {
-      textarea.value = draft;
+      setComposerText(draft);
     }
     updateComposer();
   }
@@ -2871,10 +3054,6 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     return null;
   };
 
-  // Loading is rendered inside the streaming bubble. The bubble's own
-  // setLoading mounts the indicator at the bubble's tail and re-appends it
-  // after every content event, so visual position always tracks the
-  // current end-of-stream rather than floating outside the virtualizer.
   const hideLoading = (): void => {
     if (!state.loading) return;
     state.loading = false;
@@ -2884,7 +3063,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   // Build a fresh streaming bubble + handle keyed by `id`. Caller owns the
   // decision of whether `id` is backend-provided (turn_started) or local
   // (token/reasoning/tool fired before turn_started arrived).
-  const makeStreamingHandle = (): AssistantHandle => createStreamingAssistant({
+  const makeStreamingHandle = (id: string): AssistantHandle => createStreamingAssistant({
     onRevertEdit: async (editId: string) => {
       // Use the edit's own scope (see makeThreadDeps.onRevertEdit).
       const scope = state.edits.find((e) => e.id === editId)?.scope ?? activeScope();
@@ -2892,9 +3071,11 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       sendBackend({ type: "revert_edit", characterId: scope.id, editId, scope });
     },
     onOpenDiffModal: (eid?: string) => openDiffs(eid),
-  });
+  }, messageReader.source(state.sessionId!, id), !!state.currentAssistantMessage && isCompactionMessage(state.currentAssistantMessage));
 
+  let provisionalAssistantId: string | null = null;
   const createStreamingTurn = (id: string): AssistantHandle => {
+    provisionalAssistantId = null;
     const assistant: ChatAssistantMessage = {
       id,
       role: "assistant",
@@ -2902,13 +3083,16 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       turn: 0,
       blocks: [],
       status: "streaming",
+      ...(state.compacting ? { compaction: true } : {}),
     };
     state.messages.push(assistant);
+    historyPage.end++;
+    historyPage.total = Math.max(historyPage.total, historyPage.end);
+    if (state.messages.length > HISTORY_WINDOW_SIZE) { const trim = state.messages.length - HISTORY_WINDOW_SIZE; state.messages.splice(0, trim); historyPage.start += trim; }
     state.currentAssistantMessage = assistant;
-    const handle = makeStreamingHandle();
+    const handle = makeStreamingHandle(id);
     state.streamingAssistant = handle;
     virtualizer.setCount();
-    virtualizer.scrollToBottom();
     handle.setLoading(true);
     state.loading = true;
     return handle;
@@ -2923,8 +3107,9 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     const last = state.messages[state.messages.length - 1];
     if (!last || last.role !== "assistant" || last.status !== "streaming") return;
     state.currentAssistantMessage = last;
-    const handle = makeStreamingHandle();
+    const handle = makeStreamingHandle(last.id);
     for (const b of last.blocks) {
+      if (isCompactionPlaceholder(b)) continue;
       if (b.type === "text") handle.appendToken(b.content);
       else if (b.type === "reasoning") handle.appendReasoning(b.content);
       else if (b.type === "warning") handle.addWarning(b.message);
@@ -2947,6 +3132,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     setTurnStartBlocks(boundary);
     state.streamingAssistant = handle;
     handle.setLoading(true);
+    handle.setActivity(last.activity);
     state.loading = true;
   };
 
@@ -2972,7 +3158,23 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   // turn_started entry point. Adopts the backend's assistantMessageId so
   // regenerate / edit lookups match server-side records.
   const adoptStreamingTurn = (assistantMessageId: string): AssistantHandle => {
-    if (state.streamingAssistant) { rebindCurrentAssistantMessage(); return state.streamingAssistant; }
+    if (state.streamingAssistant) {
+      rebindCurrentAssistantMessage();
+      const current = state.currentAssistantMessage;
+      if (current?.id === assistantMessageId) return state.streamingAssistant;
+      if (current && current.id === provisionalAssistantId) {
+        const index = state.messages.indexOf(current);
+        state.messages[index] = { ...current, id: assistantMessageId };
+        state.streamingAssistant.destroy();
+        state.streamingAssistant = null;
+        virtualizer.evict(current.id);
+        provisionalAssistantId = null;
+        rehydrateStreamingTurn();
+        virtualizer.setCount();
+        return state.streamingAssistant!;
+      }
+      finalizeAssistantTurn("complete");
+    }
     return createStreamingTurn(assistantMessageId);
   };
 
@@ -2980,7 +3182,10 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   // synthesizes one with a local id when an event raced ahead of turn_started.
   const ensureStreamingTurn = (): AssistantHandle => {
     if (state.streamingAssistant) { rebindCurrentAssistantMessage(); return state.streamingAssistant; }
-    return createStreamingTurn(makeId("msg"));
+    const id = makeId("msg");
+    const handle = createStreamingTurn(id);
+    provisionalAssistantId = id;
+    return handle;
   };
 
   const finalizeAssistantTurn = (status: ChatAssistantMessage["status"]) => {
@@ -3015,7 +3220,48 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   const frontendRequests = new Map<string, AbortController>();
   const offBackendMessages = ctx.onBackendMessage((raw) => {
     const msg = raw as BackendToFrontend;
+    messageReader.receive(msg);
+    if (msg.type === "session_page") { receiveHistoryPage(msg); return; }
+    if (msg.type === "session_loaded") {
+      if (!msg.requestId && msg.sessionId === state.sessionId) {
+        sendBackend({ type: "load_session", sessionId: msg.sessionId });
+        return;
+      }
+      if (!sessionSync.snapshot(msg.sessionId, msg.requestId, msg.sync)) return;
+      historyFeedback.finish(msg.requestId!);
+      openingConversation = false; thread.inert = false; threadShell.classList.remove("is-opening", "is-syncing");
+    } else if (msg.sync && msg.type !== "session_started") {
+      const id = messageSessionId(msg);
+      if (id) {
+        const action = sessionSync.event(id, msg.sync);
+        if (action === "resync") sendBackend({ type: "load_session", sessionId: id });
+        if (action !== "apply") return;
+        if (historyPage.end < historyPage.total && ["chat_event", "generation_done", "generation_cancelled", "generation_error", "session_truncated"].includes(msg.type)) {
+          if (msg.type === "session_truncated") {
+            pendingHistory = null;
+            sendBackend({ type: "load_session", sessionId: msg.sessionId, before: historyPage.end });
+          }
+          return;
+        }
+      }
+    }
+    if (waitingCommandSession && "sessionId" in msg && msg.sessionId === waitingCommandSession && ["session_started", "session_loaded", "session_deleted", "chat_event", "generation_done", "generation_error", "generation_cancelled", "session_truncated", "compaction_started", "compaction_completed"].includes(msg.type)) {
+      commandFeedback.finish(waitingCommandSession);
+      waitingCommandSession = null;
+    }
+    if (msg.type !== "chat_event" && msg.assistantActivity && "sessionId" in msg && msg.sessionId === state.sessionId) {
+      const message = state.messages.find(item => item.id === msg.assistantActivity!.messageId);
+      if (message?.role === "assistant") message.activity = msg.assistantActivity.activity;
+      if (state.currentAssistantMessage?.id === msg.assistantActivity.messageId) state.streamingAssistant?.setActivity(msg.assistantActivity.activity);
+    }
+    if (msg.type === "session_deleted" && sessionSync.sessionId === msg.sessionId) historyFeedback.clear();
     switch (msg.type) {
+      case "session_probe": {
+        const wasLatest = historyPage.end === historyPage.total;
+        if (msg.sessionId === state.sessionId && msg.total !== undefined) historyPage.total = msg.total;
+        if (msg.sessionId === state.sessionId && (msg.changed || state.isGenerating !== (msg.phase === "generating") || state.compacting !== (msg.phase === "compacting")) && !sessionSync.requestId && wasLatest) sendBackend({ type: "load_session", sessionId: msg.sessionId });
+        break;
+      }
       case "characters_pushed":
         state.characters = [...msg.characters];
         renderCharOptions();
@@ -3029,6 +3275,11 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         for (const h of pushSessionsListeners.handlers) h();
         break;
       case "session_started":
+        historyFeedback.clear();
+        openingConversation = false; thread.inert = false; threadShell.classList.remove("is-opening", "is-syncing");
+        sessionSync.sessionId = msg.sessionId;
+        sessionSync.requestId = null;
+        sessionSync.revision = msg.sync ?? null;
         clearStartTimeout();
         dlog("session_started received", { sessionId: msg.sessionId, characterId: msg.characterId, pendingPinChatId: state.pendingPinChatId, pendingMessage: state.pendingMessage, pendingMessageId: state.pendingMessageId });
         state.sessionId = msg.sessionId;
@@ -3068,8 +3319,14 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
           state.edits = [];
           render();
         }
+        historyPage = { start: 0, end: state.messages.length, total: state.messages.length };
+        pendingHistory = null;
         break;
       case "session_loaded":
+        const switchedSession = msg.sessionId !== state.sessionId;
+        const restoreHistoryAnchor = !switchedSession && !virtualizer.isNearBottom() ? virtualizer.captureAnchor() : null;
+        historyPage = msg.page ?? { start: 0, end: msg.messages.length, total: msg.messages.length };
+        pendingHistory = null; thread.removeAttribute("aria-busy");
         clearErrorBanners();
         if (msg.sessionId !== state.sessionId) clearQueue();
         // Loading a session is a clean boundary. A sticky composer error from
@@ -3080,6 +3337,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         composerStatus.textContent = "";
         // Drop any live streaming pointers from a previously-loaded session so
         // a still-running background generation can't keep mutating this thread.
+        state.streamingAssistant?.destroy();
         state.streamingAssistant = null;
         state.currentAssistantMessage = null;
         state.sessionId = msg.sessionId;
@@ -3089,10 +3347,13 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         state.edits = [...msg.edits];
         state.compactedAt = msg.compactedAt ?? null;
         // Drop composer attachments queued against the previous session.
-        state.attachments = [];
-        state.fileAttachments = [];
-        state.attachmentSessionId = null;
-        renderAttachments();
+        if (switchedSession) {
+          state.attachments = [];
+          for (const attachment of state.fileAttachments) attachment.uploadController?.abort();
+          state.fileAttachments = [];
+          state.attachmentSessionId = null;
+          renderAttachments();
+        }
         if (msg.characterId === null) charCombo.setValue(NO_CHARACTER_SENTINEL, true);
         else if (state.characters.some((c) => c.id === msg.characterId)) charCombo.setValue(msg.characterId, true);
         // Refresh picker labels so "(Active)" tracks the loaded session's char.
@@ -3102,12 +3363,14 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         // the still-arriving chat_events continue it live. The snapshot is a
         // consistent cut (WS delivery is FIFO from one worker), so events
         // after session_loaded are exactly the continuation.
-        if (msg.status.phase === "generating") rehydrateStreamingTurn();
+        if (msg.status.phase !== "idle" && historyPage.end === historyPage.total) rehydrateStreamingTurn();
         render();
         // Default to the latest message on every session open. The
         // virtualizer's sticky-bottom check would otherwise compare against
         // the prior session's scrollTop.
-        virtualizer.scrollToBottom();
+        if (restoreHistoryAnchor) virtualizer.restoreAnchor(restoreHistoryAnchor);
+        else virtualizer.scrollToBottom();
+        lastHistoryScroll = thread.scrollTop;
         persistUiPrefs();
         applyStatus(msg.status);
         if (msg.characterId !== null) {
@@ -3134,6 +3397,8 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         break;
       }
       case "session_deleted":
+        if (sessionSync.sessionId === msg.sessionId) { openingConversation = false; thread.inert = false; threadShell.classList.remove("is-opening", "is-syncing"); }
+        if (sessionSync.sessionId === msg.sessionId) { sessionSync.sessionId = null; sessionSync.requestId = null; sessionSync.revision = null; }
         if (state.sessionId === msg.sessionId) {
           // Deleting the ACTIVE session mid-generation: the backend aborts then
           // immediately sends session_deleted, and the trailing generation_cancelled
@@ -3173,7 +3438,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         break;
       case "session_reverted":
         composerStatus.textContent = `Session reverted: ${msg.entriesRestored} entries, ${msg.scriptsRestored} scripts. ${msg.entriesFailed + msg.scriptsFailed} failed.`;
-        for (const e of state.edits) (e as { reverted: boolean }).reverted = true;
+        for (const e of state.edits) if (canRevertEdit(e)) e.reverted = true;
         rerenderThread();
         updateSessionBar();
         if (state.diffModal) state.diffModal.setEdits(scopeEntries(workshopScope()));
@@ -3190,7 +3455,16 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
           deathCallIds.delete(msg.event.call_id);
           if (!msg.event.is_error) deathPending = true;
         }
+        if (msg.assistantActivity) {
+          adoptStreamingTurn(msg.assistantActivity.messageId);
+          const message = state.messages.find(item => item.id === msg.assistantActivity!.messageId);
+          if (message?.role === "assistant") message.activity = msg.assistantActivity.activity;
+        }
         handleAgentEvent(msg.event, agentEventCtx);
+        if (msg.assistantActivity && state.currentAssistantMessage?.id === msg.assistantActivity.messageId) {
+          state.currentAssistantMessage.activity = msg.assistantActivity.activity;
+          state.streamingAssistant?.setActivity(msg.assistantActivity.activity);
+        }
         break;
       case "generation_done":
         // A terminal event for a different (backgrounded) session must not
@@ -3243,6 +3517,8 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         state.startingSession = false;
         state.pendingMessage = null;
         state.pendingMessageId = null;
+        const hasFailedAssistant = !!state.currentAssistantMessage;
+        if (state.currentAssistantMessage) state.currentAssistantMessage.error = msg.error;
         finalizeAssistantTurn("errored");
         // Rerender so the errored assistant message gets the Regenerate
         // button via renderAssistantBubble (status === "errored" qualifies).
@@ -3250,6 +3526,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         // Loud inline error block in the thread so the user can't miss it.
         // Cleared on the next turn_started, on session switch, or manually
         // via the dismiss button.
+        if (!hasFailedAssistant) {
         const errBlock = el("div", "la-error-banner");
         const errHeader = el("div", "la-error-banner-header");
         const errTitle = el("div", "la-error-banner-title", "Generation failed");
@@ -3263,7 +3540,8 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         // Banners sit below the virtualizer's spacer at the end of the
         // scroll container, outside the virtualized list.
         thread.appendChild(errBlock);
-        virtualizer.scrollToBottom();
+        }
+        if (virtualizer.isNearBottom()) virtualizer.scrollToBottom();
         composerStatus.textContent = "";
         composerStatus.classList.remove("is-error");
         updateComposer();
@@ -3316,7 +3594,12 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         }
         break;
       }
-      case "session_truncated":
+      case "session_truncated": {
+        const anchor = !virtualizer.isNearBottom() ? virtualizer.captureAnchor() : null;
+        if (msg.sessionId !== state.sessionId) break;
+        if (pendingHistory) historyFeedback.clear();
+        pendingHistory = null; thread.removeAttribute("aria-busy");
+        if (msg.page) { historyPage = msg.page; }
         state.messages = [...msg.messages];
         state.edits = [...msg.edits];
         // The array was replaced with fresh objects. If a turn is in flight
@@ -3327,13 +3610,15 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
           const reboundId = state.currentAssistantMessage.id;
           const rebound = state.messages.find((m) => m.id === reboundId && m.role === "assistant");
           if (rebound && rebound.role === "assistant") state.currentAssistantMessage = rebound;
+          else { state.streamingAssistant.destroy(); state.streamingAssistant = null; state.currentAssistantMessage = null; }
         }
         rerenderThread();
-        virtualizer.scrollToBottom();
+        if (anchor) virtualizer.restoreAnchor(anchor);
         updateSessionBar();
         updateComposer();
         if (state.characterId) sendBackend({ type: "list_character_edits", characterId: state.characterId });
         break;
+      }
       case "chats_pushed":
         dlog("chats_pushed received", { msgCharacterId: msg.characterId, stateCharacterId: state.characterId, pinnedChatId: msg.pinnedChatId, chatCount: msg.chats.length, applies: state.characterId === msg.characterId });
         if (state.characterId === msg.characterId) {
@@ -3396,6 +3681,11 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
           composerStatus.classList.add("is-error");
         }
         break;
+      case "settings_saved": {
+        const listener = settingsSaveListeners.get(msg.requestId);
+        settingsSaveListeners.delete(msg.requestId); listener?.(msg.error);
+        break;
+      }
       case "settings_pushed":
         state.settings = {
           persona: msg.persona,
@@ -3412,6 +3702,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
           toolOutputCapDefaultTokens: msg.toolOutputCapDefaultTokens,
           cacheMode: msg.cacheMode,
           parallelToolCalls: msg.parallelToolCalls,
+          autoCompaction: msg.autoCompaction ?? true,
           tpmLimit: msg.tpmLimit,
           rpmLimit: msg.rpmLimit,
           debugLogging: msg.debugLogging,
@@ -3419,6 +3710,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
           ...(msg.reasoningEffort !== undefined ? { reasoningEffort: msg.reasoningEffort } : {}),
         };
         for (const h of settingsListeners.handlers) h();
+        updateCompactButton();
         break;
       case "phoneline_pairings_pushed":
         for (const h of pairingsListeners.handlers) h(msg.pairings);
@@ -3451,17 +3743,11 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
           sendBackend({ type: "load_session", sessionId: msg.lastSessionId });
         }
         break;
-      case "ws_listed":
-        state.workspacePanel?.onListed(msg.path, msg.entries);
-        break;
-      case "ws_text_pushed":
-        state.workspacePanel?.onTextPushed(msg.path, msg.content, msg.sizeBytes);
+      case "workspace_response":
+        state.workspacePanel?.receive(msg);
         break;
       case "ws_changed":
         state.workspacePanel?.onChanged();
-        break;
-      case "ws_download_ready":
-        state.workspacePanel?.onDownloadReady(msg.path, msg.dataBase64, msg.mimeType);
         break;
       case "ws_image_ready":
         void import("./image-cache").then((m) => m.resolveImage(msg.path, `data:${msg.mimeType};base64,${msg.dataBase64}`));
@@ -3473,9 +3759,6 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         workspaceUploads.complete(msg.transferId, msg.error);
         break;
       }
-      case "ws_zip_ready":
-        state.workspacePanel?.onZipReady(msg.dataBase64, msg.filename);
-        break;
       case "ws_error":
         state.workspacePanel?.onError(msg.error);
         break;
@@ -3540,12 +3823,12 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
               frontendRequests.set(msg.rpcId, controller);
               try { result = await captureUi(msg.args as import('./capture').UiCaptureInput, controller.signal); }
               finally { frontendRequests.delete(msg.rpcId); }
-            } else if (msg.op === "theme_catalog") {
-              const { handleThemeCatalog } = await import("./theme-bridge");
-              result = handleThemeCatalog(ctx);
-            } else if (msg.op === "theme_install_pack") {
-              const { handleThemeInstallPack } = await import("./theme-bridge");
-              result = await handleThemeInstallPack(ctx, msg.args);
+            } else if (msg.op === "theme_workbench") {
+              const { handleThemeWorkbench } = await import("./theme-bridge");
+              const controller = new AbortController();
+              frontendRequests.set(msg.rpcId, controller);
+              try { result = await handleThemeWorkbench(ctx, msg.args, controller.signal); }
+              finally { frontendRequests.delete(msg.rpcId); }
             } else {
               sendBackend({ type: "frontend_rpc_response", rpcId: msg.rpcId, error: `unknown rpc op '${msg.op}'` });
               return;
@@ -3604,6 +3887,8 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   adoptActiveChat();
   const offChatSwitched = ctx.events.on("CHAT_SWITCHED", () => adoptActiveChat());
 
+  thread.addEventListener("scroll", onHistoryScroll, { passive: true });
+
   const off = tab.onActivate(() => {
     refreshLists();
     adoptActiveChat();
@@ -3611,7 +3896,36 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     else if (state.characterId) sendBackend({ type: "list_character_edits", characterId: state.characterId });
   });
 
+  const resumeSync = () => {
+    if (!document.hidden && state.sessionId) sendBackend({ type: "load_session", sessionId: state.sessionId });
+  };
+  document.addEventListener("visibilitychange", resumeSync);
+  window.addEventListener("online", resumeSync);
+  const recoveryTimer = setInterval(() => {
+    if (document.hidden || !state.sessionId) return;
+    if (!sessionSync.requestId) sendBackend({ type: "probe_session", sessionId: state.sessionId, revision: sessionSync.revision });
+  }, 15000);
+
   return () => {
+    textareaObserver.disconnect();
+    cancelAnimationFrame(textareaResizeFrame);
+    mouseyObserver.disconnect();
+    window.removeEventListener("resize", detectMouseyOverlap);
+    mouseyImg.removeEventListener("load", detectMouseyOverlap);
+    if (mouseyOverlapRaf !== null) cancelAnimationFrame(mouseyOverlapRaf);
+    clearInterval(recoveryTimer);
+
+    cancelAnimationFrame(historyScrollFrame);
+    cancelAnimationFrame(historyRestoreFrame);
+    thread.removeEventListener("scroll", onHistoryScroll);
+    document.removeEventListener("visibilitychange", resumeSync);
+    window.removeEventListener("online", resumeSync);
+    state.streamingAssistant?.destroy();
+    historyFeedback.destroy();
+    commandFeedback.destroy();
+    state.workspacePanel?.destroy();
+    messageReader.destroy();
+    virtualizer.destroy();
     off();
     workspaceUploads.dispose();
     offBackendMessages();

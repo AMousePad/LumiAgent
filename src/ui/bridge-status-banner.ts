@@ -12,6 +12,7 @@ export interface BridgeStatusBannerHandle {
 const EXT_LABELS: Readonly<Record<string, string>> = {
   lumiagent: "LumiAgent",
   lumirealm: "LumiRealm",
+  lumicache: "LumiCache",
 };
 
 function labelFor(id: string | null | undefined): string {
@@ -74,12 +75,10 @@ export function setupBridgeStatusBanner(opts: {
     return chip;
   }
 
-  function show(missing: readonly string[], missingForId: string | null): void {
-    // On LumiAgent, missingFor identifies which side lacks the perm. The
-    // bridge title always names LumiRealm because LumiAgent only dials it.
-    const otherSide = "LumiRealm";
+  function show(missing: readonly string[], missingForId: string | null, providerId?: string): void {
+    const otherSide = labelFor(providerId ?? "lumirealm");
     const missingSide = labelFor(missingForId ?? "lumiagent");
-    const key = `${missingSide}::${[...missing].sort().join(",")}`;
+    const key = `${otherSide}::${missingSide}::${[...missing].sort().join(",")}`;
     if (lastKey === key && host) return;
     lastKey = key;
     if (dismissedKeys.has(key)) {
@@ -161,7 +160,7 @@ export function setupBridgeStatusBanner(opts: {
         clearBanner();
         return;
       }
-      show(msg.missingPermissions, msg.missingFor ?? null);
+      show(msg.missingPermissions, msg.missingFor ?? null, msg.providerId);
     },
     destroy(): void {
       clearBanner();
