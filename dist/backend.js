@@ -38733,7 +38733,8 @@ var init_registry = __esm(() => {
   init_transport();
   KNOWN_PHONELINES = [
     { identifier: "lumirealm", name: "LumiRealm" },
-    { identifier: "lumicache", name: "LumiCache" }
+    { identifier: "lumicache", name: "LumiCache" },
+    { identifier: "lumi_books", name: "LumiBooks" }
   ];
   cache2 = new Map;
   pending = new Map;

@@ -10,6 +10,7 @@ import { dlog } from "../log";
 export const KNOWN_PHONELINES: ReadonlyArray<{ identifier: string; name: string }> = [
   { identifier: "lumirealm", name: "LumiRealm" },
   { identifier: "lumicache", name: "LumiCache" },
+  { identifier: "lumi_books", name: "LumiBooks" },
 ];
 
 export interface CachedProvider {
