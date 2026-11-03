@@ -1,1 +1,1 @@
-Case-insensitive name substring filter.
+Case-insensitive name or tag substring.

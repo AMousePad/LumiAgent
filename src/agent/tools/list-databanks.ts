@@ -1,3 +1,4 @@
+import { nameQuery, nameQueryProperty, searchPage } from "./_name-search";
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import description from "../prompts/claude/tools/list-databanks/description.txt";
@@ -7,6 +8,7 @@ import argLimit from "../prompts/claude/tools/list-databanks/arg_limit.txt";
 import argOffset from "../prompts/claude/tools/list-databanks/arg_offset.txt";
 
 const inputSchema = z.object({
+  query: nameQuery,
   scope: z.enum(["global", "character", "chat"]).optional(),
   scope_id: z.string().nullable().optional(),
   limit: z.number().int().min(1).max(500).optional(),
@@ -20,6 +22,7 @@ export const listDatabanksTool = defineTool({
   jsonSchema: {
     type: "object",
     properties: {
+      query: nameQueryProperty,
       scope: { type: "string", enum: ["global", "character", "chat"], description: argScope },
       scope_id: { type: ["string", "null"], description: argScopeId },
       limit: { type: "number", description: argLimit },
@@ -35,13 +38,13 @@ export const listDatabanksTool = defineTool({
       // null mis-scopes or errors host-side, so drop empties.
       if (input.scope === "character" && !scopeId) scopeId = ctx.characterId || undefined;
       if (input.scope === "chat" && !scopeId) scopeId = ctx.pinnedChatId || undefined;
-      const res = await ctx.spindle.databanks.list({
+      const res = await searchPage((limit, offset) => ctx.spindle.databanks.list({
         ...(input.scope ? { scope: input.scope } : {}),
         ...(scopeId ? { scopeId } : {}),
-        limit: input.limit ?? 200,
-        offset: input.offset ?? 0,
+        limit,
+        offset,
         userId: ctx.userId,
-      });
+      }), item => item.name, input, ctx.signal);
       const rows = res.data.map((d) => ({
         id: d.id,
         name: d.name,
@@ -51,7 +54,7 @@ export const listDatabanksTool = defineTool({
         document_count: d.document_count ?? null,
         description_chars: d.description.length,
       }));
-      return { content: JSON.stringify({ total: res.total, returned: rows.length, databanks: rows }, null, 2) };
+      return { content: JSON.stringify({ total: res.total, offset: res.offset, has_more: res.has_more, next_offset: res.next_offset, returned: rows.length, databanks: rows }, null, 2) };
     } catch (err) {
       return { content: JSON.stringify({ error: (err as Error).message }), isError: true };
     }

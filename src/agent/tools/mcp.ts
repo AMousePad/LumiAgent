@@ -1,3 +1,4 @@
+import { nameQuery, searchPage } from "./_name-search";
 import { z } from "zod";
 import type { ToolCtx } from "./_context";
 import { defineTool, type ToolResult } from "./_framework";
@@ -12,6 +13,7 @@ import callDescription from "../prompts/claude/tools/call-mcp-tool/description.t
 const serverId = z.string().min(1).describe("Full server ID from list_mcp_servers or create_mcp_server.");
 const serverInput = z.object({ server_id: serverId }).strict();
 const listInput = z.object({
+  query: nameQuery,
   limit: z.number().int().min(1).max(100).optional().describe("Page size, default 50."),
   offset: z.number().int().min(0).optional().describe("Zero-based offset, default 0."),
 }).strict();
@@ -75,12 +77,12 @@ export const listMcpServersTool = defineTool({
   execute: (input, ctx) => mcpResult(ctx, "list_mcp_servers", async () => {
     const limit = input.limit ?? 50;
     const offset = input.offset ?? 0;
-    const result = await ctx.spindle.mcp.servers.list({ limit, offset, userId: ctx.userId });
+    const result = await searchPage((limit, offset) => ctx.spindle.mcp.servers.list({ limit, offset, userId: ctx.userId }), server => server.name, { ...input, limit, offset }, ctx.signal);
     return {
       ...result,
       offset,
       has_more: offset + result.data.length < result.total,
-      ...(result.total === 0 ? { note: "No MCP servers configured. Use create_mcp_server or Lumiverse Settings > MCP Servers to add one." } : {}),
+      ...(result.total === 0 && !input.query?.trim() ? { note: "No MCP servers configured. Use create_mcp_server or Lumiverse Settings > MCP Servers to add one." } : {}),
     };
   }),
 });

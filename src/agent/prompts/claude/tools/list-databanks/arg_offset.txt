@@ -1,1 +1,1 @@
-Pagination offset.
+Offset into matches. Use next_offset to continue.

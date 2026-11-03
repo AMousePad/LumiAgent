@@ -2749,7 +2749,7 @@ var init_settings = __esm(() => {
 });
 
 // src/generated/lumiverse-docs.ts
-var LUMIVERSE_DOCS_VERSION = "813d2e7c4f9663fd", LUMIVERSE_DOCS;
+var LUMIVERSE_DOCS_VERSION = "e5ce6b2305d49366", LUMIVERSE_DOCS;
 var init_lumiverse_docs = __esm(() => {
   LUMIVERSE_DOCS = {
     "characters/alternate-fields.md": `---\r
@@ -3936,7 +3936,22 @@ Choosing a sidecar connection can switch extraction/scoring to sidecar mode and 
 \r
 In **Settings \u2192 Memory Cortex \u2192 Advanced \u2192 Advanced settings**, enable consolidation and adjust **Chunks before consolidation**, **Chunks per scene summary**, and **Scene summaries per arc**. These count memory chunks and saved scene summaries, not chat messages. The defaults start consolidation at 40 unconsolidated chunks, summarize 10 chunks at a time, and combine 5 scenes into an arc. After ingestion or a rebuild, Cortex processes due batches and retries pending arcs; it keeps recent chunks below the trigger for later. Lower the trigger for earlier scenes. A chat with 36 messages may still be below the default trigger.\r
 \r
-**Prompt assembly reads usable cached Cortex results**, rather than waiting for a fresh query on every send. On a cold cache or an unusable result, it falls back to basic Chat Memory while Cortex work runs in the background. Basic Chat Memory also uses a cache, so a cold start can initially have no recall. Enabling Cortex does not guarantee entities or arcs in the very next prompt.\r
+### Replace history with summaries\r
+\r
+Under **Settings \u2192 Memory Cortex \u2192 History replacement**, two independent options control automatic prompt compression. Both are off by default.\r
+\r
+| Option | History sent to the model |\r
+| --- | --- |\r
+| **Replace With Consolidated Messages in Context** | Complete source scenes become their saved consolidation summaries. |\r
+| **Replace With Arc Summaries in Context** | Complete source arcs become their saved arc summaries. Other history stays verbatim. |\r
+| **Both on** | Arcs replace their covered scenes; remaining scenes use consolidation summaries; unsummarized messages remain verbatim. |\r
+| **Both off** | No history replacement. Your standard macro/fallback insertion strategy continues unchanged. |\r
+\r
+Each replacement occupies the end of its original source span and uses that span\u2019s final user or assistant role. Clear recap boundaries identify completed events as background rather than a new request. Covered scene summaries and raw chunks are not repeated through local recall, and overlapping arc context is suppressed. Entity, relationship, color, and linked-chat context can still be supplied separately.\r
+\r
+This changes only the outgoing prompt: saved messages remain intact, and synthetic recaps never feed back into Cortex ingestion. Recap text is literal, without macro expansion or copied reasoning/attachments. The current turn and any explicitly anchored context remain verbatim. Message limits apply before replacement; token-budget clipping can still remove older summaries afterward. Missing, hidden, excluded, noncontiguous, or partially selected sources cause the summary to be skipped. Enable consolidation to create summaries; existing saved summaries can be used even if further consolidation is disabled. Inspect the assembled prompt to see the resulting history.\r
+\r
+**Prompt assembly reads cached Cortex memory passages and saved graph context**, rather than waiting for a fresh vector query on every send. When the conversation advances, it rechecks cached passages against the recent-message exclusion window and regeneration target. Saved entities, relationships, arcs, and character colors can be used even with a cold vector cache. Basic Chat Memory can supply passages alongside graph context while Cortex retrieval warms in the background. Enabling Cortex alone does not create context: the chat still needs relevant saved records and the corresponding injection settings enabled.\r
 \r
 ## Sidecar LLM\r
 \r
@@ -4055,7 +4070,7 @@ For a custom layout, use individual macros in enabled blocks:\r
 \r
 | Macro | Returns |\r
 |-------|---------|\r
-| \`{{entities}}\` | Selected entity snapshots with facts/relationships; \`{{entities::3}}\` limits to three |\r
+| \`{{entities}}\` | Selected entity names, types, statuses, descriptions, and facts; \`{{entities::3}}\` limits to three |\r
 | \`{{entityFacts::Name}}\` | Facts for a case-insensitive name match in **retrieved entity context**, not a search of every stored entity |\r
 | \`{{relationships}}\` | Selected relationship edges |\r
 | \`{{arc}}\` | Cortex arc text, not Loom Summary |\r
@@ -4065,6 +4080,8 @@ For a custom layout, use individual macros in enabled blocks:\r
 | \`{{entityCount}}\` | Retrieved entity count, not total stored entities |\r
 \r
 Cortex macros return empty content when their data is unavailable. With Cortex off, \`{{memories}}\` can still work while these are empty.\r
+\r
+\`{{entities}}\` does not append relationship blurbs. Use \`{{relationships}}\` to place relationship edges separately; it does not include entity descriptions or facts.\r
 \r
 ### Automatic Injection and Duplicate Content\r
 \r
@@ -4089,13 +4106,15 @@ Macro presence is detected in applicable block source before conditions finish r
 \r
 **Context Token Budget** controls Cortex formatting. Choose **Advanced** mode and expand detailed settings to tune emotional resonance, diversity, entity/relationship/arc injection, consolidation thresholds, decay/core-memory protection, and pruning. Pruning can archive stale single-mention entities; protected terms help retain fantasy names extraction might filter.\r
 \r
+Chat Memory's **Maximum vector distance** also gates Cortex, vault, and interlink recall before ranking. Lower distances are closer; a 0.35 distance passes a 0.6 maximum. Cortex's displayed **Score** is its separate combined ranking score, not the distance or a similarity percentage. See [retrieval controls](memory.md#retrieval-and-query) for the distinction. This gate does not affect automatic history replacement or saved entity/relationship context.\r
+\r
 ## Troubleshooting Cortex\r
 \r
 | Symptom | What to check |\r
 |---------|---------------|\r
 | \`{{memories}}\` works with Cortex off | Expected: basic recall is independent. Check Cortex preparation/cache separately. |\r
-| \`{{cortexActive}}\` says \`no\` while enabled | Check global/per-chat switches, recompile, and wait for background processing. Cold-cache prompts can use basic recall while Cortex warms. |\r
-| Stored entities exist but \`{{entities}}\` is empty | The macro uses this prompt's selected cached context. Check entity injection and resolved output. |\r
+| \`{{cortexActive}}\` says \`no\` while enabled | The macro checks available Cortex content. Check global/per-chat switches, saved records, and entity/relationship/arc injection settings. A cold vector cache alone does not hide saved graph context. |\r
+| Stored entities exist but \`{{entities}}\` is empty | The macro uses entities selected for this prompt's recent conversation. Check entity tracking, entity injection, and whether the conversation mentions their names or aliases. |\r
 | \`{{arc}}\` is empty | Check consolidation/arc injection and whether enough history exists for an arc. A saved Loom Summary does not populate this macro. |\r
 | Everything is heuristic after adding a sidecar | Check extraction/scoring modes, credentials/model, failure policy, and rebuild status. Heuristic fallback can legitimately write heuristic records. |\r
 | No old passages | Check embeddings, **Vectorise chat messages**, chunk/vector counts, exclusion window, and shared Injection Strategy. |\r
@@ -4168,7 +4187,7 @@ Use **Recompile Memories** after changing chunking or the embedding model to pre
 |---------|---------|\r
 | **Top-K Results** | Maximum number of retrieved passages; default 4 |\r
 | **Exclusion Window** | Exclude chunks touching the last N visible, nonempty messages; default 20. Avoids repeating recent history, but does not automatically match your actual context limit. |\r
-| **Similarity Threshold** | Maximum vector distance allowed. **Lower positive values are stricter**; 0 disables filtering. Keyword-only hits have no vector distance and are excluded when filtering is active. |\r
+| **Maximum vector distance** | Maximum cosine distance allowed. **Lower positive values are stricter**; 0 disables filtering. For example, 0.35 passes a 0.6 cutoff; 0.7 does not. Keyword-only and recency fallback hits have no measured vector distance and are excluded when filtering is active. |\r
 | **Query Context Size** | Recent messages used to form the search query; default 6 |\r
 | **Query Max Tokens** | Caps text used as the **search query**, not the retrieved memory section's token budget |\r
 \r
@@ -4179,6 +4198,8 @@ Use **Recompile Memories** after changing chunking or the embedding model to pre
 - **Weighted Recent** uses recent messages and repeats the newest one to emphasize it.\r
 \r
 Cortex uses shared chunk/query settings and adds its own ranking and **Context Token Budget**. See [Cortex controls](memory-cortex.md#formatting-and-retrieval-controls).\r
+\r
+The distance cutoff applies before Cortex ranking, including vault/interlink recall. Salience, recency, and other ranking signals cannot promote a passage beyond the distance cutoff. Cached results are checked again against the current cutoff during prompt assembly. Automatic scene/arc history replacement uses complete source spans rather than semantic retrieval, so it is independent of this cutoff.\r
 \r
 ## Put Memories in the Prompt\r
 \r
@@ -4226,6 +4247,8 @@ Under **Formatting** in the Advanced tab:\r
 - **Chunk Separator** separates hits.\r
 \r
 For example, use a Header Template containing a heading followed by \`{{memories}}\`, and a Chunk Template of \`{{content}}\` for simple labeled passages. A recency or keyword-only hit has no vector score and renders \`{{score}}\` as \`n/a\`.\r
+\r
+**Scores use different metrics:** with basic recall, \`{{score}}\` is raw vector distance (lower is closer). With Cortex recall, it is the combined ranking score (higher ranks first), which includes semantic relevance, salience, recency, and other signals. A Cortex score of 0.35 does not mean 35% similarity and is not compared directly with the distance cutoff.\r
 \r
 Cortex's **Use Long-Term Chat Memory formatting** preserves these templates for raw retrieved chunks. Cortex's formatter still handles consolidations, entities, relationships, and arcs.\r
 \r
@@ -4992,8 +5015,8 @@ Decision models answer structured questions about text or JSON: choose an option
 \r
 1. Open **Connections \u2192 Decision Models**.\r
 2. Select **New Connection** and give it a name.\r
-3. Choose **OpenRouter**, **NanoGPT**, or **TypeSafe**. You can enter that provider's API key or use **Sign in with OpenRouter** / **Sign in with NanoGPT** with the provider's default API URL.\r
-4. Select a model from the model picker or enter its exact ID. OpenRouter suggests \`~typesafe/jev-latest\`; NanoGPT suggests \`typesafe/jev-latest\`; TypeSafe suggests \`jev-latest\`.\r
+3. Choose **OpenRouter**, **NanoGPT**, **TypeSafe**, or **Inception**. You can enter that provider's API key or use **Sign in with OpenRouter** / **Sign in with NanoGPT** with the provider's default API URL.\r
+4. Select a model from the model picker or enter its exact ID. OpenRouter suggests \`~typesafe/jev-latest\`; NanoGPT suggests \`typesafe/jev-latest\`; TypeSafe suggests \`jev-latest\`; Inception suggests \`mercury-decide\`.\r
 5. Enable **Set as default** if extensions should use this connection when they do not select one explicitly, then save or sign in. Sign-in creates the connection after you authorize it and stores the key securely. Cancelling before authorization creates no connection.\r
 \r
 To replace a key on an existing OpenRouter or NanoGPT connection, edit it and use **Sign in**. Save any provider or API URL changes first. After signing in, save any other edits you made to the connection.\r
@@ -5001,6 +5024,8 @@ To replace a key on an existing OpenRouter or NanoGPT connection, edit it and us
 The API URL can remain blank for the provider's default. A custom URL should be a versioned base URL, such as \`https://proxy.example/v1\`. Changing the provider or endpoint clears the previous credential unless you enter a replacement key. **Remove saved API key** clears a stored key explicitly.\r
 \r
 Saved model IDs remain available even when the provider's model picker no longer lists them. You can duplicate, reorder, edit, or delete connections independently of your chat model connections.\r
+\r
+Inception uses its native \`/v1/decisions\` endpoint with your Inception API key. Its model picker lists catalog entries that declare \`decisions\` endpoint support, excluding Mercury chat models. Lumiverse supports Choice, Score and Noul questions; the image-assets and Box API remains specific to TypeSafe.\r
 \r
 ## Check the connection\r
 \r
@@ -6826,6 +6851,7 @@ Inside the \`.lvbak\` (it's a ZIP file \u2014 you can open it with any zip utili
 \`\`\`\r
 manifest.json              Producer + version + embedding config + archive id\r
 database/                  One NDJSON per user-owned table\r
+settings-values/           Large settings, including saved themes with embedded assets\r
 files/\r
   images/                  Original uploaded images\r
   thumbnails/              Pre-generated 300px and 700px WebP thumbnails\r
@@ -6833,12 +6859,19 @@ files/\r
   databank/                Databank documents (PDFs, txt, md, etc.)\r
   theme-assets/            Theme bundle files (fonts, images, CSS)\r
   notification-sounds/     Your custom completion sound\r
+  extension-storage/       Persistent extension files (only when selected)\r
 lancedb/                   Vector embeddings (only when "Include vectors" was on)\r
 secrets/                   Encrypted API keys (only with the ticket flow)\r
 manifest-stats.json        Trailing row counts and skipped-file report\r
 \`\`\`\r
 \r
 Thumbnails are included **as-is**, so character galleries appear instantly on the target instance instead of waiting for Sharp to regenerate them.\r
+\r
+Large saved-theme libraries are included automatically. Import new backups into an up-to-date Lumiverse instance; older versions may report that the backup schema is newer than they support. Existing backups remain importable.\r
+\r
+**Include extension files and persistent data** is off by default. Enable it to back up files belonging to your account, including per-user data from shared extensions and storage used by extensions you installed. Existing extension preferences in account settings are always included. Shared operator storage and temporary \`.ephemeral\` directories are excluded.\r
+\r
+On import, extension files are placed under your destination account and existing files are preserved. Reinstall the matching extensions if needed; extension code and permission grants are not bundled. Secure Enclave credentials are included separately by **Include API keys & secrets**, whether or not extension files are selected.\r
 \r
 ---\r
 \r
@@ -7622,6 +7655,11 @@ are disabled while a remote instance is selected.\r
 - **Browser** opens, closes or reloads the integrated browser, opens the system\r
   browser, changes the connection and manages desktop authorization.\r
 - **Serving Stats** reports the port, PID, uptime, branch and version when allowed.\r
+- **Serving Stats \u2192 Allow Remote Access** lets other devices connect directly\r
+  to the built-in server. Changing it restarts a running server; a stopped\r
+  server stays stopped. The choice persists without repeating setup or changing\r
+  your account, storage or data. It is available after built-in setup and is\r
+  disabled for checkout and remote connections or a launch-time host override.\r
 - **Check for Updates / Apply Update** updates an existing checkout through Git.\r
 - **Desktop Updates** installs a signed update of the entire bundled app after\r
   you choose **Update and restart**.\r
@@ -7634,6 +7672,17 @@ to find it. Uninstalling the app does not transfer or automatically erase this\r
 data. Disable **Launch at Login**, quit, and remove the app using your platform's\r
 normal uninstall process. Bun and Rust installed for checkout/source work are\r
 shared tools and can be kept for other projects.\r
+\r
+With remote access enabled, open \`http://<this-computer-LAN-IP>:7860\` from\r
+another device on the same network, substituting your server's port. Allow\r
+incoming connections through the host firewall if prompted. Detected LAN IPs\r
+are already trusted; for a custom address, add its exact origin under\r
+**Settings \u2192 Operator \u2192 Trusted Hostnames** and restart. The Operator panel's\r
+**Remote Mode** changes origin restrictions and is separate from this listener\r
+setting. HTTPS is required when connecting another Lumiverse Desktop client\r
+and for installing a mobile PWA; see [Connect to a remote instance](#connect-to-a-remote-instance).\r
+Turning this toggle off limits direct connections to this computer; a separately\r
+configured reverse proxy or Tailscale Serve can still forward to its local port.\r
 \r
 ## Linux graphics and browser troubleshooting\r
 \r
@@ -11669,9 +11718,9 @@ Configure Chat Memory in **Settings \u2192 Advanced \u2192 Long-Term Chat Memory
 \r
 | Macro | Returns | Args |\r
 |-------|---------|------|\r
-| \`{{entities}}\` | Formatted entity snapshots with facts and relationships | Optional: \`{{entities::count}}\` to limit the number of entities |\r
+| \`{{entities}}\` | Entity names, types, statuses, descriptions, and facts | Optional: \`{{entities::count}}\` to limit the number of entities |\r
 | \`{{entityFacts::name}}\` | Facts for one named entity | Entity name |\r
-| \`{{relationships}}\` | Active relationship edges in the current scene | \u2014 |\r
+| \`{{relationships}}\` | Active relationship edges in the current scene, without entity descriptions or facts | \u2014 |\r
 | \`{{arc}}\` | Current narrative arc summary | \u2014 |\r
 | \`{{memorySalience}}\` | Highest-salience retrieved memory | \u2014 |\r
 | \`{{cortexActive}}\` | \`"yes"\` / \`"no"\` \u2014 whether Memory Cortex returned results | \u2014 |\r
@@ -17895,90 +17944,7 @@ This API manages databank records and documents directly. If your extension also
 !!! note\r
     For user-scoped extensions, the user context is inferred automatically. For operator-scoped extensions, pass \`userId\` to scope calls to a specific user. Databanks and their documents are always scoped to a single user.\r
 `,
-    "developer/backend-api/decisions.md": `# Decision models\r
-\r
-\`spindle.decisions\` evaluates named questions against text or JSON using the user's saved Decision connections. Built-in providers are OpenRouter, NanoGPT, and TypeSafe. Declare the \`decisions\` permission in \`spindle.json\` and obtain the user's grant. The host advertises \`decisions-v1: 1\` in \`spindle.host.capabilities\`; check this before calling the API on older hosts.\r
-\r
-Use \`lumiverse-spindle-types\` version **0.6.45** or newer for \`SpindleDecisionsAPI\`, the \`Decision*\` types, and the \`decisions\` permission.\r
-\r
-## Evaluate\r
-\r
-\`\`\`ts\r
-const result = await spindle.decisions.evaluate({\r
-  state: { latestMessage: 'Let us move to the next morning.' },\r
-  questions: {\r
-    handling: {\r
-      type: 'choice',\r
-      instructions: 'Which handling path fits this message?',\r
-      criteria: {\r
-        continue: 'Continue the current scene.',\r
-        transition: 'Move to another scene.',\r
-      },\r
-    },\r
-    urgency: {\r
-      type: 'score',\r
-      instructions: 'How urgent is the request?',\r
-      criteria: ['Routine', 'Urgent', 'Immediate'],\r
-    },\r
-    sceneChange: {\r
-      type: 'noul',\r
-      instructions: 'Does this request a scene change?',\r
-    },\r
-  },\r
-}, { signal: controller.signal })\r
-\r
-// Inferred as 'continue' | 'transition'.\r
-const path = result.answers.handling.choice\r
-const confidence = result.answers.handling.confidence\r
-const urgency = result.answers.urgency.score\r
-const sceneChangeProbability = result.answers.sceneChange.noul\r
-\`\`\`\r
-\r
-\`connection_id\` selects a saved connection; omitting it selects the user's default Decision connection. An invalid explicit ID fails rather than selecting another profile. \`model\` optionally overrides the connection's saved model for one request. Extensions never supply credentials or endpoints. User extensions always resolve their owner's account. Operator extensions must supply \`userId\`.\r
-\r
-Requests contain 1\u2013256 named questions. Choice criteria contain 2\u2013255 options; descriptions may be \`null\`. Score criteria contain 2\u201310 ordered descriptions. Noul criteria are optional; when supplied, they contain both \`true\` and \`false\` descriptions. State, instructions, and descriptions support text, JSON objects, and arrays. Input is limited to 1 MiB (not counting image data) and JSON depth 32.\r
-\r
-Answers retain native probabilities, confidence, fractional scores, and Score legends. Noul is a probability from 0 to 1. Confidence and the chosen option's probability are separate values. Invalid or incomplete provider answers fail the request. The result includes the resolved \`model\`, \`answers\`, and optional \`usage\`, request \`id\`, and serving \`provider\`. Missing usage is left absent; nullable usage values are preserved.\r
-\r
-Evaluations have a 30-second deadline. Passing an \`AbortSignal\` cancels provider work; worker termination cancels pending evaluations. The host does not automatically retry evaluations. Each call checks current and delegated permissions. Non-committing macro resolution cannot run evaluations.\r
-\r
-## Images and Box questions\r
-\r
-Hosts with the \`decision-images-v1\` capability accept images and Box questions on TypeSafe connections (Jev 1.13 and newer accept images; Box needs Jev 1.14, for example \`model: 'jev-preview'\`). TypeSafe calls these features experimental; formats and accuracy can change. Other providers reject requests with images or Box questions.\r
-\r
-\`\`\`ts\r
-const result = await spindle.decisions.evaluate({\r
-  model: 'jev-preview',\r
-  state: { page: 'a3f1c2e8-page' },\r
-  assets: { 'a3f1c2e8-page': { image_id: imageId } },\r
-  questions: {\r
-    present: { type: 'noul', instructions: 'Is there a girl with black hair in \`page\`?' },\r
-    face: { type: 'box', instructions: 'the face of the girl with black hair in \`page\`' },\r
-  },\r
-})\r
-const { top, bottom, left, right } = result.answers.face.box // fractions of the image size\r
-const boxConfidence = result.answers.face.confidence\r
-\`\`\`\r
-\r
-Each key in \`assets\` is a reference string that must appear in \`state\`, a question's \`instructions\`, or its \`criteria\`; the model receives the image in its place. Use references that cannot occur in your text by accident, such as a UUID. An asset is either \`{ image_id }\`, a stored Lumiverse image of the same account (PNG or JPEG; requires the \`images\` permission), or \`{ format: 'png' | 'jpg' | 'jpeg', data_base64 }\` with plain base64 (no \`data:\` prefix). Both forms accept an optional \`type: 'image'\`; combining the forms or adding other fields is rejected. Images must be 280\u20131568 px on each side; the host does not resize them. Stored and inline images share a 20 MiB decoded limit per request, including repeated entries. Asset references and IDs count toward the 1 MiB input limit; only the base64 data is excluded.\r
-\r
-A Box question takes no criteria and needs at least one image. It always returns a box, even when the target is absent, so pair it with a Noul such as \`present\` above.\r
-\r
-## Inspect connections\r
-\r
-\`\`\`ts\r
-const providers = await spindle.decisions.listProviders()\r
-const connections = await spindle.decisions.listConnections()\r
-const connection = await spindle.decisions.getConnection(connectionId)\r
-const models = await spindle.decisions.getModels(connectionId)\r
-\`\`\`\r
-\r
-Each inspection method accepts an optional \`{ userId }\` argument for operator extensions. Profiles include model, default status, and readable API-key status, without credentials. Model entries include \`id\`, \`label\`, optional catalog metadata, and a \`protocol\` value of \`supported\`, \`unsupported\`, or \`unverified\`. Preserve exact model IDs, including \`~typesafe/jev-latest\`. Unknown models can be entered manually. Together's Tev1 uses a different protocol and is rejected by this adapter.\r
-\r
-OpenRouter uses its native \`/api/alpha/decisions\` route and discovers Decision models through \`/api/v1/models?output_modalities=decisions\`. NanoGPT uses its native \`/api/v1/decisions\` route and discovers Decision models through the detailed \`/api/v1/models?detailed=true\` catalog, keeping entries whose architecture advertises the \`decisions\` output modality. TypeSafe uses \`/v1/systemone\` and \`/v1/models\`. Custom API URLs are versioned base URLs; proxy deployments must expose the corresponding evaluation and model routes. Only supported OpenRouter \`provider\` routing options are accepted in \`default_parameters\`.\r
-\r
-See [Decision connection setup](https://lumiverse.chat/guides/connections/decisions/) and the [REST reference](../rest-api.md#decision-connections).\r
-`,
+    "developer/backend-api/decisions.md": "# Decision models\r\n\r\n`spindle.decisions` evaluates named questions against text or JSON using the user's saved Decision connections. Built-in providers are OpenRouter, NanoGPT, TypeSafe, and Inception. Inception uses its native `/v1/decisions` endpoint and suggests `mercury-decide`. Declare the `decisions` permission in `spindle.json` and obtain the user's grant. The host advertises `decisions-v1: 1` in `spindle.host.capabilities`; check this before calling the API on older hosts.\r\n\r\nUse `lumiverse-spindle-types` version **0.6.45** or newer for `SpindleDecisionsAPI`, the `Decision*` types, and the `decisions` permission.\r\n\r\n## Evaluate\r\n\r\n```ts\r\nconst result = await spindle.decisions.evaluate({\r\n  state: { latestMessage: 'Let us move to the next morning.' },\r\n  questions: {\r\n    handling: {\r\n      type: 'choice',\r\n      instructions: 'Which handling path fits this message?',\r\n      criteria: {\r\n        continue: 'Continue the current scene.',\r\n        transition: 'Move to another scene.',\r\n      },\r\n    },\r\n    urgency: {\r\n      type: 'score',\r\n      instructions: 'How urgent is the request?',\r\n      criteria: ['Routine', 'Urgent', 'Immediate'],\r\n    },\r\n    sceneChange: {\r\n      type: 'noul',\r\n      instructions: 'Does this request a scene change?',\r\n    },\r\n  },\r\n}, { signal: controller.signal })\r\n\r\n// Inferred as 'continue' | 'transition'.\r\nconst path = result.answers.handling.choice\r\nconst confidence = result.answers.handling.confidence\r\nconst urgency = result.answers.urgency.score\r\nconst sceneChangeProbability = result.answers.sceneChange.noul\r\n```\r\n\r\n`connection_id` selects a saved connection; omitting it selects the user's default Decision connection. An invalid explicit ID fails rather than selecting another profile. `model` optionally overrides the connection's saved model for one request. Extensions never supply credentials or endpoints. User extensions always resolve their owner's account. Operator extensions must supply `userId`.\r\n\r\nRequests contain 1\u2013256 named questions. Choice criteria contain 2\u2013255 options; descriptions may be `null`. Score criteria contain 2\u201310 ordered descriptions. Noul criteria are optional; when supplied, they contain both `true` and `false` descriptions. State, instructions, and descriptions support text, JSON objects, and arrays. Input is limited to 1 MiB (not counting image data) and JSON depth 32.\r\n\r\nAnswers retain native probabilities, confidence, fractional scores, and Score legends. Noul is a probability from 0 to 1. Confidence and the chosen option's probability are separate values. Invalid or incomplete provider answers fail the request. The result includes the resolved `model`, `answers`, and optional `usage`, request `id`, and serving `provider`. Missing usage is left absent; nullable usage values are preserved.\r\n\r\nEvaluations have a 30-second deadline. Passing an `AbortSignal` cancels provider work; worker termination cancels pending evaluations. The host does not automatically retry evaluations. Each call checks current and delegated permissions. Non-committing macro resolution cannot run evaluations.\r\n\r\n## Images and Box questions\r\n\r\nHosts with the `decision-images-v1` capability accept images and Box questions on TypeSafe connections (Jev 1.13 and newer accept images; Box needs Jev 1.14, for example `model: 'jev-preview'`). TypeSafe calls these features experimental; formats and accuracy can change. Other providers reject requests with images or Box questions.\r\n\r\n```ts\r\nconst result = await spindle.decisions.evaluate({\r\n  model: 'jev-preview',\r\n  state: { page: 'a3f1c2e8-page' },\r\n  assets: { 'a3f1c2e8-page': { image_id: imageId } },\r\n  questions: {\r\n    present: { type: 'noul', instructions: 'Is there a girl with black hair in `page`?' },\r\n    face: { type: 'box', instructions: 'the face of the girl with black hair in `page`' },\r\n  },\r\n})\r\nconst { top, bottom, left, right } = result.answers.face.box // fractions of the image size\r\nconst boxConfidence = result.answers.face.confidence\r\n```\r\n\r\nEach key in `assets` is a reference string that must appear in `state`, a question's `instructions`, or its `criteria`; the model receives the image in its place. Use references that cannot occur in your text by accident, such as a UUID. An asset is either `{ image_id }`, a stored Lumiverse image of the same account (PNG or JPEG; requires the `images` permission), or `{ format: 'png' | 'jpg' | 'jpeg', data_base64 }` with plain base64 (no `data:` prefix). Both forms accept an optional `type: 'image'`; combining the forms or adding other fields is rejected. Images must be 280\u20131568 px on each side; the host does not resize them. Stored and inline images share a 20 MiB decoded limit per request, including repeated entries. Asset references and IDs count toward the 1 MiB input limit; only the base64 data is excluded.\r\n\r\nA Box question takes no criteria and needs at least one image. It always returns a box, even when the target is absent, so pair it with a Noul such as `present` above.\r\n\r\n## Inspect connections\r\n\r\n```ts\r\nconst providers = await spindle.decisions.listProviders()\r\nconst connections = await spindle.decisions.listConnections()\r\nconst connection = await spindle.decisions.getConnection(connectionId)\r\nconst models = await spindle.decisions.getModels(connectionId)\r\n```\r\n\r\nEach inspection method accepts an optional `{ userId }` argument for operator extensions. Profiles include model, default status, and readable API-key status, without credentials. Model entries include `id`, `label`, optional catalog metadata, and a `protocol` value of `supported`, `unsupported`, or `unverified`. Preserve exact model IDs, including `~typesafe/jev-latest`. Unknown models can be entered manually. Together's Tev1 uses a different protocol and is rejected by this adapter.\r\n\r\nOpenRouter uses its native `/api/alpha/decisions` route and discovers Decision models through `/api/v1/models?output_modalities=decisions`. NanoGPT uses its native `/api/v1/decisions` route and discovers Decision models through the detailed `/api/v1/models?detailed=true` catalog, keeping entries whose architecture advertises the `decisions` output modality. TypeSafe uses `/v1/systemone` and `/v1/models`. Custom API URLs are versioned base URLs; proxy deployments must expose the corresponding evaluation and model routes. Only supported OpenRouter `provider` routing options are accepted in `default_parameters`.\r\n\r\nSee [Decision connection setup](https://lumiverse.chat/guides/connections/decisions/) and the [REST reference](../rest-api.md#decision-connections).\r\n",
     "developer/backend-api/embeddings.md": "# Embeddings\r\n\r\n`spindle.embeddings` turns text into vectors with the user's embedding connections (Settings > Embeddings). Use it to rank short texts by meaning, for example to match a spoken request against command labels. Declare the `embeddings` permission in `spindle.json` and obtain the user's grant. The host advertises `embeddings-v1: 1` in `spindle.host.capabilities`; check this before calling the API on older hosts.\r\n\r\nUse `lumiverse-spindle-types` **0.6.53** or newer for `SpindleEmbeddingsAPI`, the `Embedding*` types, and the `embeddings` permission.\r\n\r\n## Embed\r\n\r\n```ts\r\nconst labels = ['Open world books', 'Switch persona', 'Start a new chat']\r\nconst { embeddings, connection_id, model, dimensions } = await spindle.embeddings.embed({ texts: labels })\r\n\r\nconst [query] = (await spindle.embeddings.embed({\r\n  texts: ['take me to my lorebooks'],\r\n  input_type: 'query',\r\n  connection_id, // same connection, so the vectors are comparable\r\n}, { signal: controller.signal })).embeddings\r\n\r\nconst cosine = (a: number[], b: number[]) => {\r\n  let dot = 0, na = 0, nb = 0\r\n  for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i] }\r\n  return dot / Math.sqrt(na * nb)\r\n}\r\nconst best = labels[embeddings.map((v) => cosine(query, v)).reduce((bi, s, i, all) => (s > all[bi] ? i : bi), 0)]\r\n```\r\n\r\nThe result has one vector per text, in input order, plus the `connection_id`, `model`, and `dimensions` that produced them. Vectors from different connections or models are not comparable. If you store vectors, store `connection_id` and `model` with them and embed again when they change.\r\n\r\n- `connection_id` selects a connection from `listConnections()`. Without it, the host uses the user's primary embedding connection. The host never switches to a fallback connection for this API, so all vectors in a result come from one model. An unknown or disabled connection fails the request.\r\n- `input_type` is `\"passage\"` (default) or `\"query\"`. Some models (Cohere, NVIDIA NIM) embed search queries differently from stored texts. Embed what you search for as `\"query\"` and what you search in as `\"passage\"`.\r\n- A request has 1\u2013256 texts. Each text must be non-empty and at most 8192 characters. Split larger sets into several requests.\r\n- The host sends texts to the provider in batches of the user's embedding batch size.\r\n- The request fails when the user has turned embeddings off.\r\n- Results use the host's embedding cache (10 minutes), scoped to the selected connection and input type, so repeated extension requests do not call the provider again. Host retrieval uses separate entries because its vectors may come from a fallback connection.\r\n\r\nExtensions never supply credentials or endpoints, and errors never contain the API key. User extensions always resolve their owner's account. Operator extensions must supply `userId`. When the server owner shares their embedding setup with other accounts, those accounts embed with the owner's connections, as host features do.\r\n\r\nPassing an `AbortSignal` cancels provider work; worker termination cancels pending requests. Non-committing macro resolution cannot run `embed`.\r\n\r\nOnly text is supported. No built-in embedding provider path sends images.\r\n\r\n## List connections\r\n\r\n```ts\r\nconst connections = await spindle.embeddings.listConnections()\r\nconst primary = connections.find((c) => c.is_primary)\r\n```\r\n\r\nEach connection has `id`, `name`, `provider`, `model`, `dimensions` (`null` means the provider's native size), `enabled`, `is_primary`, and `has_api_key`. URLs and API keys are not returned.\r\n",
     "developer/backend-api/ephemeral-storage.md": `# Ephemeral Storage\r
 \r
@@ -19748,6 +19714,7 @@ declare const spindle: import('lumiverse-spindle-types').SpindleAPI\r
 | [Commands](commands.md) | Free | Register custom commands in the command palette (Cmd/Ctrl+K) |\r
 | [UI Automation](ui-automation.md) | Free | Enumerate drawer / settings tabs and navigate the user to a specific surface |\r
 | [Version](version.md) | Free | Read the backend and frontend semantic versions |\r
+| [UUIDs](uuid.md) | Free | Generate UUID v4 or v7 strings through the backend |\r
 `,
     "developer/backend-api/interceptors.md": `# Interceptors\r
 \r
@@ -23831,6 +23798,36 @@ async function notifyIfOperator(userId: string, hasUpdate: boolean) {\r
 \r
 !!! note\r
     For user-scoped extensions, the user context is inferred automatically. For operator-scoped extensions, pass \`userId\` explicitly.\r
+`,
+    "developer/backend-api/uuid.md": `# UUIDs\r
+\r
+\`spindle.uuid\` generates UUID strings using the backend's existing UUID helper.\r
+It is available to backend extensions without any permission or user ID.\r
+\r
+\`\`\`ts\r
+declare const spindle: import('lumiverse-spindle-types').SpindleAPI\r
+\r
+const randomId = await spindle.uuid.v4()\r
+const orderedId = await spindle.uuid.v7()\r
+\`\`\`\r
+\r
+| Method | Returns | Description |\r
+|--------|---------|-------------|\r
+| \`v4()\` | \`Promise<string>\` | Random UUID with 122 random bits |\r
+| \`v7()\` | \`Promise<string>\` | UUID with the backend's millisecond Unix timestamp, a 12-bit counter, and 62 random bits |\r
+\r
+Both methods return lowercase UUID strings in \`8-4-4-4-12\` hexadecimal format.\r
+Each call makes a request to the backend host. UUID v7 calls share the helper's\r
+counter with other calls in that backend process, including calls from other\r
+extensions, and increase monotonically within the same millisecond.\r
+\r
+For extensions that also support older hosts, check the capability before use:\r
+\r
+\`\`\`ts\r
+if ((spindle.host.capabilities['uuid-v1'] ?? 0) >= 1) {\r
+  const id = await spindle.uuid.v7()\r
+}\r
+\`\`\`\r
 `,
     "developer/backend-api/variables.md": '# Variables\r\n\r\nRead and write **local**, **global**, and **chat** variables. All three namespaces share storage with the built-in macro engine, so values set by your extension are immediately visible in prompt assembly and vice versa.\r\n\r\nNo permission is required \u2014 variables are free tier.\r\n\r\n| Namespace | Macro family | Storage | Persists? |\r\n|---|---|---|---|\r\n| `local` | `{{getvar}}` / `{{setvar}}` (no prefix) | `chat.metadata.macro_variables.local` | Per-chat scratchpad. Persisted via the spindle API; cleared by in-prompt mutations. |\r\n| `chat` | `{{getchatvar}}` / `{{setchatvar}}` (`@` prefix) | `chat.metadata.chat_variables` | **Persisted across generations within the same chat.** Use this for state you want to survive turns (HP, counters, flags). |\r\n| `global` | `{{getgvar}}` / `{{setgvar}}` (`$` prefix) | `macro_variables_global` setting | Persisted user-wide, across all chats. |\r\n\r\n!!! tip "Which one should I use?"\r\n    Reach for `chat` whenever you want game-state-style values \u2014 turn counters, hit points, flags \u2014 that should survive across regens, swipes, and message edits. `local` is best understood as a per-evaluation scratchpad that the spindle API can also write to. `global` is for cross-chat user preferences.\r\n\r\n## Local Variables (per-chat scratchpad)\r\n\r\nLocal variables are stored per-chat in `chat.metadata.macro_variables.local`. They correspond to the unprefixed `{{getvar}}` / `{{setvar}}` macro family. Mutations made through this API are persisted to the chat record, but in-prompt macro mutations (`{{setvar::x::5}}` inside a prompt block) are evaluation-scoped only.\r\n\r\n```ts\r\nconst chatId = \'...\' // the chat to operate on\r\n\r\n// Set a variable\r\nawait spindle.variables.local.set(chatId, \'mood\', \'happy\')\r\n\r\n// Get a variable (returns empty string if not set)\r\nconst mood = await spindle.variables.local.get(chatId, \'mood\')\r\n\r\n// Check existence\r\nconst exists = await spindle.variables.local.has(chatId, \'mood\')\r\n\r\n// List all local variables for a chat\r\nconst allVars = await spindle.variables.local.list(chatId)\r\n// { mood: \'happy\', score: \'42\', ... }\r\n\r\n// Delete a variable\r\nawait spindle.variables.local.delete(chatId, \'mood\')\r\n```\r\n\r\n## Chat Variables (persisted per-chat)\r\n\r\nChat variables live in `chat.metadata.chat_variables` and **persist across generations within the same chat**. They correspond to the `@`-prefixed macro family \u2014 `{{@hp}}`, `{{@turn++}}`, `{{setchatvar::flag::true}}`, `{{getchatvar::flag}}`, `{{incchatvar::turn}}`, etc. When a generation runs and the assembled prompt mutates a chat variable, the new value is flushed back to chat metadata after assembly so subsequent turns see it.\r\n\r\nThis is the right namespace for game-loop state: HP, turn counters, inventory flags, story milestones \u2014 anything you want to survive regens, swipes, and message edits.\r\n\r\n```ts\r\nconst chatId = \'...\'\r\n\r\n// Initialize state for a new chat\r\nawait spindle.variables.chat.set(chatId, \'hp\', \'100\')\r\nawait spindle.variables.chat.set(chatId, \'turn\', \'0\')\r\n\r\n// Read current state (returns "" if unset)\r\nconst hp = await spindle.variables.chat.get(chatId, \'hp\')\r\n\r\n// Check existence\r\nconst hasInventory = await spindle.variables.chat.has(chatId, \'inventory\')\r\n\r\n// Snapshot all chat variables\r\nconst state = await spindle.variables.chat.list(chatId)\r\n// { hp: \'100\', turn: \'7\', flag_met_villain: \'true\' }\r\n\r\n// Clear a single key\r\nawait spindle.variables.chat.delete(chatId, \'temporary_buff\')\r\n```\r\n\r\nThese values are visible to prompt assembly via `{{@key}}` / `{{getchatvar::key}}`, so you can write a single variable from your extension and have it appear inside character cards, world books, or system prompts on the very next turn.\r\n\r\n## Global Variables (cross-chat)\r\n\r\nGlobal variables are stored in the user\'s settings under the `macro_variables_global` key. They persist across all chats.\r\n\r\n```ts\r\n// Set a global variable\r\nawait spindle.variables.global.set(\'user_level\', \'5\')\r\n\r\n// Get a global variable\r\nconst level = await spindle.variables.global.get(\'user_level\')\r\n\r\n// Check existence\r\nconst exists = await spindle.variables.global.has(\'user_level\')\r\n\r\n// List all global variables\r\nconst allGlobals = await spindle.variables.global.list()\r\n// { user_level: \'5\', theme_preference: \'dark\', ... }\r\n\r\n// Delete a global variable\r\nawait spindle.variables.global.delete(\'user_level\')\r\n```\r\n\r\n## Methods\r\n\r\n### `spindle.variables.local`\r\n\r\n| Method | Returns | Description |\r\n|---|---|---|\r\n| `get(chatId, key)` | `Promise<string>` | Get a local variable value. Returns `""` if not set. |\r\n| `set(chatId, key, value)` | `Promise<void>` | Set a local variable. |\r\n| `delete(chatId, key)` | `Promise<void>` | Delete a local variable. |\r\n| `list(chatId)` | `Promise<Record<string, string>>` | Get all local variables for a chat. |\r\n| `has(chatId, key)` | `Promise<boolean>` | Check if a local variable exists. |\r\n\r\n### `spindle.variables.chat`\r\n\r\n| Method | Returns | Description |\r\n|---|---|---|\r\n| `get(chatId, key)` | `Promise<string>` | Get a chat-persisted variable. Returns `""` if not set. |\r\n| `set(chatId, key, value)` | `Promise<void>` | Set a chat-persisted variable. |\r\n| `delete(chatId, key)` | `Promise<void>` | Delete a chat-persisted variable. |\r\n| `list(chatId)` | `Promise<Record<string, string>>` | Get all chat-persisted variables for a chat. |\r\n| `has(chatId, key)` | `Promise<boolean>` | Check if a chat-persisted variable exists. |\r\n\r\n### `spindle.variables.global`\r\n\r\n| Method | Returns | Description |\r\n|---|---|---|\r\n| `get(key)` | `Promise<string>` | Get a global variable value. Returns `""` if not set. |\r\n| `set(key, value)` | `Promise<void>` | Set a global variable. |\r\n| `delete(key)` | `Promise<void>` | Delete a global variable. |\r\n| `list()` | `Promise<Record<string, string>>` | Get all global variables. |\r\n| `has(key)` | `Promise<boolean>` | Check if a global variable exists. |\r\n\r\n## Macro Compatibility\r\n\r\nAll values are strings, matching the macro system\'s behavior:\r\n\r\n- `spindle.variables.local.set(chatId, \'score\', \'42\')` \u2194 `{{setvar::score::42}}` (unprefixed)\r\n- `spindle.variables.local.get(chatId, \'score\')` \u2194 `{{getvar::score}}`\r\n- `spindle.variables.chat.set(chatId, \'hp\', \'100\')` \u2194 `{{setchatvar::hp::100}}` or `{{@hp = 100}}` (`@` prefix)\r\n- `spindle.variables.chat.get(chatId, \'hp\')` \u2194 `{{getchatvar::hp}}` or `{{@hp}}`\r\n- `spindle.variables.global.set(\'theme\', \'dark\')` \u2194 `{{setgvar::theme::dark}}` or `{{$theme = dark}}` (`$` prefix)\r\n\r\nThe full chat-variable macro family also includes `{{incchatvar::key}}`, `{{decchatvar::key}}`, `{{addchatvar::key::value}}`, `{{haschatvar::key}}`, and `{{deletechatvar::key}}`, along with the inline `{{@key++}}` / `{{@key--}}` / `{{@key += n}}` shorthand.\r\n\r\n!!! note\r\n    For user-scoped extensions, the user context is inferred automatically. For operator-scoped extensions, global variable methods use the `userId` resolved from the extension context. Chat-scoped methods always derive their owner from the chat record.\r\n',
     "developer/backend-api/version.md": `# Version\r
@@ -29210,6 +29207,7 @@ These are always available:\r
 - **Input Bar Actions** \u2014 register actions in the chat input bar Extras popover\r
 - **Variables** \u2014 read/write local (chat-scoped) and global (cross-chat) variables\r
 - **Logging** \u2014 write to the server console\r
+- **UUIDs** \u2014 generate UUID v4 or v7 strings through the backend\r
 - **Toast Notifications** \u2014 show success/warning/error/info toasts in the frontend UI\r
 - **Frontend <-> Backend messaging** \u2014 relay messages between your modules\r
 \r
@@ -44423,6 +44421,52 @@ var init_list_image_models = __esm(() => {
   });
 });
 
+// src/agent/tools/_name-search.ts
+function normalize(value) {
+  return value.normalize("NFKC").toLowerCase().trim();
+}
+function matchesName(name, query) {
+  return normalize(name ?? "").includes(normalize(query ?? ""));
+}
+async function searchPage(read, name, options, signal) {
+  const limit = options.limit ?? 200;
+  const offset = options.offset ?? 0;
+  const query = normalize(options.query ?? "");
+  const data = [];
+  let total = 0;
+  let cursor = query ? 0 : offset;
+  for (;; ) {
+    signal.throwIfAborted();
+    const page = await read(query ? 200 : Math.min(200, limit - data.length), cursor);
+    if (!query) {
+      data.push(...page.data.slice(0, limit - data.length));
+      total = page.total;
+    } else {
+      for (const item of page.data) {
+        if (!normalize(name(item) ?? "").includes(query))
+          continue;
+        if (total >= offset && data.length < limit)
+          data.push(item);
+        total++;
+      }
+    }
+    cursor += page.data.length;
+    if (cursor >= page.total || !query && data.length >= limit)
+      break;
+    if (!page.data.length)
+      throw new Error("Search ended before all results arrived. Retry the request.");
+  }
+  signal.throwIfAborted();
+  const hasMore = offset + data.length < total;
+  return { data, total, offset, has_more: hasMore, next_offset: hasMore ? offset + data.length : null };
+}
+var description = "Case-insensitive name substring.", nameQuery, nameQueryProperty;
+var init__name_search = __esm(() => {
+  init_zod();
+  nameQuery = string2().max(200).optional().describe(description);
+  nameQueryProperty = { type: "string", maxLength: 200, description };
+});
+
 // src/agent/prompts/claude/tools/list-images/description.txt
 var description_default42 = "List images in the user's Lumiverse library (permission `images`).\r\n\r\nUse it to see a character's existing art before generating more, to find expression sprites, or to locate an image id. Filter with `character_id` (defaults to the focused character; pass \"all\" for the whole library) and `chat_id`. `only_owned: true` narrows to images LumiAgent itself created.\r\n\r\nEach row: id, filename, mime type, dimensions, the owning character / chat, and a relative `url`. The card's current avatar is character data, not a library row, so no row here is marked as the avatar. That url is authenticated and host-relative, so it is NOT fetchable via `web_fetch`; to actually look at an image, generate or download it into the workspace and use `view_image`.\r\n";
 var init_description42 = () => {};
@@ -44445,6 +44489,7 @@ var init_arg_only_owned = () => {};
 // src/agent/tools/list-images.ts
 var inputSchema43, listImagesTool;
 var init_list_images = __esm(() => {
+  init__name_search();
   init_zod();
   init__framework();
   init__context();
@@ -44453,6 +44498,7 @@ var init_list_images = __esm(() => {
   init_arg_chat_id3();
   init_arg_only_owned();
   inputSchema43 = object({
+    query: nameQuery,
     character_id: string2().optional(),
     chat_id: string2().optional(),
     only_owned: boolean2().optional(),
@@ -44466,6 +44512,7 @@ var init_list_images = __esm(() => {
     jsonSchema: {
       type: "object",
       properties: {
+        query: { ...nameQueryProperty, description: "Case-insensitive filename substring." },
         character_id: { type: "string", description: arg_character_id_default2 },
         chat_id: { type: "string", description: arg_chat_id_default3 },
         only_owned: { type: "boolean", description: arg_only_owned_default },
@@ -44490,13 +44537,16 @@ var init_list_images = __esm(() => {
       };
       let res;
       try {
-        res = await ctx.spindle.images.list(opts);
+        res = await searchPage((limit, offset) => ctx.spindle.images.list({ ...opts, limit, offset }), (image) => image.original_filename, { ...input, limit: input.limit ?? 100 }, ctx.signal);
       } catch (err) {
         return { content: `Error: [SPINDLE_ERROR] ${err.message}`, isError: true };
       }
       return {
         content: JSON.stringify({
           total: res.total,
+          offset: res.offset,
+          has_more: res.has_more,
+          next_offset: res.next_offset,
           returned: res.data.length,
           character_filter: charFilter,
           images: res.data.map((i) => ({
@@ -44524,10 +44574,12 @@ var init_description43 = () => {};
 // src/agent/tools/list-global-addons.ts
 var inputSchema44, listGlobalAddonsTool;
 var init_list_global_addons = __esm(() => {
+  init__name_search();
   init_zod();
   init__framework();
   init_description43();
   inputSchema44 = object({
+    query: nameQuery,
     limit: number2().int().positive().max(500).optional(),
     offset: number2().int().min(0).optional()
   }).strict();
@@ -44538,6 +44590,7 @@ var init_list_global_addons = __esm(() => {
     jsonSchema: {
       type: "object",
       properties: {
+        query: nameQueryProperty,
         limit: { type: "integer", minimum: 1, maximum: 500, description: "Max rows. Default 200." },
         offset: { type: "integer", minimum: 0 }
       },
@@ -44550,17 +44603,20 @@ var init_list_global_addons = __esm(() => {
     execute: async (input, ctx) => {
       let res;
       try {
-        res = await ctx.spindle.global_addons.list({
-          limit: input.limit ?? 200,
-          offset: input.offset ?? 0,
+        res = await searchPage((limit, offset) => ctx.spindle.global_addons.list({
+          limit,
+          offset,
           userId: ctx.userId
-        });
+        }), (item) => item.label, input, ctx.signal);
       } catch (err) {
         return { content: `Error: [SPINDLE_ERROR] ${err.message}`, isError: true };
       }
       return {
         content: JSON.stringify({
           total: res.total,
+          offset: res.offset,
+          has_more: res.has_more,
+          next_offset: res.next_offset,
           returned: res.data.length,
           addons: res.data.map((a) => ({
             path: `global_addon/${a.id}/content`,
@@ -45529,7 +45585,7 @@ function grepLeaf(text, re, leafKey, surface, surfaceLabel, maxRemaining, maxHit
     stoppedEarly = true;
   return { hits, lastLineScanned, totalLines, stoppedEarly };
 }
-var GREP_DEFAULT_MAX = 50, GREP_MAX_CAP = 200, GREP_PREVIEW_CHARS = 150, GREP_DEFAULT_HITS_PER_LINE = 1, description, inputSchema56, grepTool;
+var GREP_DEFAULT_MAX = 50, GREP_MAX_CAP = 200, GREP_PREVIEW_CHARS = 150, GREP_DEFAULT_HITS_PER_LINE = 1, description2, inputSchema56, grepTool;
 var init_grep = __esm(() => {
   init_zod();
   init__framework();
@@ -45540,7 +45596,7 @@ var init_grep = __esm(() => {
   init_arg_max_matches();
   init_arg_max_hits_per_line();
   init_arg_world_scope();
-  description = fillPrompt(description_default55, { GREP_DEFAULT_MAX, GREP_MAX_CAP, GREP_DEFAULT_HITS_PER_LINE });
+  description2 = fillPrompt(description_default55, { GREP_DEFAULT_MAX, GREP_MAX_CAP, GREP_DEFAULT_HITS_PER_LINE });
   inputSchema56 = object({
     pattern: string2().min(1).describe("ECMAScript regex pattern. The global flag is added automatically."),
     flags: string2().optional().describe("Extra regex flags (i/m/s/u). 'g' is implied."),
@@ -45554,7 +45610,7 @@ var init_grep = __esm(() => {
   }).strict();
   grepTool = defineTool({
     name: "grep",
-    description,
+    description: description2,
     inputSchema: inputSchema56,
     jsonSchema: {
       type: "object",
@@ -45928,7 +45984,7 @@ function classifyNode(v) {
     return { type: "boolean" };
   return { type: typeof v };
 }
-async function listCharacterRoot(ctx, characterId, maxEntries, offset = 0) {
+async function listCharacterRoot(ctx, characterId, maxEntries, offset = 0, query) {
   const c = await ctx.spindle.characters.get(characterId, ctx.userId);
   if (!c)
     throw new Error(`character ${characterId} not found`);
@@ -45950,20 +46006,20 @@ async function listCharacterRoot(ctx, characterId, maxEntries, offset = 0) {
     out.push({ path: "char/alternate_fields", type: "alternate_fields", size: altTotal });
   }
   out.push({ path: "char/extensions", type: "object", size: c.extensions ? Object.keys(c.extensions).length : 0 });
-  return out.slice(offset, offset + maxEntries);
+  return out.filter((entry) => matchesName(entry.label ?? entry.path, query)).slice(offset, offset + maxEntries);
 }
-async function listGreetings(ctx, characterId, maxEntries, offset = 0) {
+async function listGreetings(ctx, characterId, maxEntries, offset = 0, query) {
   const c = await ctx.spindle.characters.get(characterId, ctx.userId);
   if (!c)
     throw new Error(`character ${characterId} not found`);
   const arr = c.alternate_greetings ?? [];
-  return arr.slice(offset, offset + maxEntries).map((g, i) => ({
-    path: `char/alternate_greetings/${offset + i}`,
+  return arr.map((g, i) => ({
+    path: `char/alternate_greetings/${i}`,
     type: "string",
     size: typeof g === "string" ? g.length : 0
-  }));
+  })).filter((entry) => matchesName(entry.path, query)).slice(offset, offset + maxEntries);
 }
-async function listAlternateFields(ctx, characterId, maxEntries, offset = 0) {
+async function listAlternateFields(ctx, characterId, maxEntries, offset = 0, query) {
   const c = await ctx.spindle.characters.get(characterId, ctx.userId);
   if (!c)
     throw new Error(`character ${characterId} not found`);
@@ -45972,39 +46028,25 @@ async function listAlternateFields(ctx, characterId, maxEntries, offset = 0) {
     const variants = readAltFieldArray(c.extensions, f);
     out.push({ path: `char/alternate_fields/${f}`, type: "alt_field_group", entries: variants.length });
   }
-  return out.slice(offset, offset + maxEntries);
+  return out.filter((entry) => matchesName(entry.label ?? entry.path, query)).slice(offset, offset + maxEntries);
 }
-async function listAlternateFieldVariants(ctx, characterId, field, maxEntries, offset = 0) {
+async function listAlternateFieldVariants(ctx, characterId, field, maxEntries, offset = 0, query) {
   const c = await ctx.spindle.characters.get(characterId, ctx.userId);
   if (!c)
     throw new Error(`character ${characterId} not found`);
   const variants = readAltFieldArray(c.extensions, field);
-  return variants.slice(offset, offset + maxEntries).map((v, i) => ({
+  return variants.map((v, i) => ({
     path: `char/alternate_fields/${field}/${v.id}`,
     type: "alt_field_variant",
     label: v.label || `(unlabeled #${i})`,
     size: v.content.length
-  }));
+  })).filter((entry) => matchesName(entry.label, query)).slice(offset, offset + maxEntries);
 }
-async function listRegex(ctx, characterId, maxEntries, offset = 0) {
-  const out = [];
-  while (out.length < maxEntries) {
-    ctx.signal.throwIfAborted();
-    const r = await ctx.spindle.regex_scripts.list({ scope: "character", scopeId: characterId, userId: ctx.userId, limit: Math.min(200, maxEntries - out.length), offset });
-    for (const s of r.data) {
-      if (out.length >= maxEntries)
-        break;
-      out.push({ path: `rx/${s.id}`, type: "regex_script", label: s.name, size: (s.find_regex?.length ?? 0) + (s.replace_string?.length ?? 0) });
-    }
-    if (offset + r.data.length >= r.total)
-      break;
-    if (!r.data.length)
-      throw new Error("Listing ended before all results arrived. Retry the request.");
-    offset += r.data.length;
-  }
-  return out;
+async function listRegex(ctx, characterId, maxEntries, offset = 0, query) {
+  const page = await searchPage((limit, offset) => ctx.spindle.regex_scripts.list({ scope: "character", scopeId: characterId, userId: ctx.userId, limit, offset }), (script) => script.name, { limit: maxEntries, offset, query }, ctx.signal);
+  return page.data.map((script) => ({ path: `rx/${script.id}`, type: "regex_script", label: script.name, size: (script.find_regex?.length ?? 0) + (script.replace_string?.length ?? 0) }));
 }
-async function listWorldBooks(ctx, characterId, maxEntries, includeUnattached, offset = 0) {
+async function listWorldBooks(ctx, characterId, maxEntries, includeUnattached, offset = 0, query) {
   const attached = new Set;
   if (characterId !== null) {
     const c = await ctx.spindle.characters.get(characterId, ctx.userId);
@@ -46014,17 +46056,25 @@ async function listWorldBooks(ctx, characterId, maxEntries, includeUnattached, o
       attached.add(id);
   }
   const globalSet = includeUnattached ? new Set(await ctx.spindle.world_books.getGlobal(ctx.userId).catch(() => [])) : new Set;
-  const wbIds = includeUnattached ? (await listAllWorldBooks(ctx)).map((wb) => wb.id) : [...attached];
+  const books = includeUnattached ? (await searchPage((limit, offset) => ctx.spindle.world_books.list({ limit, offset, userId: ctx.userId }), (book) => book.name, { limit: maxEntries, offset, query }, ctx.signal)).data : [];
+  if (!includeUnattached) {
+    let skipped = 0;
+    for (const id of attached) {
+      ctx.signal.throwIfAborted();
+      const book = await ctx.spindle.world_books.get(id, ctx.userId);
+      if (!book || !matchesName(book.name, query))
+        continue;
+      if (skipped++ < offset)
+        continue;
+      books.push(book);
+      if (books.length >= maxEntries)
+        break;
+    }
+  }
   const out = [];
-  let skipped = 0;
-  for (const wbId of wbIds) {
-    if (out.length >= maxEntries)
-      break;
-    const wb = await ctx.spindle.world_books.get(wbId, ctx.userId);
-    if (!wb)
-      continue;
-    if (skipped++ < offset)
-      continue;
+  for (const wb of books) {
+    ctx.signal.throwIfAborted();
+    const wbId = wb.id;
     const meta = await ctx.spindle.world_books.entries.list(wbId, { limit: 1, userId: ctx.userId });
     const entry = { path: `wb/${wbId}`, type: "world_book", label: wb.name, entries: meta.total };
     if (includeUnattached && characterId !== null)
@@ -46035,25 +46085,11 @@ async function listWorldBooks(ctx, characterId, maxEntries, includeUnattached, o
   }
   return out;
 }
-async function listWorldBookEntries(ctx, bookId, maxEntries, offset = 0) {
-  const out = [];
-  while (out.length < maxEntries) {
-    ctx.signal.throwIfAborted();
-    const r = await ctx.spindle.world_books.entries.list(bookId, { limit: Math.min(200, maxEntries - out.length), userId: ctx.userId, offset });
-    for (const e of r.data) {
-      if (out.length >= maxEntries)
-        break;
-      out.push({ path: `wb/${e.id}`, type: "wb_entry", label: wbLabel(e), size: e.content?.length ?? 0 });
-    }
-    if (offset + r.data.length >= r.total)
-      break;
-    if (!r.data.length)
-      throw new Error("Listing ended before all results arrived. Retry the request.");
-    offset += r.data.length;
-  }
-  return out;
+async function listWorldBookEntries(ctx, bookId, maxEntries, offset = 0, query) {
+  const page = await searchPage((limit, offset) => ctx.spindle.world_books.entries.list(bookId, { limit, offset, userId: ctx.userId }), wbLabel, { limit: maxEntries, offset, query }, ctx.signal);
+  return page.data.map((entry) => ({ path: `wb/${entry.id}`, type: "wb_entry", label: wbLabel(entry), size: entry.content?.length ?? 0 }));
 }
-async function listExtensions(ctx, characterId, subPath, maxEntries, maxDepth, offset = 0) {
+async function listExtensions(ctx, characterId, subPath, maxEntries, maxDepth, offset = 0, query) {
   if (subPath !== "") {
     await Promise.resolve().then(() => init_gate());
     const res = await checkExtensionRead(ctx.spindle, ctx.userId, characterId, subPath);
@@ -46082,7 +46118,7 @@ async function listExtensions(ctx, characterId, subPath, maxEntries, maxDepth, o
       const entry = { path: `char/extensions/${fullDotted}`, type: info.type };
       if (info.size !== undefined)
         entry.size = info.size;
-      if (visited++ >= offset)
+      if (matchesName(entry.label ?? entry.path, query) && visited++ >= offset)
         out.push(entry);
     }
     if (depth >= maxDepth)
@@ -46109,45 +46145,17 @@ async function listExtensions(ctx, characterId, subPath, maxEntries, maxDepth, o
   visit(root, "", 0);
   return out;
 }
-async function listPersonas(ctx, maxEntries, offset = 0) {
-  const out = [];
-  while (out.length < maxEntries) {
-    ctx.signal.throwIfAborted();
-    const r = await ctx.spindle.personas.list({ limit: Math.min(200, maxEntries - out.length), offset, userId: ctx.userId });
-    for (const p of r.data) {
-      if (out.length >= maxEntries)
-        break;
-      out.push({ path: `persona/${p.id}`, type: "persona", label: p.name, size: p.description?.length ?? 0 });
-    }
-    if (offset + r.data.length >= r.total)
-      break;
-    if (!r.data.length)
-      throw new Error("Listing ended before all results arrived. Retry the request.");
-    offset += r.data.length;
-  }
-  return out;
+async function listPersonas(ctx, maxEntries, offset = 0, query) {
+  const page = await searchPage((limit, offset) => ctx.spindle.personas.list({ limit, offset, userId: ctx.userId }), (persona) => persona.name, { limit: maxEntries, offset, query }, ctx.signal);
+  return page.data.map((persona) => ({ path: `persona/${persona.id}`, type: "persona", label: persona.name, size: persona.description?.length ?? 0 }));
 }
-async function listPresets(ctx, maxEntries, offset = 0) {
-  const out = [];
-  while (out.length < maxEntries) {
-    ctx.signal.throwIfAborted();
-    const r = await ctx.spindle.presets.list({ limit: Math.min(200, maxEntries - out.length), offset, userId: ctx.userId });
-    for (const p of r.data) {
-      if (out.length >= maxEntries)
-        break;
-      out.push({ path: `preset/${p.id}`, type: "preset", label: p.name });
-    }
-    if (offset + r.data.length >= r.total)
-      break;
-    if (!r.data.length)
-      throw new Error("Listing ended before all results arrived. Retry the request.");
-    offset += r.data.length;
-  }
-  return out;
+async function listPresets(ctx, maxEntries, offset = 0, query) {
+  const page = await searchPage((limit, offset) => ctx.spindle.presets.list({ limit, offset, userId: ctx.userId }), (preset) => preset.name, { limit: maxEntries, offset, query }, ctx.signal);
+  return page.data.map((preset) => ({ path: `preset/${preset.id}`, type: "preset", label: preset.name }));
 }
-async function listPresetBlocks(ctx, presetId, maxEntries, offset = 0) {
+async function listPresetBlocks(ctx, presetId, maxEntries, offset = 0, query) {
   const blocks = await ctx.spindle.presets.blocks.list(presetId, ctx.userId);
-  return blocks.slice(offset, offset + maxEntries).map((b) => {
+  return blocks.map((b) => {
     const content = b.content;
     return {
       path: `preset/${presetId}/block/${b.id}`,
@@ -46155,10 +46163,11 @@ async function listPresetBlocks(ctx, presetId, maxEntries, offset = 0) {
       label: b.name || "block",
       size: typeof content === "string" ? content.length : 0
     };
-  });
+  }).filter((entry) => matchesName(entry.label, query)).slice(offset, offset + maxEntries);
 }
 var inputSchema59, listTool;
 var init_list = __esm(() => {
+  init__name_search();
   init_zod();
   init__framework();
   init__context();
@@ -46171,6 +46180,7 @@ var init_list = __esm(() => {
   init_arg_max_entries();
   init_arg_max_depth();
   inputSchema59 = object({
+    query: nameQuery,
     path: string2().describe("Container path. Empty / 'char' for the character overview. 'rx' for regex scripts. 'wb' for world books. 'wb/<bookId>' for entries in a book. 'char/alternate_greetings' for all greetings. 'char/extensions[/dotted]' for an extensions subtree. 'persona' for all personas. 'preset' for all presets. 'preset/<presetId>' for a preset's blocks."),
     offset: number2().int().nonnegative().optional().describe("Zero-based result offset. Continue with next_offset from the previous page."),
     max_entries: number2().int().positive().max(2000).optional().describe("Max items returned. Default 200."),
@@ -46185,6 +46195,7 @@ var init_list = __esm(() => {
     jsonSchema: {
       type: "object",
       properties: {
+        query: nameQueryProperty,
         path: { type: "string", description: arg_path_default7 },
         offset: { type: "integer", minimum: 0, description: "Zero-based result offset. Continue with next_offset." },
         max_entries: { type: "integer", minimum: 1, maximum: 2000, description: arg_max_entries_default },
@@ -46197,6 +46208,7 @@ var init_list = __esm(() => {
     },
     requiresCharacter: false,
     execute: async (input, ctx) => {
+      const query = input.query;
       const pageSize = input.max_entries ?? 200;
       const maxEntries = pageSize + 1;
       const offset = input.offset ?? 0;
@@ -46222,40 +46234,40 @@ var init_list = __esm(() => {
         }
         let entries;
         if (path === "" || path === "char" || path === "character") {
-          entries = await listCharacterRoot(ctx, target, maxEntries, offset);
+          entries = await listCharacterRoot(ctx, target, maxEntries, offset, query);
         } else if (path === "char/alternate_greetings" || path === "alternate_greetings") {
-          entries = await listGreetings(ctx, target, maxEntries, offset);
+          entries = await listGreetings(ctx, target, maxEntries, offset, query);
         } else if (path === "char/alternate_fields" || path === "alternate_fields") {
-          entries = await listAlternateFields(ctx, target, maxEntries, offset);
+          entries = await listAlternateFields(ctx, target, maxEntries, offset, query);
         } else if (path.startsWith("char/alternate_fields/") || path.startsWith("alternate_fields/")) {
           const field = path.replace(/^(char\/)?alternate_fields\//, "");
           if (!isAlternateFieldName(field)) {
             return { content: `Error: [PATH_NOT_FOUND] unknown alternate field '${field}'. Valid: ${ALTERNATE_FIELD_NAMES.join(", ")}.`, isError: true };
           }
-          entries = await listAlternateFieldVariants(ctx, target, field, maxEntries, offset);
+          entries = await listAlternateFieldVariants(ctx, target, field, maxEntries, offset, query);
         } else if (path === "rx" || path === "regex_scripts") {
-          entries = await listRegex(ctx, target, maxEntries, offset);
+          entries = await listRegex(ctx, target, maxEntries, offset, query);
         } else if (path === "wb" || path === "world_books") {
-          entries = await listWorldBooks(ctx, target === "" ? null : target, maxEntries, input.include_unattached === true, offset);
+          entries = await listWorldBooks(ctx, target === "" ? null : target, maxEntries, input.include_unattached === true, offset, query);
         } else if (path.startsWith("wb/") || path.startsWith("world_books/")) {
           const bookId = path.split("/")[1] ?? "";
           if (!bookId)
             return { content: "Error: wb/<bookId> requires a book id", isError: true };
-          entries = await listWorldBookEntries(ctx, bookId, maxEntries, offset);
+          entries = await listWorldBookEntries(ctx, bookId, maxEntries, offset, query);
         } else if (path === "char/extensions" || path === "extensions") {
-          entries = await listExtensions(ctx, target, "", maxEntries, maxDepth, offset);
+          entries = await listExtensions(ctx, target, "", maxEntries, maxDepth, offset, query);
         } else if (path.startsWith("char/extensions/") || path.startsWith("extensions/")) {
           const sub = path.replace(/^(char\/)?extensions\//, "");
-          entries = await listExtensions(ctx, target, sub, maxEntries, maxDepth, offset);
+          entries = await listExtensions(ctx, target, sub, maxEntries, maxDepth, offset, query);
         } else if (path === "persona" || path === "personas") {
-          entries = await listPersonas(ctx, maxEntries, offset);
+          entries = await listPersonas(ctx, maxEntries, offset, query);
         } else if (path === "preset" || path === "presets") {
-          entries = await listPresets(ctx, maxEntries, offset);
+          entries = await listPresets(ctx, maxEntries, offset, query);
         } else if (path.startsWith("preset/")) {
           const presetId = path.split("/")[1] ?? "";
           if (!presetId)
             return { content: "Error: preset/<presetId> requires a preset id", isError: true };
-          entries = await listPresetBlocks(ctx, presetId, maxEntries, offset);
+          entries = await listPresetBlocks(ctx, presetId, maxEntries, offset, query);
         } else {
           return { content: `Error: unknown list path '${path}'. Try: '', 'char/alternate_greetings', 'rx', 'wb', 'wb/<id>', 'char/extensions[/dotted]', 'persona', 'preset', 'preset/<id>'.`, isError: true };
         }
@@ -47170,7 +47182,8 @@ var description_default65 = "Enumerate the user's characters so you can address 
 var init_description65 = () => {};
 
 // src/agent/prompts/claude/tools/list-characters/arg_query.txt
-var arg_query_default2 = "Case-insensitive name substring filter.";
+var arg_query_default2 = `Case-insensitive name or tag substring.
+`;
 var init_arg_query2 = () => {};
 
 // src/agent/prompts/claude/tools/list-characters/arg_limit.txt
@@ -50181,19 +50194,20 @@ var init_description99 = () => {};
 // src/agent/tools/list-connections.ts
 var inputSchema100, listConnectionsTool;
 var init_list_connections = __esm(() => {
+  init__name_search();
   init_zod();
   init__framework();
   init_description99();
-  inputSchema100 = object({}).strict();
+  inputSchema100 = object({ query: nameQuery }).strict();
   listConnectionsTool = defineTool({
     name: "list_connections",
     description: description_default99,
     inputSchema: inputSchema100,
-    jsonSchema: { type: "object", properties: {}, required: [] },
-    execute: async (_input, ctx) => {
+    jsonSchema: { type: "object", properties: { query: nameQueryProperty }, required: [] },
+    execute: async (input, ctx) => {
       try {
         const list = await ctx.spindle.connections.list(ctx.userId);
-        const rows = list.map((c) => ({
+        const rows = list.filter((c) => matchesName(c.name, input.query)).map((c) => ({
           id: c.id,
           name: c.name,
           provider: c.provider,
@@ -50224,12 +50238,14 @@ var arg_limit_default4 = "Max results, default 200.";
 var init_arg_limit4 = () => {};
 
 // src/agent/prompts/claude/tools/list-databank-documents/arg_offset.txt
-var arg_offset_default3 = "Pagination offset.";
+var arg_offset_default3 = `Offset into matches. Use next_offset to continue.
+`;
 var init_arg_offset3 = () => {};
 
 // src/agent/tools/list-databank-documents.ts
 var inputSchema101, listDatabankDocumentsTool;
 var init_list_databank_documents = __esm(() => {
+  init__name_search();
   init_zod();
   init__framework();
   init_description100();
@@ -50237,6 +50253,7 @@ var init_list_databank_documents = __esm(() => {
   init_arg_limit4();
   init_arg_offset3();
   inputSchema101 = object({
+    query: nameQuery,
     databank_id: string2().min(1),
     limit: number2().int().min(1).max(500).optional(),
     offset: number2().int().min(0).optional()
@@ -50248,6 +50265,7 @@ var init_list_databank_documents = __esm(() => {
     jsonSchema: {
       type: "object",
       properties: {
+        query: nameQueryProperty,
         databank_id: { type: "string", description: arg_databank_id_default },
         limit: { type: "number", description: arg_limit_default4 },
         offset: { type: "number", description: arg_offset_default3 }
@@ -50256,11 +50274,11 @@ var init_list_databank_documents = __esm(() => {
     },
     execute: async (input, ctx) => {
       try {
-        const res = await ctx.spindle.databanks.documents.list(input.databank_id, {
-          limit: input.limit ?? 200,
-          offset: input.offset ?? 0,
+        const res = await searchPage((limit, offset) => ctx.spindle.databanks.documents.list(input.databank_id, {
+          limit,
+          offset,
           userId: ctx.userId
-        });
+        }), (item) => item.name, input, ctx.signal);
         const rows = res.data.map((d) => ({
           id: d.id,
           name: d.name,
@@ -50272,7 +50290,7 @@ var init_list_databank_documents = __esm(() => {
           error_message: d.error_message,
           updated_at: d.updated_at
         }));
-        return { content: JSON.stringify({ databank_id: input.databank_id, total: res.total, returned: rows.length, documents: rows }, null, 2) };
+        return { content: JSON.stringify({ databank_id: input.databank_id, total: res.total, offset: res.offset, has_more: res.has_more, next_offset: res.next_offset, returned: rows.length, documents: rows }, null, 2) };
       } catch (err) {
         return { content: JSON.stringify({ error: err.message }), isError: true };
       }
@@ -50297,12 +50315,14 @@ var arg_limit_default5 = "Max results, default 200.";
 var init_arg_limit5 = () => {};
 
 // src/agent/prompts/claude/tools/list-databanks/arg_offset.txt
-var arg_offset_default4 = "Pagination offset.";
+var arg_offset_default4 = `Offset into matches. Use next_offset to continue.
+`;
 var init_arg_offset4 = () => {};
 
 // src/agent/tools/list-databanks.ts
 var inputSchema102, listDatabanksTool;
 var init_list_databanks = __esm(() => {
+  init__name_search();
   init_zod();
   init__framework();
   init_description101();
@@ -50311,6 +50331,7 @@ var init_list_databanks = __esm(() => {
   init_arg_limit5();
   init_arg_offset4();
   inputSchema102 = object({
+    query: nameQuery,
     scope: _enum(["global", "character", "chat"]).optional(),
     scope_id: string2().nullable().optional(),
     limit: number2().int().min(1).max(500).optional(),
@@ -50323,6 +50344,7 @@ var init_list_databanks = __esm(() => {
     jsonSchema: {
       type: "object",
       properties: {
+        query: nameQueryProperty,
         scope: { type: "string", enum: ["global", "character", "chat"], description: arg_scope_default3 },
         scope_id: { type: ["string", "null"], description: arg_scope_id_default },
         limit: { type: "number", description: arg_limit_default5 },
@@ -50337,13 +50359,13 @@ var init_list_databanks = __esm(() => {
           scopeId = ctx.characterId || undefined;
         if (input.scope === "chat" && !scopeId)
           scopeId = ctx.pinnedChatId || undefined;
-        const res = await ctx.spindle.databanks.list({
+        const res = await searchPage((limit, offset) => ctx.spindle.databanks.list({
           ...input.scope ? { scope: input.scope } : {},
           ...scopeId ? { scopeId } : {},
-          limit: input.limit ?? 200,
-          offset: input.offset ?? 0,
+          limit,
+          offset,
           userId: ctx.userId
-        });
+        }), (item) => item.name, input, ctx.signal);
         const rows = res.data.map((d) => ({
           id: d.id,
           name: d.name,
@@ -50353,7 +50375,7 @@ var init_list_databanks = __esm(() => {
           document_count: d.document_count ?? null,
           description_chars: d.description.length
         }));
-        return { content: JSON.stringify({ total: res.total, returned: rows.length, databanks: rows }, null, 2) };
+        return { content: JSON.stringify({ total: res.total, offset: res.offset, has_more: res.has_more, next_offset: res.next_offset, returned: rows.length, databanks: rows }, null, 2) };
       } catch (err) {
         return { content: JSON.stringify({ error: err.message }), isError: true };
       }
@@ -50376,12 +50398,14 @@ var init_arg_offset5 = () => {};
 // src/agent/tools/list-personas.ts
 var inputSchema103, listPersonasTool;
 var init_list_personas = __esm(() => {
+  init__name_search();
   init_zod();
   init__framework();
   init_description102();
   init_arg_limit6();
   init_arg_offset5();
   inputSchema103 = object({
+    query: nameQuery,
     limit: number2().int().min(1).max(500).optional(),
     offset: number2().int().min(0).optional()
   }).strict();
@@ -50392,6 +50416,7 @@ var init_list_personas = __esm(() => {
     jsonSchema: {
       type: "object",
       properties: {
+        query: nameQueryProperty,
         limit: { type: "number", description: arg_limit_default6 },
         offset: { type: "number", description: arg_offset_default5 }
       },
@@ -50399,11 +50424,11 @@ var init_list_personas = __esm(() => {
     },
     execute: async (input, ctx) => {
       try {
-        const res = await ctx.spindle.personas.list({
-          limit: input.limit ?? 200,
-          offset: input.offset ?? 0,
+        const res = await searchPage((limit, offset) => ctx.spindle.personas.list({
+          limit,
+          offset,
           userId: ctx.userId
-        });
+        }), (item) => item.name, input, ctx.signal);
         const rows = res.data.map((p) => ({
           id: p.id,
           name: p.name,
@@ -50415,7 +50440,7 @@ var init_list_personas = __esm(() => {
           description_chars: p.description.length,
           updated_at: p.updated_at
         }));
-        return { content: JSON.stringify({ total: res.total, returned: rows.length, personas: rows }, null, 2) };
+        return { content: JSON.stringify({ total: res.total, offset: res.offset, has_more: res.has_more, next_offset: res.next_offset, returned: rows.length, personas: rows }, null, 2) };
       } catch (err) {
         return { content: JSON.stringify({ error: err.message }), isError: true };
       }
@@ -51212,6 +51237,7 @@ async function mcpResult(ctx, origin, operation) {
 }
 var serverId, serverInput, listInput, toolsInput, callInput, createInput, listMcpServersTool, getMcpServerTool, createMcpServerTool, connectMcpServerTool, listMcpToolsTool, callMcpToolTool;
 var init_mcp = __esm(() => {
+  init__name_search();
   init_zod();
   init__framework();
   init_description113();
@@ -51223,6 +51249,7 @@ var init_mcp = __esm(() => {
   serverId = string2().min(1).describe("Full server ID from list_mcp_servers or create_mcp_server.");
   serverInput = object({ server_id: serverId }).strict();
   listInput = object({
+    query: nameQuery,
     limit: number2().int().min(1).max(100).optional().describe("Page size, default 50."),
     offset: number2().int().min(0).optional().describe("Zero-based offset, default 0.")
   }).strict();
@@ -51258,12 +51285,12 @@ var init_mcp = __esm(() => {
     execute: (input, ctx) => mcpResult(ctx, "list_mcp_servers", async () => {
       const limit = input.limit ?? 50;
       const offset = input.offset ?? 0;
-      const result = await ctx.spindle.mcp.servers.list({ limit, offset, userId: ctx.userId });
+      const result = await searchPage((limit, offset) => ctx.spindle.mcp.servers.list({ limit, offset, userId: ctx.userId }), (server) => server.name, { ...input, limit, offset }, ctx.signal);
       return {
         ...result,
         offset,
         has_more: offset + result.data.length < result.total,
-        ...result.total === 0 ? { note: "No MCP servers configured. Use create_mcp_server or Lumiverse Settings > MCP Servers to add one." } : {}
+        ...result.total === 0 && !input.query?.trim() ? { note: "No MCP servers configured. Use create_mcp_server or Lumiverse Settings > MCP Servers to add one." } : {}
       };
     })
   });

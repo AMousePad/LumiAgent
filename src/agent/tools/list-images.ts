@@ -1,3 +1,4 @@
+import { nameQuery, nameQueryProperty, searchPage } from "./_name-search";
 import { z } from "zod";
 import type { ImageListOptionsDTO } from "lumiverse-spindle-types";
 import { defineTool } from "./_framework";
@@ -8,6 +9,7 @@ import argChatId from "../prompts/claude/tools/list-images/arg_chat_id.txt";
 import argOnlyOwned from "../prompts/claude/tools/list-images/arg_only_owned.txt";
 
 const inputSchema = z.object({
+  query: nameQuery,
   character_id: z.string().optional(),
   chat_id: z.string().optional(),
   only_owned: z.boolean().optional(),
@@ -22,6 +24,7 @@ export const listImagesTool = defineTool({
   jsonSchema: {
     type: "object",
     properties: {
+      query: { ...nameQueryProperty, description: "Case-insensitive filename substring." },
       character_id: { type: "string", description: argCharacterId },
       chat_id: { type: "string", description: argChatId },
       only_owned: { type: "boolean", description: argOnlyOwned },
@@ -51,12 +54,12 @@ export const listImagesTool = defineTool({
     };
 
     let res;
-    try { res = await ctx.spindle.images.list(opts); }
+    try { res = await searchPage((limit, offset) => ctx.spindle.images.list({ ...opts, limit, offset }), image => image.original_filename, { ...input, limit: input.limit ?? 100 }, ctx.signal); }
     catch (err) { return { content: `Error: [SPINDLE_ERROR] ${(err as Error).message}`, isError: true }; }
 
     return {
       content: JSON.stringify({
-        total: res.total,
+        total: res.total, offset: res.offset, has_more: res.has_more, next_offset: res.next_offset,
         returned: res.data.length,
         character_filter: charFilter,
         images: res.data.map((i) => ({
