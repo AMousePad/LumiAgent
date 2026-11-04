@@ -38732,6 +38732,7 @@ var init_registry = __esm(() => {
   KNOWN_PHONELINES = [
     { identifier: "lumirealm", name: "LumiRealm" },
     { identifier: "lumicache", name: "LumiCache" },
+    { identifier: "another_one", name: "Concurrent Alternate Trajectories" },
     { identifier: "lumi_books", name: "LumiBooks" }
   ];
   cache2 = new Map;
