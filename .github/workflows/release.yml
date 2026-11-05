@@ -52,7 +52,7 @@ jobs:
         if: steps.version.outputs.number != ''
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.version.outputs.number }}
+          TAG: v${{ steps.version.outputs.number }}
           TARGET: ${{ github.event_name == 'push' && github.sha || github.event.pull_request.merge_commit_sha }}
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
