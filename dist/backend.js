@@ -2749,7 +2749,7 @@ var init_settings = __esm(() => {
 });
 
 // src/generated/lumiverse-docs.ts
-var LUMIVERSE_DOCS_VERSION = "e5ce6b2305d49366", LUMIVERSE_DOCS;
+var LUMIVERSE_DOCS_VERSION = "337b671b7c379722", LUMIVERSE_DOCS;
 var init_lumiverse_docs = __esm(() => {
   LUMIVERSE_DOCS = {
     "characters/alternate-fields.md": `---\r
@@ -3915,6 +3915,8 @@ Cortex's **Advanced** mode is inside the Memory Cortex tab. **Settings \u2192 Ad
 5. Use **Recompile Memories** from the chat input bar. Cortex settings also provide **Rebuild** for the open chat. Wait for processing, inspect **Memory \u2192 Stats**, then inspect the resolved prompt.\r
 \r
 **Warm Memory Cortex when opening a chat** is opt-in. It prepares state on chat open; manual recompilation works while it is off. Chat Memory's warmup toggle is separately located in Settings \u2192 Advanced.\r
+\r
+Automatic warmup and manual recompilation both require **Settings \u2192 Embeddings \u2192 Vectorize chat messages**. Turning warmup off still allows Cortex to analyze new messages, including a new chat's greeting, while chat vectorization is enabled. **Injection Strategy \u2192 Disabled** controls prompt output rather than background analysis.\r
 \r
 ### What the Modes Actually Change\r
 \r
@@ -6275,225 +6277,225 @@ Scripts can be imported and exported as JSON. Lumiverse also supports importing 
 !!! tip "Test with edge cases"\r
     Regex can have unexpected matches. Test with text that looks similar but shouldn't match to make sure your pattern is precise enough.\r
 `,
-    "customization/themes.md": `---
-title: Theme
----
-
-# Theme
-
-Lumiverse's theme system lets you customize the entire visual appearance \u2014 colors, fonts, glass effects, and more.
-
----
-
-## Theme Panel
-
-Open the **Theme Panel** to access all visual settings:
-
-### Mode
-
-Choose your base theme:
-
-| Mode | Description |
-|------|-------------|
-| **Dark** | Dark background with light text (default) |
-| **Light** | Light background with dark text |
-| **System** | Follows your operating system's light/dark preference |
-
-### Accent Color
-
-The primary accent color used for buttons, links, highlights, and focus states. Pick any color using the color picker or enter a specific HSL value.
-
-### Base Colors
-
-Customize the background and text colors for each mode independently. The dark and light modes each have their own base color set.
-
-### Radius Scale
-
-Controls the roundness of UI elements (buttons, cards, inputs):
-
-- **Low** \u2014 Sharp corners, minimal rounding
-- **Medium** \u2014 Balanced rounding (default)
-- **High** \u2014 Very rounded, pill-shaped elements
-
-### Font Scale
-
-Adjusts the global text size. Useful for accessibility or personal preference.
-
-### UI Scale
-
-Scales every UI element \u2014 panels, controls, chrome \u2014 proportionally between 0.5\xD7 and 1.5\xD7. Where **Font Scale** only resizes text, **UI Scale** zooms the entire interface, which is handy on very high-density displays or for people who like a more compact (or more spacious) layout overall.
-
-### Device-specific controls
-
-Expand **Device-specific controls** in the Controls section and enable **Use device-specific controls** to keep Corner Radius, Font Scale, UI Scale, and Glass effects local to your current browser or app and signed-in account. The existing sliders and checkbox then edit your device values. These values survive reloads and theme changes without changing the theme on your other devices.
-
-- **Copy device controls into theme** copies all four values into the theme. Use this before saving, updating, or exporting a theme if you want those values baked into it.
-- **Reset device controls from theme** replaces your local values with the current theme's values.
-- Disable **Use device-specific controls** to follow the theme again. Your previous local values are remembered for next time.
-
-Different browsers, browser profiles, and site addresses have separate local storage. Clearing that storage removes the device preferences. Desktop-only background and rendering settings continue to belong to the theme.
-
-### Glass Effect
-
-Enables a frosted-glass look with backdrop blur on panels, modals, and headers. When disabled, elements use solid backgrounds instead.
-
-!!! note "Performance"
-    Glass effects use CSS \`backdrop-filter: blur()\`, which can be GPU-intensive. If you notice performance issues (especially on older devices), disable glass effects.
-
-### Liquid Glass
-
-Enable **Liquid glass** in the Controls section to add refraction and highlights to glass surfaces and slider thumbs. It is off by default and requires **Glass effects**. Efficiency rendering and the system's reduced-motion preference disable the effect. Browsers without SVG backdrop refraction retain the frosted appearance.
-
-Liquid glass belongs to the saved theme. Turning off **Glass effects** with device-specific controls enabled pauses the effect on that device without changing the saved theme or other devices.
-
----
-
-## Locking Theme Sliders
-
-Use **Lock controls** in the Theme Panel to prevent accidental changes to Corner Radius, Hue, Saturation, Luminance, Font Scale, UI Scale, accent swatches, and Base Colors (including Primary) while scrolling. A lock/unlock button appears in each of the Accent Color, Base Colors, and Controls sections; all three buttons share the same lock state. Touch devices start locked when the panel opens. Click **Unlock controls** beside the values you want to adjust, then lock them again when finished. Desktop controls start unlocked.
-
----
-
-## Preset Themes
-
-The Theme Panel includes a grid of pre-built themes you can apply with one click. These set a coordinated combination of mode, accent color, base colors, and other settings.
-
----
-
-## Character-Aware Theming
-
-When enabled, the theme automatically adapts its accent color to match the current character's avatar. Colors are extracted from the avatar image and applied as a subtle tint to the UI.
-
-This creates a unique visual feel for each character \u2014 one character might tint the UI warm amber, another cool blue.
-
----
-
-## Extension Themes
-
-Extensions can apply CSS variable overrides on top of your theme. Active extension themes are shown in the Theme Panel with attribution (which extension is applying them).
-
-Extension theme overrides are scoped per-extension and automatically cleared when the extension is disabled.
-
----
-
-## Importing & Exporting Themes
-
-You can save and share theme configurations from the **Theme Panel**:
-
-- **Export** \u2014 Save the current theme settings (mode, accent, base colors, radius, scales, glass) as a JSON file
-- **Import** \u2014 Load a theme JSON
-
-For richer sharing \u2014 including custom CSS, component overrides, and bundled assets \u2014 use **Theme Packs** (see below).
-
----
-
-## Custom CSS & Component Overrides
-
-For full styling control beyond what the Theme Panel exposes, open **Settings \u2192 Appearance \u2192 Custom CSS** (or invoke the Custom CSS modal from the Theme Panel). It supports:
-
-- **Custom CSS** \u2014 raw CSS that's injected after the built-in stylesheet, so you can override any variable or selector
-- **Component Overrides** \u2014 safe TSX decorators for built-in components (advanced; imported overrides are quarantined until you explicitly approve them, for safety)
-
-Component starter templates render \`<Original />\`, a trusted slot containing the
-complete built-in component. Keep that slot in the template and add markup around
-it so native behavior\u2014actions, swipes, editing, greetings, accessibility, and new
-features added in later releases\u2014continues to work. Removing \`<Original />\` opts
-into a full replacement, which means the replacement must recreate every feature
-it needs.
-
-\`\`\`jsx
-export default function BubbleMessage(props) {
-  return (
-    <>
-      <Original />
-      <div className="message-decoration">\u2726</div>
-    </>
-  )
-}
-\`\`\`
-
-Use per-component CSS when the change is purely visual; it layers onto the native
-component without changing its React structure.
-
-### Choosing message avatar resolution
-
-The example below intentionally replaces the built-in message markup because it
-changes the avatar source, not just its presentation. A full replacement must
-also render any actions or controls it wants to retain. For sizing, cropping,
-borders, and other visual avatar changes, keep \`<Original />\` and use CSS instead.
-
-\`BubbleMessage\` and \`MinimalMessage\` component overrides receive the same avatar sources. Use \`message.avatar\` when the theme needs a specific shape or resolution:
-
-\`\`\`jsx
-export default function BubbleMessage({ message, styles }) {
-  const avatarSrc = message.avatar.cropped.lg || message.avatar.cropped.sm || message.avatarUrl
-
-  return (
-    <div className={styles.card || ''}>
-      <img src={avatarSrc || ''} alt={message.displayName} />
-      <Content />
-    </div>
-  )
-}
-\`\`\`
-
-The available sources are:
-
-- \`message.avatar.cropped.sm\`, \`.lg\`, and \`.full\` \u2014 the square crop at about 300 px, about 700 px, or original resolution
-- \`message.avatar.original.sm\`, \`.lg\`, and \`.full\` \u2014 the uploaded aspect ratio at those same tiers
-- \`message.avatarUrl\` \u2014 the source selected by the current message style; it also follows that style's **Use full-size avatars** preference
-- \`message.fullAvatarUrl\` \u2014 the original aspect ratio at full resolution
-
-Use the same expressions in a \`MinimalMessage\` override; only the exported function/component being overridden changes. Changing an image's \`src\` requires a component override\u2014Custom CSS can resize or crop the rendered image, but cannot select another source URL.
-
----
-
-## Theme Assets & Bundles
-
-When your custom CSS needs imagery (cursors, backgrounds, decorative SVGs, icon sets), upload it as a **theme asset** instead of pasting a remote URL:
-
-1. Open the **Theme Assets** panel inside the Custom CSS modal
-2. Drag an image, SVG, or font file onto the upload zone \u2014 Lumiverse assigns it a slug under a per-theme \`bundle_id\`
-3. Reference it from your CSS with the relative path the panel gives you (e.g. \`url(./my-cursor.png)\`); Lumiverse rewrites those references to the safe \`/api/v1/theme-assets/bundles/...\` URL at runtime so paths keep working when the theme is shared
-
-Optimizing uploaded PNG/JPG assets to WebP is available from each asset's menu \u2014 useful for trimming large theme packs.
-
----
-
-## Theme Packs
-
-A **Theme Pack** bundles everything together \u2014 theme variables, custom CSS, component overrides, and uploaded assets \u2014 into a single shareable file. From the Custom CSS modal you can:
-
-- **Export Pack** \u2014 Package the current theme + CSS + assets into a zip you can hand to someone else
-- **Import Pack** \u2014 Load a pack into Lumiverse. Imported component overrides arrive disabled by default and must be explicitly enabled, which prevents an untrusted pack from running arbitrary code on import.
-
-Theme Packs travel with their assets, so a recipient sees exactly what you see without needing to re-upload images.
-
-### Safe theme recovery
-
-If custom CSS or a component override makes the interface inaccessible, open Lumiverse with \`?safe-theme=1\` appended to its URL, for example \`https://lumiverse.example.com/?safe-theme=1\`. This suppresses custom CSS and component CSS/TSX overrides for that browser session without deleting them. Remove the query parameter and reload when the theme has been repaired.
-
-In the iOS app, hold two fingers still on the screen for just over half a second to open the native app controls, then choose **Disable custom theme**. VoiceOver and Switch Control users can use the **App controls** button. This reloads the current page in safe theme mode so you can repair or disable the saved overrides, even when the themed interface is inaccessible. Choose **Restore custom theme** to remove the recovery query and reload; any server-wide safe theme setting still applies. Recovery lasts for the loaded frontend session, so repair the saved overrides before reconnecting or loading a page without the query.
-
-Server operators and theme developers can also start Lumiverse with safe theme mode enabled:
-
-\`\`\`bash
-./start.sh --safe-theme
-# Windows PowerShell: .\\start.ps1 -SafeTheme
-# Direct/server/container launches can set LUMIVERSE_SAFE_THEME=true instead.
-\`\`\`
-
-The startup flag applies to every browser using that server. Unset it and restart Lumiverse to restore saved styling. The existing \`Ctrl+Shift+U\` shortcut remains available when the app has mounted; unlike safe theme mode, the shortcut persists the disabled state of the current CSS and component overrides.
-
----
-
-## CSS Variables
-
-The theme system works through CSS custom properties (variables). All colors, spacing, and visual properties are defined as variables that cascade through the entire UI. This means:
-
-- Theme changes are instant (no page reload)
-- Extensions can override specific variables without breaking others
-- All UI components automatically adapt to theme changes
+    "customization/themes.md": `---\r
+title: Theme\r
+---\r
+\r
+# Theme\r
+\r
+Lumiverse's theme system lets you customize the entire visual appearance \u2014 colors, fonts, glass effects, and more.\r
+\r
+---\r
+\r
+## Theme Panel\r
+\r
+Open the **Theme Panel** to access all visual settings:\r
+\r
+### Mode\r
+\r
+Choose your base theme:\r
+\r
+| Mode | Description |\r
+|------|-------------|\r
+| **Dark** | Dark background with light text (default) |\r
+| **Light** | Light background with dark text |\r
+| **System** | Follows your operating system's light/dark preference |\r
+\r
+### Accent Color\r
+\r
+The primary accent color used for buttons, links, highlights, and focus states. Pick any color using the color picker or enter a specific HSL value.\r
+\r
+### Base Colors\r
+\r
+Customize the background and text colors for each mode independently. The dark and light modes each have their own base color set.\r
+\r
+### Radius Scale\r
+\r
+Controls the roundness of UI elements (buttons, cards, inputs):\r
+\r
+- **Low** \u2014 Sharp corners, minimal rounding\r
+- **Medium** \u2014 Balanced rounding (default)\r
+- **High** \u2014 Very rounded, pill-shaped elements\r
+\r
+### Font Scale\r
+\r
+Adjusts the global text size. Useful for accessibility or personal preference.\r
+\r
+### UI Scale\r
+\r
+Scales every UI element \u2014 panels, controls, chrome \u2014 proportionally between 0.5\xD7 and 1.5\xD7. Where **Font Scale** only resizes text, **UI Scale** zooms the entire interface, which is handy on very high-density displays or for people who like a more compact (or more spacious) layout overall.\r
+\r
+### Device-specific controls\r
+\r
+Expand **Device-specific controls** in the Controls section and enable **Use device-specific controls** to keep Corner Radius, Font Scale, UI Scale, and Glass effects local to your current browser or app and signed-in account. The existing sliders and checkbox then edit your device values. These values survive reloads and theme changes without changing the theme on your other devices.\r
+\r
+- **Copy device controls into theme** copies all four values into the theme. Use this before saving, updating, or exporting a theme if you want those values baked into it.\r
+- **Reset device controls from theme** replaces your local values with the current theme's values.\r
+- Disable **Use device-specific controls** to follow the theme again. Your previous local values are remembered for next time.\r
+\r
+Different browsers, browser profiles, and site addresses have separate local storage. Clearing that storage removes the device preferences. Desktop-only background and rendering settings continue to belong to the theme.\r
+\r
+### Glass Effect\r
+\r
+Enables a frosted-glass look with backdrop blur on panels, modals, and headers. When disabled, elements use solid backgrounds instead.\r
+\r
+!!! note "Performance"\r
+    Glass effects use CSS \`backdrop-filter: blur()\`, which can be GPU-intensive. If you notice performance issues (especially on older devices), disable glass effects.\r
+\r
+### Liquid Glass\r
+\r
+Enable **Liquid glass** in the Controls section to add refraction and highlights to glass surfaces and slider thumbs. It is off by default and requires **Glass effects**. Efficiency rendering and the system's reduced-motion preference disable the effect. Browsers without SVG backdrop refraction retain the frosted appearance.\r
+\r
+Liquid glass belongs to the saved theme. Turning off **Glass effects** with device-specific controls enabled pauses the effect on that device without changing the saved theme or other devices.\r
+\r
+---\r
+\r
+## Locking Theme Sliders\r
+\r
+Use **Lock controls** in the Theme Panel to prevent accidental changes to Corner Radius, Hue, Saturation, Luminance, Font Scale, UI Scale, accent swatches, and Base Colors (including Primary) while scrolling. A lock/unlock button appears in each of the Accent Color, Base Colors, and Controls sections; all three buttons share the same lock state. Touch devices start locked when the panel opens. Click **Unlock controls** beside the values you want to adjust, then lock them again when finished. Desktop controls start unlocked.\r
+\r
+---\r
+\r
+## Preset Themes\r
+\r
+The Theme Panel includes a grid of pre-built themes you can apply with one click. These set a coordinated combination of mode, accent color, base colors, and other settings.\r
+\r
+---\r
+\r
+## Character-Aware Theming\r
+\r
+When enabled, the theme automatically adapts its accent color to match the current character's avatar. Colors are extracted from the avatar image and applied as a subtle tint to the UI.\r
+\r
+This creates a unique visual feel for each character \u2014 one character might tint the UI warm amber, another cool blue.\r
+\r
+---\r
+\r
+## Extension Themes\r
+\r
+Extensions can apply CSS variable overrides on top of your theme. Active extension themes are shown in the Theme Panel with attribution (which extension is applying them).\r
+\r
+Extension theme overrides are scoped per-extension and automatically cleared when the extension is disabled.\r
+\r
+---\r
+\r
+## Importing & Exporting Themes\r
+\r
+You can save and share theme configurations from the **Theme Panel**:\r
+\r
+- **Export** \u2014 Save the current theme settings (mode, accent, base colors, radius, scales, glass) as a JSON file\r
+- **Import** \u2014 Load a theme JSON\r
+\r
+For richer sharing \u2014 including custom CSS, component overrides, and bundled assets \u2014 use **Theme Packs** (see below).\r
+\r
+---\r
+\r
+## Custom CSS & Component Overrides\r
+\r
+For full styling control beyond what the Theme Panel exposes, open **Settings \u2192 Appearance \u2192 Custom CSS** (or invoke the Custom CSS modal from the Theme Panel). It supports:\r
+\r
+- **Custom CSS** \u2014 raw CSS that's injected after the built-in stylesheet, so you can override any variable or selector\r
+- **Component Overrides** \u2014 safe TSX decorators for built-in components (advanced; imported overrides are quarantined until you explicitly approve them, for safety)\r
+\r
+Component starter templates render \`<Original />\`, a trusted slot containing the\r
+complete built-in component. Keep that slot in the template and add markup around\r
+it so native behavior\u2014actions, swipes, editing, greetings, accessibility, and new\r
+features added in later releases\u2014continues to work. Removing \`<Original />\` opts\r
+into a full replacement, which means the replacement must recreate every feature\r
+it needs.\r
+\r
+\`\`\`jsx\r
+export default function BubbleMessage(props) {\r
+  return (\r
+    <>\r
+      <Original />\r
+      <div className="message-decoration">\u2726</div>\r
+    </>\r
+  )\r
+}\r
+\`\`\`\r
+\r
+Use per-component CSS when the change is purely visual; it layers onto the native\r
+component without changing its React structure.\r
+\r
+### Choosing message avatar resolution\r
+\r
+The example below intentionally replaces the built-in message markup because it\r
+changes the avatar source, not just its presentation. A full replacement must\r
+also render any actions or controls it wants to retain. For sizing, cropping,\r
+borders, and other visual avatar changes, keep \`<Original />\` and use CSS instead.\r
+\r
+\`BubbleMessage\` and \`MinimalMessage\` component overrides receive the same avatar sources. Use \`message.avatar\` when the theme needs a specific shape or resolution:\r
+\r
+\`\`\`jsx\r
+export default function BubbleMessage({ message, styles }) {\r
+  const avatarSrc = message.avatar.cropped.lg || message.avatar.cropped.sm || message.avatarUrl\r
+\r
+  return (\r
+    <div className={styles.card || ''}>\r
+      <img src={avatarSrc || ''} alt={message.displayName} />\r
+      <Content />\r
+    </div>\r
+  )\r
+}\r
+\`\`\`\r
+\r
+The available sources are:\r
+\r
+- \`message.avatar.cropped.sm\`, \`.lg\`, and \`.full\` \u2014 the square crop at about 300 px, about 700 px, or original resolution\r
+- \`message.avatar.original.sm\`, \`.lg\`, and \`.full\` \u2014 the uploaded aspect ratio at those same tiers\r
+- \`message.avatarUrl\` \u2014 the source selected by the current message style; it also follows that style's **Use full-size avatars** preference\r
+- \`message.fullAvatarUrl\` \u2014 the original aspect ratio at full resolution\r
+\r
+Use the same expressions in a \`MinimalMessage\` override; only the exported function/component being overridden changes. Changing an image's \`src\` requires a component override\u2014Custom CSS can resize or crop the rendered image, but cannot select another source URL.\r
+\r
+---\r
+\r
+## Theme Assets & Bundles\r
+\r
+When your custom CSS needs imagery (cursors, backgrounds, decorative SVGs, icon sets), upload it as a **theme asset** instead of pasting a remote URL:\r
+\r
+1. Open the **Theme Assets** panel inside the Custom CSS modal\r
+2. Drag an image, SVG, or font file onto the upload zone \u2014 Lumiverse assigns it a slug under a per-theme \`bundle_id\`\r
+3. Reference it from your CSS with the relative path the panel gives you (e.g. \`url(./my-cursor.png)\`); Lumiverse rewrites those references to the safe \`/api/v1/theme-assets/bundles/...\` URL at runtime so paths keep working when the theme is shared\r
+\r
+Optimizing uploaded PNG/JPG assets to WebP is available from each asset's menu \u2014 useful for trimming large theme packs.\r
+\r
+---\r
+\r
+## Theme Packs\r
+\r
+A **Theme Pack** bundles everything together \u2014 theme variables, custom CSS, component overrides, and uploaded assets \u2014 into a single shareable file. From the Custom CSS modal you can:\r
+\r
+- **Export Pack** \u2014 Package the current theme + CSS + assets into a zip you can hand to someone else\r
+- **Import Pack** \u2014 Load a pack into Lumiverse. Imported component overrides arrive disabled by default and must be explicitly enabled, which prevents an untrusted pack from running arbitrary code on import.\r
+\r
+Theme Packs travel with their assets, so a recipient sees exactly what you see without needing to re-upload images.\r
+\r
+### Safe theme recovery\r
+\r
+If custom CSS or a component override makes the interface inaccessible, open Lumiverse with \`?safe-theme=1\` appended to its URL, for example \`https://lumiverse.example.com/?safe-theme=1\`. This suppresses custom CSS and component CSS/TSX overrides for that browser session without deleting them. Remove the query parameter and reload when the theme has been repaired.\r
+\r
+In the iOS app, hold two fingers still on the screen for just over half a second to open the native app controls, then choose **Disable custom theme**. VoiceOver and Switch Control users can use the **App controls** button. This reloads the current page in safe theme mode so you can repair or disable the saved overrides, even when the themed interface is inaccessible. Choose **Restore custom theme** to remove the recovery query and reload; any server-wide safe theme setting still applies. Recovery lasts for the loaded frontend session, so repair the saved overrides before reconnecting or loading a page without the query.\r
+\r
+Server operators and theme developers can also start Lumiverse with safe theme mode enabled:\r
+\r
+\`\`\`bash\r
+./start.sh --safe-theme\r
+# Windows PowerShell: .\\start.ps1 -SafeTheme\r
+# Direct/server/container launches can set LUMIVERSE_SAFE_THEME=true instead.\r
+\`\`\`\r
+\r
+The startup flag applies to every browser using that server. Unset it and restart Lumiverse to restore saved styling. The existing \`Ctrl+Shift+U\` shortcut remains available when the app has mounted; unlike safe theme mode, the shortcut persists the disabled state of the current CSS and component overrides.\r
+\r
+---\r
+\r
+## CSS Variables\r
+\r
+The theme system works through CSS custom properties (variables). All colors, spacing, and visual properties are defined as variables that cascade through the entire UI. This means:\r
+\r
+- Theme changes are instant (no page reload)\r
+- Extensions can override specific variables without breaking others\r
+- All UI components automatically adapt to theme changes\r
 `,
     "customization/wallpapers.md": `---\r
 title: Wallpaper\r
@@ -16822,7 +16824,7 @@ const isHidden = await spindle.chat.isMessageHidden(chatId, messageId)\r
 | Method | Returns | Description |\r
 |---|---|---|\r
 | \`getMessages(chatId, options?)\` | \`Promise<ChatMessage[]>\` | Get the messages in a chat, all of them by default. See [Lean Reads](#lean-reads). |\r
-| \`appendMessage(chatId, message, options?)\` | \`Promise<{ id: string; generationId?: string }>\` | Add a new message. Fields: \`{ role, content, metadata? }\`. Pass \`true\` or \`{ triggerGeneration: true }\` as \`options\` to start a normal reply. |\r
+| \`appendMessage(chatId, message, options?)\` | \`Promise<{ id: string; generationId?: string }>\` | Add a new message. Fields: \`{ role, content, metadata?, name?, characterId? }\`. See [Role Mapping](#role-mapping) for identity fields. Pass \`true\` or \`{ triggerGeneration: true }\` as \`options\` to start a normal reply. |\r
 | \`updateMessage(chatId, messageId, patch)\` | \`Promise<void>\` | Edit a message. See [Update Patch Shape](#update-patch-shape). |\r
 | \`deleteMessage(chatId, messageId)\` | \`Promise<void>\` | Remove a message |\r
 | \`setMessageHidden(chatId, messageId, hidden)\` | \`Promise<void>\` | Toggle the \`hidden\` flag on one message |\r
@@ -17013,13 +17015,15 @@ The bulk variant cap of 500 IDs per call mirrors the underlying service limit an
 \r
 ## Role Mapping\r
 \r
-Messages created via \`appendMessage\` use the \`role\` field to set \`is_user\` and \`name\`:\r
+Messages created via \`appendMessage\` use \`role\` to set \`is_user\` and the default saved \`name\`:\r
 \r
-| Role | \`is_user\` | \`name\` |\r
+| Role | \`is_user\` | \`name\` when omitted |\r
 |------|-----------|--------|\r
-| \`"user"\` | \`true\` | From active persona |\r
-| \`"assistant"\` | \`false\` | From chat's character |\r
+| \`"user"\` | \`true\` | \`"User"\` |\r
+| \`"assistant"\` | \`false\` | \`"Assistant"\` |\r
 | \`"system"\` | \`false\` | \`"System"\` |\r
+\r
+Optional \`name\` and \`characterId\` require host capability \`chat-append-identity-v1\`. \`name\` overrides the saved name. \`characterId\` is stored in \`extra.character_id\` and is allowed only for assistant messages referencing a character owned by the chat's user. The destination chat is still selected by \`chatId\`.\r
 \r
 Extension metadata is stored in the message's \`extra.spindle_metadata\` field. An extension's own entry is \`extra.spindle_metadata[<manifest identifier>]\`; write it with the \`ownMetadata\` patch key so concurrent writes from other extensions are preserved. Host-owned keys such as \`preset_contexts\` cannot be used as an own entry.\r
 \r
@@ -18104,7 +18108,7 @@ const state = await spindle.events.getLatestState(['player_score', 'current_scen
 }\r
 \`\`\`\r
 `,
-    "developer/backend-api/events.md": "# Events\r\n\r\nSubscribe to any Lumiverse lifecycle event. Returns an unsubscribe function.\r\n\r\n```ts\r\n// Subscribe\r\nconst unsub = spindle.on('MESSAGE_SENT', (payload) => {\r\n  spindle.log.info(`Message sent in chat ${payload.chatId}`)\r\n})\r\n\r\n// Unsubscribe later\r\nunsub()\r\n```\r\n\r\n## Available Events\r\n\r\n### Chat Lifecycle\r\n\r\n| Event | Payload |\r\n|-------|---------|\r\n| `MESSAGE_SENT` | `{ chatId, message }` |\r\n| `MESSAGE_EDITED` | `{ chatId, message }` |\r\n| `MESSAGE_DELETED` | `{ chatId, messageId }` |\r\n| `MESSAGE_SWIPED` | `MessageSwipedPayloadDTO` \u2014 see [Swipe Events](#swipe-events) |\r\n| `SWIPE_EDITED` | `SwipeEditedPayloadDTO` \u2014 see [Swipe Events](#swipe-events) |\r\n| `CHAT_CHANGED` | `{ chatId }` |\r\n| `CHAT_SWITCHED` | `{ chatId: string \\| null }` \u2014 `null` when the user returns to the home screen |\r\n| `CHARACTER_MESSAGE_RENDERED` | `{ chatId, messageId }` |\r\n| `USER_MESSAGE_RENDERED` | `{ chatId, messageId }` |\r\n\r\n### Generation\r\n\r\n!!! warning \"Permission required: `generation`\"\r\n    Subscribing to generation events requires the `generation` permission. Without it, the subscription is rejected and a `permission_denied` notification is sent to the extension.\r\n\r\n| Event | Typed Payload | Description |\r\n|-------|---------------|-------------|\r\n| `GENERATION_STARTED` | `GenerationStartedPayloadDTO` | A generation has begun |\r\n| `STREAM_TOKEN_RECEIVED` | `StreamTokenPayloadDTO` | A token was received from the LLM |\r\n| `GENERATION_ENDED` | `GenerationEndedPayloadDTO` | Generation completed (success or error) |\r\n| `GENERATION_STOPPED` | `GenerationStoppedPayloadDTO` | User stopped the generation |\r\n\r\nThese events have typed overloads \u2014 payloads are automatically narrowed when using `lumiverse-spindle-types`:\r\n\r\n```ts\r\nspindle.on('STREAM_TOKEN_RECEIVED', (payload) => {\r\n  // payload: StreamTokenPayloadDTO \u2014 fully typed\r\n  console.log(payload.token, payload.seq, payload.type)\r\n})\r\n```\r\n\r\nSee [Generation > Stream Observation](generation.md#stream-observation) for the high-level `observe()` helper and full payload field reference.\r\n\r\n### Swipe Events\r\n\r\nSwipe state changes are surfaced through two events. Pick whichever matches how you want to react:\r\n\r\n- **`MESSAGE_SWIPED`** \u2014 fine-grained. Fires from the four dedicated REST swipe routes (`addSwipe`, `updateSwipe`, `deleteSwipe`, `cycleSwipe`). Payload carries an `action` discriminator so you can tell add/update/delete/navigate apart without diffing arrays.\r\n- **`SWIPE_EDITED`** \u2014 coarse. Fires when `spindle.chat.updateMessage` explicitly supplies one or more of `swipes` / `swipe_id` / `swipe_dates`. Use this when an extension rewrites the swipe array wholesale (e.g. regenerating alternates, merging variants) and you just need to know \"the swipe state for this message changed, refetch it.\"\r\n\r\nPlain content-only edits via `updateMessage` (patches that only touch `content`, `metadata`, `name`, or `reasoning`) do **not** emit `SWIPE_EDITED` \u2014 they emit `MESSAGE_EDITED` only, even though the host mirrors the new content into the active swipe slot under the hood.\r\n\r\n#### `MESSAGE_SWIPED`\r\n\r\n```ts\r\nspindle.on('MESSAGE_SWIPED', (payload) => {\r\n  // payload: MessageSwipedPayloadDTO \u2014 fully typed\r\n  switch (payload.action) {\r\n    case 'added':\r\n      // payload.swipeId === payload.message.swipe_id (the new variant)\r\n      break\r\n    case 'updated':\r\n      // payload.swipeId is the edited slot (may not be the active one)\r\n      break\r\n    case 'deleted':\r\n      // payload.swipeId is the removed slot (no longer in message.swipes)\r\n      // payload.previousSwipeId tells you the active slot before deletion\r\n      if (payload.previousSwipeId === payload.swipeId) {\r\n        // the active swipe was the one removed\r\n      }\r\n      break\r\n    case 'navigated':\r\n      // payload.swipeId === payload.message.swipe_id (the destination)\r\n      // payload.previousSwipeId tells you which direction the user came from\r\n      break\r\n  }\r\n})\r\n```\r\n\r\n| Field | Type | Notes |\r\n|-------|------|-------|\r\n| `chatId` | `string` | |\r\n| `message` | `ChatMessageDTO` | The full message after the mutation. Use `message.swipes[]` for the current swipe set. |\r\n| `action` | `'added' \\| 'updated' \\| 'deleted' \\| 'navigated'` | Discriminator for the swipe operation. |\r\n| `swipeId` | `number` | The swipe index this event concerns. For `deleted`, the slot is no longer present in `message.swipes`; for the other actions, `message.swipes[swipeId]` is the affected variant. |\r\n| `previousSwipeId` | `number?` | Active swipe index *before* the change. Present for `navigated` and `deleted`; omitted for `added` and `updated`. |\r\n\r\n!!! note \"Backwards compatibility\"\r\n    Subscribers that only read `payload.chatId` and `payload.message` keep working unchanged \u2014 the discriminator fields are purely additive.\r\n\r\n#### `SWIPE_EDITED`\r\n\r\n```ts\r\nspindle.on('SWIPE_EDITED', (payload) => {\r\n  // payload: SwipeEditedPayloadDTO \u2014 fully typed\r\n  const { chatId, message, previousSwipeId } = payload\r\n\r\n  if (previousSwipeId !== message.swipe_id) {\r\n    // The active slot moved \u2014 treat as a navigation\r\n  }\r\n  // Re-render from message.swipes / message.swipe_dates\r\n})\r\n```\r\n\r\n| Field | Type | Notes |\r\n|-------|------|-------|\r\n| `chatId` | `string` | |\r\n| `message` | `ChatMessageDTO` | The full message after the mutation. |\r\n| `previousSwipeId` | `number` | Active swipe index *before* the mutation. Equal to `message.swipe_id` when only `swipes` or `swipe_dates` changed (no navigation). |\r\n\r\nNo `action` discriminator is provided \u2014 if you need add/update/delete/navigate semantics, diff `message.swipes` / `message.swipe_dates` against your cached state, or subscribe to `MESSAGE_SWIPED` instead.\r\n\r\n### Entities\r\n\r\n| Event | Payload |\r\n|-------|---------|\r\n| `CHARACTER_EDITED` | `{ id, character }` |\r\n| `CHARACTER_DELETED` | `{ id }` |\r\n| `CHARACTER_DUPLICATED` | `{ id, newId }` |\r\n| `CHARACTER_AVATAR_CHANGED` | `{ chatId, characterId, imageId }` |\r\n| `PERSONA_CHANGED` | `{ persona }` |\r\n\r\n### Settings\r\n\r\n| Event | Payload |\r\n|-------|---------|\r\n| `SETTINGS_UPDATED` | `{ key, value }` |\r\n| `PRESET_CHANGED` | `{ presetId }` |\r\n| `CONNECTION_PROFILE_LOADED` | `{ connectionId }` |\r\n| `MAIN_API_CHANGED` | `{ provider }` |\r\n| `WORLD_INFO_ACTIVATED` | `{ entries }` |\r\n\r\n### Images\r\n\r\n| Event | Payload |\r\n|-------|---------|\r\n| `IMAGE_UPLOADED` | `{ imageId }` |\r\n| `IMAGE_DELETED` | `{ imageId }` |\r\n\r\n### Regex Scripts\r\n\r\n!!! warning \"Permission required: `regex_scripts`\"\r\n\r\n| Event | Payload |\r\n|-------|---------|\r\n| `REGEX_SCRIPT_CHANGED` | `{ id, script }` \u2014 fires on create, update, duplicate, reorder, and enable/disable. `script` is a `RegexScriptDTO`. |\r\n| `REGEX_SCRIPT_DELETED` | `{ id }` |\r\n\r\n### Expressions\r\n\r\n| Event | Payload |\r\n|-------|---------|\r\n| `EXPRESSION_CHANGED` | `{ chatId, characterId, label, imageId }` |\r\n\r\n### Spindle Extensions\r\n\r\n| Event | Payload |\r\n|-------|---------|\r\n| `SPINDLE_THEME_OVERRIDES` | `{ extensionId, extensionName, overrides }` \u2014 `overrides` is `{ variables: Record<string, string> }` or `null` when cleared |\r\n| `SPINDLE_CHAT_STYLE_MODE` | `{ extensionId, extensionName, chatId, mode }`. `chatId` is `null` with `mode: 'bounded'` when an extension's worker stops, signalling that all of its claims should be dropped. See [Chat Mutation](chat-mutation.md#per-chat-style-mode). |\r\n| `SPINDLE_EXTENSION_LOADED` | `{ extensionId }` |\r\n| `SPINDLE_EXTENSION_UNLOADED` | `{ extensionId }` |\r\n| `SPINDLE_EXTENSION_ERROR` | `{ extensionId, error }` |\r\n| `SPINDLE_RUNTIME_STATS` | `{ extensionId, identifier, name, runtimeMode, phase, pid, rssKb, startupMs? }` \u2014 emitted only when `LUMIVERSE_SPINDLE_RUNTIME_STATS` is enabled |\r\n\r\n### Permissions\r\n\r\n| Event | Payload |\r\n|-------|---------|\r\n| `PERMISSION_CHANGED` | `{ extensionId, permission, granted, allGranted }` \u2014 local backend-worker event fired when this extension's permission is granted or revoked at runtime. It is scoped to the receiving extension handler; other extensions do not receive the event. See [Permissions](../getting-started/permissions.md#reacting-to-permission-changes) for usage. |\r\n\r\n!!! note \"Scoped runtime event\"\r\n    Use `spindle.permissions.onChanged()` or `spindle.on('PERMISSION_CHANGED', ...)` inside an extension backend. `PERMISSION_CHANGED` is delivered directly by the worker host and is not the same as subscribing to the global `SPINDLE_PERMISSION_CHANGED` WebSocket/EventBus event.\r\n",
+    "developer/backend-api/events.md": "# Events\r\n\r\nSubscribe to any Lumiverse lifecycle event. Returns an unsubscribe function.\r\n\r\n```ts\r\n// Subscribe\r\nconst unsub = spindle.on('MESSAGE_SENT', (payload) => {\r\n  spindle.log.info(`Message sent in chat ${payload.chatId}`)\r\n})\r\n\r\n// Unsubscribe later\r\nunsub()\r\n```\r\n\r\n## Available Events\r\n\r\n### Chat Lifecycle\r\n\r\n| Event | Payload |\r\n|-------|---------|\r\n| `MESSAGE_SENT` | `{ chatId, message, inserted? }`. `inserted` means rows at or after this message's index moved down by one |\r\n| `MESSAGE_EDITED` | `{ chatId, message }` |\r\n| `MESSAGE_DELETED` | `{ chatId, messageId }` |\r\n| `MESSAGE_SWIPED` | `MessageSwipedPayloadDTO` \u2014 see [Swipe Events](#swipe-events) |\r\n| `SWIPE_EDITED` | `SwipeEditedPayloadDTO` \u2014 see [Swipe Events](#swipe-events) |\r\n| `CHAT_CHANGED` | `{ chatId }` |\r\n| `CHAT_SWITCHED` | `{ chatId: string \\| null }` \u2014 `null` when the user returns to the home screen |\r\n| `CHARACTER_MESSAGE_RENDERED` | `{ chatId, messageId }` |\r\n| `USER_MESSAGE_RENDERED` | `{ chatId, messageId }` |\r\n\r\n### Generation\r\n\r\n!!! warning \"Permission required: `generation`\"\r\n    Subscribing to generation events requires the `generation` permission. Without it, the subscription is rejected and a `permission_denied` notification is sent to the extension.\r\n\r\n| Event | Typed Payload | Description |\r\n|-------|---------------|-------------|\r\n| `GENERATION_STARTED` | `GenerationStartedPayloadDTO` | A generation has begun |\r\n| `STREAM_TOKEN_RECEIVED` | `StreamTokenPayloadDTO` | A token was received from the LLM |\r\n| `GENERATION_ENDED` | `GenerationEndedPayloadDTO` | Generation completed (success or error) |\r\n| `GENERATION_STOPPED` | `GenerationStoppedPayloadDTO` | User stopped the generation |\r\n\r\nThese events have typed overloads \u2014 payloads are automatically narrowed when using `lumiverse-spindle-types`:\r\n\r\n```ts\r\nspindle.on('STREAM_TOKEN_RECEIVED', (payload) => {\r\n  // payload: StreamTokenPayloadDTO \u2014 fully typed\r\n  console.log(payload.token, payload.seq, payload.type)\r\n})\r\n```\r\n\r\nSee [Generation > Stream Observation](generation.md#stream-observation) for the high-level `observe()` helper and full payload field reference.\r\n\r\n### Swipe Events\r\n\r\nSwipe state changes are surfaced through two events. Pick whichever matches how you want to react:\r\n\r\n- **`MESSAGE_SWIPED`** \u2014 fine-grained. Fires from the four dedicated REST swipe routes (`addSwipe`, `updateSwipe`, `deleteSwipe`, `cycleSwipe`). Payload carries an `action` discriminator so you can tell add/update/delete/navigate apart without diffing arrays.\r\n- **`SWIPE_EDITED`** \u2014 coarse. Fires when `spindle.chat.updateMessage` explicitly supplies one or more of `swipes` / `swipe_id` / `swipe_dates`. Use this when an extension rewrites the swipe array wholesale (e.g. regenerating alternates, merging variants) and you just need to know \"the swipe state for this message changed, refetch it.\"\r\n\r\nPlain content-only edits via `updateMessage` (patches that only touch `content`, `metadata`, `name`, or `reasoning`) do **not** emit `SWIPE_EDITED` \u2014 they emit `MESSAGE_EDITED` only, even though the host mirrors the new content into the active swipe slot under the hood.\r\n\r\n#### `MESSAGE_SWIPED`\r\n\r\n```ts\r\nspindle.on('MESSAGE_SWIPED', (payload) => {\r\n  // payload: MessageSwipedPayloadDTO \u2014 fully typed\r\n  switch (payload.action) {\r\n    case 'added':\r\n      // payload.swipeId === payload.message.swipe_id (the new variant)\r\n      break\r\n    case 'updated':\r\n      // payload.swipeId is the edited slot (may not be the active one)\r\n      break\r\n    case 'deleted':\r\n      // payload.swipeId is the removed slot (no longer in message.swipes)\r\n      // payload.previousSwipeId tells you the active slot before deletion\r\n      if (payload.previousSwipeId === payload.swipeId) {\r\n        // the active swipe was the one removed\r\n      }\r\n      break\r\n    case 'navigated':\r\n      // payload.swipeId === payload.message.swipe_id (the destination)\r\n      // payload.previousSwipeId tells you which direction the user came from\r\n      break\r\n  }\r\n})\r\n```\r\n\r\n| Field | Type | Notes |\r\n|-------|------|-------|\r\n| `chatId` | `string` | |\r\n| `message` | `ChatMessageDTO` | The full message after the mutation. Use `message.swipes[]` for the current swipe set. |\r\n| `action` | `'added' \\| 'updated' \\| 'deleted' \\| 'navigated'` | Discriminator for the swipe operation. |\r\n| `swipeId` | `number` | The swipe index this event concerns. For `deleted`, the slot is no longer present in `message.swipes`; for the other actions, `message.swipes[swipeId]` is the affected variant. |\r\n| `previousSwipeId` | `number?` | Active swipe index *before* the change. Present for `navigated` and `deleted`; omitted for `added` and `updated`. |\r\n\r\n!!! note \"Backwards compatibility\"\r\n    Subscribers that only read `payload.chatId` and `payload.message` keep working unchanged \u2014 the discriminator fields are purely additive.\r\n\r\n#### `SWIPE_EDITED`\r\n\r\n```ts\r\nspindle.on('SWIPE_EDITED', (payload) => {\r\n  // payload: SwipeEditedPayloadDTO \u2014 fully typed\r\n  const { chatId, message, previousSwipeId } = payload\r\n\r\n  if (previousSwipeId !== message.swipe_id) {\r\n    // The active slot moved \u2014 treat as a navigation\r\n  }\r\n  // Re-render from message.swipes / message.swipe_dates\r\n})\r\n```\r\n\r\n| Field | Type | Notes |\r\n|-------|------|-------|\r\n| `chatId` | `string` | |\r\n| `message` | `ChatMessageDTO` | The full message after the mutation. |\r\n| `previousSwipeId` | `number` | Active swipe index *before* the mutation. Equal to `message.swipe_id` when only `swipes` or `swipe_dates` changed (no navigation). |\r\n\r\nNo `action` discriminator is provided \u2014 if you need add/update/delete/navigate semantics, diff `message.swipes` / `message.swipe_dates` against your cached state, or subscribe to `MESSAGE_SWIPED` instead.\r\n\r\n### Entities\r\n\r\n| Event | Payload |\r\n|-------|---------|\r\n| `CHARACTER_EDITED` | `{ id, character }` |\r\n| `CHARACTER_DELETED` | `{ id }` |\r\n| `CHARACTER_DUPLICATED` | `{ id, newId }` |\r\n| `CHARACTER_AVATAR_CHANGED` | `{ chatId, characterId, imageId }` |\r\n| `PERSONA_CHANGED` | `{ persona }` |\r\n\r\n### Settings\r\n\r\n| Event | Payload |\r\n|-------|---------|\r\n| `SETTINGS_UPDATED` | `{ key, value }` |\r\n| `PRESET_CHANGED` | `{ presetId }` |\r\n| `CONNECTION_PROFILE_LOADED` | `{ connectionId }` |\r\n| `MAIN_API_CHANGED` | `{ provider }` |\r\n| `WORLD_INFO_ACTIVATED` | `{ entries }` |\r\n\r\n### Images\r\n\r\n| Event | Payload |\r\n|-------|---------|\r\n| `IMAGE_UPLOADED` | `{ imageId }` |\r\n| `IMAGE_DELETED` | `{ imageId }` |\r\n\r\n### Regex Scripts\r\n\r\n!!! warning \"Permission required: `regex_scripts`\"\r\n\r\n| Event | Payload |\r\n|-------|---------|\r\n| `REGEX_SCRIPT_CHANGED` | `{ id, script }` \u2014 fires on create, update, duplicate, reorder, and enable/disable. `script` is a `RegexScriptDTO`. |\r\n| `REGEX_SCRIPT_DELETED` | `{ id }` |\r\n\r\n### Expressions\r\n\r\n| Event | Payload |\r\n|-------|---------|\r\n| `EXPRESSION_CHANGED` | `{ chatId, characterId, label, imageId }` |\r\n\r\n### Spindle Extensions\r\n\r\n| Event | Payload |\r\n|-------|---------|\r\n| `SPINDLE_THEME_OVERRIDES` | `{ extensionId, extensionName, overrides }` \u2014 `overrides` is `{ variables: Record<string, string> }` or `null` when cleared |\r\n| `SPINDLE_CHAT_STYLE_MODE` | `{ extensionId, extensionName, chatId, mode }`. `chatId` is `null` with `mode: 'bounded'` when an extension's worker stops, signalling that all of its claims should be dropped. See [Chat Mutation](chat-mutation.md#per-chat-style-mode). |\r\n| `SPINDLE_EXTENSION_LOADED` | `{ extensionId }` |\r\n| `SPINDLE_EXTENSION_UNLOADED` | `{ extensionId }` |\r\n| `SPINDLE_EXTENSION_ERROR` | `{ extensionId, error }` |\r\n| `SPINDLE_RUNTIME_STATS` | `{ extensionId, identifier, name, runtimeMode, phase, pid, rssKb, startupMs? }` \u2014 emitted only when `LUMIVERSE_SPINDLE_RUNTIME_STATS` is enabled |\r\n\r\n### Permissions\r\n\r\n| Event | Payload |\r\n|-------|---------|\r\n| `PERMISSION_CHANGED` | `{ extensionId, permission, granted, allGranted }` \u2014 local backend-worker event fired when this extension's permission is granted or revoked at runtime. It is scoped to the receiving extension handler; other extensions do not receive the event. See [Permissions](../getting-started/permissions.md#reacting-to-permission-changes) for usage. |\r\n\r\n!!! note \"Scoped runtime event\"\r\n    Use `spindle.permissions.onChanged()` or `spindle.on('PERMISSION_CHANGED', ...)` inside an extension backend. `PERMISSION_CHANGED` is delivered directly by the worker host and is not the same as subscribing to the global `SPINDLE_PERMISSION_CHANGED` WebSocket/EventBus event.\r\n",
     "developer/backend-api/file-transfers.md": `# Large files and archives\r
 \r
 Use \`spindle.files\` and \`spindle.archives\` to download, consume, and export large binary content. The host streams bytes to temporary files on disk. Workers receive file references and bounded chunks; the frontend can hand a file to the browser's native download manager.\r
@@ -22247,7 +22251,7 @@ async function runLongAnalysis(chatId: string) {\r
 For native iOS status, progress and image preview cards, see [Live Activities](live-activities.md). The separate lifecycle API supports encrypted background updates after a foreground start.\r
 `,
     "developer/backend-api/regex-scripts.md": "# Regex Scripts\r\n\r\n!!! warning \"Permission required: `regex_scripts`\"\r\n\r\nRead access to the user's regex scripts, CRUD access to scripts created by the calling extension, plus a context-aware active-rule resolver. Use this for extensions that manage their own find/replace rules, analyze existing rules, or mirror the resolution Lumiverse uses internally during prompt assembly, response baking, and display rendering.\r\n\r\nExtension-created scripts are attributed by the host. Ownership, not the preset link, decides what an extension may change: it cannot update or delete legacy/unattributed scripts, another extension's scripts, or rows it does not own. A script it created stays writable after it is bound to a preset, and deleting that preset deletes the script with it. Protected scripts remain visible through `list`, `get`, and `getActive` and continue to execute normally.\r\n\r\nA refused mutation rejects with `Regex script is not an unbound script owned by this extension`. The wording predates the preset-link change and is kept verbatim because callers match on it; the rule it enforces is ownership only.\r\n\r\nExtensions whose purpose is to edit the user's complete regex library may also request the privileged `regex_scripts_unrestricted` permission. It is additive: both permissions must be granted. With it, `update` and `delete` may target legacy, card-bound, preset-bound, and other-extension-owned scripts. The host still protects ownership, binding, and trusted folder-version attribution from reassignment.\r\n\r\n## Usage\r\n\r\n```ts\r\n// List regex scripts (paginated)\r\nconst { data, total } = await spindle.regex_scripts.list({ limit: 50, offset: 0 })\r\n\r\n// List only character-scoped rules attached to a specific character\r\nconst charRules = await spindle.regex_scripts.list({\r\n  scope: 'character',\r\n  scopeId: 'character-id',\r\n})\r\n\r\n// List only display-target rules\r\nconst displayRules = await spindle.regex_scripts.list({ target: 'display' })\r\n\r\n// Get a single script\r\nconst script = await spindle.regex_scripts.get('script-id')\r\nif (script) {\r\n  spindle.log.info(`${script.name}: /${script.find_regex}/${script.flags} (writable: ${script.can_mutate})`)\r\n}\r\n\r\n// Create a script\r\nconst newScript = await spindle.regex_scripts.create({\r\n  name: 'Strip OOC blocks',\r\n  find_regex: '\\\\(\\\\(.*?\\\\)\\\\)',\r\n  replace_string: '',\r\n  flags: 'g',\r\n  placement: ['ai_output'],\r\n  target: 'display',\r\n  scope: 'character',\r\n  scope_id: 'character-id',\r\n})\r\n\r\n// Optionally identify a versioned folder installed by this extension.\r\n// Use the same folder and folder_version for every script in the bundle.\r\nconst bundledScript = await spindle.regex_scripts.create({\r\n  name: 'Extension display cleanup',\r\n  find_regex: '<extension-note>[\\\\s\\\\S]*?<\\\\/extension-note>',\r\n  replace_string: '',\r\n  target: 'display',\r\n  folder: 'My Extension',\r\n  folder_version: '2.4.0',\r\n})\r\n\r\n// Create a display action associated with\r\n// <button data-regex-action=\"continue-scene\">...</button>\r\nconst interactiveScript = await spindle.regex_scripts.create({\r\n  name: 'Interactive scene',\r\n  find_regex: '<scene>([\\\\s\\\\S]*?)<\\\\/scene>',\r\n  replace_string: '<button data-regex-action=\"continue-scene\">Continue $1</button>',\r\n  flags: 'g',\r\n  placement: ['ai_output'],\r\n  target: 'display',\r\n  actions: [{\r\n    id: 'continue-scene',\r\n    type: 'send',\r\n    multi_select: false,\r\n    cost: '1',\r\n    limit: '3',\r\n    title: 'Continue $1',\r\n    subtitle: '',\r\n    content: 'Continue with $1.',\r\n  }],\r\n})\r\n\r\n// Update a script\r\nconst updated = await spindle.regex_scripts.update(newScript.id, {\r\n  disabled: true,\r\n})\r\n\r\n// Delete a script\r\nconst deleted = await spindle.regex_scripts.delete(newScript.id)\r\n\r\n// Resolve the rules that would actually fire for a given context\r\nconst active = await spindle.regex_scripts.getActive({\r\n  target: 'display',\r\n  characterId: 'character-id',\r\n  chatId: 'chat-id',\r\n})\r\n```\r\n\r\n## Methods\r\n\r\n| Method | Returns | Description |\r\n|---|---|---|\r\n| `list(options?)` | `Promise<{ data: RegexScriptDTO[], total: number }>` | List scripts with strict scope filtering. Options: `{ scope?, scopeId?, target?, limit?, offset?, userId? }`. Defaults: limit 50, max 200. |\r\n| `get(scriptId)` | `Promise<RegexScriptDTO \\| null>` | Get a script by ID. Returns `null` if not found. |\r\n| `create(input)` | `Promise<RegexScriptDTO>` | Create a new regex script. `name` and `find_regex` are required. |\r\n| `update(scriptId, input)` | `Promise<RegexScriptDTO>` | Update a script created by this extension, preset-bound or not, or any script when `regex_scripts_unrestricted` is also granted. All fields are optional. Throws for protected scripts. |\r\n| `delete(scriptId)` | `Promise<boolean>` | Delete a script created by this extension, preset-bound or not, or any script when `regex_scripts_unrestricted` is also granted. Throws for protected scripts; returns `true` if deleted. |\r\n| `getActive(options)` | `Promise<RegexScriptDTO[]>` | Resolve enabled scripts that would fire for a given target plus character/chat context. Merges global + character + chat scopes and orders them by scope tier then `sort_order`. |\r\n\r\n## Preparing activation patterns\r\n\r\nUse `spindle.regex_scripts.prepareActivationPatterns()` to fill in names, chat variables, and preset variables before matching an activation pattern. Requires `regex_scripts` permission.\r\n\r\n```ts\r\nconst { patterns } = await spindle.regex_scripts.prepareActivationPatterns({\r\n  presetId: 'preset-id',\r\n  chatId: 'chat-id',\r\n  patterns: ['^{{char}}:{{getchatvar::mode}}$'],\r\n})\r\n// Each row: { source, resolved } or { source, error }\r\n```\r\n\r\nPass `presetId` and `patterns`. Add `chatId`, `characterId`, `personaId`, or `connectionId` to select the context. Operator-scoped extensions must also supply `userId`; user-scoped extensions use the installer's account.\r\n\r\nSupported inputs are `char`, `user`, `getchatvar`, and `presetvar`. Their values are escaped so punctuation in a name or variable is matched literally. Check each row for `error` before using `resolved`.\r\n\r\nRequests accept 1\u2013100 patterns, up to 10,000 characters each and 100,000 characters total. Invalid requests and inaccessible context reject the call.\r\n\r\n## RegexScriptListOptionsDTO\r\n\r\n| Field | Type | Description |\r\n|---|---|---|\r\n| `scope` | `\"global\" \\| \"character\" \\| \"chat\"` | Filter to a single scope. Omit to include all scopes. |\r\n| `scopeId` | `string` | Required when `scope` is `character` or `chat` to narrow to a single entity. Ignored otherwise. |\r\n| `target` | `\"prompt\" \\| \"response\" \\| \"display\"` | Filter by execution target. |\r\n| `limit` | `number` | Page size. Default 50, max 200. |\r\n| `offset` | `number` | Pagination offset. |\r\n| `userId` | `string` | For operator-scoped extensions only. |\r\n\r\n## RegexScriptActiveOptionsDTO\r\n\r\n| Field | Type | Description |\r\n|---|---|---|\r\n| `target` | `\"prompt\" \\| \"response\" \\| \"display\"` | **Required.** The execution target to resolve for. |\r\n| `characterId` | `string` | Include character-scoped rules attached to this character. |\r\n| `chatId` | `string` | Include chat-scoped rules attached to this chat. |\r\n| `userId` | `string` | For operator-scoped extensions only. |\r\n\r\n`getActive` always includes global rules. Disabled rules are excluded.\r\n\r\n## RegexScriptCreateDTO\r\n\r\n| Field | Type | Required | Description |\r\n|---|---|---|---|\r\n| `name` | `string` | Yes | Display name shown in the regex panel. |\r\n| `find_regex` | `string` | Yes | Pattern compiled with the JavaScript regex engine. Validated at create time. |\r\n| `replace_string` | `string` | No | Replacement template. Supports `$1` / `$&` / `$<name>` capture references. Default `\"\"`. |\r\n| `actions` | `RegexActionDTO[]` | No | Associative actions for elements in display replacement HTML. Default `[]`. |\r\n| `flags` | `string` | No | Any subset of `dgimsuvy` (full JS regex flag set: `d` hasIndices, `g` global, `i` ignore-case, `m` multiline, `s` dotAll, `u` unicode, `v` unicodeSets, `y` sticky). No duplicates. Default `\"gi\"`. |\r\n| `placement` | `RegexPlacementDTO[]` | No | Which message roles the rule applies to. Default `[\"ai_output\"]`. |\r\n| `scope` | `\"global\" \\| \"character\" \\| \"chat\"` | No | Default `\"global\"`. |\r\n| `scope_id` | `string \\| null` | No | Required when `scope` is non-global. |\r\n| `target` | `\"prompt\" \\| \"response\" \\| \"display\"` | No | When the rule fires. Default `\"response\"`. |\r\n| `min_depth` | `number \\| null` | No | Lower bound on chat-history depth (0 = latest). |\r\n| `max_depth` | `number \\| null` | No | Upper bound on chat-history depth. |\r\n| `trim_strings` | `string[]` | No | Additional substrings stripped from output after the regex pass. |\r\n| `run_on_edit` | `boolean` | No | Re-run the rule when a message is edited. |\r\n| `substitute_macros` | `\"none\" \\| \"find\" \\| \"raw\" \\| \"escaped\" \\| \"after\"` | No | How CBS / `{{...}}` macros inside the rule resolve. Use `\"find\"` to resolve only `find_regex`. Prefer `\"after\"` when `replace_string` contains macros. Default `\"none\"`. |\r\n| `disabled` | `boolean` | No | Create as disabled. |\r\n| `sort_order` | `number` | No | Lower values run earlier within the same scope tier. Default `0`. |\r\n| `description` | `string` | No | Free-form note. |\r\n| `folder` | `string` | No | Folder label shown in the regex panel. |\r\n| `folder_version` | `string \\| null` | No | Optional version label for an extension-installed folder. Requires a non-empty `folder`; maximum 100 characters. Omit it for the normal folder display with no version chip. |\r\n| `metadata` | `Record<string, unknown>` | No | Host behavior fields described below, plus namespaced extension metadata. |\r\n| `script_id` | `string` | No | Stable identifier (normalized to lowercase + underscores) for cross-instance references. |\r\n| `preset_id` | `string \\| null` | No | Bind the created script to one of the calling user's presets. Create-only: `update` never re-points or clears the link. An unknown or foreign preset ID is rejected with `Linked preset not found`; a non-string value is rejected with `preset_id must be a string or null`; `null` and `\"\"` leave the script unbound. The link is a lifecycle binding \u2014 the host deletes the script when that preset is deleted, and preset activation does not change the script's `disabled` state, so the extension keeps control of its own rule's enablement. |\r\n\r\n## RegexScriptUpdateDTO\r\n\r\nSame fields as `RegexScriptCreateDTO`, all optional, except that `preset_id` is create-only: `update` strips it from extension input, so an owner re-points a script by deleting and recreating it. The field stays in the published `RegexScriptUpdateDTO` type as excluded, so passing it is a type error instead of a silent no-op.\r\n\r\n`folder_version` is script-level, host-managed attribution used by the regex panel. When creating a versioned bundle, provide the same `folder` and `folder_version` on every script in that folder. Lumiverse renders the unique attributed versions as Spindle-colored chips beside the folder name.\r\n\r\n- Omitting `folder_version` on create produces a normal folder with no version chip.\r\n- Omitting it on update preserves the script's current folder version.\r\n- Passing `null` or an empty string on update clears the script's folder version.\r\n- Clearing `folder` also removes the attribution when the extension performs the update.\r\n- A version supplied without a non-empty `folder` is accepted but not stored or rendered.\r\n\r\nThe host records the calling extension identifier with the version and does not trust a lookalike value placed directly in `metadata`. Scripts not owned by the calling extension cannot acquire this attribution through the Spindle API.\r\n\r\n## RegexActionDTO\r\n\r\n```ts\r\n{\r\n  id: string\r\n  type: \"send\" | \"append\"\r\n  multi_select: boolean\r\n  cost: string\r\n  limit: string\r\n  title: string\r\n  subtitle: string\r\n  content: string\r\n}\r\n```\r\n\r\nThe action `id` associates with `data-regex-action=\"id\"` (preferred) or `id=\"id\"` in replacement HTML. Actions only activate for enabled scripts with the `display` target. `title`, `subtitle`, `content`, `cost`, and `limit` support native replacement captures such as `$1`, `$&`, and `$<name>`.\r\n\r\nA single-select `send` action creates a visible user turn and starts generation. A single-select `append` action waits for the next user turn and attaches hidden prompt content. When `multi_select` is true, `cost` is the option's positive numeric cost and `limit` is the block's positive total-cost bound. The resolved block limit is the lowest positive limit among its options.\r\n\r\nMulti-select options toggle in a provisional client-side pool. They can be removed until Send begins, at which point all selected options are atomically claimed and their visible `send` and hidden `append` modifiers are consumed together. A single-select `send` action is also a Send signal and joins the same atomic batch as its staged modifiers. Single-select `append` actions remain non-triggering. Claims are persisted on the source message, making committed options one-shot across rerenders and clients.\r\n\r\n## RegexScriptDTO\r\n\r\n```ts\r\n{\r\n  id: string\r\n  can_mutate: boolean          // calling extension may update/delete this row, preset-bound or not\r\n  name: string\r\n  script_id: string             // stable, normalized identifier (lowercase, _-only)\r\n  find_regex: string\r\n  replace_string: string\r\n  actions: RegexActionDTO[]\r\n  flags: string                 // any subset of \"dgimsuvy\" (full JS regex flag set)\r\n  placement: (\"user_input\" | \"ai_output\" | \"world_info\" | \"reasoning\" | \"memory\")[]\r\n  scope: \"global\" | \"character\" | \"chat\"\r\n  scope_id: string | null       // character ID or chat ID when scoped\r\n  target: \"prompt\" | \"response\" | \"display\"\r\n  min_depth: number | null      // chat-history depth bound, or null\r\n  max_depth: number | null\r\n  trim_strings: string[]        // additional substrings stripped from output\r\n  run_on_edit: boolean\r\n  substitute_macros: \"none\" | \"find\" | \"raw\" | \"escaped\" | \"after\"\r\n  disabled: boolean\r\n  sort_order: number            // lower runs earlier within the same scope tier\r\n  description: string\r\n  folder: string\r\n  preset_id: string | null      // preset this row is bound to for the delete cascade; null when unbound\r\n  folder_version?: string | null // host-validated Spindle folder version; older hosts may omit it\r\n  metadata: Record<string, unknown>\r\n  created_at: number            // unix epoch seconds\r\n  updated_at: number\r\n}\r\n```\r\n\r\n### Macro substitution modes\r\n\r\nEvery mode except `\"none\"` resolves macros in `find_regex`. The selected mode also controls whether and when macros in `replace_string` resolve.\r\n\r\n- **`\"none\"`** \u2014 no macro evaluation. `replace_string` is substituted as-is by the regex engine; capture refs (`$1`, `$&`, `$<name>`) work, but any `{{...}}` survives literal in the output. Use when you don't need macros.\r\n- **`\"find\"`**: evaluate macros in `find_regex` only. `replace_string` remains unchanged.\r\n- **`\"raw\"`** \u2014 substitute captures into `replace_string` first, then evaluate the result **per match**. Macros can reference captures (e.g. `{{lower::$1}}`). Cost: N `evaluate()` calls for N matches.\r\n- **`\"escaped\"`** \u2014 evaluate `replace_string` **once before** substitution, then double-escape `$` so capture refs do not fire. Cost: one `evaluate()` call per render. Cannot use captures (`$1` is dead).\r\n- **`\"after\"`** \u2014 substitute captures literally with native `String.replace`, then run one `evaluate()` over the **entire result body**. Cost: one `evaluate()` call per render. Macros can reference captures (they appear as plain text by the time evaluation runs).\r\n\r\n**Prefer `\"after\"` whenever your `replace_string` contains macros.** It collapses N evaluation calls to one (matching `\"escaped\"` performance) while keeping capture support (matching `\"raw\"` capability). It also matches how single-pass parsers in upstream regex pipelines already work, so ported rules behave the same.\r\n\r\nThe one observable difference from `\"raw\"`: stateful macros (`{{counter::*}}`, `{{addvar::*::1}}{{getvar::*}}` patterns, etc.) accumulate left-to-right across matches in `\"after\"` mode rather than running in isolation per match. A counter that emitted `1, 1, 1, 1` under `\"raw\"` emits `1, 2, 3, 4` under `\"after\"`. The `\"after\"` behavior is almost always what you actually want; stay on `\"raw\"` only if you specifically need per-match isolation.\r\n\r\n### Preset prompt activation metadata (native API)\r\n\r\nPreset-bound scripts can store `metadata.prompt_activation`:\r\n\r\n```ts\r\n{\r\n  source: \"user_input\" | \"ai_output\",\r\n  lifetime: \"latest\" | \"chat\",\r\n  mappings: [{\r\n    capture: \"mode\",        // \"0\" = full match, \"1\"\u2013\"99\" = numbered group, or a named group\r\n    value: [\"combat\", \"fight\"], // any exact trimmed match; also accepts a single literal string\r\n    block_ids: [\"rules\", \"format\"], // IDs in this script's linked preset\r\n    enabled: true\r\n  }]\r\n}\r\n```\r\n\r\nCreation and update validate the preset's ownership and each target ID. Activation is unavailable on unbound scripts, including ordinary extension-owned scripts. Unlinking and standalone duplication remove this configuration. Preset exports preserve it and preset imports bind it to the imported preset; block IDs must be preserved or remapped by the importer.\r\n\r\nMapping `value` accepts a literal string or an array of 1\u201364 nonblank strings, each at most 1,000 characters. Alternatives use OR semantics with trimming and the script's `i` flag; duplicates apply the row only once per capture. Legacy strings remain literal, including commas and newlines. The editor parses comma/newline-separated input (with CSV-style quoting) into this string-or-array representation; API clients should submit arrays for alternatives, not a comma-separated string. The same representation is used by preview, generation, and preset import/export. Captured text is still compared exactly; neither capture contents nor value entries are interpreted as regex patterns or split into words.\r\n\r\nActivation runs before prompt variables/rendering, independent of replacement Placement/Target. All mapped targets start disabled, regardless of profile defaults, and valid captures apply ordered runtime overrides. Category IDs expand to their category and children; radio exclusivity remains enforced. There are at most 64 mappings, 128 target IDs per row, 1000 matches per source, and 500,000 characters per source; regex execution uses the existing worker timeout.\r\n\r\nFind patterns accept only these bounded substitutions: `{{char}}`, `{{user}}`, `{{getchatvar::key}}`, and `{{presetvar::block-id::variable-id}}`. Arguments must be explicit, static IDs/keys. Preset references are checked against the linked preset on save. The latter uses typed, profile-over-preset-over-default values from the identified schema, even when its block is disabled. It does not read local/global runtime variables, render blocks, call extension interceptors, or recursively evaluate returned text. Every substituted value becomes a noncapturing literal atom, preserving capture numbering and preventing regex injection. Templates are forbidden inside character classes or immediately after an escape. Limits: 10,000 source-pattern characters, 32 inputs, 1,024 characters per value, 100,000 resolved-pattern characters. Missing, blank, non-scalar, and oversized inputs fail the entire rule closed with a diagnostic; numeric zero and boolean false remain valid.\r\n\r\nAssembly takes one pre-render input snapshot, resolving each rule once before history replay. Response processing reuses that snapshot. Display replacements use an owned server-side persisted snapshot, bypassing unrestricted find-macro evaluation and display caches for these templates; ordinary replacement macro behavior is unchanged. This bounded find behavior is independent of `substitute_macros` and available only on preset-linked activation scripts. Current inputs reinterpret old matches on each assembly; no event-time activation state is persisted.\r\n\r\n`latest` evaluates only the most recent visible message of the configured source; `chat` replays selected visible history. Message order, scoped script order, match order, then mapping order resolve conflicts. Existing min/max depth bounds apply. Assistant matches must finish at the true end of a successfully completed message, allowing trailing whitespace. Their effects become available to subsequent generations. The combined message is checked after Continue. Stopped output is ineligible; source text removed by response replacements is preserved per swipe and invalidated when the saved message is edited.\r\n\r\n`POST /api/v1/regex-scripts/test-activation` accepts `{ preset_id, find_regex, flags, content, prompt_activation, chat_id?, character_id?, persona_id?, connection_id? }` and returns `{ matches: [{ mapping_index, value, index }], resolved_find_regex?: string, error?: string }`. Context IDs must belong to the authenticated user. Preview reads saved state using the same resolver and coercion as assembly, applies matching profile values (otherwise the linked preset's defaults), and performs no writes, including no cleanup of stale profile bindings. Unsaved preset edits are excluded. Without a chat, chat keys are unavailable. Activation diagnostics are also available internally as `AssemblyResult.macroEnv.extra.promptActivation` with `states` and `errors`.\r\n\r\n### Match behavior metadata\r\n\r\nThe regex editor stores these optional host fields in `metadata`:\r\n\r\n- `match_actions`: any of `\"move_top\"`, `\"move_bottom\"`, and `\"repeat_back\"`.\r\n- `repeat_position`: optional repeat placement override. Supported values are `\"start\"`, `\"end\"`, `\"start_nl\"`, and `\"end_nl\"`.\r\n- `repeat_raw_match`: when `true`, `repeat_back` carries the original matched text without applying `replace_string`. Defaults to `false`.\r\n\r\nMove actions remove the first match and place its capture-expanded replacement at the start or end of the current value. Repeat runs only when the current value has no match. It copies the first match from the nearest earlier message with the same role, falling back to the greeting. When the current value matches, normal replacement behavior still applies.\r\n\r\nThese behaviors are shared by prompt, response, and display execution. Frontend display execution stays local and does not add a backend round trip.\r\n\r\n!!! note \"Targets and where they fire\"\r\n    - **`prompt`** rules run during prompt assembly, against each message before it goes to the LLM. They do not modify stored content.\r\n    - **`response`** rules run once after the LLM stream ends, against the full assistant message. The result is written back to chat storage.\r\n    - **`display`** rules run per render in the frontend. They do not modify stored content.\r\n\r\n!!! note \"What `getActive` returns\"\r\n    `getActive` mirrors the resolution Lumiverse uses internally during a generation: only enabled rules, only rules whose `target` matches, and only rules whose scope applies to the supplied context. Use `list` instead when you need the raw, unfiltered view (including disabled rules) for management or analytics.\r\n\r\n---\r\n\r\n## Reacting to changes\r\n\r\nUsers can edit, reorder, enable, disable, and delete regex scripts at any time through the regex panel. Subscribe to the script lifecycle events to keep extension-side caches in sync.\r\n\r\n```ts\r\nspindle.on('REGEX_SCRIPT_CHANGED', (payload) => {\r\n  // payload: { id: string, script: RegexScriptDTO }\r\n  // fires on create, update, duplicate, reorder, and enable/disable.\r\n})\r\n\r\nspindle.on('REGEX_SCRIPT_DELETED', (payload) => {\r\n  // payload: { id: string }\r\n})\r\n```\r\n\r\nA common pattern: cache `spindle.regex_scripts.getActive(...)` per chat, invalidate the cache on either event, and re-fetch lazily on the next read.\r\n",
-    "developer/backend-api/runtime-state.md": "# Runtime state\r\n\r\n`spindle.host.capabilities['runtime-state-v1'] >= 1` advertises a combined read and mutation API for extensions that keep a local working state. Existing CRUD APIs are unchanged.\r\n\r\n```ts\r\nconst state = await spindle.runtimeState.read(chatId, characterId, userId)\r\nconst result = await spindle.runtimeState.write(chatId, {\r\n  kind: 'chat.variables', values: { score: '10' },\r\n}, userId, crypto.randomUUID())\r\n```\r\n\r\nReads require `characters`, `chats`, `chat_mutation`, `personas`, and `world_books`. The host checks the authenticated extension scope and chat owner before accessing data. Operator extensions must supply a user; user installations default to their owner.\r\n\r\n## Read result\r\n\r\nThe result contains `revision`, `chat`, `character`, `persona`, `messages`, `lore`, and `globalVariables`. Reads are synchronous within one host operation, preventing other host requests from interleaving these reads.\r\n\r\n- `revision` is `{ epoch: string, sequence: number }`. The epoch changes on host restart; the sequence advances for state events belonging to this user.\r\n- `character` omits `extensions` and includes `world_book_ids` instead.\r\n- `messages` include the active content, role, name, index, timestamps and greeting index. Alternate swipes and unrelated extra fields are omitted.\r\n- `lore` contains entries from the selected character's attached world books.\r\n- `persona` is the user's active persona or `null`; `globalVariables` comes from the user's global macro-variable setting.\r\n\r\nThe read cost grows with chat history and attached lore. Bootstrap or resynchronize when needed; do not read the complete state for each rendered message.\r\n\r\n## Mutations\r\n\r\n`write(chatId, command, userId?, mutationId?)` returns `{ revision, value, patch }`. `value` is the operation's result; `patch` contains only the changed record or deleted identifier.\r\n\r\n| Command kind | Fields | Permission |\r\n| --- | --- | --- |\r\n| `chat.metadata` | `key`, `value` | `chats` |\r\n| `chat.variables` | `values: Record<string, string \\| null>` | `chats` |\r\n| `message.create` | `id` (UUID v4), `content`, `role` (`system`, `assistant`, `user`) | `chat_mutation` |\r\n| `message.edit` | `id`, `content` | `chat_mutation` |\r\n| `message.delete` | `id` | `chat_mutation` |\r\n| `character.update` | `id`, `patch` (`name`, `description`, `first_mes`) | `characters` |\r\n| `persona.update` | `id`, `patch` (`name`, `description`) | `personas` |\r\n| `lore.create` | `bookId`, `patch` (world-book entry fields) | `world_books` |\r\n| `lore.update` | `id`, `patch` (world-book entry fields) | `world_books` |\r\n| `lore.delete` | `id` | `world_books` |\r\n\r\nVariable writes merge the supplied keys and preserve other chat metadata. Message edits and deletions must target this chat. Character, persona and lore operations retain the corresponding service's ownership checks. A supplied message ID cannot overwrite an existing message.\r\n\r\n## Events and acknowledgement ordering\r\n\r\nRelevant WebSocket events carry `stateRevision` outside the existing payload. Frontend `ctx.events.on` callbacks receive it in a second metadata argument. Supplying a mutation UUID also adds `runtimeMutationId` to events emitted by that mutation, allowing a client to match its own write acknowledgement without suppressing unrelated changes.\r\n\r\nThese identifiers are not a durable event log, a compare-and-swap token, or an idempotency guarantee. Apply revisions per changed field; a delta is not a complete snapshot. Reconnects require resynchronization, and a changed epoch invalidates comparisons with earlier revisions. Event payloads and ordinary event subscribers remain compatible.\r\n",
+    "developer/backend-api/runtime-state.md": "# Runtime state\r\n\r\n`spindle.host.capabilities['runtime-state-v1'] >= 1` advertises a combined read and mutation API for extensions that keep a local working state. Existing CRUD APIs are unchanged.\r\n\r\n```ts\r\nconst state = await spindle.runtimeState.read(chatId, characterId, userId)\r\nconst result = await spindle.runtimeState.write(chatId, {\r\n  kind: 'chat.variables', values: { score: '10' },\r\n}, userId, crypto.randomUUID())\r\n```\r\n\r\nReads require `characters`, `chats`, `chat_mutation`, `personas`, and `world_books`. The host checks the authenticated extension scope and chat owner before accessing data. Operator extensions must supply a user; user installations default to their owner.\r\n\r\n## Read result\r\n\r\nThe result contains `revision`, `chat`, `character`, `persona`, `messages`, `lore`, and `globalVariables`. Reads are synchronous within one host operation, preventing other host requests from interleaving these reads.\r\n\r\n- `revision` is `{ epoch: string, sequence: number }`. The epoch changes on host restart; the sequence advances for state events belonging to this user.\r\n- `character` omits `extensions` and includes `world_book_ids` instead.\r\n- `messages` include the active content, role, name, index, timestamps and greeting index. Alternate swipes and unrelated extra fields are omitted.\r\n- `lore` contains entries from the selected character's attached world books.\r\n- `persona` is the user's active persona or `null`; `globalVariables` comes from the user's global macro-variable setting.\r\n\r\nThe read cost grows with chat history and attached lore. Bootstrap or resynchronize when needed; do not read the complete state for each rendered message.\r\n\r\n## Mutations\r\n\r\n`write(chatId, command, userId?, mutationId?)` returns `{ revision, value, patch }`. `value` is the operation's result; `patch` contains only the changed record or deleted identifier.\r\n\r\n| Command kind | Fields | Permission |\r\n| --- | --- | --- |\r\n| `chat.metadata` | `key`, `value` | `chats` |\r\n| `chat.variables` | `values: Record<string, string \\| null>` | `chats` |\r\n| `message.create` | `id` (UUID v4), `content`, `role` (`system`, `assistant`, `user`), optional `beforeId`, `ownMetadata` | `chat_mutation` |\r\n| `message.edit` | `id`, optional `content`, `role`, `ownMetadata` | `chat_mutation` |\r\n| `message.delete` | `id` | `chat_mutation` |\r\n| `character.update` | `id`, `patch` (`name`, `description`, `first_mes`) | `characters` |\r\n| `persona.update` | `id`, `patch` (`name`, `description`) | `personas` |\r\n| `lore.create` | `bookId`, `patch` (world-book entry fields) | `world_books` |\r\n| `lore.update` | `id`, `patch` (world-book entry fields) | `world_books` |\r\n| `lore.delete` | `id` | `world_books` |\r\n\r\n`beforeId` inserts the new message before that message in the same chat and moves later rows down. It sends one `MESSAGE_SENT` with `inserted: true`, with no separate event per moved row. A role edit keeps the message ID, swipes and attachments, and clears the stored name if the speaker side changes.\r\n\r\nThe stored role is used in prompt history, including `system` messages. Assistant reasoning is omitted from prompt history when a message is changed to another role.\r\n\r\n`ownMetadata` holds this extension's data on a message, and reads return it only to that extension. A write replaces the extension's whole value, and `null` removes it. It stays when the text changes, so store a hash of the text with anything derived from it.\r\n\r\nThese need `spindle.host.capabilities['runtime-message-mutations-v1']`.\r\n\r\nVariable writes merge the supplied keys and preserve other chat metadata. Message edits and deletions must target this chat. Character, persona and lore operations retain the corresponding service's ownership checks. A supplied message ID cannot overwrite an existing message.\r\n\r\n## Events and acknowledgement ordering\r\n\r\nRelevant WebSocket events carry `stateRevision` outside the existing payload. Frontend `ctx.events.on` callbacks receive it in a second metadata argument. Supplying a mutation UUID also adds `runtimeMutationId` to events emitted by that mutation, allowing a client to match its own write acknowledgement without suppressing unrelated changes.\r\n\r\nThese identifiers are not a durable event log, a compare-and-swap token, or an idempotency guarantee. Apply revisions per changed field; a delta is not a complete snapshot. Reconnects require resynchronization, and a changed epoch invalidates comparisons with earlier revisions. Event payloads and ordinary event subscribers remain compatible.\r\n",
     "developer/backend-api/secure-enclave.md": `# Secure Enclave\r
 \r
 Encrypted at-rest secret storage for API keys, OAuth tokens, and other sensitive credentials. Secrets are encrypted with AES-256-GCM and stored per-user in the Lumiverse secrets database \u2014 they are never written to disk as plaintext.\r
@@ -24421,6 +24425,23 @@ Behavior notes:\r
 \r
 ---\r
 \r
+## Resolved World Info\r
+\r
+### \`spindle.world_books.resolveForChat(chatId, options?)\`\r
+\r
+\`\`\`ts\r
+const entries = await spindle.world_books.resolveForChat('chat-id', { reserveTokens: 2000 })\r
+// [{ content: 'Final text', role: 'system' }]\r
+\`\`\`\r
+\r
+Returns the world info active for the chat as final text and role, in output order, with macros run. Nothing is saved: macro changes and activation state are discarded. Requires \`world_books\`, \`chats\`, \`characters\`, \`personas\` and \`presets\`, and \`spindle.host.capabilities['world-info-resolve-for-chat-v1']\`.\r
+\r
+\`reserveTokens\` stops the list once it would exceed the preset's context size minus that amount. A negative value raises the limit. With no option, or no configured context size, there is no limit. World info interceptors run with \`purpose: 'query'\`.\r
+\r
+The cost is close to the world info part of building a prompt, so do not call it per frame or per token.\r
+\r
+---\r
+\r
 ## World Info Activation\r
 \r
 Query which world info entries would activate for a given chat \u2014 without running a full generation. This runs the complete activation pipeline: keyword matching, selective logic, probability rolls, sticky/cooldown/delay state, group competition, budget enforcement, and vector-based activation (if embeddings are configured).\r
@@ -24439,6 +24460,8 @@ for (const entry of activated) {\r
   spindle.log.info(\`[\${source}] \${entry.comment} \u2014 keys: \${entry.keys.join(', ')}\`)\r
 }\r
 \`\`\`\r
+\r
+\`getActivated\` returns a summary without entry text. Use \`resolveForChat\` when you need the text.\r
 \r
 This is useful for:\r
 \r
@@ -24514,6 +24537,7 @@ One interceptor per extension; a second registration replaces the first.\r
 \r
 \`\`\`ts\r
 interface WorldInfoInterceptorCtx {\r
+  purpose?: 'prompt' | 'query'\r
   chatId: string\r
   characterId: string\r
   userId?: string\r
@@ -24592,6 +24616,7 @@ interface WorldInfoInterceptorResult {\r
     selectionContent?: string\r
     outputOrder?: "selection" | "insertion"\r
   }[]\r
+  additionalEntries?: WorldInfoInterceptorEntry[]\r
   activationOverrides?: {\r
     disableRecursion?: true\r
   }\r
@@ -24608,6 +24633,7 @@ Return \`void\` or omit all fields for a no-op pass-through. The fields are inde
 | \`mutated.content\` | Replaces the content inserted for this prompt. The stored entry is unchanged. |\r
 | \`mutated.selectionContent\` | Replaces content only for selection, duplicate checks, and token limits. |\r
 | \`mutated.outputOrder\` | \`"insertion"\` requests insertion order after selection. \`"selection"\` clears an earlier request. Omission leaves the current request unchanged. |\r
+| \`additionalEntries\` | Adds candidates for this prompt only. They go through normal activation and are never saved. The host scopes their IDs to this extension and chat. A malformed or duplicate entry fails the prompt build, because silently dropping it would change the prompt with no sign of why. Needs \`spindle.host.capabilities['world-info-additional-entries-v1']\`. |\r
 | \`activationOverrides.disableRecursion\` | Disables recursive activation for this prompt. |\r
 \r
 Mutating an entry that another interceptor disabled is allowed but inert.\r
@@ -53819,7 +53845,7 @@ function subscribeToMissingChanges(handler) {
 }
 // spindle.json
 var spindle_default = {
-  version: "1.0.0",
+  version: "1.0.1",
   name: "LumiAgent",
   identifier: "lumiagent",
   author: "amousepad",
