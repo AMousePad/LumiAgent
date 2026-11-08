@@ -1,1 +1,1 @@
-Case-insensitive name or tag substring.
+Case-insensitive name or tag substring, or an exact character id.

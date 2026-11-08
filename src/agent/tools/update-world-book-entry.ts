@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineTool } from "./_framework";
+import { cleanPatch, defineTool, emptyPatchError } from "./_framework";
 import { wbLabel, coerceKeyList, WB_ENTRY_KEY_FIELDS, WB_ENTRY_WRITABLE_FIELDS } from "./_surfaces";
 import { characterScope, type ScopeRef } from "../../types";
 import type { WorldBookEntryUpdateDTO } from "lumiverse-spindle-types";
@@ -18,7 +18,26 @@ export const updateWorldBookEntryTool = defineTool({
     type: "object",
     properties: {
       entry_id: { type: "string" },
-      patch: { type: "object", additionalProperties: true },
+      patch: {
+        type: "object",
+        description: "Only the fields to change. key/keysecondary replace the whole list, so include existing keys you want to keep.",
+        properties: {
+          key: { type: "array", items: { type: "string" } },
+          keysecondary: { type: "array", items: { type: "string" } },
+          content: { type: "string" },
+          comment: { type: "string" },
+          constant: { type: "boolean" },
+          disabled: { type: "boolean" },
+          selective: { type: "boolean" },
+          position: { type: "integer" },
+          depth: { type: "integer" },
+          order_value: { type: "integer" },
+          probability: { type: "integer" },
+          case_sensitive: { type: "boolean" },
+          match_whole_words: { type: "boolean" },
+          group_name: { type: "string" },
+        },
+      },
     },
     required: ["entry_id", "patch"],
   },
@@ -40,7 +59,9 @@ export const updateWorldBookEntryTool = defineTool({
     }
     const before = await ctx.spindle.world_books.entries.get(id, ctx.userId);
     if (!before) return { content: `Error: world book entry ${id} not found`, isError: true };
-    const updated = await ctx.spindle.world_books.entries.update(id, patch, ctx.userId);
+    const cleaned = cleanPatch(patch as Record<string, unknown>, before as unknown as Record<string, unknown>);
+    if (Object.keys(cleaned.patch).length === 0) return { content: emptyPatchError(cleaned.unchanged, '{"key": ["existing", "new keyword"]}'), isError: true };
+    const updated = await ctx.spindle.world_books.entries.update(id, cleaned.patch as WorldBookEntryUpdateDTO, ctx.userId);
     const label = wbLabel(before);
     // File under the focused character, else the OWNING BOOK id (from
     // before.world_book_id), never the entry id. scopeForLeafKey(`wb/<id>`) would
@@ -49,7 +70,7 @@ export const updateWorldBookEntryTool = defineTool({
     const scope: ScopeRef = ctx.characterId
       ? characterScope(ctx.characterId)
       : { kind: "world_book", id: before.world_book_id };
-    for (const [k, v] of Object.entries(patch as Record<string, unknown>)) {
+    for (const [k, v] of Object.entries(cleaned.patch)) {
       const prev = (before as unknown as Record<string, unknown>)[k];
       // Tag json ONLY for non-string values. A string field stored raw matches
       // the edit/rewrite route on the same leaf (content/comment), avoiding an
@@ -61,6 +82,6 @@ export const updateWorldBookEntryTool = defineTool({
       if (beforeStr === afterStr) continue;
       ctx.pushEdit({ op: "edit", surface: "world_book_entry", surfaceId: id, surfaceLabel: label, field: k, before: beforeStr, after: afterStr, ...(isStr ? {} : { valueEncoding: "json" as const }), scope });
     }
-    return { content: `OK. Updated world book entry ${updated.id} fields: ${Object.keys(patch).join(", ")}` };
+    return { content: `OK. Updated world book entry ${updated.id}. Changed ${cleaned.summary}` };
   },
 });

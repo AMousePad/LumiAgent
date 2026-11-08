@@ -151,7 +151,14 @@ async function listWorldBooks(ctx: ToolCtx, characterId: string | null, maxEntri
 async function listWorldBookEntries(ctx: ToolCtx, bookId: string, maxEntries: number, offset = 0, query?: string): Promise<ListEntry[]> {
   const page = await searchPage((limit, offset) => ctx.spindle.world_books.entries.list(bookId, { limit, offset, userId: ctx.userId }),
     wbLabel, { limit: maxEntries, offset, query }, ctx.signal);
-  return page.data.map(entry => ({ path: `wb/${entry.id}`, type: "wb_entry", label: wbLabel(entry), size: entry.content?.length ?? 0 }));
+  return page.data.map(entry => {
+    const row: ListEntry & { keys?: string[]; secondary_keys?: string[]; constant?: true; disabled?: true } = { path: `wb/${entry.id}`, type: "wb_entry", label: wbLabel(entry), size: entry.content?.length ?? 0 };
+    if (entry.key?.length) row.keys = entry.key;
+    if (entry.keysecondary?.length) row.secondary_keys = entry.keysecondary;
+    if (entry.constant) row.constant = true;
+    if (entry.disabled) row.disabled = true;
+    return row;
+  });
 }
 
 async function listExtensions(ctx: ToolCtx, characterId: string, subPath: string, maxEntries: number, maxDepth: number, offset = 0, query?: string): Promise<ListEntry[]> {
@@ -222,15 +229,24 @@ async function listPresets(ctx: ToolCtx, maxEntries: number, offset = 0, query?:
 
 async function listPresetBlocks(ctx: ToolCtx, presetId: string, maxEntries: number, offset = 0, query?: string): Promise<ListEntry[]> {
   const blocks = await ctx.spindle.presets.blocks.list(presetId, ctx.userId);
-  return blocks.map((b) => {
+  const entries: ListEntry[] = blocks.map((b) => {
     const content = (b as unknown as Record<string, unknown>).content;
+    const enabled = (b as unknown as Record<string, unknown>).enabled;
     return {
       path: `preset/${presetId}/block/${b.id}`,
       type: "preset_block",
       label: b.name || "block",
       size: typeof content === "string" ? content.length : 0,
+      ...(typeof enabled === "boolean" ? { enabled } : {}),
     };
-  }).filter(entry => matchesName(entry.label, query)).slice(offset, offset + maxEntries);
+  });
+  // New-chat, continue, impersonation and nudge prompts live outside the block list.
+  const preset = await ctx.spindle.presets.get(presetId, ctx.userId);
+  const { walkStringLeaves } = await import("./_walk");
+  for (const leaf of walkStringLeaves(preset?.prompts ?? {})) {
+    entries.push({ path: `preset/${presetId}/prompts/${leaf.path}`, type: "preset_prompt", label: `prompts.${leaf.path}`, size: leaf.text.length });
+  }
+  return entries.filter(entry => matchesName(entry.label, query)).slice(offset, offset + maxEntries);
 }
 
 export const listTool = defineTool({

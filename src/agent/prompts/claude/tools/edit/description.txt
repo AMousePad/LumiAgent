@@ -1,16 +1,8 @@
-Find/replace within a string-valued surface, by path.
+Find/replace inside a string leaf, by path (same grammar as read, e.g. char/first_mes, rx/<id>/replace_string, wb/<id>/comment).
 
-Rules:
-1. Recent-read gate: `read` must have run on the same path. Surface keys match byte-for-byte, so reading 'char/description' does not open 'char/extensions/...'. The read holds for 60 minutes and persists across messages in this session, counts when issued as a `custom_tool_run` step, and survives writes: ONE read opens N consecutive edits on that path. Re-read only after something else changed the leaf, which surfaces as `[STALE_READ]`.
-2. Unique-find: `find` must appear exactly once, unless replace_all=true. `find` is a LITERAL, never a regex, and there are no capture groups. Widen it only as far as uniqueness needs, and keep `replace` byte-identical outside the span you mean to change: the usual damage here is silently "tidying" a typo that got swallowed into a widened `find`.
-3. Automatic recovery: when byte-exact match fails, ONE fallback is tried — quote-asciify (curly / corner / fullwidth quotes normalized to ASCII on both sides). Result includes `recovered_via` on success. NFC/NFD Hangul, NBSPs, BOMs, line endings, and whitespace drift are NOT auto-recovered: copy bytes verbatim from a recent `read`, or run `inspect` first to see the encoding diagnostics that explain why your find string didn't match.
-4. Failure stashes the replacement payload as a draft handle the next call can pass via `replace_handle`.
+1. Read first: `read` on the same path, or a `grep` hit on it, within 60 minutes, byte-exact key (char/description does not open char/extensions/...). One read covers any number of consecutive edits. A `[STALE_READ]` means the leaf changed, so re-read.
+2. `find` is a literal, not a regex, and must occur exactly once unless replace_all. Widen it only as far as uniqueness needs, and keep `replace` identical outside the span you mean to change.
+3. On a miss, curly/fullwidth quotes are retried as ASCII (`recovered_via` says so). Other drift (NFC/NFD, NBSP, line endings, whitespace) is not: copy bytes from the read, or run inspect for encoding diagnostics.
+4. A failed call stores the replacement as a draft, reusable via `replace_handle`.
 
-Path grammar: same as `read`. Examples: 'char/first_mes', 'rx/<id>/replace_string', 'wb/<id>/comment', 'char/extensions/lumirealm.payload.background_html_source'.
-
-Returns:
-- `path`         — canonical leaf path that was written.
-- `replacements` — how many occurrences were replaced (1 unless replace_all).
-- `snippet`      — short context window around the first hit, post-replace.
-- `patch`        — `{additions, deletions, hunks}` jsdiff-structured for the UI.
-- `recovered_via` (only on fallback) — name of the recovery strategy that matched. Leading warning line precedes the JSON.
+Returns path, replacements, a snippet around the first hit and a diff patch for the UI.

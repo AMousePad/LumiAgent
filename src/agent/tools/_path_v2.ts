@@ -18,11 +18,11 @@
 // used by the recent-read gate and the audit tool — one string, one surface,
 // across read / edit / grep / inspect.
 
-import type { CharacterUpdateDTO, RegexScriptUpdateDTO, WorldBookEntryUpdateDTO, PersonaUpdateDTO, WorldBookDTO, GlobalAddonUpdateDTO } from "lumiverse-spindle-types";
+import type { CharacterUpdateDTO, RegexScriptUpdateDTO, WorldBookEntryUpdateDTO, PersonaUpdateDTO, WorldBookDTO, GlobalAddonUpdateDTO, UserPresetUpdateDTO } from "lumiverse-spindle-types";
 import type { ToolCtx } from "./_context";
 import type { EditRecord, ScopeRef } from "../../types";
 import { characterScope } from "../../types";
-import { CHARACTER_STRING_FIELDS, isCharacterStringField, normaliseCharacterTags, wbLabel } from "./_surfaces";
+import { CHARACTER_STRING_FIELDS, isCharacterStringField, normaliseCharacterTags, wbLabel, WB_ENTRY_WRITABLE_FIELDS } from "./_surfaces";
 import { parseExtensionPath, getAtPath, setAtPath } from "./_paths";
 
 // Top-level char-subtree token set. parts[1] is one of these for the focused
@@ -39,6 +39,14 @@ const CHAR_SUBTREE_TOKENS: ReadonlySet<string> = new Set<string>([
 
 export function isCharSubtreeToken(s: string): boolean {
   return CHAR_SUBTREE_TOKENS.has(s);
+}
+
+// grep/list/inspect take character_id, so models send it to path tools too. Fold it into a focused char/ path.
+export function applyCharacterId(path: string, characterId: string | undefined): string {
+  if (!characterId) return path;
+  const m = /^(?:char|character)\/([^/]+)(\/.*)?$/.exec(path.trim());
+  if (!m || !(CHAR_SUBTREE_TOKENS.has(m[1]!) || isCharacterStringField(m[1]!))) return path;
+  return `char/${characterId}/${m[1]}${m[2] ?? ""}`;
 }
 
 const PERSONA_STRING_FIELDS = ["name", "title", "description"] as const;
@@ -146,7 +154,7 @@ export interface ResolvedLeaf {
   // Canonical key, normalized for the recent-read gate.
   readonly key: string;
   // Surface tag for analytics / ledger.
-  readonly surface: "character_field" | "alternate_greeting" | "extension" | "regex_script" | "world_book_entry" | "persona_field" | "persona_addon" | "chat_message" | "preset_block" | "global_addon";
+  readonly surface: "character_field" | "alternate_greeting" | "extension" | "regex_script" | "world_book_entry" | "persona_field" | "persona_addon" | "chat_message" | "preset_block" | "preset_prompt" | "global_addon";
   // surfaceId is the entity id (character id for char/extension, script id, entry id).
   readonly surfaceId: string;
   // Human-facing label for the workshop diff card.
@@ -168,6 +176,14 @@ export class PathError extends Error {
   constructor(public readonly path: string, msg: string) {
     super(`Path '${path}': ${msg}`);
     this.name = "PathError";
+  }
+}
+
+// The path exists but holds a non-string. read renders it as JSON instead of failing.
+export class NonStringLeafError extends PathError {
+  constructor(path: string, public readonly key: string, public readonly value: unknown, msg: string) {
+    super(path, msg);
+    this.name = "NonStringLeafError";
   }
 }
 
@@ -241,7 +257,10 @@ function dispatchCharPath(ctx: ToolCtx, path: string, parts: readonly string[]):
 // is malformed or doesn't resolve to a string. Used by `read` and `edit`
 // (which calls read, mutates, calls write).
 export async function resolveRead(ctx: ToolCtx, path: string): Promise<ResolvedLeaf> {
-  const parts = splitTopLevel(path);
+  let parts = splitTopLevel(path);
+  // Entry and block containers have one obvious text leaf, so default to it.
+  if ((parts[0] === "wb" || parts[0] === "world_book_entry") && parts.length === 2) parts = [...parts, "content"];
+  if (parts[0] === "preset" && parts[2] === "block" && parts.length === 4) parts = [...parts, "content"];
   if (parts.length < 2) throw new PathError(path, "expected at least <surface>/<...>");
   const head = parts[0]!;
 
@@ -313,7 +332,7 @@ export async function resolveRead(ctx: ToolCtx, path: string): Promise<ResolvedL
       const v = getAtPath(c.extensions ?? {}, segs);
       if (typeof v !== "string") {
         const shape = Array.isArray(v) ? "array" : typeof v;
-        throw new PathError(path, `extension path resolves to ${shape}, not string. Use \`list({path: "char/extensions/${extPath}"})\` to walk its structure, or \`set({path, value})\` to write the whole subtree.`);
+        throw new NonStringLeafError(path, `char/${characterId}/extensions/${extPath}`, v, `extension path resolves to ${shape}, not string. Use \`list({path: "char/extensions/${extPath}"})\` to walk its structure, or \`set({path, value})\` to write the whole subtree.`);
       }
       return {
         key: `char/${characterId}/extensions/${extPath}`,
@@ -360,7 +379,10 @@ export async function resolveRead(ctx: ToolCtx, path: string): Promise<ResolvedL
     const s = await ctx.spindle.regex_scripts.get(scriptId, ctx.userId);
     if (!s) throw new PathError(path, `regex script ${scriptId} not found`);
     const v = (s as unknown as Record<string, unknown>)[field];
-    if (typeof v !== "string") throw new PathError(path, `regex_script.${field} is not a string`);
+    if (typeof v !== "string") {
+      if (v !== undefined) throw new NonStringLeafError(path, `rx/${scriptId}/${field}`, v, `regex_script.${field} is not a string. Change it with set({path: "rx/${scriptId}/${field}", value}).`);
+      throw new PathError(path, `regex_script has no field '${field}'`);
+    }
     return {
       key: `rx/${scriptId}/${field}`,
       surface: "regex_script",
@@ -375,12 +397,18 @@ export async function resolveRead(ctx: ToolCtx, path: string): Promise<ResolvedL
     if (parts.length !== 3) throw new PathError(path, "expected wb/<entryId>/<field>");
     const entryId = parts[1]!;
     const field = parts[2]!;
-    if (field !== "content" && field !== "comment") {
-      throw new PathError(path, `world_book_entry field must be content or comment, got '${field}'`);
+    const textField = field === "content" || field === "comment";
+    if (!textField && !WB_ENTRY_WRITABLE_FIELDS.has(field)) {
+      throw new PathError(path, `world_book_entry has no field '${field}'. Text leaves: content, comment. Other fields: ${[...WB_ENTRY_WRITABLE_FIELDS].filter((f) => f !== "content" && f !== "comment").join(", ")}`);
     }
     const e = await ctx.spindle.world_books.entries.get(entryId, ctx.userId);
-    if (!e) throw new PathError(path, `world book entry ${entryId} not found`);
+    if (!e) {
+      const book = await ctx.spindle.world_books.get(entryId, ctx.userId).catch(() => null);
+      if (book) throw new PathError(path, `${entryId} is the world book '${book.name}', not an entry. list wb/${entryId} to get entry ids, then read wb/<entryId>/content.`);
+      throw new PathError(path, `world book entry ${entryId} not found`);
+    }
     const v = (e as unknown as Record<string, unknown>)[field];
+    if (!textField) throw new NonStringLeafError(path, `wb/${entryId}/${field}`, v ?? null, `entry.${field} is not a text leaf. Change it with set({path: "wb/${entryId}/${field}", value}).`);
     if (typeof v !== "string") throw new PathError(path, `entry.${field} is not a string`);
     return {
       key: `wb/${entryId}/${field}`,
@@ -506,11 +534,37 @@ export async function resolveRead(ctx: ToolCtx, path: string): Promise<ResolvedL
     };
   }
 
+  if (head === "preset" && parts[2] === "prompts") {
+    const presetId = parts[1]!;
+    const dotted = parts.slice(3).join(".");
+    if (!dotted) throw new PathError(path, "expected preset/<presetId>/prompts/<dotted.path>, e.g. prompts/promptBehavior.newChatPrompt. list preset/<presetId> shows them.");
+    const p = await ctx.spindle.presets.get(presetId, ctx.userId);
+    if (!p) throw new PathError(path, `preset ${presetId} not found`);
+    let segs;
+    try { segs = parseExtensionPath(dotted); }
+    catch (err) { throw new PathError(path, (err as Error).message); }
+    const v = getAtPath(p.prompts ?? {}, segs);
+    if (typeof v !== "string") {
+      const { walkStringLeaves } = await import("./_walk");
+      const known = [...walkStringLeaves(p.prompts ?? {})].map((l) => l.path).slice(0, 40);
+      throw new PathError(path, `prompts.${dotted} is ${v === undefined ? "not set" : "not a string"}. String leaves in this preset: ${known.join(", ") || "(none)"}`);
+    }
+    return {
+      key: `preset/${presetId}/prompts/${dotted}`,
+      surface: "preset_prompt",
+      surfaceId: presetId,
+      surfaceLabel: `${p.name} · prompts.${dotted}`,
+      field: dotted,
+      value: v,
+      scope: { kind: "preset", id: presetId },
+    };
+  }
+
   if (head === "preset") {
     const presetId = parts[1];
     if (presetId === undefined || parts[2] !== "block" || parts.length !== 5
       || (parts[4] !== "content" && parts[4] !== "name")) {
-      throw new PathError(path, "expected preset/<presetId>/block/<blockId>/<content|name>");
+      throw new PathError(path, "expected preset/<presetId>/block/<blockId>/<content|name> or preset/<presetId>/prompts/<dotted.path>. list preset/<presetId> shows both.");
     }
     const blockId = parts[3]!;
     const field = parts[4]!;
@@ -674,6 +728,23 @@ export async function resolveWrite(
     });
     return;
   }
+  if (leaf.surface === "preset_prompt") {
+    const presetId = leaf.surfaceId;
+    const p = await ctx.spindle.presets.get(presetId, ctx.userId);
+    if (!p) throw new Error(`preset ${presetId} not found`);
+    const before = p.prompts ?? {};
+    const after = setAtPath(before, parseExtensionPath(leaf.field), nextValue) as Record<string, unknown>;
+    await ctx.spindle.presets.update(presetId, { prompts: after, expected_cache_revision: p.cache_revision ?? 0 } as UserPresetUpdateDTO, ctx.userId);
+    // Recorded as the whole prompts field so the existing preset-field revert restores it.
+    ctx.pushEdit({
+      op: "edit", surface: "preset", surfaceId: presetId,
+      surfaceLabel: leaf.surfaceLabel, field: "prompts",
+      before: JSON.stringify(before), after: JSON.stringify(after),
+      scope: { kind: "preset", id: presetId },
+    });
+    return;
+  }
+  throw new Error(`no write handler for surface '${leaf.surface}'`);
 }
 
 // Phone-line read/write access gates. Routes the extension's first path
@@ -695,6 +766,39 @@ async function assertExtensionReadAllowed(ctx: ToolCtx, characterId: string, ext
 
 // Export so update_character can run the same gate against its extensions patch.
 export { assertExtensionWriteAllowed };
+
+export async function* iteratePresetLeaves(ctx: ToolCtx, presetId?: string): AsyncGenerator<ResolvedLeaf> {
+  const presets: Array<{ id: string; name: string }> = [];
+  if (presetId) {
+    const p = await ctx.spindle.presets.get(presetId, ctx.userId);
+    if (p) presets.push(p);
+  } else {
+    let offset = 0;
+    while (true) {
+      const page = await ctx.spindle.presets.list({ limit: 200, offset, userId: ctx.userId });
+      presets.push(...page.data);
+      if (page.data.length === 0 || presets.length >= page.total) break;
+      offset += page.data.length;
+    }
+  }
+  const { walkStringLeaves } = await import("./_walk");
+  for (const { id, name } of presets) {
+    const scope: ScopeRef = { kind: "preset", id };
+    const blocks = await ctx.spindle.presets.blocks.list(id, ctx.userId);
+    for (const b of blocks) {
+      for (const field of ["content", "name"] as const) {
+        const v = (b as unknown as Record<string, unknown>)[field];
+        if (typeof v === "string" && v.length > 0) {
+          yield { key: `preset/${id}/block/${b.id}/${field}`, surface: "preset_block", surfaceId: `${id}:${b.id}`, surfaceLabel: `${name} · ${b.name || "block"}`, field, value: v, scope };
+        }
+      }
+    }
+    const full = await ctx.spindle.presets.get(id, ctx.userId);
+    for (const leaf of walkStringLeaves(full?.prompts ?? {})) {
+      yield { key: `preset/${id}/prompts/${leaf.path}`, surface: "preset_prompt", surfaceId: id, surfaceLabel: `${name} · prompts.${leaf.path}`, field: leaf.path, value: leaf.text, scope };
+    }
+  }
+}
 
 // All editable string leaves on one character + extensions + regex + lorebook,
 // flat-listed by path. Takes the target character id explicitly (resolved by
@@ -792,20 +896,38 @@ export async function* iterateAllLeaves(ctx: ToolCtx, characterId: string, opts?
   // World book entries. Attached books always. wbScope "all" also walks every
   // other owned book (which default discovery never reaches), labeling the ones
   // actually in the global "Always Active" set distinctly from merely-unattached.
-  const attachedSet = new Set(c.world_book_ids ?? []);
+  yield* iterateWorldBookLeaves(ctx, new Set(c.world_book_ids ?? []), charScope, opts?.wbScope === "all");
+}
+
+// Every owned book, for searches that have no character to anchor on.
+export async function* iterateAllWorldBookLeaves(ctx: ToolCtx): AsyncGenerator<ResolvedLeaf> {
+  yield* iterateWorldBookLeaves(ctx, new Set(), null, true);
+}
+
+async function* iterateWorldBookLeaves(ctx: ToolCtx, attachedSet: ReadonlySet<string>, charScope: ScopeRef | null, includeAll: boolean): AsyncGenerator<ResolvedLeaf> {
   const wbIds: string[] = [...attachedSet];
   let globalSet = new Set<string>();
-  if (opts?.wbScope === "all") {
+  const names = new Map<string, string>();
+  if (includeAll) {
     globalSet = new Set(await ctx.spindle.world_books.getGlobal(ctx.userId).catch(() => [] as string[]));
     const owned = await listAllWorldBooks(ctx);
-    for (const wb of owned) if (!attachedSet.has(wb.id)) wbIds.push(wb.id);
+    for (const wb of owned) {
+      names.set(wb.id, wb.name);
+      if (!attachedSet.has(wb.id)) wbIds.push(wb.id);
+    }
+  } else {
+    await Promise.all([...attachedSet].map(async (id) => {
+      const wb = await ctx.spindle.world_books.get(id, ctx.userId).catch(() => null);
+      if (wb) names.set(id, wb.name);
+    }));
   }
   for (const wbId of wbIds) {
     const attached = attachedSet.has(wbId);
     // Unattached books aren't this character's; file edits under the book's own
     // ledger, not the focused character. Tag the label so the model sees scope.
-    const wbScope: ScopeRef = attached ? charScope : { kind: "world_book", id: wbId };
-    const tag = attached ? "" : globalSet.has(wbId) ? " [global]" : " [unattached]";
+    const wbScope: ScopeRef = attached && charScope ? charScope : { kind: "world_book", id: wbId };
+    const bookName = names.get(wbId);
+    const tag = `${attached ? "" : globalSet.has(wbId) ? " [global]" : " [unattached]"}${bookName ? ` in "${bookName}"` : ""}`;
     let wOff = 0;
     while (true) {
       const r = await ctx.spindle.world_books.entries.list(wbId, { limit: 500, userId: ctx.userId, offset: wOff });

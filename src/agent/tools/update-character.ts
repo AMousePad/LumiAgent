@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineTool } from "./_framework";
+import { cleanPatch, defineTool, emptyPatchError } from "./_framework";
 import { resolveCharacterTarget, noTargetResult } from "./_context";
 import { characterScope } from "../../types";
 import type { CharacterUpdateDTO } from "lumiverse-spindle-types";
@@ -18,7 +18,14 @@ export const updateCharacterTool = defineTool({
   jsonSchema: {
     type: "object",
     properties: {
-      patch: { type: "object", additionalProperties: true },
+      patch: {
+        type: "object",
+        description: "Only the fields to change. tags replaces the whole list.",
+        properties: Object.fromEntries([
+          ...["name", "description", "personality", "scenario", "first_mes", "mes_example", "creator_notes", "system_prompt", "post_history_instructions", "creator"].map((k) => [k, { type: "string" }]),
+          ["tags", { type: "array", items: { type: "string" } }],
+        ]),
+      },
       character_id: { type: "string" },
     },
     required: ["patch"],
@@ -63,8 +70,10 @@ export const updateCharacterTool = defineTool({
     }
     const c = await ctx.spindle.characters.get(target, ctx.userId);
     if (!c) return { content: `Error: character ${target} not found`, isError: true };
-    const updated = await ctx.spindle.characters.update(target, patch, ctx.userId);
-    for (const [k, v] of Object.entries(patch as Record<string, unknown>)) {
+    const cleaned = cleanPatch(patch as Record<string, unknown>, c as unknown as Record<string, unknown>);
+    if (Object.keys(cleaned.patch).length === 0) return { content: emptyPatchError(cleaned.unchanged, '{"scenario": "..."}'), isError: true };
+    const updated = await ctx.spindle.characters.update(target, cleaned.patch as CharacterUpdateDTO, ctx.userId);
+    for (const [k, v] of Object.entries(cleaned.patch)) {
       const before = (c as unknown as Record<string, unknown>)[k];
       if (k === "tags" && Array.isArray(v)) {
         const beforeJson = JSON.stringify(Array.isArray(before) ? before : []);
@@ -87,6 +96,6 @@ export const updateCharacterTool = defineTool({
       if (before === v) continue;
       ctx.pushEdit({ op: "edit", surface: "character_field", surfaceId: target, surfaceLabel: c.name, field: k, before, after: v, scope: characterScope(target) });
     }
-    return { content: `OK. Updated character ${updated.id} fields: ${Object.keys(patch).join(", ")}` };
+    return { content: `OK. Updated character ${updated.id}. Changed ${cleaned.summary}` };
   },
 });

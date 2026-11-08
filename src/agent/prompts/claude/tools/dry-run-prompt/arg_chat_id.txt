@@ -1,1 +1,1 @@
-Chat to assemble for.
+Chat to assemble for. Omit to use the pinned or active chat.

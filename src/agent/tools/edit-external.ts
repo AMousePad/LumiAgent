@@ -2,7 +2,7 @@ import { z } from "zod";
 import { defineTool } from "./_framework";
 import { applyEdit } from "./_edit";
 import { buildEditPatch } from "./_patch";
-import { ensureFreshRead, ensureRecentRead, refreshReadHash } from "./_gates";
+import { ensureFreshRead, ensureRecentRead, refreshReadHashFromStore } from "./_gates";
 import { stashDraft, loadDraft, draftReuseNote } from "./_drafts";
 import description from "../prompts/claude/tools/edit-external/description.txt";
 import argReplaceHandle from "../prompts/claude/tools/edit-external/arg_replace_handle.txt";
@@ -51,7 +51,7 @@ export const editExternalTool = defineTool({
   execute: async (input, ctx) => {
     const draftOrigin = `edit_external:${input.surface_id}/${input.item_id}/${input.field}`;
     let replace = input.replace;
-    if (replace === undefined && input.replace_handle) {
+    if ((replace === undefined || replace === "") && input.replace_handle) {
       const loaded = await loadDraft(ctx, input.replace_handle);
       if (loaded === null) return { content: `Error: draft handle '${input.replace_handle}' not found or expired. Re-send replace literally.`, isError: true };
       replace = loaded;
@@ -67,7 +67,7 @@ export const editExternalTool = defineTool({
     const { discoverProviders, findSurface } = await import("../../phoneline/registry");
     const providers = await discoverProviders(ctx.spindle, ctx.userId);
     const match = findSurface(providers, input.surface_id);
-    if (!match) return { content: `Error: unknown surface: ${input.surface_id}`, isError: true };
+    if (!match) return { content: `Error: unknown surface: ${input.surface_id}. Call list_external with no surface_id to see the connected surfaces.`, isError: true };
     const surfaceLabel = match.surface.label;
     const providerName = match.provider.manifest.extension.name;
 
@@ -100,7 +100,13 @@ export const editExternalTool = defineTool({
       userId: ctx.userId, surfaceId: input.surface_id, itemId: input.item_id, field: input.field, value: outcome.result,
     });
     if (!writeRes.ok) return { content: `Error: write failed: ${writeRes.error ?? "unknown"}`, isError: true };
-    refreshReadHash(ctx, gateKey, outcome.result);
+    await refreshReadHashFromStore(ctx, gateKey, outcome.result, async () => {
+      const after = await dialReadItem(ctx.spindle, match.provider.id, {
+        userId: ctx.userId, surfaceId: input.surface_id, itemId: input.item_id, field: input.field,
+      });
+      if (typeof after.value !== "string") throw new Error("not a string");
+      return after.value;
+    });
 
     ctx.pushEdit({
       op: "edit",

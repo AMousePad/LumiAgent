@@ -23,6 +23,7 @@ import { characterScope } from "../types";
 import { writeTmp } from "../state/tmp-store";
 import { isReadOnlyTool, maxResultSizeCharsFor, RecentReadsCache, type ToolCtx, type ToolFn, type QueuedImage } from "./tools";
 import { StageEditPersistenceError } from "./tools/_context";
+import { prepareToolArgs } from "./tools/_framework";
 import toolCallAsText from "./prompts/claude/agent/loop/tool_call_as_text.txt";
 
 const PARALLEL_TOOL_CONCURRENCY = 5;
@@ -756,7 +757,7 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
           isError: true,
         };
       }
-      const fn = input.dispatch[tc.name];
+      const fn = input.dispatch[tc.name] ?? input.dispatch[tc.name.trim()];
       if (!fn) {
         const msg = `Unknown tool '${tc.name}'. Available: ${Object.keys(input.dispatch).join(", ")}`;
         return { tc, buffer, resultText: msg, isError: true, unknownTool: true };
@@ -821,8 +822,9 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
     interface Batch { readonly concurrent: boolean; readonly calls: ToolCall[]; }
     const batches: Batch[] = [];
     for (const tc of toolCalls) {
-      const tool = reg.registry.get(tc.name);
-      const safeByFlag = tool?.isConcurrencySafe?.(tc.args) ?? tool?.isReadOnly?.(tc.args);
+      const tool = reg.registry.get(tc.name.trim());
+      const args = tool ? prepareToolArgs(tool, tc.args) as Record<string, unknown> : tc.args;
+      const safeByFlag = tool?.isConcurrencySafe?.(args) ?? tool?.isReadOnly?.(args);
       const safeByName = isReadOnlyTool(tc.name);
       const concurrent = Boolean(safeByFlag ?? safeByName);
       const last = batches[batches.length - 1];

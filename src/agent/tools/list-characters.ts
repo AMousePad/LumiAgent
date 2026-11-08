@@ -167,6 +167,7 @@ export const listCharactersTool = defineTool({
     let libraryTotal = 0;
     let scanned = 0;
     let matched = 0;
+    let excludedByExtension = 0;
     let pageOffset = 0;
     for (;;) {
       const res = await ctx.spindle.characters.list({
@@ -181,14 +182,14 @@ export const listCharactersTool = defineTool({
         seen.add(c.id);
         if (q) {
           const tags = Array.isArray(c.tags) ? c.tags : [];
-          if (!c.name.toLowerCase().includes(q) && !tags.some((tag) => tag.toLowerCase().includes(q))) {
+          if (c.id.toLowerCase() !== q && !c.name.toLowerCase().includes(q) && !tags.some((tag) => tag.toLowerCase().includes(q))) {
             continue;
           }
         }
         let extensionKeys: string[] | undefined;
         if (requiredExtension !== undefined) {
           extensionKeys = visibleTopLevelExtensionKeys(c.extensions, skipExtensionSearch);
-          if (!extensionKeys.includes(requiredExtension)) continue;
+          if (!extensionKeys.includes(requiredExtension)) { excludedByExtension++; continue; }
         }
         if (matched >= offset && windowed.length < limit) {
           windowed.push(toRow(c, extensionKeys));
@@ -211,6 +212,7 @@ export const listCharactersTool = defineTool({
       ...(probeExtensionKeys.length > 0 ? { probe_extension_keys: probeExtensionKeys } : {}),
       ...(includeFields.length > 0 ? { include_fields: includeFields, max_chars_per_field: maxChars } : {}),
       scanned,
+      ...(matched === 0 && excludedByExtension > 0 ? { note: `extension_key '${requiredExtension}' excluded all ${excludedByExtension} otherwise-matching characters. Omit extension_key unless you need cards carrying that extension.` } : {}),
       characters: windowed,
     }, null, 2);
     return { content: await spillOrReturn(ctx, out, "list_characters") };

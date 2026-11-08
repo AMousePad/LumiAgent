@@ -77,7 +77,11 @@ export const webSearchTool = defineTool({
       const out = await spillOrReturn(ctx, markdown, `web_search:${input.query}`, "Use web_fetch to pull a specific result URL in full, or save_to to persist results.");
       return { content: savedNote + out };
     } catch (err) {
-      return { content: `Error: web search failed: ${(err as Error).message}`, isError: true };
+      const message = (err as Error).message;
+      const config = /HTTP (401|403|404)\b/.test(message)
+        ? " The search provider URL or key in Lumiverse settings looks misconfigured. Retrying will not help, tell the user."
+        : "";
+      return { content: `Error: web search failed: ${message}.${config}`, isError: true };
     }
   },
 });

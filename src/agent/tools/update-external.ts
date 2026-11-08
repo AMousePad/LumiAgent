@@ -30,7 +30,7 @@ export const updateExternalTool = defineTool({
     const { discoverProviders, findSurface } = await import("../../phoneline/registry");
     const providers = await discoverProviders(ctx.spindle, ctx.userId);
     const match = findSurface(providers, surfaceId);
-    if (!match) return { content: `Error: unknown surface: ${surfaceId}`, isError: true };
+    if (!match) return { content: `Error: unknown surface: ${surfaceId}. Call list_external with no surface_id to see the connected surfaces.`, isError: true };
     const surfaceLabel = match.surface.label;
     const providerName = match.provider.manifest.extension.name;
     const { dialReadItem, dialWriteField } = await import("../../phoneline/transport");

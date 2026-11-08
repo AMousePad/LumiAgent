@@ -267,8 +267,10 @@ export const inspectTool = defineTool({
     const wbMatch = /^(?:wb|world_book_entry)\/([^/]+)$/.exec(path);
     if (wbMatch) {
       const r = await inspectWorldBook(ctx, wbMatch[1]!);
-      if (typeof r === "string") return { content: `Error: ${r}`, isError: true };
-      return { content: JSON.stringify(r, null, 2) };
+      // wb/<id> is also valid shorthand for an entry, which resolveRead below handles.
+      const entry = typeof r === "string" ? await ctx.spindle.world_books.entries.get(wbMatch[1]!, ctx.userId).catch(() => null) : null;
+      if (typeof r === "string" && !entry) return { content: `Error: ${r}`, isError: true };
+      if (typeof r !== "string") return { content: JSON.stringify(r, null, 2) };
     }
 
     // Otherwise resolve as a leaf and report leaf stats + encoding diagnostics.
@@ -277,7 +279,16 @@ export const inspectTool = defineTool({
     catch (err) {
       if (err instanceof ExtensionRefusedError) return { content: `Error: [REFUSED_BY_EXTENSION] ${err.message}`, isError: true };
       if (err instanceof OutOfRangeError) return { content: `Error: [OUT_OF_RANGE] ${err.message}`, isError: true };
-      if (err instanceof PathError) return { content: `Error: [PATH_NOT_FOUND] ${err.message}`, isError: true };
+      if (err instanceof PathError) {
+        // Container paths that list accepts (char/alternate_fields, rx, wb) are not leaves, so answer with the listing.
+        const { listTool } = await import("./list");
+        const args = listTool.inputSchema.safeParse({ path });
+        if (args.success) {
+          const listed = await listTool.execute(args.data, ctx).catch(() => null);
+          if (listed && !listed.isError) return { content: `${path} is a container, not a leaf. Its listing:\n${listed.content}` };
+        }
+        return { content: `Error: [PATH_NOT_FOUND] ${err.message}`, isError: true };
+      }
       return { content: `Error: ${(err as Error).message}`, isError: true };
     }
     const text = leaf.value;

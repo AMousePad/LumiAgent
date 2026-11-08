@@ -6,7 +6,7 @@ import type { EditRecord, ScopeRef } from "../../types";
 import { characterScope } from "../../types";
 import { isCharacterStringField, normaliseCharacterTags, wbLabel, coerceKeyList, WB_ENTRY_KEY_FIELDS, WB_ENTRY_WRITABLE_FIELDS } from "./_surfaces";
 import { parseExtensionPath, setAtPath } from "./_paths";
-import { ExtensionRefusedError, assertExtensionWriteAllowed, scopeForLeafKey, isCharSubtreeToken, isAlternateFieldName, readAltFieldArray, writeAltFieldArray, ALTERNATE_FIELD_NAMES } from "./_path_v2";
+import { applyCharacterId, ExtensionRefusedError, assertExtensionWriteAllowed, scopeForLeafKey, isCharSubtreeToken, isAlternateFieldName, readAltFieldArray, writeAltFieldArray, ALTERNATE_FIELD_NAMES } from "./_path_v2";
 import { encodeScalar } from "../../state/edit-log";
 import description from "../prompts/claude/tools/set/description.txt";
 import argPath from "../prompts/claude/tools/set/arg_path.txt";
@@ -15,7 +15,8 @@ import argValue from "../prompts/claude/tools/set/arg_value.txt";
 const inputSchema = z.object({
   path: z.string().min(3).describe("Slash-separated path. Same grammar as `read` / `edit`."),
   value: z.unknown().describe("The new value. Any JSON-encodable type (string, number, boolean, array, object, null). Wholesale replacement at the path."),
-}).strict();
+  character_id: z.string().optional(),
+}).strict().transform((d) => ({ ...d, path: applyCharacterId(d.path, d.character_id) }));
 
 function stringify(v: unknown): string {
   if (typeof v === "string") return v;
@@ -131,6 +132,7 @@ async function setExtension(ctx: ToolCtx, characterId: string, dotted: string, v
 async function setRegexScriptField(ctx: ToolCtx, scriptId: string, field: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string; valueEncoding?: "json" } | string> {
   const r = await ctx.spindle.regex_scripts.get(scriptId, ctx.userId);
   if (!r) return `regex script ${scriptId} not found`;
+  if (!(field in r)) return `[PATH_NOT_FOUND] regex script has no field '${field}'. Fields: ${Object.keys(r).filter((k) => k !== "id").join(", ")}`;
   const before = (r as unknown as Record<string, unknown>)[field];
   await ctx.spindle.regex_scripts.update(scriptId, { [field]: value } as RegexScriptUpdateDTO, ctx.userId);
   // Tag json ONLY for non-string values. String fields (find_regex,
@@ -147,6 +149,7 @@ async function setWorldBookField(ctx: ToolCtx, id: string, field: string, value:
   // or an entry. Resolve by lookup so one path grammar covers both.
   const book = await ctx.spindle.world_books.get(id, ctx.userId).catch(() => null);
   if (book) {
+    if (!(field in book)) return `[PATH_NOT_FOUND] world book has no field '${field}'. Fields: ${Object.keys(book).filter((k) => k !== "id").join(", ")}`;
     const before = (book as unknown as Record<string, unknown>)[field];
     await ctx.spindle.world_books.update(id, { [field]: value } as WorldBookUpdateDTO, ctx.userId);
     // Always file book-level edits under the book's own scope, matching book
@@ -188,11 +191,36 @@ async function setPresetField(ctx: ToolCtx, presetId: string, field: string, val
   const p = await ctx.spindle.presets.get(presetId, ctx.userId);
   if (!p) return `preset ${presetId} not found`;
   const before = (p as unknown as Record<string, unknown>)[field];
+  // A JSON-encoded string sent for an object field would otherwise overwrite prompts/parameters with a string.
+  if (before && typeof before === "object" && typeof value === "string") {
+    let parsed: unknown;
+    try { parsed = JSON.parse(value); } catch { parsed = undefined; }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) !== Array.isArray(before)) {
+      return `[INVALID_VALUE_TYPE] preset.${field} is ${Array.isArray(before) ? "an array" : "an object"}. Pass value as a JSON ${Array.isArray(before) ? "array" : "object"}, not a string. To change one string inside prompts, edit preset/${presetId}/prompts/<dotted.path> instead.`;
+    }
+    value = parsed;
+  }
   // Optimistic concurrency: the host compares expected_cache_revision and throws
   // on mismatch, so a preset the user edited between our get and update fails
   // loud instead of silently clobbering their change.
   await ctx.spindle.presets.update(presetId, { [field]: value, expected_cache_revision: p.cache_revision ?? 0 } as UserPresetUpdateDTO, ctx.userId);
   return { before: stringify(before), after: stringify(value), label: p.name, surface: "preset", surfaceId: presetId, field };
+}
+
+// Text fields go through edit/rewrite so the read gate and freshness hash apply.
+const PRESET_BLOCK_TEXT_FIELDS = new Set(["content", "name"]);
+
+async function setPresetBlockField(ctx: ToolCtx, presetId: string, blockId: string, field: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string; valueEncoding?: "json" } | string> {
+  if (PRESET_BLOCK_TEXT_FIELDS.has(field)) return `[USE_EDIT] preset block ${field} is text. Use edit or rewrite on preset/${presetId}/block/${blockId}/${field}.`;
+  const b = await ctx.spindle.presets.blocks.get(presetId, blockId, ctx.userId);
+  if (!b) return `preset block ${blockId} not found in preset ${presetId}`;
+  const record = b as unknown as Record<string, unknown>;
+  if (!(field in record)) return `[PATH_NOT_FOUND] preset block has no field '${field}'. Settable: ${Object.keys(record).filter((k) => k !== "id" && !PRESET_BLOCK_TEXT_FIELDS.has(k)).join(", ")}`;
+  const before = record[field];
+  if (typeof before === "boolean" && typeof value === "string" && (value === "true" || value === "false")) value = value === "true";
+  if (typeof before === "boolean" && typeof value !== "boolean") return `[INVALID_VALUE_TYPE] block.${field} is a boolean. Pass true or false.`;
+  await ctx.spindle.presets.blocks.update(presetId, blockId, { [field]: value }, ctx.userId);
+  return { before: JSON.stringify(before ?? null), after: JSON.stringify(value ?? null), label: b.name || "block", surface: "preset_block", surfaceId: `${presetId}:${blockId}`, field, valueEncoding: "json" };
 }
 
 async function setPersonaAttachedWorldBook(ctx: ToolCtx, personaId: string, field: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string } | string> {
@@ -231,6 +259,7 @@ export const setTool = defineTool({
     type: "object",
     properties: {
       path: { type: "string", description: argPath },
+      character_id: { type: "string", description: "Target character for char/ paths. Same as writing char/<id>/<field>." },
       value: { description: argValue },
     },
     required: ["path", "value"],
@@ -290,9 +319,12 @@ export const setTool = defineTool({
       const parts = path.split("/").slice(1);
       if (parts.length !== 2) return { content: "Error: expected wb/<id>/<field> (id = book or entry)", isError: true };
       result = await setWorldBookField(ctx, parts[0]!, parts[1]!, value);
+    } else if (/^preset\/[^/]+\/block\/[^/]+\/[^/]+$/.test(path)) {
+      const [, presetId, , blockId, field] = path.split("/");
+      result = await setPresetBlockField(ctx, presetId!, blockId!, field!, value);
     } else if (path.startsWith("preset/")) {
       const parts = path.split("/").slice(1);
-      if (parts.length !== 2) return { content: "Error: expected preset/<presetId>/<field>. For block content/name use edit/rewrite on preset/<id>/block/<bid>/<field>.", isError: true };
+      if (parts.length !== 2) return { content: "Error: expected preset/<presetId>/<field>, or preset/<id>/block/<blockId>/<enabled|role|...> for block settings. For block content/name text use edit/rewrite.", isError: true };
       result = await setPresetField(ctx, parts[0]!, parts[1]!, value);
     } else if (path.startsWith("persona/")) {
       const parts = path.split("/").slice(1);

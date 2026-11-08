@@ -37,7 +37,7 @@ export const grepExternalTool = defineTool({
     const { discoverProviders, findSurface } = await import("../../phoneline/registry");
     const providers = await discoverProviders(ctx.spindle, ctx.userId);
     const match = findSurface(providers, input.surface_id);
-    if (!match) return { content: `Error: unknown surface: ${input.surface_id}`, isError: true };
+    if (!match) return { content: `Error: unknown surface: ${input.surface_id}. Call list_external with no surface_id to see the connected surfaces.`, isError: true };
     const target = input.character_id ?? ctx.characterId;
     if (match.surface.scope === "per_character" && !target) {
       return { content: "Error: [NO_TARGET] this is a per-character surface; pass character_id or focus a character first.", isError: true };

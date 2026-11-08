@@ -1,9 +1,9 @@
 import { z } from "zod";
 import { defineTool, type ReadGate } from "./_framework";
 import { buildEditPatch } from "./_patch";
-import { ensureFreshRead, ensureRecentRead, refreshReadHash } from "./_gates";
+import { ensureFreshRead, ensureRecentRead, refreshReadHashFromStore } from "./_gates";
 import { stashDraft, loadDraft, draftReuseNote } from "./_drafts";
-import { resolveRead, resolveWrite, PathError, OutOfRangeError, ExtensionRefusedError } from "./_path_v2";
+import { applyCharacterId, resolveRead, resolveWrite, PathError, OutOfRangeError, ExtensionRefusedError } from "./_path_v2";
 import description from "../prompts/claude/tools/rewrite/description.txt";
 import argPath from "../prompts/claude/tools/rewrite/arg_path.txt";
 
@@ -11,13 +11,15 @@ const inputSchema = z.object({
   path: z.string().min(3).describe("Slash-separated path. Same grammar as `read` / `edit`."),
   new_content: z.string().optional().describe("Full replacement text. Mutually exclusive with new_content_handle."),
   new_content_handle: z.string().optional().describe("Handle of a previously-stashed draft."),
+  character_id: z.string().optional(),
 }).strict().refine((d) => d.new_content !== undefined || d.new_content_handle !== undefined, {
   message: "either new_content or new_content_handle is required",
-});
+}).transform((d) => ({ ...d, path: applyCharacterId(d.path, d.character_id) }));
 
 const gate: ReadGate = {
   surface: (input) => String(input["path"] ?? "?"),
   hint: (key) => `Call \`read\` on '${key}' first so you've seen what you're overwriting.`,
+  requiresFullRead: true,
 };
 
 export const rewriteTool = defineTool({
@@ -28,6 +30,7 @@ export const rewriteTool = defineTool({
     type: "object",
     properties: {
       path: { type: "string", description: argPath },
+      character_id: { type: "string", description: "Target character for char/ paths. Same as writing char/<id>/<field>." },
       new_content: { type: "string" },
       new_content_handle: { type: "string" },
     },
@@ -39,7 +42,7 @@ export const rewriteTool = defineTool({
   requiresCharacter: false,
   execute: async (input, ctx) => {
     let next = input.new_content;
-    if (next === undefined && input.new_content_handle) {
+    if ((next === undefined || next === "") && input.new_content_handle) {
       const loaded = await loadDraft(ctx, input.new_content_handle);
       if (loaded === null) return { content: `Error: [DRAFT_HANDLE_EXPIRED] draft handle '${input.new_content_handle}' not found or expired. Re-send new_content literally.`, isError: true };
       next = loaded;
@@ -75,7 +78,7 @@ export const rewriteTool = defineTool({
       }
       return { content: `Error: write failed: ${(err as Error).message}`, isError: true };
     }
-    refreshReadHash(ctx, leaf.key, next);
+    const normalized = await refreshReadHashFromStore(ctx, leaf.key, next, async () => (await resolveRead(ctx, leaf.key)).value);
 
     const patch = buildEditPatch(leaf.key, leaf.value, next);
     return {
@@ -83,6 +86,7 @@ export const rewriteTool = defineTool({
         path: leaf.key,
         before_chars: leaf.value.length,
         after_chars: next.length,
+        ...(normalized ? { note: "The host stored a normalized version of this text. read it again before quoting exact bytes." } : {}),
         patch: { additions: patch.additions, deletions: patch.deletions, hunks: patch.hunks },
       }),
     };

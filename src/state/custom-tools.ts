@@ -74,11 +74,17 @@ export function validateManifest(raw: unknown): CustomToolManifest {
     if (!s || typeof s !== "object") throw new Error(`step[${i}] must be an object`);
     const call = s["call"];
     if (typeof call !== "string") throw new Error(`step[${i}].call must be a string`);
-    const args = s["args"];
+    let args = s["args"];
     if (args !== undefined && (typeof args !== "object" || args === null || Array.isArray(args))) {
       throw new Error(`step[${i}].args must be an object`);
     }
-    const saveAs = s["save_as"];
+    let saveAs = s["save_as"];
+    // No built-in tool takes save_as, so one found inside args was meant for the step.
+    if (saveAs === undefined && args && typeof (args as Record<string, unknown>)["save_as"] === "string") {
+      const { save_as: hoisted, ...rest } = args as Record<string, unknown>;
+      saveAs = hoisted;
+      args = rest;
+    }
     if (saveAs !== undefined && (typeof saveAs !== "string" || !/^[a-z][a-z0-9_]*$/i.test(saveAs))) {
       throw new Error(`step[${i}].save_as must be a short identifier`);
     }
@@ -240,6 +246,32 @@ function lookup(ref: string, scope: Record<string, unknown>): { found: boolean; 
   return { found: true, value: cur };
 }
 
+function describeMissingRef(ref: string, scope: Record<string, unknown>): string {
+  const { head, segments } = parseRef(ref);
+  if (!Object.prototype.hasOwnProperty.call(scope, head)) {
+    const bound = Object.keys(scope).filter((k) => !k.startsWith("__")).map((k) => `$${k}`);
+    return `unknown ref '{{${ref}}}': no binding '$${head}'. Bound so far: ${bound.join(", ") || "(none)"}. Bind a step result with save_as on that step.`;
+  }
+  let cur: unknown = scope[head];
+  let walked = `$${head}`;
+  for (const seg of segments) {
+    const isObj = cur !== null && typeof cur === "object" && !Array.isArray(cur);
+    const ok = seg.kind === "key"
+      ? isObj && Object.hasOwn(cur as object, seg.value)
+      : Array.isArray(cur) && Object.hasOwn(cur, parseInt(seg.value, 10));
+    if (!ok) {
+      const shape = Array.isArray(cur) ? `an array of length ${cur.length}`
+        : isObj ? `an object with keys ${Object.keys(cur as object).slice(0, 20).join(", ") || "(none)"}`
+        : typeof cur === "string" ? `a string (${cur.length} chars), not parsed JSON`
+        : `${cur === null ? "null" : typeof cur}`;
+      return `unknown ref '{{${ref}}}': ${walked} is ${shape}`;
+    }
+    cur = seg.kind === "key" ? (cur as Record<string, unknown>)[seg.value] : (cur as unknown[])[parseInt(seg.value, 10)];
+    walked += seg.kind === "key" ? `.${seg.value}` : `[${seg.value}]`;
+  }
+  return `unknown ref '{{${ref}}}'`;
+}
+
 function substituteValue(v: unknown, scope: Record<string, unknown>): unknown {
   if (typeof v === "string") return substituteString(v, scope);
   if (Array.isArray(v)) return v.map((item) => substituteValue(item, scope));
@@ -260,7 +292,7 @@ function substituteString(s: string, scope: Record<string, unknown>): unknown {
     if (!found) {
       // `$` refs are pipeline bindings: not-found is a real bug. Bare refs
       // collide with Risu macros (`{{risu_date}}`), pass them through literal.
-      if (ref.startsWith("$")) throw new Error(`unknown ref '{{${ref}}}'`);
+      if (ref.startsWith("$")) throw new Error(describeMissingRef(ref, scope));
       return s;
     }
     return value;
@@ -268,7 +300,7 @@ function substituteString(s: string, scope: Record<string, unknown>): unknown {
   return s.replace(TEMPLATE_RE, (match, name: string) => {
     const { found, value } = lookup(name, scope);
     if (!found) {
-      if (name.startsWith("$")) throw new Error(`unknown ref '{{${name}}}'`);
+      if (name.startsWith("$")) throw new Error(describeMissingRef(name, scope));
       return match;
     }
     // found but null/undefined (e.g. a dotted ref into a missing sub-key):

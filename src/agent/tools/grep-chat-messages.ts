@@ -11,6 +11,15 @@ const CHAT_GREP_DEFAULT_MAX = 50;
 const CHAT_GREP_MAX_CAP = 500;
 const CHAT_GREP_PREVIEW_CHARS = 160;
 
+// A preview cut from the line start loses the match on long roleplay paragraphs.
+function previewAround(line: string, index: number, length: number): string {
+  if (line.length <= CHAT_GREP_PREVIEW_CHARS) return line;
+  const side = Math.max(20, Math.floor((CHAT_GREP_PREVIEW_CHARS - length) / 2));
+  const start = Math.max(0, index - side);
+  const end = Math.min(line.length, index + length + side);
+  return `${start > 0 ? "[…] " : ""}${line.slice(start, end)}${end < line.length ? " […]" : ""}`;
+}
+
 const inputSchema = z.object({
   chat_id: z.string().optional(),
   pattern: z.string(),
@@ -70,15 +79,15 @@ export const grepChatMessagesTool = defineTool({
         const line = lines[li]!;
         re.lastIndex = 0;
         let rm: RegExpExecArray | null;
-        const matches: string[] = [];
+        const matches: Array<{ text: string; index: number }> = [];
         while ((rm = re.exec(line)) !== null) {
-          matches.push(rm[0]);
+          matches.push({ text: rm[0], index: rm.index });
           if (rm.index === re.lastIndex) re.lastIndex++;
         }
         if (matches.length === 0) continue;
-        const preview = line.length > CHAT_GREP_PREVIEW_CHARS ? `${line.slice(0, CHAT_GREP_PREVIEW_CHARS - 5)} […]` : line;
         for (const mm of matches) {
-          hits.push({ idx: i, id: m.id, role: m.role, speaker_name: m.name, line: li + 1, match: mm, preview });
+          const preview = previewAround(line, mm.index, mm.text.length);
+          hits.push({ idx: i, id: m.id, role: m.role, speaker_name: m.name, line: li + 1, match: mm.text, preview });
           remaining--;
           if (remaining <= 0) break;
         }

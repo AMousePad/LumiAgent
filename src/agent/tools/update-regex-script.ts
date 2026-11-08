@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineTool } from "./_framework";
+import { cleanPatch, defineTool, emptyPatchError } from "./_framework";
 import { scopeForLeafKey } from "./_path_v2";
 import type { RegexScriptUpdateDTO } from "lumiverse-spindle-types";
 import description from "../prompts/claude/tools/update-regex-script/description.txt";
@@ -17,7 +17,27 @@ export const updateRegexScriptTool = defineTool({
     type: "object",
     properties: {
       script_id: { type: "string" },
-      patch: { type: "object", additionalProperties: true },
+      patch: {
+        type: "object",
+        description: "Only the fields to change.",
+        properties: {
+          name: { type: "string" },
+          find_regex: { type: "string" },
+          replace_string: { type: "string" },
+          flags: { type: "string" },
+          disabled: { type: "boolean" },
+          placement: { type: "array", items: { type: "string", enum: ["user_input", "ai_output", "world_info", "reasoning"] } },
+          target: { type: "string", enum: ["prompt", "response", "display"] },
+          substitute_macros: { type: "string", enum: ["none", "find", "raw", "escaped", "after"] },
+          min_depth: { type: "integer" },
+          max_depth: { type: "integer" },
+          trim_strings: { type: "array", items: { type: "string" } },
+          run_on_edit: { type: "boolean" },
+          sort_order: { type: "integer" },
+          description: { type: "string" },
+          folder: { type: "string" },
+        },
+      },
     },
     required: ["script_id", "patch"],
   },
@@ -26,9 +46,11 @@ export const updateRegexScriptTool = defineTool({
   requiresCharacter: false,
   execute: async (input, ctx) => {
     const id = input.script_id;
-    const patch = input.patch as RegexScriptUpdateDTO;
     const before = await ctx.spindle.regex_scripts.get(id, ctx.userId);
     if (!before) return { content: `Error: regex script ${id} not found`, isError: true };
+    const cleaned = cleanPatch(input.patch, before as unknown as Record<string, unknown>, new Set(["replace_string"]));
+    if (Object.keys(cleaned.patch).length === 0) return { content: emptyPatchError(cleaned.unchanged, '{"disabled": true}'), isError: true };
+    const patch = cleaned.patch as RegexScriptUpdateDTO;
     const updated = await ctx.spindle.regex_scripts.update(id, patch, ctx.userId);
     for (const [k, v] of Object.entries(patch as Record<string, unknown>)) {
       const prev = (before as unknown as Record<string, unknown>)[k];
@@ -43,6 +65,6 @@ export const updateRegexScriptTool = defineTool({
       if (beforeStr === afterStr) continue;
       ctx.pushEdit({ op: "edit", surface: "regex_script", surfaceId: id, surfaceLabel: before.name, field: k, before: beforeStr, after: afterStr, ...(isStr ? {} : { valueEncoding: "json" as const }), scope: scopeForLeafKey(`rx/${id}`, ctx) });
     }
-    return { content: `OK. Updated regex script ${updated.id} ("${updated.name}") fields: ${Object.keys(patch).join(", ")}` };
+    return { content: `OK. Updated regex script ${updated.id} ("${updated.name}"). Changed ${cleaned.summary}` };
   },
 });

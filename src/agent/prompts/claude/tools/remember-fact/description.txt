@@ -1,5 +1,3 @@
-Write a durable fact onto a memory entity. Facts append to the entity's fact list, and the last 6 render into the entity-context block of every subsequent generation, so a written fact reaches the model verbatim on the next message.
+Append a durable fact to a memory entity. The last 6 facts render into every later generation's entity context, verbatim from the next message on.
 
-The entity is resolved by name (aliases count); if it does not exist it is created with the given `entity_type` (default `character`). `importance` 1-10 (default 5) survives trimming: the fact list caps at 30, evicting lowest-importance first (ties keep the newer fact), so use 8-10 for facts that must never fall out.
-
-Deduplication is case-insensitive on the fact text. Keep facts short, one clause each, present tense ("Kael never forgave his brother"). Defaults to the pinned chat. The cortex cache is invalidated so the next generation sees the change.
+The entity resolves by name or alias and is created with `entity_type` (default character) if missing. The list caps at 30 and evicts lowest `importance` first (1-10, default 5, ties keep the newer), so use 8-10 for facts that must stay. Dedup is case-insensitive. Keep facts to one present-tense clause. Defaults to the pinned chat.

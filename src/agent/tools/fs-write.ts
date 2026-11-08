@@ -27,7 +27,7 @@ export const fsWriteTool = defineTool({
   },
   execute: async (input, ctx) => {
     let content = input.content;
-    if (content === undefined && input.content_handle) {
+    if ((content === undefined || content === "") && input.content_handle) {
       const loaded = await loadDraft(ctx, input.content_handle);
       if (loaded === null) return { content: `Error: draft handle '${input.content_handle}' not found or expired. Re-send content literally.`, isError: true };
       content = loaded;

@@ -17,7 +17,7 @@ const inputSchema = z.object({
   variables: z.record(z.string(), z.string()).optional(),
   clear: z.boolean().optional(),
 }).strict().refine(
-  (d) => [d.accent, d.from_image_id, d.variables, d.clear].filter((v) => v !== undefined).length === 1,
+  (d) => [d.accent, d.from_image_id, d.variables, d.clear === true ? true : undefined].filter((v) => v !== undefined).length === 1,
   { message: "pass exactly one of accent / from_image_id / variables / clear" },
 );
 

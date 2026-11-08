@@ -589,6 +589,7 @@ export async function readLiveValue(
       const b = await spindle.presets.blocks.get(presetId!, blockId!, userId);
       if (!b) return null;
       const v = (b as unknown as Record<string, unknown>)[r.field];
+      if (r.valueEncoding === "json") return JSON.stringify(v === undefined ? null : v);
       return typeof v === "string" ? v : null;
     }
     case "world_book": {
@@ -823,7 +824,7 @@ export async function writeFieldValue(
     }
     case "preset_block": {
       const [presetId, blockId] = surfaceId.split(":");
-      await spindle.presets.blocks.update(presetId!, blockId!, { [field]: value }, userId);
+      await spindle.presets.blocks.update(presetId!, blockId!, { [field]: valueEncoding === "json" ? JSON.parse(value) : value }, userId);
       return;
     }
     case "world_book": {

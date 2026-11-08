@@ -1,5 +1,6 @@
 import { fillPrompt } from "../agent/prompts/_fill";
 import { canonicalToolReferences } from '../agent/tools/_tool-groups';
+import { deferredToolHint } from "../agent/tools/_registry";
 import builtinBody from "../agent/prompts/claude/tasks/general/builtin_body.txt";
 import chatSectionBody from "../agent/prompts/claude/tasks/general/chat_section.txt";
 import addressingBody from "../agent/prompts/claude/tasks/general/addressing_section.txt";
@@ -54,7 +55,7 @@ export function buildGeneralSystemPrompt(params: GeneralPromptParams): string {
 
   const deferredToolsSection = params.deferredToolNames.length === 0
     ? ""
-    : `\n\n${fillPrompt(deferredToolsTemplate, { TOOL_LIST: params.deferredToolNames.map((n) => `- ${n}`).join("\n") })}`;
+    : `\n\n${fillPrompt(deferredToolsTemplate, { TOOL_LIST: params.deferredToolNames.map((n) => { const h = deferredToolHint(n); return h ? `- ${n}: ${h}` : `- ${n}`; }).join("\n") })}`;
 
   const personaBlock = params.persona && params.persona.trim().length > 0
     ? `${params.persona.trim()}\n\n---\n\n`

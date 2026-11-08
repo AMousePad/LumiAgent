@@ -1,6 +1,6 @@
 import type { ToolSchema } from "../types";
 import { isDeferredTool, isReadOnlyTool, listDeferredToolNames, maxResultSizeCharsFor, registry } from "./tools/_registry";
-import { formatZodError } from "./tools/_framework";
+import { formatZodError, prepareToolArgs } from "./tools/_framework";
 import type { ToolCtx as SharedToolCtx, QueuedImage as SharedQueuedImage } from "./tools/_context";
 import { changeApprovalPolicyFor, type ChangeImpact } from "./change-approval";
 import { canonicalToolReferences, isPublicTool } from './tools/_tool-groups';
@@ -95,9 +95,9 @@ export function makeToolDispatch(options: ToolDispatchOptions = {}): Record<stri
   const dispatch: Record<string, ToolFn> = {};
   for (const tool of registry.list()) {
     dispatch[tool.name] = async (args, ctx) => {
-      const parsed = tool.inputSchema.safeParse(args);
+      const parsed = tool.inputSchema.safeParse(prepareToolArgs(tool, args));
       if (!parsed.success) {
-        return { content: `Error: [INVALID_INPUT] invalid input for tool '${tool.name}':\n${formatZodError(parsed.error)}`, isError: true };
+        return { content: `Error: [INVALID_INPUT] invalid input for tool '${tool.name}':\n${formatZodError(parsed.error, tool.jsonSchema)}`, isError: true };
       }
       const invocationPath = [...(ctx.invocationPath ?? []), tool.name];
       const ctxWithDispatch = {

@@ -131,6 +131,10 @@ const DEFERRED_TOOL_NAMES: ReadonlySet<string> = new Set([
   "set_default_variables_text", "create_mcp_server",
   "create_memory_vault", "rename_memory_vault", "attach_memory_link", "set_memory_link_enabled",
   "squash_session_edits", "notify_user",
+  // Niche surfaces: each full schema rode along on every request although few sessions touch them.
+  "manage_databank", "update_memory_entity", "list_memory_entities", "apply_glossary", "audit_card_coverage", "navigate_ui",
+  "memory_stats", "list_memory_links", "list_memory_vaults", "read_memory_vault", "survey_cjk",
+  "inspect_dlc", "inspect_council", "set_toggle", "theme_archive", "theme_assets",
 ]);
 
 export function isDeferredTool(name: string): boolean {
@@ -139,6 +143,52 @@ export function isDeferredTool(name: string): boolean {
 
 export function listDeferredToolNames(): readonly string[] {
   return [...DEFERRED_TOOL_NAMES].filter(isPublicTool).sort();
+}
+
+// One line per deferred tool in the system prompt, since a bare name rarely says when to fetch it.
+const DEFERRED_TOOL_HINTS: Readonly<Record<string, string>> = {
+  about_memoria: "Memoria character lore",
+  apply_glossary: "one find/replace map across a whole card",
+  asset_delete: "delete a LumiRealm asset",
+  asset_rename: "rename a LumiRealm asset",
+  attach_memory_link: "attach a vault or another chat's memories to a chat",
+  audit_card_coverage: "find leftover text in a script across a card (untranslated strings)",
+  bulk_update_character_tags: "tag many characters at once",
+  count_cjk_chars: "count CJK characters in a string",
+  create_mcp_server: "add an MCP server profile",
+  create_memory_vault: "snapshot a chat's memory into a vault",
+  inspect_cache: "LumiCache cache-risk evidence",
+  inspect_council: "Council settings, members, Lumia definitions",
+  inspect_dlc: "DLC packs, Lumia, narrative styles, Loom tools",
+  list_memory_entities: "Memory Cortex entities of a chat",
+  list_memory_links: "a chat's vault and cross-chat memory links",
+  list_memory_vaults: "memory vault snapshots",
+  manage_databank: "create, edit or delete databank (RAG) documents",
+  memory_stats: "Memory Cortex health of a chat",
+  module_attach: "attach a LumiRealm module to a character",
+  module_detach: "detach a LumiRealm module",
+  mousey_die: "only when the user commands you to die",
+  navigate_ui: "open a drawer tab or settings view in the user's browser",
+  notify_user: "OS push notification",
+  read_memory_vault: "page through a vault's contents",
+  read_tutorial_script: "onboarding tour script and quiz answers",
+  rename_memory_vault: "rename a vault",
+  run_cache_diagnostic: "LumiCache audit or simulation",
+  set_default_variables_text: "LumiRealm default variables override",
+  set_memory_link_enabled: "enable or disable a memory link",
+  set_toggle: "LumiRealm module toggle for a chat",
+  survey_cjk: "group CJK runs across a card (translation prep)",
+  theme_archive: "export a theme to .lumitheme",
+  theme_assets: "theme asset bundles: upload, optimize, download",
+  translate_card_strings: "on-device bulk translation",
+  update_memory_entity: "retire, merge, revive or pin memory entities",
+};
+
+export function deferredToolHint(name: string): string {
+  const hint = DEFERRED_TOOL_HINTS[name];
+  if (hint) return hint;
+  const first = (registry.get(name)?.description ?? "").replace(/\s+/g, " ").split(/(?<=[.!?]) /)[0] ?? "";
+  return first.length > 80 ? `${first.slice(0, first.lastIndexOf(" ", 80))}...` : first;
 }
 
 // Read-only tools that never write spindle/userStorage and never push to the

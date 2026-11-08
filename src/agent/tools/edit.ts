@@ -2,9 +2,9 @@ import { z } from "zod";
 import { defineTool, type ReadGate } from "./_framework";
 import { applyEdit } from "./_edit";
 import { buildEditPatch } from "./_patch";
-import { ensureFreshRead, ensureRecentRead, refreshReadHash } from "./_gates";
+import { ensureFreshRead, ensureRecentRead, refreshReadHashFromStore } from "./_gates";
 import { stashDraft, loadDraft, draftReuseNote } from "./_drafts";
-import { resolveRead, resolveWrite, PathError, OutOfRangeError, ExtensionRefusedError } from "./_path_v2";
+import { applyCharacterId, resolveRead, resolveWrite, PathError, OutOfRangeError, ExtensionRefusedError } from "./_path_v2";
 import description from "../prompts/claude/tools/edit/description.txt";
 import argPath from "../prompts/claude/tools/edit/arg_path.txt";
 import argReplaceHandle from "../prompts/claude/tools/edit/arg_replace_handle.txt";
@@ -15,9 +15,10 @@ const inputSchema = z.object({
   replace: z.string().optional().describe("Replacement text. Mutually exclusive with replace_handle."),
   replace_handle: z.string().optional().describe("Handle of a previously-stashed replacement draft (returned by a failed prior edit). Use instead of `replace` to avoid re-emitting big payloads."),
   replace_all: z.boolean().optional().describe("Replace every occurrence instead of failing on duplicates."),
+  character_id: z.string().optional(),
 }).strict().refine((d) => d.replace !== undefined || d.replace_handle !== undefined, {
   message: "either `replace` or `replace_handle` is required",
-});
+}).transform((d) => ({ ...d, path: applyCharacterId(d.path, d.character_id) }));
 
 // The gate keys off the canonical leaf path, the same string read.ts records
 // via markRead. resolveRead canonicalises ('char/description' and
@@ -37,6 +38,7 @@ export const editTool = defineTool({
     type: "object",
     properties: {
       path: { type: "string", description: argPath },
+      character_id: { type: "string", description: "Target character for char/ paths. Same as writing char/<id>/<field>." },
       find: { type: "string" },
       replace: { type: "string" },
       replace_handle: { type: "string", description: argReplaceHandle },
@@ -50,7 +52,7 @@ export const editTool = defineTool({
   requiresCharacter: false,
   execute: async (input, ctx) => {
     let replace = input.replace;
-    if (replace === undefined && input.replace_handle) {
+    if ((replace === undefined || replace === "") && input.replace_handle) {
       const loaded = await loadDraft(ctx, input.replace_handle);
       if (loaded === null) return { content: `Error: [DRAFT_HANDLE_EXPIRED] draft handle '${input.replace_handle}' not found or expired. Re-send replace literally.`, isError: true };
       replace = loaded;
@@ -99,7 +101,7 @@ export const editTool = defineTool({
       }
       return { content: `Error: write failed: ${(err as Error).message}`, isError: true };
     }
-    refreshReadHash(ctx, leaf.key, outcome.result);
+    const normalized = await refreshReadHashFromStore(ctx, leaf.key, outcome.result, async () => (await resolveRead(ctx, leaf.key)).value);
 
     const diffPatch = buildEditPatch(leaf.key, leaf.value, outcome.result);
     // recovered_via fires LOUD: leading WARNING line above the JSON. Silent
@@ -110,6 +112,7 @@ export const editTool = defineTool({
       replacements: outcome.count,
       snippet: outcome.firstSnippet,
       patch: { additions: diffPatch.additions, deletions: diffPatch.deletions, hunks: diffPatch.hunks },
+      ...(normalized ? { note: "The host stored a normalized version of this text. read it again before quoting exact bytes." } : {}),
     };
     let body = JSON.stringify(payload);
     if (outcome.recoveredVia) {

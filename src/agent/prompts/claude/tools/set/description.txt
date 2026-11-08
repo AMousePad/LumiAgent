@@ -1,21 +1,13 @@
-Wholesale write of any JSON value at a path. Use for structural changes the read/edit/rewrite trio can't make:
+Write any JSON value at a path, for changes edit/rewrite can't make. Unknown field names error with the valid list. Revertable like every edit.
 
-- Lorebook entry metadata: `set({path:"wb/<entryId>/constant", value:true})`. Also disabled, priority, position, depth, role, and the rest; entry field names ARE whitelisted, so a typo errors with the valid list. `key` / `keysecondary` are the exception, they are coerced into a string array, so a scalar or comma-string is silently reshaped.
-- Book-level fields: `wb/<bookId>/<name|description|metadata>`, resolved by lookup against the same grammar.
-- Regex script metadata: `set({path:"rx/<scriptId>/disabled", value:true})`, and likewise sort_order / target / placement / flags / name.
-- Field names are NOT validated on the `rx/<id>/` and `wb/<bookId>/` branches: a misspelled field reports success and records a ledger entry while writing nothing. Confirm with `inspect` after, or spell from `update_regex_script` / `list`.
-- Replacing an array / object value (e.g. extensions.lumirealm.payload.scriptstate_defaults)
-- Replacing character tags: `set({path:"char/tags", value:["tag one","tag two"]})`. Across MANY characters use `bulk_update_character_tags` instead: one dry-run diff, one approval, one reversible edit per card, rather than N separate `set` calls.
-- Setting a typed value at an extension path that isn't a string
-- Attaching / changing a persona's world book: `set({path:"persona/<personaId>/attached_world_book_id", value:"<worldBookId>"})`; `value:null` detaches. Character / chat / global world-book bindings go through `attach_world_book`, not `set`.
+- Lorebook entry settings: `wb/<entryId>/constant` true, likewise disabled, priority, position, depth, role. `key`/`keysecondary` take the full string array (a comma string is split).
+- Book fields: `wb/<bookId>/<name|description|metadata>`.
+- Regex settings: `rx/<scriptId>/disabled` true, likewise sort_order, target, placement, flags, name.
+- Preset block settings: `preset/<presetId>/block/<blockId>/enabled` false. Block content/name text uses edit/rewrite.
+- Character tags: `char/tags` ["a","b"] (trimmed, deduped). For many characters use bulk_update_character_tags.
+- Extension values: arrays, objects or typed scalars at `char/extensions/<dotted>`.
+- Persona lorebook: `persona/<personaId>/attached_world_book_id` "<bookId>", null detaches. Character, chat and global bindings use attach_world_book.
 
-Path grammar matches `read` / `edit` / `rewrite`, including `char/<id>/<field>` to address a character other than the focus. There is no `character_id` argument. `char/tags` is normalised before storage: each tag is trimmed, and empty or duplicate tags are dropped. Check `after_peek` rather than assuming what you sent was stored verbatim. The value field accepts any JSON-encodable type. For string-leaf paths, set is a wholesale alternative to `rewrite` (no read-gate, so use only when you don't need to anchor against current content).
+Path grammar matches read. `char/<id>/...` or `character_id` targets a non-focused character. On a string leaf, set replaces the whole text without the read gate. Prefer rewrite when the current text matters. For several character fields at once use update_character.
 
-Records before/after in the ledger like every other edit — fully revertable.
-
-For multi-field atomic character updates use `update_character({patch})`.
-
-Returns:
-- `path` — path written.
-- `before_chars`, `after_chars` — string length before vs after (non-string values are JSON-stringified for measurement).
-- `before_peek`, `after_peek` — first 120 chars of each side, for verification.
+Returns path, before_chars, after_chars and 120-char before_peek/after_peek. Check after_peek, since stored values can be normalized.

@@ -1,12 +1,12 @@
-Read a string leaf as line-numbered text and satisfy edit's recent-read requirement. offset/limit paginate lines. Large results return spilled=true and tmp_handle, read or search that handle with tmp_read/tmp_grep. Use list for containers, not read.
+Read a string leaf as line-numbered text. This satisfies edit's read requirement. offset/limit page lines. Large results return spilled=true and a tmp_handle for tmp_read/tmp_grep. Containers use list.
 
 Paths:
 - char/<field>, char/tags, char/alternate_greetings/<index>, char/alternate_fields/<field>/<variantId>/<content|label>, char/extensions/<dotted-with-brackets>
 - rx/<scriptId>/<find_regex|replace_string>
-- wb/<entryId>/<content|comment>
+- wb/<entryId>/<content|comment>. Other entry settings (key, constant, ...) read as JSON and change with set.
 - persona/<id>/<name|title|description>, persona/<id>/wb/<entryId>/<content|comment>, persona/<id>/addon/<addonId>/<content|label>
 - global_addon/<id>/<content|label>
 - chat/<chatId>/msg/<msgId>/content
-- preset/<presetId>/block/<blockId>/<content|name>
+- preset/<presetId>/block/<blockId>/<content|name>, preset/<presetId>/prompts/<dotted.path>
 
-char/<field> uses focus. Insert an explicit ID after char/ to address another character: char/<id>/extensions/<dotted>. read/edit/rewrite/set do not accept character_id arguments. Other path IDs identify the target directly. Discover IDs with list, list_characters, chats or personas. Extension objects/arrays are not strings: walk them with list or replace them with set. Tags are returned as a JSON string array.
+char/ uses focus. `char/<id>/...` or character_id targets another character. wb/<entryId> and preset blocks default to content. Non-string extension values show as read-only JSON: walk them with list, replace with set. Find ids with list, list_characters, chats or personas.

@@ -13,6 +13,7 @@ Path grammar (forward slashes; first segment names the surface):
 - `global_addon/<id>/<content|label>` — a reusable "global add-on" text block personas attach by reference. Discover ids (persona-scoped and global add-ons alike) via `read_persona`'s `resolved_addons`.
 - `chat/<chatId>/msg/<msgId>/content` — one chat message
 - `preset/<presetId>/block/<blockId>/<content|name>` — a prompt-preset block
+- `preset/<presetId>/prompts/<dotted.path>`: preset-level prompts outside the block list (new chat, continue, impersonation, nudges), e.g. `prompts/promptBehavior.newChatPrompt`. Find unknown prompt text with `grep({pattern, include_paths:["preset/"]})`.
 
 `read({path,[offset,limit]})` → line-numbered text; records the path as recently-read (required before an edit).
 `edit({path,find,replace,[replace_all]})` → find/replace, gated on a prior `read` of the same path. Match is byte-exact; the ONE fallback normalizes curly / corner / fullwidth quotes to ASCII. Everything else (NFC vs NFD Hangul, NBSP, BOM, line endings) is on you: copy bytes verbatim from the read, or `inspect` first. A quote-fallback edit leads with a WARNING; repeated WARNINGs on one path mean encoding drift, so `inspect` it.
@@ -95,7 +96,7 @@ Near the context limit the runtime asks you to write `HANDOFF.md`, then collapse
 
 # Multi-step tasks
 
-For tasks that are 3+ steps, call `todo_write` once up front, then mark one item in_progress before starting it and completed when done. At most one in_progress.
+For tasks with 4+ steps or many tool calls, call `todo_write` once up front, then update it as you go. Each update marks the finished item completed and the next one in_progress in the same call. At most one in_progress. Skip todos for short tasks: the list costs a call per update.
 
 On a long run where the user asked to be pinged or may have left, fetch `notify_user` and send ONE device push when the work finishes or blocks on approval. Never for progress.
 

@@ -14,7 +14,31 @@ export const customToolSaveTool = defineTool({
   jsonSchema: {
     type: "object",
     properties: {
-      manifest: { type: "object", description: argManifest },
+      // A bare {type:"object"} gets emitted as {} by strict-schema providers, so spell out the shape.
+      manifest: {
+        type: "object",
+        description: argManifest,
+        properties: {
+          name: { type: "string", description: "Identifier: letters, digits, underscore. Becomes the recipe name." },
+          description: { type: "string", description: "What the recipe does, shown in custom_tools list." },
+          params: { type: "object", description: "Parameter map, e.g. {\"character_id\": {\"type\": \"string\", \"description\": \"...\"}}. Steps read them as {{$character_id}}." },
+          steps: {
+            type: "array",
+            description: "Ordered tool calls, same shape as custom_tool_run steps.",
+            items: {
+              type: "object",
+              properties: {
+                call: { type: "string" },
+                args: { type: "object" },
+                save_as: { type: "string" },
+              },
+              required: ["call"],
+            },
+          },
+          return: { description: "Optional template built from saved step results, e.g. \"{{$count}}\"." },
+        },
+        required: ["name", "description", "steps"],
+      },
     },
     required: ["manifest"],
   },

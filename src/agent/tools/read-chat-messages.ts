@@ -16,11 +16,13 @@ export async function readChatMessagesImpl(
   offsetIn: number | undefined,
   limitIn: number | undefined,
 ): Promise<ToolResult> {
-  const offset = Math.max(0, Math.floor(offsetIn ?? 0));
   const limit = Math.min(CHAT_MESSAGES_MAX_LIMIT, Math.max(1, Math.floor(limitIn ?? CHAT_MESSAGES_DEFAULT_LIMIT)));
   const chat = await ctx.spindle.chats.get(chatId, ctx.userId);
   if (!chat) return { content: `Error: chat ${chatId} not found`, isError: true };
   const all = await ctx.spindle.chat.getMessages(chatId);
+  // A negative offset counts from the end, so "last 5" is one call: offset -5.
+  const rawOffset = Math.floor(offsetIn ?? 0);
+  const offset = rawOffset < 0 ? Math.max(0, all.length + rawOffset) : rawOffset;
   const slice = all.slice(offset, offset + limit);
   const messages = slice.map((m, i) => ({
     idx: offset + i,
@@ -41,7 +43,7 @@ export async function readChatMessagesImpl(
     returned: messages.length,
     messages,
   }, null, 2);
-  const out = await spillOrReturn(ctx, payload, `read_chat_messages:${chatId}`, `To read just the latest messages in full, re-call with offset near ${all.length} (e.g. offset ${Math.max(0, all.length - 3)}, limit 3). For search, use grep_chat_messages.`);
+  const out = await spillOrReturn(ctx, payload, `read_chat_messages:${chatId}`, `To read just the latest messages in full, re-call with offset -3 (negative counts from the end). For search, use grep_chat_messages.`);
   return { content: out };
 }
 
@@ -59,7 +61,7 @@ export const readChatMessagesTool = defineTool({
     type: "object",
     properties: {
       chat_id: { type: "string", description: argChatId },
-      offset: { type: "number" },
+      offset: { type: "number", description: "Start index. Negative counts from the end: -5 reads the last 5 messages." },
       limit: { type: "number" },
     },
     required: [],

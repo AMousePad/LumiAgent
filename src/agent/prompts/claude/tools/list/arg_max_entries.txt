@@ -1,1 +1,1 @@
-Max rows per page. Default 200, maximum 2000. Continue with the returned next_offset. A `char/extensions` walk, or `wb` with include_unattached on a large library, will overflow the output cap and spill at that default: scope the path or lower this instead.
+Rows per page, default 200, max 2000. Large extension walks or an include_unattached library spill at the default, so scope the path or lower this.

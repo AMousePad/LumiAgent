@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineTool, type ToolRegistry } from "./_framework";
+import { defineTool, prepareToolArgs, type ToolRegistry } from "./_framework";
 import type { ToolCtx } from "./_context";
 import { readBudgetChars, spillOrReturn } from "./_io";
 
@@ -192,11 +192,47 @@ export function registerToolGroups(
         }
       }
     }
+    // The merged schema shows every action's fields, so models routinely send
+    // fields for other actions. Drop them instead of failing the whole call.
+    const splitArgs = (input: Record<string, unknown>) => {
+      const entry = entries.find((e) => e.action === input.action);
+      if (!entry) return null;
+      const { action: _, ...rest } = input;
+      const allowed = new Set(Object.keys(entry.tool.jsonSchema.properties as object));
+      const args: Record<string, unknown> = {};
+      const ignored: string[] = [];
+      for (const [key, value] of Object.entries(rest)) {
+        if (allowed.has(key)) args[key] = value;
+        else if (properties[key]) ignored.push(key);
+        else args[key] = value;
+      }
+      return {
+        entry,
+        args: prepareToolArgs(entry.tool, args) as Record<string, unknown>,
+        ignored,
+      };
+    };
+    // Pipelines parse step output as JSON, so a JSON object gets a field instead of trailing text.
+    const withIgnoredNote = (content: string, ignored: readonly string[]) => {
+      if (ignored.length === 0) return content;
+      const note = ignored.map((key) => {
+        const users = entries
+          .filter((e) => Object.hasOwn(e.tool.jsonSchema.properties as object, key))
+          .map((e) => e.action);
+        return `${key} (used by action=${users.join("/")})`;
+      });
+      try {
+        const parsed = JSON.parse(content);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
+          return JSON.stringify({ ...parsed, ignored_arguments: note }, null, 2);
+      } catch { /* plain text result */ }
+      return `${content}\n[${group.name}: ignored ${note.join(", ")}]`;
+    };
     const inputSchema = z
       .record(z.string(), z.unknown())
       .superRefine((input, ctx) => {
-        const entry = entries.find((e) => e.action === input.action);
-        if (!entry) {
+        const split = splitArgs(input);
+        if (!split) {
           ctx.addIssue({
             code: "custom",
             path: ["action"],
@@ -204,30 +240,23 @@ export function registerToolGroups(
           });
           return;
         }
-        const { action: _, ...args } = input;
-        const allowed = new Set(
-          Object.keys(entry.tool.jsonSchema.properties as object),
-        );
-        for (const key of Object.keys(args))
-          if (!allowed.has(key))
-            ctx.addIssue({
-              code: "custom",
-              path: [key],
-              message: `Argument is not used by action=${entry.action}`,
-            });
+        const { entry, args } = split;
         const parsed = entry.tool.inputSchema.safeParse(args);
         if (!parsed.success)
           for (const issue of parsed.error.issues)
             ctx.addIssue({
               code: "custom",
               path: issue.path,
-              message: issue.message,
+              message:
+                issue.code === "unrecognized_keys"
+                  ? `${issue.message}. action=${entry.action} accepts: ${Object.keys(entry.tool.jsonSchema.properties as object).join(", ")}`
+                  : issue.message,
             });
       });
     const safe = (input: Record<string, unknown>) => {
-      const entry = entries.find((e) => e.action === input.action);
-      if (!entry) return false;
-      const { action: _, ...args } = input;
+      const split = splitArgs(input);
+      if (!split) return false;
+      const { entry, args } = split;
       return (
         entry.tool.isConcurrencySafe?.(args) ??
         entry.tool.isReadOnly?.(args) ??
@@ -255,13 +284,13 @@ export function registerToolGroups(
           ". Pass only arguments for the chosen action.",
         inputSchema,
         jsonSchema: { type: "object", properties, required: ["action"] },
+        normalizesOwnArgs: true,
         requiresCharacter: entries.every(
           (e) => e.tool.requiresCharacter === true,
         ),
         isConcurrencySafe: safe,
         execute: async (input, ctx) => {
-          const entry = entries.find((e) => e.action === input.action)!;
-          const { action: _, ...args } = input;
+          const { entry, args, ignored } = splitArgs(input)!;
           const dispatch = (
             ctx as ToolCtx & {
               __dispatch?: Record<
@@ -284,7 +313,7 @@ export function registerToolGroups(
               ...result,
               content: await spillOrReturn(
                 ctx,
-                result.content,
+                withIgnoredNote(result.content, ignored),
                 `${group.name}:${entry.action}`,
               ),
             };

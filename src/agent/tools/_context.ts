@@ -95,13 +95,18 @@ export interface QueuedImage {
   readonly label: string;
 }
 
-interface RecentRead { readonly ts: number; readonly hash: string | null; }
+// partial: the agent saw only matching lines (a grep hit), not the whole leaf.
+interface RecentRead { readonly ts: number; readonly hash: string | null; readonly partial?: boolean; }
 
 export class RecentReadsCache {
   private readonly entries = new Map<string, RecentRead>();
 
-  record(key: string, hash?: string): void {
-    this.entries.set(key, { ts: Date.now(), hash: hash ?? null });
+  record(key: string, hash?: string, partial?: boolean): void {
+    this.entries.set(key, { ts: Date.now(), hash: hash ?? null, ...(partial ? { partial: true } : {}) });
+  }
+
+  isPartial(key: string): boolean {
+    return this.entries.get(key)?.partial === true;
   }
 
   has(key: string): boolean {
@@ -123,7 +128,7 @@ export class RecentReadsCache {
   updateHash(key: string, hash: string): void {
     const existing = this.entries.get(key);
     if (!existing) return;
-    this.entries.set(key, { ts: existing.ts, hash });
+    this.entries.set(key, { ...existing, hash });
   }
 
   forget(key: string): void {

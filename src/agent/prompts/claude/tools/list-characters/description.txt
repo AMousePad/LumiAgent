@@ -1,7 +1,3 @@
-Enumerate the user's characters so you can address one by id. Default rows are compact: id, name, tags, and attached world-book count.
+List the user's characters to get ids. Rows: id, name, tags, attached world-book count. `query` filters by name, tag or exact id. Rarely needed when a character is focused.
 
-Use this to find the id of the character the user is talking about, then address it with `char/<id>/<field>` paths or the `character_id` argument on whole-card tools (grep / audit / survey / list / inspect / update_character / apply_glossary).
-
-For library-wide comparison, classification, or tagging, request bounded `include_fields` previews instead of reading cards one by one. Fully inspect only ambiguous cards; ask once about unresolved classifications instead of guessing. Extension structure is opt-in: `probe_extension_keys` returns an `extension_presence` map, `include_extension_keys` returns visible top-level keys, and `extension_key` filters by exact visible-key existence. `grep` cannot find object keys. Extension presence is evidence about tooling, not proof of authorship. For a reviewed multi-card tag change, fetch `bulk_update_character_tags`.
-
-When a character is focused you rarely need this. `query` filters by name or tag substring.
+Use the id in `char/<id>/<field>` paths or as `character_id` on whole-card tools. For library-wide comparison or tagging, request bounded `include_fields` previews instead of reading cards one by one. Extension structure is opt-in: `probe_extension_keys` returns presence, `include_extension_keys` the top-level keys, `extension_key` filters on an exact key (grep cannot find keys). Multi-card tag changes go through bulk_update_character_tags.

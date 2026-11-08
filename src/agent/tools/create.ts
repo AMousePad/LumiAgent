@@ -24,7 +24,11 @@ const inputSchema = z.object({
   value: z.unknown().optional().describe("The new entity's fields (object), or a string for a greeting."),
 }).strict();
 
+// Models often send the object JSON-encoded as a string.
 function asObject(v: unknown): Record<string, unknown> {
+  if (typeof v === "string" && v.trim().startsWith("{")) {
+    try { v = JSON.parse(v); } catch { return {}; }
+  }
   return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
 }
 

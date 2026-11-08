@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
-import { iterateAllLeaves } from "./_path_v2";
+import { iterateAllLeaves, iterateAllWorldBookLeaves, iteratePresetLeaves } from "./_path_v2";
+import { spillOrReturn } from "./_io";
+import { markGrepHit } from "./_gates";
 import { resolveCharacterTarget, noTargetResult } from "./_context";
 import { fillPrompt } from "../prompts/_fill";
 import descTemplate from "../prompts/claude/tools/grep/description.txt";
@@ -26,7 +28,14 @@ const inputSchema = z.object({
   max_hits_per_line: z.number().int().positive().max(50).optional().describe(`Cap on hits returned per line. Default ${GREP_DEFAULT_HITS_PER_LINE}. Keep at 1 when the pattern matches dense single characters (e.g. CJK glyphs) so a single line full of matches doesn't burn the entire max_matches budget.`),
   character_id: z.string().optional().describe("Character to search. Defaults to the focused character."),
   world_scope: z.enum(["attached", "all"]).optional().describe("World books to search. 'attached' (default) only this character's books; 'all' also searches every other owned book, labeling entries [global] (in the Always-Active set) or [unattached]."),
+  count_by: z.enum(["book", "leaf"]).optional(),
 }).strict();
+
+// Lorebook leaf labels end with ` in "<book>"`; everything else groups by surface.
+function countGroup(label: string, surface: string): string {
+  const m = / in "(.+)"$/.exec(label);
+  return m ? m[1]! : surface;
+}
 
 interface GrepHit {
   readonly path: string;
@@ -109,25 +118,52 @@ export const grepTool = defineTool({
       max_hits_per_line: { type: "integer", minimum: 1, maximum: 50, description: fillPrompt(argMaxHitsPerLine, { GREP_DEFAULT_HITS_PER_LINE }) },
       character_id: { type: "string" },
       world_scope: { type: "string", enum: ["attached", "all"], description: argWorldScope },
+      count_by: { type: "string", enum: ["book", "leaf"], description: "Counts instead of hits, uncapped. book: per book (other leaves per surface). leaf: also each matching path." },
     },
     required: ["pattern"],
     additionalProperties: false,
   },
   requiresCharacter: false,
   execute: async (input, ctx) => {
-    let target: string;
-    try { target = resolveCharacterTarget(ctx, input.character_id); }
-    catch (err) { const nt = noTargetResult(err); if (nt) return nt; throw err; }
-    const cap = Math.min(GREP_MAX_CAP, Math.max(1, Math.floor(input.max_matches ?? GREP_DEFAULT_MAX)));
-    const perLineCap = Math.max(1, Math.floor(input.max_hits_per_line ?? GREP_DEFAULT_HITS_PER_LINE));
     const include = input.include_paths ?? [];
     const exclude = input.exclude_paths ?? [];
-    const flagsExtra = input.flags ?? "";
+    const presetPrefixes = include.filter((p) => p === "preset" || p.startsWith("preset/"));
+    const presetOnly = include.length > 0 && presetPrefixes.length === include.length;
+    const isWbPrefix = (p: string) => p === "wb" || p.startsWith("wb/");
+    // Without a character, a lorebook-only search covers every owned book instead of failing NO_TARGET.
+    const booksWithoutCharacter = include.length > 0
+      ? include.some(isWbPrefix) && include.every((p) => isWbPrefix(p) || presetPrefixes.includes(p))
+      : input.world_scope === "all";
+    let target: string | null = null;
+    let allBooks = false;
+    if (!presetOnly) {
+      try { target = resolveCharacterTarget(ctx, input.character_id); }
+      catch (err) {
+        const nt = noTargetResult(err);
+        if (!nt) throw err;
+        if (!booksWithoutCharacter) return nt;
+        allBooks = true;
+      }
+    }
+    // Preset walks are opt-in because every preset is scanned, not just the one in use.
+    const presetIds = presetPrefixes.some((p) => !/^preset\/[^/]+/.test(p))
+      ? [undefined]
+      : [...new Set(presetPrefixes.map((p) => p.split("/")[1]!))];
+    const cap = Math.min(GREP_MAX_CAP, Math.max(1, Math.floor(input.max_matches ?? GREP_DEFAULT_MAX)));
+    const perLineCap = Math.max(1, Math.floor(input.max_hits_per_line ?? GREP_DEFAULT_HITS_PER_LINE));
+    // JS RegExp rejects leading (?i)-style groups, which models copy from PCRE habits.
+    let pattern = input.pattern;
+    let flagsExtra = input.flags ?? "";
+    const inline = /^\(\?([ims]+)\)/.exec(pattern);
+    if (inline) {
+      pattern = pattern.slice(inline[0].length);
+      for (const f of inline[1]!) if (!flagsExtra.includes(f)) flagsExtra += f;
+    }
     const caseInsensitive = input.case_insensitive ?? false;
     let assembled = flagsExtra.includes("g") ? flagsExtra : `g${flagsExtra}`;
     if (caseInsensitive && !assembled.includes("i")) assembled = `${assembled}i`;
     let re: RegExp;
-    try { re = new RegExp(input.pattern, assembled); }
+    try { re = new RegExp(pattern, assembled); }
     catch (e) { return { content: `Error: regex compile failed: ${(e as Error).message}`, isError: true }; }
 
     const hits: GrepHit[] = [];
@@ -140,11 +176,42 @@ export const grepTool = defineTool({
     // reached when the cap fires. iterateAllLeaves is bounded by the card
     // size, not an open stream.
     const eligibleLeaves: Array<{ key: string; value: string; surface: string; surfaceLabel: string }> = [];
-    for await (const leaf of iterateAllLeaves(ctx, target, { wbScope: input.world_scope ?? "attached" })) {
+    const sources = async function* () {
+      if (target) yield* iterateAllLeaves(ctx, target, { wbScope: input.world_scope ?? "attached" });
+      else if (allBooks) yield* iterateAllWorldBookLeaves(ctx);
+      if (presetPrefixes.length > 0) for (const id of presetIds) yield* iteratePresetLeaves(ctx, id);
+    };
+    for await (const leaf of sources()) {
       leavesScanned++;
       if (include.length > 0 && !include.some((p) => leaf.key.startsWith(p))) { leavesFiltered++; continue; }
       if (exclude.some((p) => leaf.key.startsWith(p))) { leavesFiltered++; continue; }
       eligibleLeaves.push({ key: leaf.key, value: leaf.value, surface: leaf.surface, surfaceLabel: leaf.surfaceLabel });
+    }
+
+    // Counting mode has no cap, so "which books mention X, and how often" never truncates.
+    if (input.count_by) {
+      const groups = new Map<string, { leaves: number; matches: number }>();
+      const leafRows: Array<{ path: string; label: string; matches: number }> = [];
+      let total = 0;
+      for (const leaf of eligibleLeaves) {
+        re.lastIndex = 0;
+        let n = 0;
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(leaf.value)) !== null) { n++; if (m.index === re.lastIndex) re.lastIndex++; }
+        if (n === 0) continue;
+        total += n;
+        const key = countGroup(leaf.surfaceLabel, leaf.surface);
+        const g = groups.get(key) ?? { leaves: 0, matches: 0 };
+        g.leaves++; g.matches += n; groups.set(key, g);
+        if (input.count_by === "leaf") leafRows.push({ path: leaf.key, label: leaf.surfaceLabel, matches: n });
+      }
+      const out = {
+        pattern: input.pattern, flags: assembled, leaves_scanned: leavesScanned, leaves_skipped: leavesFiltered,
+        total_matches: total,
+        by_group: [...groups].map(([group, g]) => ({ group, leaves_with_matches: g.leaves, matches: g.matches })).sort((a, b) => b.matches - a.matches),
+        ...(input.count_by === "leaf" ? { leaves: leafRows.sort((a, b) => b.matches - a.matches) } : {}),
+      };
+      return { content: await spillOrReturn(ctx, JSON.stringify(out, null, 2), `grep:count:${input.pattern}`) };
     }
 
     for (let i = 0; i < eligibleLeaves.length; i++) {
@@ -157,7 +224,11 @@ export const grepTool = defineTool({
       }
       const scan = grepLeaf(leaf.value, re, leaf.key, leaf.surface, leaf.surfaceLabel, remaining, perLineCap);
       for (const h of scan.hits) hits.push(h);
-      if (scan.hits.length > 0) leavesWithMatches++;
+      if (scan.hits.length > 0) {
+        leavesWithMatches++;
+        // A hit satisfies edit's read gate. Hashing the full value keeps STALE_READ protection intact.
+        markGrepHit(ctx, leaf.key, leaf.value);
+      }
       if (scan.stoppedEarly) {
         truncatedAt = {
           path: leaf.key,

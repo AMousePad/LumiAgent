@@ -63,7 +63,18 @@ export const listMemoryVaultsTool = defineTool({
   },
 });
 
-const readVaultInput = z.object({ vault_id: id, section: z.enum(["summary", "entities", "relations", "chunks"]), ...pageFields }).strict();
+const readVaultInput = z.object({
+  vault_id: id, section: z.enum(["summary", "entities", "relations", "chunks"]), ...pageFields,
+  full_text: z.boolean().optional().describe("chunks only: return each chunk's full text instead of a 600-char preview."),
+}).strict();
+const CHUNK_PREVIEW_CHARS = 600;
+
+// Twenty full chunks came to 177k chars, so chunk text is previewed unless asked for.
+function previewChunk(row: unknown): unknown {
+  if (!row || typeof row !== "object" || Array.isArray(row)) return row;
+  return Object.fromEntries(Object.entries(row as Record<string, unknown>).map(([k, v]) =>
+    typeof v === "string" && v.length > CHUNK_PREVIEW_CHARS ? [k, `${v.slice(0, CHUNK_PREVIEW_CHARS)}… [+${v.length - CHUNK_PREVIEW_CHARS} chars, full_text:true for all]`] : [k, v]));
+}
 export const readMemoryVaultTool = defineTool({
   name: "read_memory_vault",
   description: "Read a vault's metadata or page through its snapshot entities, relations, or memory chunks. Default page size 50. Large results spill to workspace tmp handles. Does not reindex or change the vault.",
@@ -73,7 +84,8 @@ export const readMemoryVaultTool = defineTool({
     if (!contents) throw new Error("memory vault not found");
     if (input.section === "summary") return result(ctx, "read_memory_vault", contents.vault);
     const rows = input.section === "chunks" ? await ctx.spindle.memories.vaults.getChunks(input.vault_id, ctx.userId) : contents[input.section];
-    return result(ctx, "read_memory_vault", { vault: contents.vault, section: input.section, ...page<unknown>(rows, input) });
+    const shown = input.section === "chunks" && !input.full_text ? (rows as unknown[]).map(previewChunk) : rows;
+    return result(ctx, "read_memory_vault", { vault_id: contents.vault.id, vault_name: contents.vault.name, section: input.section, ...page<unknown>(shown as unknown[], input) });
   },
 });
 

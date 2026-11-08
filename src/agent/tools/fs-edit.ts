@@ -40,7 +40,7 @@ export const fsEditTool = defineTool({
   requiresRecentRead: gate,
   execute: async (input, ctx) => {
     let replace = input.replace;
-    if (replace === undefined && input.replace_handle) {
+    if ((replace === undefined || replace === "") && input.replace_handle) {
       const loaded = await loadDraft(ctx, input.replace_handle);
       if (loaded === null) return { content: `Error: draft handle '${input.replace_handle}' not found or expired. Re-send replace literally.`, isError: true };
       replace = loaded;

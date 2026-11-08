@@ -11,7 +11,10 @@ export function ensureRecentRead(
 ): string | null {
   const surface = gate.surface(input);
   const age = ctx.recentReads.ageMs(surface);
-  if (age !== null && age <= RECENT_READ_WINDOW_MS) return null;
+  if (age !== null && age <= RECENT_READ_WINDOW_MS) {
+    if (!gate.requiresFullRead || !ctx.recentReads.isPartial(surface)) return null;
+    return `Error: [NOT_READ_RECENTLY] '${surface}' was only seen through grep hits, and this replaces the whole text. ${gate.hint(surface)} Read it in full first, or use edit for a targeted change.`;
+  }
   return `Error: [NOT_READ_RECENTLY] this edit targets '${surface}', which you haven't read recently. ${gate.hint(surface)} Re-read it first, then retry the edit using bytes copied verbatim from the read output.`;
 }
 
@@ -21,6 +24,13 @@ export function markRead(ctx: ToolCtx, key: string): void {
 
 export function markReadWithHash(ctx: ToolCtx, key: string, value: string): void {
   ctx.recentReads.record(key, sha256(value));
+}
+
+// Never downgrades a full read of the same bytes to partial.
+export function markGrepHit(ctx: ToolCtx, key: string, value: string): void {
+  const hash = sha256(value);
+  const fullSame = ctx.recentReads.has(key) && !ctx.recentReads.isPartial(key) && ctx.recentReads.getHash(key) === hash;
+  ctx.recentReads.record(key, hash, !fullSame);
 }
 
 // Fail loudly when the spindle's current value at `key` differs from what the
@@ -43,4 +53,18 @@ export function ensureFreshRead(
 // edits on the same path keep working without an intervening read.
 export function refreshReadHash(ctx: ToolCtx, key: string, newValue: string): void {
   ctx.recentReads.updateHash(key, sha256(newValue));
+}
+
+// Hashing the value we sent made the next edit fail STALE_READ whenever the host stored
+// something different (normalization, mirrored fields). Hash what is actually stored.
+export async function refreshReadHashFromStore(
+  ctx: ToolCtx,
+  key: string,
+  written: string,
+  reread: () => Promise<string>,
+): Promise<boolean> {
+  let stored = written;
+  try { stored = await reread(); } catch { /* keep the written value */ }
+  refreshReadHash(ctx, key, stored);
+  return stored !== written;
 }
