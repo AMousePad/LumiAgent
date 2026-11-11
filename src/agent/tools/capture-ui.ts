@@ -53,7 +53,7 @@ export const captureUiTool = defineTool({
       const bytes = new Uint8Array(Buffer.from(result.base64, "base64"));
       if (bytes[0] !== 0xff || bytes[1] !== 0xd8)
         throw new Error("UI capture did not return a JPEG.");
-      const path = `captures/${ctx.sessionId}/${Date.now()}-${crypto.randomUUID()}.jpg`;
+      const path = `captures/${ctx.sessionId}/${Date.now()}-${await ctx.spindle.uuid.v4()}.jpg`;
       await workspace.writeBinary(
         ctx.spindle,
         ctx.userId,

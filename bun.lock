@@ -14,7 +14,7 @@
       "devDependencies": {
         "@types/bun": "latest",
         "@types/diff": "^8.0.0",
-        "lumiverse-spindle-types": "0.6.76",
+        "lumiverse-spindle-types": "0.6.80",
         "typescript": "^5.5.0",
       },
     },
@@ -60,7 +60,7 @@
 
     "lodash.uniqby": ["lodash.uniqby@4.5.0", "", { "dependencies": { "lodash._baseiteratee": "~4.7.0", "lodash._baseuniq": "~4.6.0" } }, "sha512-IRt7cfTtHy6f1aRVA5n7kT8rgN3N1nH6MOWLcHfpWG2SH19E3JksLK38MktLxZDhlAjCP9jpIXkOnRXlu6oByQ=="],
 
-    "lumiverse-spindle-types": ["lumiverse-spindle-types@0.6.76", "", {}, "sha512-UjcGET6buO/zWCNG1pFj6drPbhckIaXAO8C6V9PtaI9xB5UosXMC7y1rh9qwMKUd2FKOPslYg93Y0RFBiKNDSQ=="],
+    "lumiverse-spindle-types": ["lumiverse-spindle-types@0.6.80", "", {}, "sha512-YaAiNKzYnFFo199jkXwIu0bJYcTBZZ2RAYjIFmXbbcpPIVOiPwS4y5vb+Zf2NCjwMc13zHYybOgnmVPe3P98nw=="],
 
     "modern-screenshot": ["modern-screenshot@4.7.0", "", {}, "sha512-9YxN+ddPSMMlhylOv25VHzXrl9u67QRxoh7+SEewGtgUw7t6hHTrjptSDJUSne9oG4Xk/h2cwG15nIt4Hc9ujg=="],
 

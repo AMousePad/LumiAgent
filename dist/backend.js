@@ -37420,7 +37420,7 @@ var init_capture_ui = __esm(() => {
         const bytes = new Uint8Array(Buffer.from(result.base64, "base64"));
         if (bytes[0] !== 255 || bytes[1] !== 216)
           throw new Error("UI capture did not return a JPEG.");
-        const path = `captures/${ctx.sessionId}/${Date.now()}-${crypto.randomUUID()}.jpg`;
+        const path = `captures/${ctx.sessionId}/${Date.now()}-${await ctx.spindle.uuid.v4()}.jpg`;
         await writeBinary(ctx.spindle, ctx.userId, path, bytes, await resolveUserCaps(ctx.spindle, ctx.userId));
         createdPath = path;
         ctx.signal.throwIfAborted();
@@ -41870,11 +41870,12 @@ var init_create2 = __esm(() => {
         const content = typeof input.value === "string" ? input.value : typeof v.content === "string" ? v.content : undefined;
         if (content === undefined)
           return { content: "Error: [INVALID_INPUT] variant requires value.content (or pass a string for content; value.label optional)", isError: true };
+        const variantId = await ctx.spindle.uuid.v4();
         const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
         if (!c)
           return { content: `Error: character ${ctx.characterId} not found`, isError: true };
         const before = readAltFieldArray(c.extensions, field);
-        const newVariant = { id: crypto.randomUUID(), label, content };
+        const newVariant = { id: variantId, label, content };
         const requested = typeof v.index === "number" ? v.index : undefined;
         const at = requested === undefined ? before.length : Math.max(0, Math.min(before.length, Math.floor(requested)));
         const after = [...before];

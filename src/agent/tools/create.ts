@@ -184,10 +184,12 @@ export const createTool = defineTool({
         ? input.value
         : typeof v.content === "string" ? v.content : undefined;
       if (content === undefined) return { content: "Error: [INVALID_INPUT] variant requires value.content (or pass a string for content; value.label optional)", isError: true };
+      // Minted before the read so this host round-trip stays outside the read-modify-write window.
+      const variantId = await ctx.spindle.uuid.v4();
       const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
       if (!c) return { content: `Error: character ${ctx.characterId} not found`, isError: true };
       const before = readAltFieldArray(c.extensions, field);
-      const newVariant: AltFieldVariant = { id: crypto.randomUUID(), label, content };
+      const newVariant: AltFieldVariant = { id: variantId, label, content };
       const requested = typeof v.index === "number" ? v.index : undefined;
       const at = requested === undefined ? before.length : Math.max(0, Math.min(before.length, Math.floor(requested)));
       const after = [...before];

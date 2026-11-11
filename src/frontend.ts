@@ -1,11 +1,13 @@
 import type { SpindleFrontendContext } from "lumiverse-spindle-types";
 import { mountDrawer } from "./ui/drawer";
+import { setHostUuid } from "./ui/uuid";
 import { setupPermissionsModal } from "./ui/permissions-modal";
 import { setupBridgeStatusBanner } from "./ui/bridge-status-banner";
 import { setupVersionModal } from "./ui/version-modal";
 import type { BackendToFrontend } from "./types";
 
 export function setup(ctx: SpindleFrontendContext): () => void {
+  setHostUuid(ctx.uuid);
   const unmountDrawer = mountDrawer(ctx);
 
   const log = (level: "info" | "warn" | "error", msg: string, err?: unknown): void => {

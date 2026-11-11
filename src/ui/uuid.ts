@@ -1,6 +1,15 @@
-export function createUuid(): string {
-  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+import type { SpindleFrontendUUIDAPI } from "lumiverse-spindle-types";
 
+let hostUuid: SpindleFrontendUUIDAPI | undefined;
+
+export function setHostUuid(api: SpindleFrontendUUIDAPI | undefined): void {
+  hostUuid = api;
+}
+
+export function createUuid(): string {
+  if (hostUuid) return hostUuid.v4();
+
+  // Hosts without frontend-uuid-v1 have no ctx.uuid. crypto.randomUUID is blocked here, getRandomValues is not.
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   bytes[6] = (bytes[6]! & 0x0f) | 0x40;
   bytes[8] = (bytes[8]! & 0x3f) | 0x80;

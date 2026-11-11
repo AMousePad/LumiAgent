@@ -2529,9 +2529,13 @@ async function handleThemeWorkbench(ctx, request, signal) {
 }
 
 // src/ui/uuid.ts
+var hostUuid;
+function setHostUuid(api) {
+  hostUuid = api;
+}
 function createUuid() {
-  if (typeof crypto.randomUUID === "function")
-    return crypto.randomUUID();
+  if (hostUuid)
+    return hostUuid.v4();
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   bytes[6] = bytes[6] & 15 | 64;
   bytes[8] = bytes[8] & 63 | 128;
@@ -20450,6 +20454,7 @@ function setupVersionModal(opts) {
 
 // src/frontend.ts
 function setup(ctx) {
+  setHostUuid(ctx.uuid);
   const unmountDrawer = mountDrawer(ctx);
   const log = (level, msg, err) => {
     const prefix = "[lumiagent]";

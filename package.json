@@ -1,6 +1,6 @@
 {
   "name": "lumiagent",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "type": "module",
   "license": "GPL-3.0-or-later",
@@ -18,7 +18,7 @@
   "devDependencies": {
     "@types/bun": "latest",
     "@types/diff": "^8.0.0",
-    "lumiverse-spindle-types": "0.6.76",
+    "lumiverse-spindle-types": "0.6.80",
     "typescript": "^5.5.0"
   },
   "dependencies": {
