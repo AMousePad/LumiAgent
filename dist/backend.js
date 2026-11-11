@@ -54653,7 +54653,7 @@ function subscribeToMissingChanges(handler) {
 }
 // spindle.json
 var spindle_default = {
-  version: "1.0.1",
+  version: "1.0.2",
   name: "LumiAgent",
   identifier: "lumiagent",
   author: "amousepad",

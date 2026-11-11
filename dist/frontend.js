@@ -2533,14 +2533,15 @@ var hostUuid;
 function setHostUuid(api) {
   hostUuid = api;
 }
+var sequence = 0;
+var randomHex = (length) => Array.from({ length }, () => Math.floor(Math.random() * 16).toString(16)).join("");
 function createUuid() {
   if (hostUuid)
     return hostUuid.v4();
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  bytes[6] = bytes[6] & 15 | 64;
-  bytes[8] = bytes[8] & 63 | 128;
-  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  const time = Date.now().toString(16).padStart(12, "0").slice(-12);
+  sequence = sequence + 1 & 4095;
+  const variant = "89ab"[Math.floor(Math.random() * 4)];
+  return `${time.slice(0, 8)}-${time.slice(8)}-4${sequence.toString(16).padStart(3, "0")}-${variant}${randomHex(3)}-${randomHex(12)}`;
 }
 
 // src/agent/retry.ts

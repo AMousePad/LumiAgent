@@ -6,13 +6,15 @@ export function setHostUuid(api: SpindleFrontendUUIDAPI | undefined): void {
   hostUuid = api;
 }
 
+let sequence = 0;
+const randomHex = (length: number): string => Array.from({ length }, () => Math.floor(Math.random() * 16).toString(16)).join("");
+
 export function createUuid(): string {
   if (hostUuid) return hostUuid.v4();
 
-  // Hosts without frontend-uuid-v1 have no ctx.uuid. crypto.randomUUID is blocked here, getRandomValues is not.
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  bytes[6] = (bytes[6]! & 0x0f) | 0x40;
-  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
-  const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  // Hosts without frontend-uuid-v1 have no ctx.uuid, and the frontend cannot call crypto. These IDs only correlate requests in one tab, so they need uniqueness, not secrecy.
+  const time = Date.now().toString(16).padStart(12, "0").slice(-12);
+  sequence = (sequence + 1) & 0xfff;
+  const variant = "89ab"[Math.floor(Math.random() * 4)];
+  return `${time.slice(0, 8)}-${time.slice(8)}-4${sequence.toString(16).padStart(3, "0")}-${variant}${randomHex(3)}-${randomHex(12)}`;
 }
