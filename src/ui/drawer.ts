@@ -646,6 +646,31 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
 
   const threadShell = el("div", "la-thread-shell");
   threadShell.append(thread);
+  // Jump buttons. Top goes to the oldest loaded message (scrolling there
+  // triggers the next older page as usual); bottom reloads the tail when the
+  // newest page is not in memory, otherwise scrolls to the end.
+  const jumpWrap = el("div", "la-jump-wrap");
+  const jumpTopBtn = el("button", "la-jump-btn la-jump-top") as HTMLButtonElement;
+  jumpTopBtn.type = "button";
+  jumpTopBtn.setAttribute("aria-label", "Jump to top");
+  jumpTopBtn.title = "Jump to top";
+  jumpTopBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V6"/><path d="m5 12 7-7 7 7"/></svg>';
+  const jumpBottomBtn = el("button", "la-jump-btn la-jump-bottom") as HTMLButtonElement;
+  jumpBottomBtn.type = "button";
+  jumpBottomBtn.setAttribute("aria-label", "Jump to bottom");
+  jumpBottomBtn.title = "Jump to latest";
+  jumpBottomBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v13"/><path d="m19 12-7 7-7-7"/></svg>';
+  jumpWrap.append(jumpTopBtn, jumpBottomBtn);
+  threadShell.appendChild(jumpWrap);
+  const JUMP_SHOW_PX = 400;
+  const updateJumpButtons = (): void => {
+    const fromTop = thread.scrollTop;
+    const fromBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight;
+    jumpTopBtn.classList.toggle("is-visible", fromTop > JUMP_SHOW_PX);
+    jumpBottomBtn.classList.toggle("is-visible", fromBottom > JUMP_SHOW_PX);
+  };
+  thread.addEventListener("scroll", updateJumpButtons, { passive: true });
+  new ResizeObserver(updateJumpButtons).observe(thread);
   root.append(meetBanner, header, threadShell, composer);
   const historyFeedback = new RequestFeedback(threadShell);
   const commandFeedback = new RequestFeedback(threadShell);
@@ -732,6 +757,18 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       else if (delta > 0 && thread.scrollHeight - position - thread.clientHeight < 600) requestHistory("after");
     });
   };
+  jumpTopBtn.addEventListener("click", () => {
+    thread.scrollTo({ top: 0, behavior: "smooth" });
+    requestHistory("before");
+  });
+  jumpBottomBtn.addEventListener("click", () => {
+    if (state.sessionId && historyPage.end < historyPage.total) {
+      sendBackend({ type: "load_session", sessionId: state.sessionId });
+      return;
+    }
+    virtualizer.scrollToBottom();
+    thread.scrollTo({ top: thread.scrollHeight, behavior: "smooth" });
+  });
   const receiveHistoryPage = (msg: Extract<BackendToFrontend, { type: "session_page" }>) => {
     const pending = pendingHistory;
     if (!pending || pending.requestId !== msg.requestId || pending.sessionId !== msg.sessionId || state.sessionId !== msg.sessionId) return;
@@ -1072,9 +1109,14 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   // blood pool once the farewell turn ends, and chat locks until the user
   // clicks the remains.
   const deathCallIds = new Set<string>();
+  // Clicks on the remains revive her, so the same rapid clicking that killed
+  // her must not bounce her straight back. Revive opens 1s after the pool lands.
+  const REVIVE_COOLDOWN_MS = 1000;
+  let reviveAllowedAt = 0;
   const enterDeadState = (animated: boolean): void => {
     if (mouseyDead) return;
     mouseyDead = true;
+    reviveAllowedAt = Number.POSITIVE_INFINITY;
     setComposerText("");
     // A lingering overlap mask would clip the blood pool's glow to the
     // image box (masks cut the drop-shadow painted outside it).
@@ -1085,6 +1127,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       mouseyImg.src = BLOOD_POOL_DATA_URL;
       mouseyImg.classList.add("la-mousey-blood");
       mouseyHit.setAttribute("aria-label", "Restore Mousey from backup");
+      reviveAllowedAt = Date.now() + REVIVE_COOLDOWN_MS;
     };
     if (animated) {
       mouseyImg.classList.add("la-mousey-exploding");
@@ -1131,15 +1174,50 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     sendBackend({ type: "update_ui_prefs", connectionId: state.connectionId, lastSessionId: state.sessionId, mouseyDead: false });
     sendBackend({ type: "mousey_revived", sessionId: state.sessionId });
   };
+  // Poke easter egg: only the stock portrait complains, a custom one stays
+  // quiet. The count resets on death so the revived Mousey starts fresh.
+  const POKE_LINES: ReadonlyArray<{ at: number; text: string }> = [
+    { at: 10, text: "What?" },
+    { at: 20, text: "Hey! Stop that >:(" },
+    { at: 40, text: "If you don't stop... something bad will happen." },
+  ];
+  const POKE_DEATH_AT = 55;
+  let pokeCount = 0;
+  let pokeBubbleTimer: ReturnType<typeof setTimeout> | null = null;
+  const pokeBubble = el("div", "la-mousey-bubble");
+  pokeBubble.setAttribute("role", "status");
+  pokeBubble.hidden = true;
+  composer.appendChild(pokeBubble);
+  const showPokeBubble = (text: string, ms: number): void => {
+    const m = mouseyImg.getBoundingClientRect();
+    const parent = composer.getBoundingClientRect();
+    pokeBubble.textContent = text;
+    pokeBubble.hidden = false;
+    pokeBubble.style.left = `${Math.max(4, m.left - parent.left + m.width * 0.55)}px`;
+    pokeBubble.style.bottom = `${parent.bottom - m.top + 4}px`;
+    if (pokeBubbleTimer !== null) clearTimeout(pokeBubbleTimer);
+    pokeBubbleTimer = setTimeout(() => { pokeBubble.hidden = true; pokeBubbleTimer = null; }, ms);
+  };
+  const isStockPortrait = (): boolean => resolveMouseyImageUrl() === MOUSEY_SITTING_DATA_URL;
   mouseyHit.addEventListener("click", () => {
     if (mouseyDead) {
-      reviveMousey();
+      if (Date.now() >= reviveAllowedAt) reviveMousey();
       return;
     }
     // Alive: a little nudge. Remove-reflow-add so rapid clicks retrigger.
     mouseyImg.classList.remove("la-mousey-nudge");
     void mouseyImg.offsetWidth;
     mouseyImg.classList.add("la-mousey-nudge");
+    if (!isStockPortrait()) return;
+    pokeCount++;
+    const line = POKE_LINES.find((l) => l.at === pokeCount);
+    if (line) { showPokeBubble(line.text, 2600); return; }
+    if (pokeCount >= POKE_DEATH_AT) {
+      pokeCount = 0;
+      showPokeBubble("...I warned you.", 1200);
+      enterDeadState(true);
+      sendBackend({ type: "update_ui_prefs", connectionId: state.connectionId, lastSessionId: state.sessionId, mouseyDead: true });
+    }
   });
   mouseyImg.addEventListener("animationend", (ev) => {
     if (ev.animationName === "la-mousey-nudge") mouseyImg.classList.remove("la-mousey-nudge");

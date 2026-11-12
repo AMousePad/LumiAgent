@@ -10999,6 +10999,43 @@ ${LOADERS_CSS}
 /* Hooks editor */
 .la-hooks-textarea { font-family: var(--lumiverse-font-mono); font-size: 12px; width: 100%; min-height: 90px; }
 .la-settings-hint-error { color: var(--lumiverse-danger, #e05555); }
+
+/* Jump to top / bottom */
+.la-thread-shell { position: relative; }
+.la-jump-wrap {
+  position: absolute; right: 18px; bottom: 14px; z-index: 5;
+  display: flex; flex-direction: column; gap: 6px;
+  pointer-events: none;
+}
+.la-jump-btn {
+  width: 34px; height: 34px; border-radius: 50%;
+  border: 1px solid var(--lumiverse-border);
+  background: var(--lumiverse-bg-elevated); color: var(--lumiverse-text-muted);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; padding: 0;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  opacity: 0; transform: translateY(6px); pointer-events: none;
+  transition: opacity var(--lumiverse-transition-fast), transform var(--lumiverse-transition-fast), background var(--lumiverse-transition-fast);
+}
+.la-jump-btn svg { width: 18px; height: 18px; }
+.la-jump-btn.is-visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
+.la-jump-btn:hover { background: var(--lumiverse-bg-hover); color: var(--lumiverse-text); }
+
+/* Portrait poke bubble */
+.la-mousey-bubble {
+  position: absolute; z-index: 3;
+  max-width: 220px;
+  padding: 6px 10px;
+  background: var(--lumiverse-bg-elevated); color: var(--lumiverse-text);
+  border: 1px solid var(--lumiverse-border);
+  border-radius: 12px 12px 12px 3px;
+  font-size: 12px; line-height: 1.35;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  animation: la-bubble-pop 0.18s ease-out;
+}
+.la-mousey-bubble[hidden] { display: none; }
+@keyframes la-bubble-pop { from { opacity: 0; transform: translateY(4px) scale(0.95); } to { opacity: 1; transform: none; } }
 ${MESSAGE_STYLES}
 ${APP_STYLES}
 `;
@@ -17201,6 +17238,28 @@ function mountDrawer(ctx) {
   };
   const threadShell = el9("div", "la-thread-shell");
   threadShell.append(thread);
+  const jumpWrap = el9("div", "la-jump-wrap");
+  const jumpTopBtn = el9("button", "la-jump-btn la-jump-top");
+  jumpTopBtn.type = "button";
+  jumpTopBtn.setAttribute("aria-label", "Jump to top");
+  jumpTopBtn.title = "Jump to top";
+  jumpTopBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V6"/><path d="m5 12 7-7 7 7"/></svg>';
+  const jumpBottomBtn = el9("button", "la-jump-btn la-jump-bottom");
+  jumpBottomBtn.type = "button";
+  jumpBottomBtn.setAttribute("aria-label", "Jump to bottom");
+  jumpBottomBtn.title = "Jump to latest";
+  jumpBottomBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v13"/><path d="m19 12-7 7-7-7"/></svg>';
+  jumpWrap.append(jumpTopBtn, jumpBottomBtn);
+  threadShell.appendChild(jumpWrap);
+  const JUMP_SHOW_PX = 400;
+  const updateJumpButtons = () => {
+    const fromTop = thread.scrollTop;
+    const fromBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight;
+    jumpTopBtn.classList.toggle("is-visible", fromTop > JUMP_SHOW_PX);
+    jumpBottomBtn.classList.toggle("is-visible", fromBottom > JUMP_SHOW_PX);
+  };
+  thread.addEventListener("scroll", updateJumpButtons, { passive: true });
+  new ResizeObserver(updateJumpButtons).observe(thread);
   root.append(meetBanner, header, threadShell, composer);
   const historyFeedback = new RequestFeedback(threadShell);
   const commandFeedback = new RequestFeedback(threadShell);
@@ -17316,6 +17375,18 @@ function mountDrawer(ctx) {
         requestHistory("after");
     });
   };
+  jumpTopBtn.addEventListener("click", () => {
+    thread.scrollTo({ top: 0, behavior: "smooth" });
+    requestHistory("before");
+  });
+  jumpBottomBtn.addEventListener("click", () => {
+    if (state.sessionId && historyPage.end < historyPage.total) {
+      sendBackend({ type: "load_session", sessionId: state.sessionId });
+      return;
+    }
+    virtualizer.scrollToBottom();
+    thread.scrollTo({ top: thread.scrollHeight, behavior: "smooth" });
+  });
   const receiveHistoryPage = (msg) => {
     const pending = pendingHistory;
     if (!pending || pending.requestId !== msg.requestId || pending.sessionId !== msg.sessionId || state.sessionId !== msg.sessionId)
@@ -17591,10 +17662,13 @@ function mountDrawer(ctx) {
     updateSessionBar();
   };
   const deathCallIds = new Set;
+  const REVIVE_COOLDOWN_MS = 1000;
+  let reviveAllowedAt = 0;
   const enterDeadState = (animated) => {
     if (mouseyDead)
       return;
     mouseyDead = true;
+    reviveAllowedAt = Number.POSITIVE_INFINITY;
     setComposerText("");
     mouseyImg.classList.remove("la-mousey-overlap");
     updateComposer();
@@ -17603,6 +17677,7 @@ function mountDrawer(ctx) {
       mouseyImg.src = BLOOD_POOL_DATA_URL;
       mouseyImg.classList.add("la-mousey-blood");
       mouseyHit.setAttribute("aria-label", "Restore Mousey from backup");
+      reviveAllowedAt = Date.now() + REVIVE_COOLDOWN_MS;
     };
     if (animated) {
       mouseyImg.classList.add("la-mousey-exploding");
@@ -17646,14 +17721,56 @@ function mountDrawer(ctx) {
     sendBackend({ type: "update_ui_prefs", connectionId: state.connectionId, lastSessionId: state.sessionId, mouseyDead: false });
     sendBackend({ type: "mousey_revived", sessionId: state.sessionId });
   };
+  const POKE_LINES = [
+    { at: 10, text: "What?" },
+    { at: 20, text: "Hey! Stop that >:(" },
+    { at: 40, text: "If you don't stop... something bad will happen." }
+  ];
+  const POKE_DEATH_AT = 55;
+  let pokeCount = 0;
+  let pokeBubbleTimer = null;
+  const pokeBubble = el9("div", "la-mousey-bubble");
+  pokeBubble.setAttribute("role", "status");
+  pokeBubble.hidden = true;
+  composer.appendChild(pokeBubble);
+  const showPokeBubble = (text, ms) => {
+    const m = mouseyImg.getBoundingClientRect();
+    const parent = composer.getBoundingClientRect();
+    pokeBubble.textContent = text;
+    pokeBubble.hidden = false;
+    pokeBubble.style.left = `${Math.max(4, m.left - parent.left + m.width * 0.55)}px`;
+    pokeBubble.style.bottom = `${parent.bottom - m.top + 4}px`;
+    if (pokeBubbleTimer !== null)
+      clearTimeout(pokeBubbleTimer);
+    pokeBubbleTimer = setTimeout(() => {
+      pokeBubble.hidden = true;
+      pokeBubbleTimer = null;
+    }, ms);
+  };
+  const isStockPortrait = () => resolveMouseyImageUrl() === MOUSEY_SITTING_DATA_URL;
   mouseyHit.addEventListener("click", () => {
     if (mouseyDead) {
-      reviveMousey();
+      if (Date.now() >= reviveAllowedAt)
+        reviveMousey();
       return;
     }
     mouseyImg.classList.remove("la-mousey-nudge");
     mouseyImg.offsetWidth;
     mouseyImg.classList.add("la-mousey-nudge");
+    if (!isStockPortrait())
+      return;
+    pokeCount++;
+    const line = POKE_LINES.find((l) => l.at === pokeCount);
+    if (line) {
+      showPokeBubble(line.text, 2600);
+      return;
+    }
+    if (pokeCount >= POKE_DEATH_AT) {
+      pokeCount = 0;
+      showPokeBubble("...I warned you.", 1200);
+      enterDeadState(true);
+      sendBackend({ type: "update_ui_prefs", connectionId: state.connectionId, lastSessionId: state.sessionId, mouseyDead: true });
+    }
   });
   mouseyImg.addEventListener("animationend", (ev) => {
     if (ev.animationName === "la-mousey-nudge")

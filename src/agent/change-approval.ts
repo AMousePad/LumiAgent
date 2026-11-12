@@ -132,6 +132,7 @@ const MOVE_TOOLS: ReadonlySet<string> = new Set([
 
 const TOOL_LABELS: Readonly<Record<string, string>> = {
   remember_note: "Append a note to the agent's notes file",
+  hide_chat_messages: "Hide or unhide chat messages",
   run_cache_diagnostic: "Run a LumiCache simulation on a disposable chat copy",
   create_memory_vault: "Snapshot chat memory into a vault",
   rename_memory_vault: "Rename a memory vault",

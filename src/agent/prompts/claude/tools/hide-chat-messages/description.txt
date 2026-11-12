@@ -1,0 +1,1 @@
+Hide or unhide chat messages by id. Hidden is the same flag as the chat UI's exclude toggle: the message stays in the chat and the user still sees it greyed, but it drops out of memory embeddings and out of the prompt where the host honours the flag. Up to 500 ids per call. Get ids from chats(action=messages). Outside Workshop undo: call again with hidden=false to restore.

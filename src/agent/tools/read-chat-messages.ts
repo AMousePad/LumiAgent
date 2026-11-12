@@ -29,6 +29,7 @@ export async function readChatMessagesImpl(
     id: m.id,
     role: m.role,
     speaker_name: m.name,
+    ...((m as { hidden?: boolean }).hidden ? { hidden: true } : {}),
     content: m.content,
     swipe_count: m.swipes.length,
     active_swipe: m.swipe_id,

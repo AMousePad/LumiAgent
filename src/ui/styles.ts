@@ -2559,6 +2559,43 @@ ${LOADERS_CSS}
 /* Hooks editor */
 .la-hooks-textarea { font-family: var(--lumiverse-font-mono); font-size: 12px; width: 100%; min-height: 90px; }
 .la-settings-hint-error { color: var(--lumiverse-danger, #e05555); }
+
+/* Jump to top / bottom */
+.la-thread-shell { position: relative; }
+.la-jump-wrap {
+  position: absolute; right: 18px; bottom: 14px; z-index: 5;
+  display: flex; flex-direction: column; gap: 6px;
+  pointer-events: none;
+}
+.la-jump-btn {
+  width: 34px; height: 34px; border-radius: 50%;
+  border: 1px solid var(--lumiverse-border);
+  background: var(--lumiverse-bg-elevated); color: var(--lumiverse-text-muted);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; padding: 0;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  opacity: 0; transform: translateY(6px); pointer-events: none;
+  transition: opacity var(--lumiverse-transition-fast), transform var(--lumiverse-transition-fast), background var(--lumiverse-transition-fast);
+}
+.la-jump-btn svg { width: 18px; height: 18px; }
+.la-jump-btn.is-visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
+.la-jump-btn:hover { background: var(--lumiverse-bg-hover); color: var(--lumiverse-text); }
+
+/* Portrait poke bubble */
+.la-mousey-bubble {
+  position: absolute; z-index: 3;
+  max-width: 220px;
+  padding: 6px 10px;
+  background: var(--lumiverse-bg-elevated); color: var(--lumiverse-text);
+  border: 1px solid var(--lumiverse-border);
+  border-radius: 12px 12px 12px 3px;
+  font-size: 12px; line-height: 1.35;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  animation: la-bubble-pop 0.18s ease-out;
+}
+.la-mousey-bubble[hidden] { display: none; }
+@keyframes la-bubble-pop { from { opacity: 0; transform: translateY(4px) scale(0.95); } to { opacity: 1; transform: none; } }
 ${MESSAGE_STYLES}
 ${APP_STYLES}
 `;

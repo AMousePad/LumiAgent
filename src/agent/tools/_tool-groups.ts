@@ -13,7 +13,7 @@ export const TOOL_GROUPS: readonly ToolGroup[] = [
   {
     name: "chats",
     description:
-      "Find and inspect solo or group chats. active returns the host active chat, list searches the library, for_character uses the focused or explicit character. messages gives snippets, read gives full messages, search uses a regex, stats summarizes size and speakers. Message actions use chat_id or the pinned chat. Offsets count messages, not lines. Reads do not select or pin a chat.",
+      "Find and inspect solo or group chats. active returns the host active chat, list searches the library, for_character uses the focused or explicit character. messages gives snippets, read gives full messages, search uses a regex, stats summarizes size and speakers, hide sets or clears the hidden (exclude) flag on message ids. Message actions use chat_id or the pinned chat. Offsets count messages, not lines. Reads do not select or pin a chat. hide is outside Workshop undo.",
     actions: {
       active: "get_active_chat",
       list: "list_chats",
@@ -22,6 +22,7 @@ export const TOOL_GROUPS: readonly ToolGroup[] = [
       read: "read_chat_messages",
       search: "grep_chat_messages",
       stats: "chat_stats",
+      hide: "hide_chat_messages",
     },
   },
   {
