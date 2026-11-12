@@ -7,6 +7,8 @@ import addressingBody from "../agent/prompts/claude/tasks/general/addressing_sec
 import whenToStopBody from "../agent/prompts/claude/tasks/general/when_to_stop.txt";
 import agentNotesTemplate from "../agent/prompts/claude/tasks/general/agent_notes_section.txt";
 import deferredToolsTemplate from "../agent/prompts/claude/tasks/general/deferred_tools_section.txt";
+import skillsTemplate from "../agent/prompts/claude/tasks/general/skills_section.txt";
+import subagentsTemplate from "../agent/prompts/claude/tasks/general/subagents_section.txt";
 import contextNoteTemplate from "../agent/prompts/claude/tasks/general/context_note.txt";
 import externalSurfacesPreamble from "../agent/prompts/claude/tasks/general/external_surfaces_preamble.txt";
 
@@ -35,6 +37,10 @@ export interface GeneralPromptParams {
   // The model must call tool_search to fetch their schemas before invoking
   // them. Empty array disables the deferred-tools announcement.
   readonly deferredToolNames: readonly string[];
+  // "- name: description" lines for workspace skills/ and agents/, snapshotted
+  // at session start like the notes. Null or empty omits the section.
+  readonly skills?: string | null | undefined;
+  readonly subagentProfiles?: string | null | undefined;
 }
 
 export function buildGeneralSystemPrompt(params: GeneralPromptParams): string {
@@ -51,6 +57,13 @@ export function buildGeneralSystemPrompt(params: GeneralPromptParams): string {
   // to re-read \`workspace/agent/agent.md\`.
   const agentNotesSection = params.agentNotes && params.agentNotes.trim().length > 0
     ? `\n\n${fillPrompt(agentNotesTemplate, { NOTES: params.agentNotes.trim() })}`
+    : "";
+
+  const skillsSection = params.skills && params.skills.trim().length > 0
+    ? `\n\n${fillPrompt(skillsTemplate, { SKILLS: params.skills.trim() })}`
+    : "";
+  const subagentsSection = params.subagentProfiles && params.subagentProfiles.trim().length > 0
+    ? `\n\n${fillPrompt(subagentsTemplate, { PROFILES: params.subagentProfiles.trim() })}`
     : "";
 
   const deferredToolsSection = params.deferredToolNames.length === 0
@@ -72,7 +85,7 @@ export function buildGeneralSystemPrompt(params: GeneralPromptParams): string {
     ? params.systemPromptOverride
     : BUILTIN_PROMPT_BODY;
 
-  return `${personaBlock}${body}${chatSection}${addressingSection}${agentNotesSection}${deferredToolsSection}\n\n${whenToStopBody}`;
+  return `${personaBlock}${body}${chatSection}${addressingSection}${agentNotesSection}${skillsSection}${subagentsSection}${deferredToolsSection}\n\n${whenToStopBody}`;
 }
 
 export interface ContextNoteParams {

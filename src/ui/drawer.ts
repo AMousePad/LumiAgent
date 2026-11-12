@@ -1,5 +1,6 @@
 import { createUuid } from "./uuid";
 import { coerceAutoRetries, DEFAULT_AUTO_RETRIES, MAX_AUTO_RETRIES } from "../agent/retry";
+import { parseHooksText } from "../agent/hooks";
 import { RequestFeedback } from "./request-feedback";
 import { mergeHistoryPage, HISTORY_WINDOW_SIZE } from "./history-window";
 import { SessionSync } from "./session-sync";
@@ -26,6 +27,7 @@ import type {
   WireFile,
   RevertOutcomeWire,
   ScopeRef,
+  SessionMode,
   SessionStatusWire,
   SessionSummaryWire,
   ChangeApprovalRequestWire,
@@ -109,7 +111,7 @@ interface UiState {
   scopeLedgers: Map<string, readonly EditLogEntry[]>;
   chatsForCharacter: ChatSummary[];
   pinnedChatId: string | null;
-  settings: { persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody?: string; samplers?: Readonly<Record<string, number | null>>; jailbreak?: string; jailbreakPlacement?: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes?: number | null; workspaceCapDefaultBytes?: number; workspaceFileCapBytes?: number; toolOutputCapTokens?: number | null; toolOutputCapDefaultTokens?: number; cacheMode?: "off" | "system_only" | "full"; parallelToolCalls?: boolean; autoCompaction?: boolean; autoRetries?: number; tpmLimit?: number | null; rpmLimit?: number | null; debugLogging?: boolean; requireChangeApproval?: boolean; reasoningEffort?: "inherit" | "off" | "minimal" | "low" | "medium" | "high" | "max" } | null;
+  settings: { persona: string; systemPromptOverride: string | null; defaultPersona: string; defaultSystemPromptBody?: string; samplers?: Readonly<Record<string, number | null>>; jailbreak?: string; jailbreakPlacement?: "system_suffix" | "user_suffix" | "assistant_prefill"; workspaceCapBytes?: number | null; workspaceCapDefaultBytes?: number; workspaceFileCapBytes?: number; toolOutputCapTokens?: number | null; toolOutputCapDefaultTokens?: number; cacheMode?: "off" | "system_only" | "full"; parallelToolCalls?: boolean; autoCompaction?: boolean; autoRetries?: number; tpmLimit?: number | null; rpmLimit?: number | null; debugLogging?: boolean; requireChangeApproval?: boolean; reasoningEffort?: "inherit" | "off" | "minimal" | "low" | "medium" | "high" | "max"; askMaxQuestions?: number; askMaxOptions?: number; askHeaderMaxChars?: number; askTimeoutMinutes?: number; spendCapTokens?: number | null; hooks?: readonly import("../agent/hooks").HookRule[] } | null;
   pendingPinChatId: string | null;
   // Single-shot, reset after consume so a later list_chats won't re-pin after the user explicitly unpinned.
   autoPinNeeded: boolean;
@@ -123,6 +125,7 @@ interface UiState {
   // Set when the current session has a successful compaction boundary. Messages
   // with ts < compactedAt are pre-compaction (read-only, greyed).
   compactedAt: number | null;
+  sessionMode: SessionMode;
   contextPromptTokens: number;
   contextTokens: number;
   pendingMessage: string | null;
@@ -219,6 +222,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     startingSession: false,
     compacting: false,
     compactedAt: null,
+    sessionMode: "normal",
     contextPromptTokens: 0,
     contextTokens: 128_000,
     pendingMessage: null,
@@ -437,7 +441,31 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
   compactTip.append(compactTipMain, compactTipSub);
   compactBtn.appendChild(compactTip);
 
-  composerActions.append(compactBtn, attachBtn, sendBtn, cancelBtn);
+  // Plan mode: the session runs read-only until flipped back. Persisted on the
+  // session by the backend; the button mirrors session_mode_set.
+  const planBtn = el("button", "la-plan-btn") as HTMLButtonElement;
+  planBtn.type = "button";
+  planBtn.setAttribute("aria-label", "Toggle plan mode (read-only)");
+  planBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 12.5l3 3 5-6"/></svg>';
+  const planTip = el("div", "la-compact-tooltip");
+  const planTipMain = el("div", "la-compact-tooltip-main", "Plan mode off");
+  planTip.append(planTipMain, el("div", "la-compact-tooltip-sub", "Click to make the agent read-only: it investigates and proposes, you apply."));
+  planBtn.appendChild(planTip);
+  const updatePlanButton = (): void => {
+    const on = state.sessionMode === "plan";
+    planBtn.classList.toggle("is-on", on);
+    planTipMain.textContent = on ? "Plan mode on (read-only)" : "Plan mode off";
+    planBtn.setAttribute("aria-pressed", String(on));
+    textarea.placeholder = on ? "Plan mode: ask for analysis or a plan" : "Ask anything";
+  };
+  planBtn.addEventListener("click", () => {
+    const next = state.sessionMode === "plan" ? "normal" : "plan";
+    state.sessionMode = next;
+    updatePlanButton();
+    if (state.sessionId) sendBackend({ type: "set_session_mode", sessionId: state.sessionId, mode: next });
+  });
+
+  composerActions.append(planBtn, compactBtn, attachBtn, sendBtn, cancelBtn);
   composerArea.append(textarea, composerActions);
   composerArea.setAttribute("data-tut", "composer");
   const queuedWrap = el("div", "la-queued");
@@ -2063,6 +2091,47 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
     retriesRow.append(retriesInput);
     wrap.append(retriesRow, el("div", "la-settings-hint", "Retry failed model requests from saved progress. Completed edits are kept. Default: 3. Set 0 to disable."));
 
+    const spendCapRow = el("div", "la-settings-row");
+    spendCapRow.append(el("label", "la-settings-row-label", "Spend cap per message (tk)"));
+    const spendCapInput = document.createElement("input");
+    spendCapInput.type = "number";
+    spendCapInput.className = "la-slider-input";
+    spendCapInput.min = "1";
+    spendCapInput.step = "1";
+    spendCapInput.placeholder = "off";
+    spendCapRow.appendChild(spendCapInput);
+    wrap.append(spendCapRow, el("div", "la-settings-hint", "Pause the agent once one message's run has used this many prompt+completion tokens. Send another message to continue. Empty = unlimited."));
+
+    wrap.appendChild(el("hr", "la-settings-divider"));
+    wrap.appendChild(el("label", "la-settings-label", "Questions (ask_user_question)"));
+    wrap.appendChild(el("div", "la-settings-hint", "Shape of the question modal the agent can open. Larger caps go into the tool schema the model sees."));
+    const mkNum = (label: string, min: number, max: number, hint: string): HTMLInputElement => {
+      const row = el("div", "la-settings-row");
+      row.append(el("label", "la-settings-row-label", label));
+      const input = document.createElement("input");
+      input.type = "number"; input.className = "la-slider-input"; input.min = String(min); input.max = String(max); input.step = "1";
+      row.appendChild(input);
+      wrap.append(row, el("div", "la-settings-hint", hint));
+      return input;
+    };
+    const askQInput = mkNum("Max questions per call", 1, 20, "Default 4, up to 20.");
+    const askOptInput = mkNum("Max options per question", 2, 12, "Default 4, up to 12. An Other free-text option is always added.");
+    const askHeaderInput = mkNum("Header label max chars", 4, 40, "Default 12, up to 40.");
+    const askTimeoutInput = mkNum("Answer timeout (minutes)", 0, 1440, "Default 10. 0 waits until you answer or close the tab. Typing in the modal keeps the timer alive.");
+
+    wrap.appendChild(el("hr", "la-settings-divider"));
+    wrap.appendChild(el("label", "la-settings-label", "Tool hooks"));
+    wrap.appendChild(el("div", "la-settings-hint", "JSON array of rules matched against each tool call. Fields: tool (glob), action, path (globs), when (before|after), effect (deny|approve|run), custom_tool (for run), message. Example: [{\"tool\":\"workspace\",\"action\":\"delete\",\"when\":\"before\",\"effect\":\"deny\"}]"));
+    const hooksArea = document.createElement("textarea");
+    hooksArea.className = "la-textarea la-settings-textarea la-hooks-textarea";
+    hooksArea.rows = 5;
+    hooksArea.placeholder = "[]";
+    hooksArea.spellcheck = false;
+    wrap.appendChild(hooksArea);
+    const hooksError = el("div", "la-settings-hint la-settings-hint-error");
+    hooksError.style.display = "none";
+    wrap.appendChild(hooksError);
+
     const parallelToolsRow = el("div", "la-settings-row");
     parallelToolsRow.append(el("label", "la-settings-row-label", "Parallel tool calls"));
     const parallelToolsInput = document.createElement("input");
@@ -2209,6 +2278,12 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       tpmInput.value = s.tpmLimit ? String(s.tpmLimit) : "";
       rpmInput.value = s.rpmLimit ? String(s.rpmLimit) : "";
       retriesInput.value = String(s.autoRetries ?? DEFAULT_AUTO_RETRIES);
+      spendCapInput.value = s.spendCapTokens ? String(s.spendCapTokens) : "";
+      askQInput.value = String(s.askMaxQuestions ?? 4);
+      askOptInput.value = String(s.askMaxOptions ?? 4);
+      askHeaderInput.value = String(s.askHeaderMaxChars ?? 12);
+      askTimeoutInput.value = String(s.askTimeoutMinutes ?? 10);
+      if (document.activeElement !== hooksArea) hooksArea.value = s.hooks && s.hooks.length > 0 ? JSON.stringify(s.hooks, null, 2) : "";
       renderSamplers();
     };
 
@@ -2313,6 +2388,22 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
       const systemPromptOverride = promptValue.length === 0 || promptValue === defaultBody ? null : promptValue;
       const placement = (jbPlacement.value as "system_suffix" | "user_suffix" | "assistant_prefill");
       const newCacheMode = (cacheModeSelect.value as "off" | "system_only" | "full");
+      let hooks: import("../agent/hooks").HookRule[];
+      try {
+        hooks = parseHooksText(hooksArea.value);
+        hooksError.style.display = "none";
+      } catch (err) {
+        hooksError.textContent = (err as Error).message;
+        hooksError.style.display = "";
+        status.textContent = "Fix the hooks JSON to save.";
+        status.classList.add("is-error");
+        return;
+      }
+      const clampInt = (input: HTMLInputElement, fallback: number): number => {
+        const n = parseInt(input.value.trim(), 10);
+        if (!Number.isFinite(n)) return fallback;
+        return Math.min(Number(input.max), Math.max(Number(input.min), n));
+      };
       const payload = {
         type: "update_settings" as const,
         persona,
@@ -2331,6 +2422,12 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         autoRetries: coerceAutoRetries(retriesInput.value.trim() ? Number(retriesInput.value) : undefined),
         debugLogging: debugLogInput.checked,
         requireChangeApproval: changeApprovalInput.checked,
+        spendCapTokens: parsePosInt(spendCapInput.value),
+        askMaxQuestions: clampInt(askQInput, 4),
+        askMaxOptions: clampInt(askOptInput, 4),
+        askHeaderMaxChars: clampInt(askHeaderInput, 12),
+        askTimeoutMinutes: clampInt(askTimeoutInput, 10),
+        hooks,
       };
       const key = JSON.stringify(payload);
       if (key === lastCommitted) return;
@@ -3313,6 +3410,7 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         clearStartTimeout();
         dlog("session_started received", { sessionId: msg.sessionId, characterId: msg.characterId, pendingPinChatId: state.pendingPinChatId, pendingMessage: state.pendingMessage, pendingMessageId: state.pendingMessageId });
         state.sessionId = msg.sessionId;
+        if (state.sessionMode === "plan") sendBackend({ type: "set_session_mode", sessionId: msg.sessionId, mode: "plan" });
         state.characterId = msg.characterId;
         state.characterName = msg.characterName;
         state.startingSession = false;
@@ -3376,6 +3474,8 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
         state.messages = [...msg.messages];
         state.edits = [...msg.edits];
         state.compactedAt = msg.compactedAt ?? null;
+        state.sessionMode = msg.mode ?? "normal";
+        updatePlanButton();
         // Drop composer attachments queued against the previous session.
         if (switchedSession) {
           state.attachments = [];
@@ -3740,10 +3840,34 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
           debugLogging: msg.debugLogging,
           requireChangeApproval: msg.requireChangeApproval,
           ...(msg.reasoningEffort !== undefined ? { reasoningEffort: msg.reasoningEffort } : {}),
+          ...(msg.askMaxQuestions !== undefined ? { askMaxQuestions: msg.askMaxQuestions } : {}),
+          ...(msg.askMaxOptions !== undefined ? { askMaxOptions: msg.askMaxOptions } : {}),
+          ...(msg.askHeaderMaxChars !== undefined ? { askHeaderMaxChars: msg.askHeaderMaxChars } : {}),
+          ...(msg.askTimeoutMinutes !== undefined ? { askTimeoutMinutes: msg.askTimeoutMinutes } : {}),
+          ...(msg.spendCapTokens !== undefined ? { spendCapTokens: msg.spendCapTokens } : {}),
+          ...(msg.hooks !== undefined ? { hooks: msg.hooks } : {}),
         };
         for (const h of settingsListeners.handlers) h();
         updateCompactButton();
         break;
+      case "session_mode_set":
+        if (msg.sessionId !== state.sessionId) break;
+        state.sessionMode = msg.mode;
+        updatePlanButton();
+        break;
+      case "subagent_event": {
+        if (msg.sessionId !== state.sessionId) break;
+        const a = state.currentAssistantMessage;
+        if (!a) break;
+        const block = a.blocks.find((b): b is Extract<typeof b, { type: "tool" }> => b.type === "tool" && b.call_id === msg.callId);
+        if (!block) break;
+        const subcalls = block.subcalls ?? (block.subcalls = []);
+        const ev = msg.event;
+        if (ev.type === "tool_started") { subcalls.push({ id: ev.id, name: ev.name, summary: ev.summary }); if (subcalls.length > 200) subcalls.splice(0, subcalls.length - 200); }
+        else if (ev.type === "tool_finished") { const rec = subcalls.find((c) => c.id === ev.id); if (rec) rec.ok = ev.ok; }
+        state.streamingAssistant?.subagentProgress(msg.callId, subcalls);
+        break;
+      }
       case "phoneline_pairings_pushed":
         for (const h of pairingsListeners.handlers) h(msg.pairings);
         break;
@@ -3842,7 +3966,26 @@ export function mountDrawer(ctx: SpindleFrontendContext): () => void {
               result = await handleTranslateBatch(msg.args);
             } else if (msg.op === "ask_user_question") {
               const { showAskUserQuestion } = await import("./ask-user-modal");
-              result = await showAskUserQuestion(msg.args as Parameters<typeof showAskUserQuestion>[0]);
+              const controller = new AbortController();
+              frontendRequests.set(msg.rpcId, controller);
+              // Keepalive every 20s of activity so a slow typist never hits the backend timeout.
+              let lastKeepalive = 0;
+              const onActivity = (): void => {
+                const now = Date.now();
+                if (now - lastKeepalive < 20_000) return;
+                lastKeepalive = now;
+                sendBackend({ type: "frontend_rpc_keepalive", rpcId: msg.rpcId });
+              };
+              let askResult: import("./ask-user-modal").AskUserResult;
+              try { askResult = await showAskUserQuestion(msg.args as Parameters<typeof showAskUserQuestion>[0], { signal: controller.signal, onActivity }); }
+              finally { frontendRequests.delete(msg.rpcId); }
+              if (askResult.cancelled && askResult.draft && textarea.value.trim().length === 0) {
+                // The typed answer survives as a composer draft instead of vanishing.
+                setComposerText(askResult.draft);
+                updateComposer();
+              }
+              if (controller.signal.aborted) return;
+              result = { cancelled: askResult.cancelled, answers: askResult.answers, notes: askResult.notes };
             } else if (msg.op === "image_resize") {
               const { resizeBase64 } = await import("./image-resize");
               const a = msg.args as { data: string; mime_type: string };

@@ -1,0 +1,5 @@
+Run a subagent on a self-contained task and get its final report back. The subagent has its own fresh context (it does not see this conversation), the same character focus and pinned chat, and the same tools minus delegate, ask_user_question and user-facing tools. Its edits land in the Workshop ledger under this call and are revertable like your own.
+
+Use it to keep large reads out of your context: "find every greeting that mentions X and report the exact lines", "audit this card's regex scripts and list broken ones", or a bulk mechanical pass where only the summary matters. Do not delegate a two-call lookup, anything that needs the user's answer, or work whose output you must inspect byte-for-byte.
+
+`task` is the COMPLETE brief: goal, exact ids and paths, constraints, and the shape of the report you want. The subagent cannot ask you questions. `agent`: `explore` (read-only, safe to run several in parallel), `worker` (can edit), or a profile name from the workspace agents/ folder. `connection` runs it on another model connection (id or name), e.g. a cheaper one for exploration. Result: status, turn and token counts, and the report text.

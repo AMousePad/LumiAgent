@@ -22,7 +22,8 @@ import { dlog } from "../log";
 import { characterScope } from "../types";
 import { writeTmp } from "../state/tmp-store";
 import { isReadOnlyTool, maxResultSizeCharsFor, RecentReadsCache, type ToolCtx, type ToolFn, type QueuedImage } from "./tools";
-import { StageEditPersistenceError } from "./tools/_context";
+import { StageEditPersistenceError, type DelegationContext } from "./tools/_context";
+import type { AgentSettings } from "../state/settings";
 import { prepareToolArgs } from "./tools/_framework";
 import toolCallAsText from "./prompts/claude/agent/loop/tool_call_as_text.txt";
 
@@ -69,7 +70,7 @@ interface SpillCapInfo {
   readonly observed: number;
 }
 
-async function spillToolResult(
+export async function spillToolResult(
   spindle: SpindleAPI,
   sessionId: string,
   userId: string,
@@ -145,6 +146,11 @@ export interface RunAgentInput {
   // Optional backend->frontend RPC. Backend wires this so tools running in
   // the sandbox can request browser-only work (e.g. Chrome Translator API).
   readonly callFrontend?: (op: string, args: unknown, timeoutMs?: number) => Promise<unknown>;
+  // Max tokens (prompt + completion) this run may spend before pausing.
+  readonly spendCapTokens?: number | null | undefined;
+  readonly settings?: AgentSettings | undefined;
+  readonly readOnlyMode?: boolean | undefined;
+  readonly delegation?: DelegationContext | undefined;
 }
 
 // userId is load-bearing: scopes the host tokenizer lookup so a user's
@@ -459,10 +465,15 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
         }
       },
       ...(input.callFrontend !== undefined ? { callFrontend: input.callFrontend } : {}),
+      ...(input.settings !== undefined ? { settings: input.settings } : {}),
+      ...(input.readOnlyMode ? { readOnlyMode: true } : {}),
+      ...(input.delegation !== undefined ? { delegation: input.delegation } : {}),
     };
   }
 
   const startingTurn = input.startingTurn ?? 0;
+  const spendCap = input.spendCapTokens ?? null;
+  let spentTokens = 0;
   let textToolCallRetries = 0;
   let retryAttempt = 0;
   const autoRetries = coerceAutoRetries(input.autoRetries);
@@ -602,7 +613,7 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
       } catch { /* keep undefined: UI just hides the strip */ }
     }
 
-    if (usage !== undefined) recordTpm(input.userId, usage.total);
+    if (usage !== undefined) { recordTpm(input.userId, usage.total); spentTokens += usage.total; }
 
     if (content.trim().length === 0 && toolCalls.length === 0) {
       const lastUser = [...conv].reverse().find((m) => m.role === "user");
@@ -966,6 +977,12 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
 
     if (toolCalls.length === 0) {
       yield { type: "paused_for_input", reason: "no_tool_calls" };
+      return;
+    }
+
+    if (spendCap !== null && spendCap > 0 && spentTokens >= spendCap) {
+      yield { type: "warning", message: `Spend cap reached: ~${spentTokens} tokens used this message (cap ${spendCap}). Paused. Send another message to continue or raise the cap in settings.` };
+      yield { type: "paused_for_input", reason: "budget", detail: `Spend cap of ${spendCap} tokens reached after ${spentTokens}.` };
       return;
     }
   }

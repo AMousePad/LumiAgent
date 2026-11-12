@@ -4,6 +4,7 @@ import type {
   ChatMessage,
   EditLogEntry,
   LlmMessage,
+  SessionMode,
   SessionSummaryWire,
 } from "../types";
 import { characterScope } from "../types";
@@ -115,7 +116,13 @@ export interface PersistedSession {
   // The {characterId, pinnedChatId} the agent was last told about via a context
   // note. The send path emits a fresh note only when current state differs, so
   // flipping focus / pin several times before sending collapses to one note.
-  lastContext?: { characterId: string | null; pinnedChatId: string | null };
+  lastContext?: { characterId: string | null; pinnedChatId: string | null; mode?: SessionMode };
+  // Plan mode refuses state-changing tools for the whole session until flipped.
+  mode?: SessionMode;
+  // Session-start snapshots of the workspace skills/ and agents/ listings,
+  // frozen like the notes so the cached prompt prefix stays byte-stable.
+  frozenSkills?: string | null;
+  frozenProfiles?: string | null;
 }
 
 function path(sessionId: string): string {

@@ -1,6 +1,8 @@
 import type { SpindleAPI } from "lumiverse-spindle-types";
 import { absPath, normaliseRelPath } from "./workspace";
 import { LUMIVERSE_DOCS, LUMIVERSE_DOCS_VERSION } from "../generated/lumiverse-docs";
+import { AGENTS_README } from "./agent-profiles";
+import { SKILLS_README } from "./skills";
 
 // Workspace files / directories the agent depends on. Created lazily on
 // session start and on every Files-tab refresh; the workspace can't delete
@@ -19,6 +21,8 @@ export const SYSTEM_DIR_PATHS = [
   "custom_tools",
   "custom_tools/example",
   "agent",
+  "agents",
+  "skills",
   "tmp",
 ] as const;
 
@@ -170,6 +174,8 @@ export async function ensureSystemFiles(spindle: SpindleAPI, userId: string): Pr
   await writeIfMissing(spindle, userId, "custom_tools/tools.md", TOOLS_MD_TEMPLATE);
   await writeIfMissing(spindle, userId, "custom_tools/example/tool.json", EXAMPLE_TOOL_JSON);
   await writeIfMissing(spindle, userId, "agent/agent.md", AGENT_MD_TEMPLATE);
+  await writeIfMissing(spindle, userId, "agents/README.md", AGENTS_README);
+  await writeIfMissing(spindle, userId, "skills/README.md", SKILLS_README);
   await seedLumiverseDocsIfNeeded(spindle, userId);
 }
 

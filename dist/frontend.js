@@ -728,7 +728,12 @@ function el8(tag, cls, text) {
     e.textContent = text;
   return e;
 }
-function showAskUserQuestion(input) {
+function autoGrow(area) {
+  const lines = area.value.split(`
+`).length;
+  area.rows = Math.max(2, Math.min(OTHER_MAX_ROWS, lines + 1));
+}
+function showAskUserQuestion(input, opts = {}) {
   return new Promise((resolve) => {
     const overlay = el8("div", "la-modal-overlay la-ask-overlay");
     const modal = el8("div", "la-modal la-ask-modal");
@@ -740,8 +745,16 @@ function showAskUserQuestion(input) {
     const selections = new Map;
     const otherText = new Map;
     const previewBoxes = new Map;
+    const otherInputs = [];
     const header = el8("div", "la-ask-header");
-    header.appendChild(el8("div", "la-ask-title", "Pick an option"));
+    const titleRow = el8("div", "la-ask-title-row");
+    titleRow.appendChild(el8("div", "la-ask-title", input.questions.length > 1 ? `Mousey has ${input.questions.length} questions` : "Mousey has a question"));
+    const minimizeBtn = el8("button", "la-btn la-btn-ghost la-ask-minimize", "Minimize");
+    minimizeBtn.type = "button";
+    minimizeBtn.title = "Hide this for now. Your choices and typed text are kept.";
+    titleRow.appendChild(minimizeBtn);
+    header.appendChild(titleRow);
+    header.appendChild(el8("div", "la-ask-subtitle", "The assistant is waiting for your answer. Minimize to keep working; Cancel sends no answer."));
     modal.appendChild(header);
     const body = el8("div", "la-ask-body");
     modal.appendChild(body);
@@ -758,7 +771,6 @@ function showAskUserQuestion(input) {
         ...q.options,
         { label: OTHER_LABEL, description: "Type a custom answer.", preview: "" }
       ];
-      const inputs = [];
       const otherInput = el8("textarea");
       otherInput.className = "la-ask-other-input";
       otherInput.placeholder = "Type a custom answer...";
@@ -766,7 +778,10 @@ function showAskUserQuestion(input) {
       otherInput.style.display = "none";
       otherInput.addEventListener("input", () => {
         otherText.set(q.question, otherInput.value);
+        autoGrow(otherInput);
+        opts.onActivity?.();
       });
+      otherInputs.push(otherInput);
       for (let i = 0;i < allOptions.length; i++) {
         const opt = allOptions[i];
         const row = el8("label", "la-ask-option");
@@ -775,13 +790,13 @@ function showAskUserQuestion(input) {
         inputEl.name = `q-${input.questions.indexOf(q)}`;
         inputEl.value = opt.label;
         row.appendChild(inputEl);
-        inputs.push(inputEl);
         const text = el8("div", "la-ask-option-text");
         text.appendChild(el8("div", "la-ask-option-label", opt.label));
         if (opt.description)
           text.appendChild(el8("div", "la-ask-option-desc", opt.description));
         row.appendChild(text);
         inputEl.addEventListener("change", () => {
+          opts.onActivity?.();
           if (q.multiSelect) {
             const set = selections.get(q.question) ?? new Set;
             if (inputEl.checked)
@@ -795,6 +810,8 @@ function showAskUserQuestion(input) {
             selections.set(q.question, opt.label);
             otherInput.style.display = opt.label === OTHER_LABEL ? "" : "none";
           }
+          if (opt.label === OTHER_LABEL && inputEl.checked)
+            otherInput.focus();
           const previewBox = previewBoxes.get(q.question);
           if (previewBox) {
             previewBox.textContent = opt.preview ?? "";
@@ -827,20 +844,63 @@ function showAskUserQuestion(input) {
     const cancelBtn = el8("button", "la-btn la-btn-ghost", "Cancel");
     const submitBtn = el8("button", "la-btn la-btn-primary", "Submit");
     cancelBtn.type = "button";
+    cancelBtn.title = "Dismiss without answering. The assistant will pick a default.";
     submitBtn.type = "button";
     footer.append(cancelBtn, submitBtn);
     const error = el8("div", "la-form-error");
     error.setAttribute("role", "alert");
     modal.append(error);
     modal.appendChild(footer);
+    const pill = el8("button", "la-ask-pill");
+    pill.type = "button";
+    pill.textContent = input.questions.length > 1 ? "Answer Mousey's questions" : "Answer Mousey's question";
+    pill.title = "Reopen the question";
+    pill.style.display = "none";
+    let minimized = false;
+    const setMinimized = (v) => {
+      minimized = v;
+      overlay.style.display = v ? "none" : "";
+      pill.style.display = v ? "" : "none";
+      if (!v)
+        modal.querySelector("textarea:not([style*='display: none']),input,button")?.focus();
+    };
+    pill.addEventListener("click", () => {
+      opts.onActivity?.();
+      setMinimized(false);
+    });
+    minimizeBtn.addEventListener("click", () => setMinimized(true));
+    const currentDraft = () => {
+      const parts = [];
+      for (const [question, txt] of otherText)
+        if (txt.trim().length > 0)
+          parts.push(input.questions.length > 1 ? `${question}
+${txt.trim()}` : txt.trim());
+      return parts.join(`
+
+`);
+    };
     const finish = (result) => {
       window.removeEventListener("keydown", onKey);
+      opts.signal?.removeEventListener("abort", onAbort);
       overlay.remove();
+      pill.remove();
       if (previousFocus?.isConnected)
         previousFocus.focus();
       resolve(result);
     };
+    const onAbort = () => {
+      const draft = currentDraft();
+      finish(draft.length > 0 ? { cancelled: true, draft } : { cancelled: true });
+    };
+    if (opts.signal?.aborted) {
+      onAbort();
+      return;
+    }
+    opts.signal?.addEventListener("abort", onAbort, { once: true });
     const onKey = (ev) => {
+      if (minimized)
+        return;
+      opts.onActivity?.();
       if (ev.key === "Tab") {
         const controls = [...modal.querySelectorAll("button,input,textarea,select,[tabindex='0']")].filter((item) => !item.hasAttribute("disabled") && item.getClientRects().length > 0);
         const first = controls[0], last = controls.at(-1);
@@ -854,11 +914,14 @@ function showAskUserQuestion(input) {
       }
       if (ev.key === "Escape") {
         ev.preventDefault();
-        finish({ cancelled: true });
+        setMinimized(true);
       }
     };
     window.addEventListener("keydown", onKey);
-    cancelBtn.addEventListener("click", () => finish({ cancelled: true }));
+    cancelBtn.addEventListener("click", () => {
+      const draft = currentDraft();
+      finish(draft.length > 0 ? { cancelled: true, draft } : { cancelled: true });
+    });
     submitBtn.addEventListener("click", () => {
       const answers = {};
       const notes = {};
@@ -903,13 +966,15 @@ function showAskUserQuestion(input) {
     });
     overlay.addEventListener("click", (ev) => {
       if (ev.target === overlay)
-        finish({ cancelled: true });
+        setMinimized(true);
     });
+    overlay.addEventListener("pointerdown", () => opts.onActivity?.());
     document.body.appendChild(overlay);
+    document.body.appendChild(pill);
     modal.querySelector("input,button")?.focus();
   });
 }
-var OTHER_LABEL = "Other";
+var OTHER_LABEL = "Other", OTHER_MAX_ROWS = 14;
 
 // node_modules/modern-screenshot/dist/index.mjs
 function supportWebp(ownerDocument) {
@@ -2550,6 +2615,61 @@ var MAX_AUTO_RETRIES = 10;
 function coerceAutoRetries(value) {
   return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.min(MAX_AUTO_RETRIES, Math.floor(value))) : DEFAULT_AUTO_RETRIES;
 }
+
+// src/agent/hooks.ts
+var MAX_HOOK_RULES = 64;
+function str(v) {
+  return typeof v === "string" && v.trim().length > 0 ? v.trim() : undefined;
+}
+function coerceHooks(raw) {
+  if (!Array.isArray(raw))
+    return [];
+  const out = [];
+  for (const item of raw.slice(0, MAX_HOOK_RULES)) {
+    if (!item || typeof item !== "object")
+      continue;
+    const r = item;
+    const tool = str(r["tool"]);
+    const when = r["when"] === "after" ? "after" : "before";
+    const effect = r["effect"] === "approve" || r["effect"] === "run" ? r["effect"] : r["effect"] === "deny" ? "deny" : null;
+    if (!tool || !effect)
+      continue;
+    if (effect === "run" && !str(r["custom_tool"]))
+      continue;
+    if (when === "after" && effect !== "run")
+      continue;
+    if (when === "before" && effect === "run")
+      continue;
+    out.push({
+      tool,
+      action: str(r["action"]),
+      path: str(r["path"]),
+      when,
+      effect,
+      custom_tool: str(r["custom_tool"]),
+      message: str(r["message"])
+    });
+  }
+  return out;
+}
+function parseHooksText(text) {
+  const trimmed = text.trim();
+  if (trimmed.length === 0)
+    return [];
+  let parsed;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch (e) {
+    throw new Error(`Hooks are not valid JSON: ${e.message}`);
+  }
+  if (!Array.isArray(parsed))
+    throw new Error("Hooks must be a JSON array of rules.");
+  const rules = coerceHooks(parsed);
+  if (rules.length !== parsed.length)
+    throw new Error(`${parsed.length - rules.length} rule(s) are invalid. Each needs tool, when (before|after), effect (deny|approve|run), and custom_tool for run.`);
+  return rules;
+}
+var globCache = new Map;
 
 // src/ui/request-feedback.ts
 class RequestFeedback {
@@ -10821,6 +10941,64 @@ ${LOADERS_CSS}
   .la-composer { padding: 10px 10px 12px; }
   .la-msg-user .la-msg-bubble { max-width: 92%; }
 }
+
+/* Plan mode toggle (composer) */
+.la-plan-btn {
+  position: relative;
+  width: 32px; height: 32px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin-right: 2px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  flex-shrink: 0;
+  color: var(--lumiverse-text-muted);
+  transition: background var(--lumiverse-transition-fast), color var(--lumiverse-transition-fast);
+}
+.la-plan-btn svg { width: 17px; height: 17px; }
+.la-plan-btn:hover { background: var(--lumiverse-bg-hover); color: var(--lumiverse-text); }
+.la-plan-btn.is-on { color: var(--lumiverse-primary-text); background: var(--lumiverse-primary-015); }
+.la-plan-btn:hover .la-compact-tooltip,
+.la-plan-btn:focus-visible .la-compact-tooltip { opacity: 1; transform: translateY(0); }
+
+/* Subagent progress panel (delegate tool card) */
+.la-subagent-panel {
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: var(--lumiverse-bg-elevated);
+  border: 1px solid var(--lumiverse-border-light);
+  border-radius: var(--lumiverse-radius-sm);
+  font-size: 12px;
+}
+.la-subagent-head { color: var(--lumiverse-text-muted); font-weight: 600; margin-bottom: 4px; }
+.la-subagent-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.la-subagent-item { display: flex; gap: 6px; align-items: baseline; line-height: 1.4; min-width: 0; }
+.la-subagent-mark { width: 12px; flex-shrink: 0; color: var(--lumiverse-text-dim); }
+.la-subagent-item.is-done .la-subagent-mark { color: var(--lumiverse-success, #4caf50); }
+.la-subagent-item.is-error .la-subagent-mark { color: var(--lumiverse-danger, #e05555); }
+.la-subagent-item.is-running .la-subagent-mark { color: var(--lumiverse-primary-text); }
+.la-subagent-name { font-family: var(--lumiverse-font-mono); color: var(--lumiverse-text); flex-shrink: 0; }
+.la-subagent-summary { color: var(--lumiverse-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.la-subagent-more { color: var(--lumiverse-text-dim); font-style: italic; }
+
+/* ask_user_question: minimize affordances */
+.la-ask-title-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.la-ask-minimize { font-size: 12px; padding: 2px 10px; }
+.la-ask-pill {
+  position: fixed; right: 18px; bottom: 18px; z-index: 10000;
+  background: var(--lumiverse-primary, #6c5ce7); color: var(--lumiverse-primary-contrast, #fff);
+  border: none; border-radius: 999px; padding: 10px 16px;
+  font-size: 13px; font-weight: 600; cursor: pointer;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+  animation: la-ask-pill-pulse 2.4s ease-in-out infinite;
+}
+@keyframes la-ask-pill-pulse { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+
+/* Hooks editor */
+.la-hooks-textarea { font-family: var(--lumiverse-font-mono); font-size: 12px; width: 100%; min-height: 90px; }
+.la-settings-hint-error { color: var(--lumiverse-danger, #e05555); }
 ${MESSAGE_STYLES}
 ${APP_STYLES}
 `;
@@ -12840,9 +13018,46 @@ function describeToolActivity(name, args) {
       const shown = calls.length <= 4 ? calls.join(" → ") : `${calls.slice(0, 3).join(" → ")} → … (${calls.length} steps)`;
       return { kind: "read", verb: "Chaining", target: shown };
     }
+    case "delegate": {
+      const agent = s("agent") ?? "worker";
+      const task = s("task") ?? "";
+      return { kind: agent === "explore" ? "search" : "write", verb: "Delegating to", target: `${agent}: ${truncate(task.replace(/\s+/g, " "), 60)}` };
+    }
+    case "remember_note":
+      return { kind: "write", verb: "Noting", target: truncate(s("text") ?? "a fact", 50) };
     default:
       return { kind: "read", verb: "Calling", target: name };
   }
+}
+function subcallMark(ok) {
+  return ok === undefined ? "→" : ok ? "✓" : "✗";
+}
+function renderSubagentPanel(subcalls) {
+  const panel = el2("div", "la-subagent-panel");
+  updateSubagentPanel(panel, subcalls);
+  return panel;
+}
+function updateSubagentPanel(target, subcalls) {
+  const panel = target.classList.contains("la-subagent-panel") ? target : target.querySelector(".la-subagent-panel");
+  if (!panel)
+    return;
+  panel.replaceChildren();
+  const running = subcalls.filter((c) => c.ok === undefined).length;
+  const failed = subcalls.filter((c) => c.ok === false).length;
+  const head = el2("div", "la-subagent-head", subcalls.length === 0 ? "Subagent starting..." : `Subagent: ${subcalls.length} tool call${subcalls.length === 1 ? "" : "s"}${running > 0 ? `, ${running} running` : ""}${failed > 0 ? `, ${failed} failed` : ""}`);
+  panel.appendChild(head);
+  if (subcalls.length === 0)
+    return;
+  const list = el2("ul", "la-subagent-list");
+  const shown = subcalls.slice(-12);
+  if (shown.length < subcalls.length)
+    list.appendChild(el2("li", "la-subagent-item la-subagent-more", `… ${subcalls.length - shown.length} earlier`));
+  for (const c of shown) {
+    const li = el2("li", `la-subagent-item${c.ok === undefined ? " is-running" : c.ok ? " is-done" : " is-error"}`);
+    li.append(el2("span", "la-subagent-mark", subcallMark(c.ok)), el2("span", "la-subagent-name", c.name), el2("span", "la-subagent-summary", c.summary));
+    list.appendChild(li);
+  }
+  panel.appendChild(list);
 }
 function todoMark(status) {
   switch (status) {
@@ -12872,7 +13087,7 @@ function renderTodosPanel(todos) {
   panel.appendChild(list);
   return panel;
 }
-function buildToolCard(callId, name, args, deps) {
+function buildToolCard(callId, name, args, deps, subcalls) {
   const card = el2("div", "la-tool-card la-msg-block is-running");
   card.dataset["callId"] = callId;
   const desc = describeToolActivity(name, args);
@@ -12937,6 +13152,8 @@ function buildToolCard(callId, name, args, deps) {
   if (name === "todo_write" && Array.isArray(args["todos"])) {
     card.appendChild(renderTodosPanel(args["todos"]));
   }
+  if (name === "delegate")
+    card.appendChild(renderSubagentPanel(subcalls ?? []));
   card.appendChild(body);
   head.addEventListener("click", (ev) => {
     const t = ev.target;
@@ -13303,7 +13520,7 @@ function renderStaticAssistant(msg, deps, allEdits) {
   const makeStep = (block, blockIndex) => {
     const description = describeToolActivity(block.name, block.args);
     return { id: block.call_id, title: `${description.verb} ${description.target}`, state: block.is_error ? "error" : block.result === undefined ? "running" : "done", render: () => {
-      const card = buildToolCard(block.call_id, block.name, block.args, deps);
+      const card = buildToolCard(block.call_id, block.name, block.args, deps, block.subcalls);
       card.classList.toggle("is-running", msg.status === "streaming" && block.result === undefined);
       card.classList.add(block.is_error ? "is-error" : "is-done");
       const result = card.querySelector(".la-tool-body-result pre");
@@ -13473,7 +13690,7 @@ function createStreamingAssistant(deps, source, compaction = false) {
   const activity = createActivitySummary(source ? { load: async (start, callId) => {
     const page = await source.activity("tools", start, callId);
     return { ...page, steps: page.items.flatMap(({ block, blockIndex }) => block.type !== "tool" ? [] : [{ id: block.call_id, title: block.name, state: block.is_error ? "error" : block.result === undefined ? "running" : "done", render() {
-      const card = buildToolCard(block.call_id, block.name, block.args, deps);
+      const card = buildToolCard(block.call_id, block.name, block.args, deps, block.subcalls);
       card.classList.toggle("is-running", block.result === undefined);
       const pre = card.querySelector(".la-tool-body-result pre");
       if (pre)
@@ -13590,7 +13807,7 @@ function createStreamingAssistant(deps, source, compaction = false) {
         return link;
       } });
       activity.add({ id: callId, title: `${description.verb} ${description.target}`, state: "running", render: () => {
-        const card = buildToolCard(callId, record.name, record.args, deps);
+        const card = buildToolCard(callId, record.name, record.args, deps, record.subcalls);
         if (record.result !== undefined) {
           card.classList.remove("is-running");
           card.classList.add(record.error ? "is-error" : "is-done");
@@ -13600,6 +13817,14 @@ function createStreamingAssistant(deps, source, compaction = false) {
         }
         return card;
       } });
+    },
+    subagentProgress(callId, subcalls) {
+      const record = toolStates.get(callId);
+      if (record)
+        record.subcalls = subcalls;
+      const card = wrap.querySelector(`.la-tool-card[data-call-id="${callId}"]`);
+      if (card)
+        updateSubagentPanel(card, subcalls);
     },
     finishTool(callId, result, isError, editIds) {
       const record = toolStates.get(callId);
@@ -16614,6 +16839,7 @@ function mountDrawer(ctx) {
     startingSession: false,
     compacting: false,
     compactedAt: null,
+    sessionMode: "normal",
     contextPromptTokens: 0,
     contextTokens: 128000,
     pendingMessage: null,
@@ -16804,7 +17030,29 @@ function mountDrawer(ctx) {
   const compactTipSub = el9("div", "la-compact-tooltip-sub", "Click to compact now.");
   compactTip.append(compactTipMain, compactTipSub);
   compactBtn.appendChild(compactTip);
-  composerActions.append(compactBtn, attachBtn, sendBtn, cancelBtn);
+  const planBtn = el9("button", "la-plan-btn");
+  planBtn.type = "button";
+  planBtn.setAttribute("aria-label", "Toggle plan mode (read-only)");
+  planBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 12.5l3 3 5-6"/></svg>';
+  const planTip = el9("div", "la-compact-tooltip");
+  const planTipMain = el9("div", "la-compact-tooltip-main", "Plan mode off");
+  planTip.append(planTipMain, el9("div", "la-compact-tooltip-sub", "Click to make the agent read-only: it investigates and proposes, you apply."));
+  planBtn.appendChild(planTip);
+  const updatePlanButton = () => {
+    const on = state.sessionMode === "plan";
+    planBtn.classList.toggle("is-on", on);
+    planTipMain.textContent = on ? "Plan mode on (read-only)" : "Plan mode off";
+    planBtn.setAttribute("aria-pressed", String(on));
+    textarea.placeholder = on ? "Plan mode: ask for analysis or a plan" : "Ask anything";
+  };
+  planBtn.addEventListener("click", () => {
+    const next = state.sessionMode === "plan" ? "normal" : "plan";
+    state.sessionMode = next;
+    updatePlanButton();
+    if (state.sessionId)
+      sendBackend({ type: "set_session_mode", sessionId: state.sessionId, mode: next });
+  });
+  composerActions.append(planBtn, compactBtn, attachBtn, sendBtn, cancelBtn);
   composerArea.append(textarea, composerActions);
   composerArea.setAttribute("data-tut", "composer");
   const queuedWrap = el9("div", "la-queued");
@@ -18262,6 +18510,48 @@ Revert those edits to the character now, or leave them applied?`;
     retriesInput.placeholder = String(DEFAULT_AUTO_RETRIES);
     retriesRow.append(retriesInput);
     wrap.append(retriesRow, el9("div", "la-settings-hint", "Retry failed model requests from saved progress. Completed edits are kept. Default: 3. Set 0 to disable."));
+    const spendCapRow = el9("div", "la-settings-row");
+    spendCapRow.append(el9("label", "la-settings-row-label", "Spend cap per message (tk)"));
+    const spendCapInput = document.createElement("input");
+    spendCapInput.type = "number";
+    spendCapInput.className = "la-slider-input";
+    spendCapInput.min = "1";
+    spendCapInput.step = "1";
+    spendCapInput.placeholder = "off";
+    spendCapRow.appendChild(spendCapInput);
+    wrap.append(spendCapRow, el9("div", "la-settings-hint", "Pause the agent once one message's run has used this many prompt+completion tokens. Send another message to continue. Empty = unlimited."));
+    wrap.appendChild(el9("hr", "la-settings-divider"));
+    wrap.appendChild(el9("label", "la-settings-label", "Questions (ask_user_question)"));
+    wrap.appendChild(el9("div", "la-settings-hint", "Shape of the question modal the agent can open. Larger caps go into the tool schema the model sees."));
+    const mkNum = (label, min, max, hint) => {
+      const row = el9("div", "la-settings-row");
+      row.append(el9("label", "la-settings-row-label", label));
+      const input = document.createElement("input");
+      input.type = "number";
+      input.className = "la-slider-input";
+      input.min = String(min);
+      input.max = String(max);
+      input.step = "1";
+      row.appendChild(input);
+      wrap.append(row, el9("div", "la-settings-hint", hint));
+      return input;
+    };
+    const askQInput = mkNum("Max questions per call", 1, 20, "Default 4, up to 20.");
+    const askOptInput = mkNum("Max options per question", 2, 12, "Default 4, up to 12. An Other free-text option is always added.");
+    const askHeaderInput = mkNum("Header label max chars", 4, 40, "Default 12, up to 40.");
+    const askTimeoutInput = mkNum("Answer timeout (minutes)", 0, 1440, "Default 10. 0 waits until you answer or close the tab. Typing in the modal keeps the timer alive.");
+    wrap.appendChild(el9("hr", "la-settings-divider"));
+    wrap.appendChild(el9("label", "la-settings-label", "Tool hooks"));
+    wrap.appendChild(el9("div", "la-settings-hint", 'JSON array of rules matched against each tool call. Fields: tool (glob), action, path (globs), when (before|after), effect (deny|approve|run), custom_tool (for run), message. Example: [{"tool":"workspace","action":"delete","when":"before","effect":"deny"}]'));
+    const hooksArea = document.createElement("textarea");
+    hooksArea.className = "la-textarea la-settings-textarea la-hooks-textarea";
+    hooksArea.rows = 5;
+    hooksArea.placeholder = "[]";
+    hooksArea.spellcheck = false;
+    wrap.appendChild(hooksArea);
+    const hooksError = el9("div", "la-settings-hint la-settings-hint-error");
+    hooksError.style.display = "none";
+    wrap.appendChild(hooksError);
     const parallelToolsRow = el9("div", "la-settings-row");
     parallelToolsRow.append(el9("label", "la-settings-row-label", "Parallel tool calls"));
     const parallelToolsInput = document.createElement("input");
@@ -18404,6 +18694,13 @@ Revert those edits to the character now, or leave them applied?`;
       tpmInput.value = s.tpmLimit ? String(s.tpmLimit) : "";
       rpmInput.value = s.rpmLimit ? String(s.rpmLimit) : "";
       retriesInput.value = String(s.autoRetries ?? DEFAULT_AUTO_RETRIES);
+      spendCapInput.value = s.spendCapTokens ? String(s.spendCapTokens) : "";
+      askQInput.value = String(s.askMaxQuestions ?? 4);
+      askOptInput.value = String(s.askMaxOptions ?? 4);
+      askHeaderInput.value = String(s.askHeaderMaxChars ?? 12);
+      askTimeoutInput.value = String(s.askTimeoutMinutes ?? 10);
+      if (document.activeElement !== hooksArea)
+        hooksArea.value = s.hooks && s.hooks.length > 0 ? JSON.stringify(s.hooks, null, 2) : "";
       renderSamplers();
     };
     const resetAllSamplers = () => {
@@ -18528,6 +18825,23 @@ Revert those edits to the character now, or leave them applied?`;
       const systemPromptOverride = promptValue.length === 0 || promptValue === defaultBody ? null : promptValue;
       const placement = jbPlacement.value;
       const newCacheMode = cacheModeSelect.value;
+      let hooks;
+      try {
+        hooks = parseHooksText(hooksArea.value);
+        hooksError.style.display = "none";
+      } catch (err) {
+        hooksError.textContent = err.message;
+        hooksError.style.display = "";
+        status.textContent = "Fix the hooks JSON to save.";
+        status.classList.add("is-error");
+        return;
+      }
+      const clampInt = (input, fallback) => {
+        const n = parseInt(input.value.trim(), 10);
+        if (!Number.isFinite(n))
+          return fallback;
+        return Math.min(Number(input.max), Math.max(Number(input.min), n));
+      };
       const payload = {
         type: "update_settings",
         persona,
@@ -18545,7 +18859,13 @@ Revert those edits to the character now, or leave them applied?`;
         rpmLimit: parsePosInt(rpmInput.value),
         autoRetries: coerceAutoRetries(retriesInput.value.trim() ? Number(retriesInput.value) : undefined),
         debugLogging: debugLogInput.checked,
-        requireChangeApproval: changeApprovalInput.checked
+        requireChangeApproval: changeApprovalInput.checked,
+        spendCapTokens: parsePosInt(spendCapInput.value),
+        askMaxQuestions: clampInt(askQInput, 4),
+        askMaxOptions: clampInt(askOptInput, 4),
+        askHeaderMaxChars: clampInt(askHeaderInput, 12),
+        askTimeoutMinutes: clampInt(askTimeoutInput, 10),
+        hooks
       };
       const key = JSON.stringify(payload);
       if (key === lastCommitted)
@@ -19529,6 +19849,8 @@ ${t}` : t);
         clearStartTimeout();
         dlog("session_started received", { sessionId: msg.sessionId, characterId: msg.characterId, pendingPinChatId: state.pendingPinChatId, pendingMessage: state.pendingMessage, pendingMessageId: state.pendingMessageId });
         state.sessionId = msg.sessionId;
+        if (state.sessionMode === "plan")
+          sendBackend({ type: "set_session_mode", sessionId: msg.sessionId, mode: "plan" });
         state.characterId = msg.characterId;
         state.characterName = msg.characterName;
         state.startingSession = false;
@@ -19583,6 +19905,8 @@ ${t}` : t);
         state.messages = [...msg.messages];
         state.edits = [...msg.edits];
         state.compactedAt = msg.compactedAt ?? null;
+        state.sessionMode = msg.mode ?? "normal";
+        updatePlanButton();
         if (switchedSession) {
           state.attachments = [];
           for (const attachment of state.fileAttachments)
@@ -19956,12 +20280,47 @@ ${t}` : t);
           autoRetries: msg.autoRetries,
           debugLogging: msg.debugLogging,
           requireChangeApproval: msg.requireChangeApproval,
-          ...msg.reasoningEffort !== undefined ? { reasoningEffort: msg.reasoningEffort } : {}
+          ...msg.reasoningEffort !== undefined ? { reasoningEffort: msg.reasoningEffort } : {},
+          ...msg.askMaxQuestions !== undefined ? { askMaxQuestions: msg.askMaxQuestions } : {},
+          ...msg.askMaxOptions !== undefined ? { askMaxOptions: msg.askMaxOptions } : {},
+          ...msg.askHeaderMaxChars !== undefined ? { askHeaderMaxChars: msg.askHeaderMaxChars } : {},
+          ...msg.askTimeoutMinutes !== undefined ? { askTimeoutMinutes: msg.askTimeoutMinutes } : {},
+          ...msg.spendCapTokens !== undefined ? { spendCapTokens: msg.spendCapTokens } : {},
+          ...msg.hooks !== undefined ? { hooks: msg.hooks } : {}
         };
         for (const h of settingsListeners.handlers)
           h();
         updateCompactButton();
         break;
+      case "session_mode_set":
+        if (msg.sessionId !== state.sessionId)
+          break;
+        state.sessionMode = msg.mode;
+        updatePlanButton();
+        break;
+      case "subagent_event": {
+        if (msg.sessionId !== state.sessionId)
+          break;
+        const a = state.currentAssistantMessage;
+        if (!a)
+          break;
+        const block = a.blocks.find((b) => b.type === "tool" && b.call_id === msg.callId);
+        if (!block)
+          break;
+        const subcalls = block.subcalls ?? (block.subcalls = []);
+        const ev = msg.event;
+        if (ev.type === "tool_started") {
+          subcalls.push({ id: ev.id, name: ev.name, summary: ev.summary });
+          if (subcalls.length > 200)
+            subcalls.splice(0, subcalls.length - 200);
+        } else if (ev.type === "tool_finished") {
+          const rec = subcalls.find((c) => c.id === ev.id);
+          if (rec)
+            rec.ok = ev.ok;
+        }
+        state.streamingAssistant?.subagentProgress(msg.callId, subcalls);
+        break;
+      }
       case "phoneline_pairings_pushed":
         for (const h of pairingsListeners.handlers)
           h(msg.pairings);
@@ -20042,7 +20401,29 @@ ${t}` : t);
               result = await handleTranslateBatch(msg.args);
             } else if (msg.op === "ask_user_question") {
               await Promise.resolve();
-              result = await showAskUserQuestion(msg.args);
+              const controller = new AbortController;
+              frontendRequests.set(msg.rpcId, controller);
+              let lastKeepalive = 0;
+              const onActivity = () => {
+                const now = Date.now();
+                if (now - lastKeepalive < 20000)
+                  return;
+                lastKeepalive = now;
+                sendBackend({ type: "frontend_rpc_keepalive", rpcId: msg.rpcId });
+              };
+              let askResult;
+              try {
+                askResult = await showAskUserQuestion(msg.args, { signal: controller.signal, onActivity });
+              } finally {
+                frontendRequests.delete(msg.rpcId);
+              }
+              if (askResult.cancelled && askResult.draft && textarea.value.trim().length === 0) {
+                setComposerText(askResult.draft);
+                updateComposer();
+              }
+              if (controller.signal.aborted)
+                return;
+              result = { cancelled: askResult.cancelled, answers: askResult.answers, notes: askResult.notes };
             } else if (msg.op === "image_resize") {
               await Promise.resolve().then(() => init_image_resize());
               const a = msg.args;

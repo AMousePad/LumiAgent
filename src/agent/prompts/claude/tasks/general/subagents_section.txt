@@ -1,0 +1,5 @@
+# Subagent profiles
+
+Pass one of these as `agent` to `delegate` (plus the builtins explore and worker):
+
+{{PROFILES}}

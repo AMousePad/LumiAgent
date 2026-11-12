@@ -2,6 +2,7 @@ import { coerceAutoRetries } from "../agent/retry";
 import type { SpindleAPI } from "lumiverse-spindle-types";
 import { coerceSamplerBag, defaultSamplerBag, type SamplerBag } from "./samplers";
 import { setDebugLogging } from "../log";
+import { coerceHooks, type HookRule } from "../agent/hooks";
 
 const SETTINGS_PATH = "settings.json";
 const SCHEMA_VERSION = 4;
@@ -59,6 +60,28 @@ export interface AgentSettings {
   // global reasoning settings; "off" disables thinking; the rest map to the
   // host's per-request override.
   readonly reasoningEffort: "inherit" | "off" | "minimal" | "low" | "medium" | "high" | "max";
+  // ask_user_question shape caps. Baked into the tool schema per send.
+  readonly askMaxQuestions: number;
+  readonly askMaxOptions: number;
+  readonly askHeaderMaxChars: number;
+  // 0 = wait indefinitely (the RPC still dies with the browser session).
+  readonly askTimeoutMinutes: number;
+  // null = unlimited. Positive = tokens (prompt + completion) one message's
+  // agent run may consume before it pauses for the user.
+  readonly spendCapTokens: number | null;
+  readonly hooks: readonly HookRule[];
+}
+
+export const ASK_LIMITS = {
+  maxQuestions: { default: 4, min: 1, max: 20 },
+  maxOptions: { default: 4, min: 2, max: 12 },
+  headerMaxChars: { default: 12, min: 4, max: 40 },
+  timeoutMinutes: { default: 10, min: 0, max: 1440 },
+} as const;
+
+function coerceRange(v: unknown, r: { default: number; min: number; max: number }): number {
+  if (typeof v !== "number" || !Number.isFinite(v)) return r.default;
+  return Math.min(r.max, Math.max(r.min, Math.floor(v)));
 }
 
 export type ReasoningEffortSetting = AgentSettings["reasoningEffort"];
@@ -116,6 +139,12 @@ export function defaultSettings(): AgentSettings {
     debugLogging: false,
     requireChangeApproval: false,
     reasoningEffort: "inherit",
+    askMaxQuestions: ASK_LIMITS.maxQuestions.default,
+    askMaxOptions: ASK_LIMITS.maxOptions.default,
+    askHeaderMaxChars: ASK_LIMITS.headerMaxChars.default,
+    askTimeoutMinutes: ASK_LIMITS.timeoutMinutes.default,
+    spendCapTokens: null,
+    hooks: [],
   };
 }
 
@@ -167,6 +196,12 @@ export async function loadSettings(spindle: SpindleAPI, userId: string): Promise
     debugLogging: s["debugLogging"] === true,
     requireChangeApproval: s["requireChangeApproval"] === true,
     reasoningEffort: coerceReasoningEffort(s["reasoningEffort"]),
+    askMaxQuestions: coerceRange(s["askMaxQuestions"], ASK_LIMITS.maxQuestions),
+    askMaxOptions: coerceRange(s["askMaxOptions"], ASK_LIMITS.maxOptions),
+    askHeaderMaxChars: coerceRange(s["askHeaderMaxChars"], ASK_LIMITS.headerMaxChars),
+    askTimeoutMinutes: coerceRange(s["askTimeoutMinutes"], ASK_LIMITS.timeoutMinutes),
+    spendCapTokens: coercePositiveInt(s["spendCapTokens"]),
+    hooks: coerceHooks(s["hooks"]),
   };
   setDebugLogging(resolved.debugLogging);
   return resolved;

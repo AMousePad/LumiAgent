@@ -131,6 +131,7 @@ const MOVE_TOOLS: ReadonlySet<string> = new Set([
 ]);
 
 const TOOL_LABELS: Readonly<Record<string, string>> = {
+  remember_note: "Append a note to the agent's notes file",
   run_cache_diagnostic: "Run a LumiCache simulation on a disposable chat copy",
   create_memory_vault: "Snapshot chat memory into a vault",
   rename_memory_vault: "Rename a memory vault",
@@ -332,7 +333,7 @@ export function changeApprovalPolicyFor(
   args: Readonly<Record<string, unknown>>,
   context: ApprovalTargetContext = {},
 ): ChangeApprovalPolicy {
-  if (toolName === "custom_tool_run" || isToolGroup(toolName)) return { kind: "delegate" };
+  if (toolName === "custom_tool_run" || toolName === "delegate" || isToolGroup(toolName)) return { kind: "delegate" };
   if (toolName === "run_cache_diagnostic" && ["audit", "cancel"].includes(String(args["action"]))) return { kind: "none" };
   if (NO_CHANGE_TOOLS.has(toolName)) return { kind: "none" };
   if (toolName === "edit_theme" && args["validate_only"] === true) return { kind: "none" };

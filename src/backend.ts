@@ -26,13 +26,16 @@ import type {
   WireFile,
   RevertOutcomeWire,
   ScopeRef,
+  SessionMode,
   CharacterStorageEntry,
   SessionStatusWire,
   ChangeApprovalResultWire,
 } from "./types";
 import { runAgent } from "./agent/loop";
-import { listDeferredToolNames, makeDeferredToolSchemaMap, makeInitialToolSchemas, makeToolDispatch, RecentReadsCache, toolRequiresCharacter, type ToolApprovalDecision, type ToolApprovalRequest } from "./agent/tools";
+import { listDeferredToolNames, makeDeferredToolSchemaMap, makeInitialToolSchemas, makeToolDispatch, allowedInPlanMode, RecentReadsCache, toolRequiresCharacter, type ToolApprovalDecision, type ToolApprovalRequest } from "./agent/tools";
 import { systemMessageWithCache } from "./agent/cache-control";
+import { applyAskLimits } from "./agent/tools/ask-user-question";
+import type { DelegationContext } from "./agent/tools/_context";
 import { buildGeneralSystemPrompt, buildContextNote } from "./tasks/general";
 import { fillPrompt } from "./agent/prompts/_fill";
 import compactionTemplate from "./agent/prompts/claude/backend/compaction.txt";
@@ -229,8 +232,16 @@ interface PendingRpc {
   resolve: (v: unknown) => void;
   reject: (e: Error) => void;
   timer: ReturnType<typeof setTimeout>;
+  // Re-armed by frontend_rpc_keepalive so a user still typing never times out.
+  rearm: () => void;
   signal?: AbortSignal;
   onAbort?: () => void;
+}
+
+function keepaliveFrontendRpc(rpcId: string, fromUserId: string): void {
+  const pending = pendingFrontendRpc.get(rpcId);
+  if (!pending || pending.userId !== fromUserId) return;
+  pending.rearm();
 }
 const pendingFrontendRpc = new Map<string, PendingRpc>();
 const runFrontends = new Map<string, FrontendBinding>();
@@ -281,9 +292,8 @@ function callFrontend(
   const rpcId = makeId("rpc");
   if (signal?.aborted) return Promise.reject(new Error(`frontend rpc '${op}' was cancelled`));
   return new Promise<unknown>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      rejectFrontendRpc(rpcId, `frontend rpc '${op}' timed out after ${timeoutMs}ms`, true);
-    }, timeoutMs);
+    const expire = (): void => rejectFrontendRpc(rpcId, `frontend rpc '${op}' timed out after ${timeoutMs}ms`, true);
+    const timer = setTimeout(expire, timeoutMs);
     const onAbort = signal
       ? (): void => rejectFrontendRpc(rpcId, `frontend rpc '${op}' was cancelled`, true)
       : undefined;
@@ -293,6 +303,12 @@ function callFrontend(
       resolve,
       reject,
       timer,
+      rearm: () => {
+        const p = pendingFrontendRpc.get(rpcId);
+        if (!p) return;
+        clearTimeout(p.timer);
+        p.timer = setTimeout(expire, timeoutMs);
+      },
       ...(signal ? { signal } : {}),
       ...(onAbort ? { onAbort } : {}),
     });
@@ -554,6 +570,7 @@ async function buildSessionSystemMessage(
   if (s.frozenAgentNotes === undefined) {
     s.frozenAgentNotes = await loadAgentNotes(userId);
   }
+  await freezeWorkspaceListings(s, userId);
   const hasCharacter = c !== null;
   // Character-agnostic: the focused character, its extension guidance, and its
   // external surfaces are delivered as a conversation context note (see
@@ -564,12 +581,49 @@ async function buildSessionSystemMessage(
     systemPromptOverride: settings.systemPromptOverride,
     agentNotes: s.frozenAgentNotes,
     deferredToolNames: listDeferredToolNames().filter((n) => hasCharacter || !toolRequiresCharacter(n)),
+    skills: s.frozenSkills ?? null,
+    subagentProfiles: s.frozenProfiles ?? null,
   });
   if (settings.jailbreak.trim().length > 0 && settings.jailbreakPlacement === "system_suffix") {
     prompt = `${prompt}\n\n${settings.jailbreak}`;
   }
   return systemMessageWithCache(prompt, settings.cacheMode);
 }
+
+// Skills and subagent profiles are listed once per session, like the notes,
+// so later edits to those folders never shift the cached prefix.
+async function freezeWorkspaceListings(s: PersistedSession, userId: string): Promise<void> {
+  if (s.frozenSkills === undefined) {
+    try {
+      const { loadSkills, describeSkills } = await import("./state/skills");
+      const text = describeSkills(await loadSkills(spindle, userId));
+      s.frozenSkills = text.length > 0 ? text : null;
+    } catch { s.frozenSkills = null; }
+  }
+  if (s.frozenProfiles === undefined) {
+    try {
+      const { loadUserProfiles, describeProfiles } = await import("./state/agent-profiles");
+      const text = describeProfiles(await loadUserProfiles(spindle, userId));
+      s.frozenProfiles = text.length > 0 ? text : null;
+    } catch { s.frozenProfiles = null; }
+  }
+}
+
+// Same technical body the parent runs on, minus the persona. The subagent
+// preamble is prepended by the delegate tool.
+function buildSubagentSystemPrompt(s: PersistedSession, settings: AgentSettings, hasCharacter: boolean): string {
+  return buildGeneralSystemPrompt({
+    persona: "",
+    systemPromptOverride: settings.systemPromptOverride,
+    agentNotes: s.frozenAgentNotes ?? null,
+    deferredToolNames: listDeferredToolNames().filter((n) => hasCharacter || !toolRequiresCharacter(n)),
+    skills: s.frozenSkills ?? null,
+    subagentProfiles: null,
+  });
+}
+
+const PLAN_MODE_ON_NOTE = "[Context update from the system: plan mode is ON. State-changing tools are refused for now. Investigate with read tools, then describe the exact changes you would make (paths, before/after) and stop. The user will switch modes to apply them.]";
+const PLAN_MODE_OFF_NOTE = "[Context update from the system: plan mode is OFF. Write tools are available again.]";
 
 async function buildContextNoteForSession(s: PersistedSession, userId: string): Promise<string> {
   const characterId = s.characterId;
@@ -589,15 +643,35 @@ async function buildContextNoteForSession(s: PersistedSession, userId: string): 
 // sends call it before appending the new user turn, preserving every cached
 // prefix byte while still placing the note ahead of the user's words.
 async function emitContextNoteIfChanged(s: PersistedSession, userId: string): Promise<void> {
-  const cur = { characterId: s.characterId, pinnedChatId: s.pinnedChatId ?? null };
+  const mode: SessionMode = s.mode ?? "normal";
+  const cur = { characterId: s.characterId, pinnedChatId: s.pinnedChatId ?? null, mode };
   const last = s.lastContext ?? null;
-  if (last && last.characterId === cur.characterId && last.pinnedChatId === cur.pinnedChatId) return;
-  const curMeaningful = cur.characterId !== null || cur.pinnedChatId !== null;
-  const lastMeaningful = !!last && (last.characterId !== null || last.pinnedChatId !== null);
-  if (!curMeaningful && !lastMeaningful) { s.lastContext = cur; return; }
-  const note = await buildContextNoteForSession(s, userId);
-  s.llmHistory.push({ role: "user", content: note });
+  const focusSame = !!last && last.characterId === cur.characterId && last.pinnedChatId === cur.pinnedChatId;
+  const modeSame = (last?.mode ?? "normal") === mode;
+  if (last && focusSame && modeSame) return;
+  if (!focusSame) {
+    const curMeaningful = cur.characterId !== null || cur.pinnedChatId !== null;
+    const lastMeaningful = !!last && (last.characterId !== null || last.pinnedChatId !== null);
+    if (curMeaningful || lastMeaningful) {
+      const note = await buildContextNoteForSession(s, userId);
+      s.llmHistory.push({ role: "user", content: note });
+    }
+  }
+  // A fresh session in normal mode needs no note; only a flip (or starting in plan mode) does.
+  if (!modeSame && (last !== null || mode === "plan")) {
+    s.llmHistory.push({ role: "user", content: mode === "plan" ? PLAN_MODE_ON_NOTE : PLAN_MODE_OFF_NOTE });
+  }
   s.lastContext = cur;
+}
+
+async function handleSetSessionMode(sessionId: string, mode: SessionMode, userId: string): Promise<void> {
+  const key = scopedKey(userId, sessionId);
+  const s = liveSessions.get(key) ?? await loadSessionWithPending(sessionId, userId);
+  if (!s) { send({ type: "generation_error", sessionId, error: `session ${sessionId} not found` }, userId); return; }
+  if ((s.mode ?? "normal") === mode) { send({ type: "session_mode_set", sessionId, mode }, userId); return; }
+  s.mode = mode;
+  if (!pendingSessions.has(key)) await saveSession(spindle, s, userId);
+  send({ type: "session_mode_set", sessionId, mode }, userId);
 }
 
 // Apply the non-system jailbreak placements to a conversation already
@@ -646,6 +720,12 @@ async function handleGetSettings(userId: string): Promise<void> {
     debugLogging: settings.debugLogging,
     requireChangeApproval: settings.requireChangeApproval,
     reasoningEffort: settings.reasoningEffort,
+    askMaxQuestions: settings.askMaxQuestions,
+    askMaxOptions: settings.askMaxOptions,
+    askHeaderMaxChars: settings.askHeaderMaxChars,
+    askTimeoutMinutes: settings.askTimeoutMinutes,
+    spendCapTokens: settings.spendCapTokens,
+    hooks: settings.hooks,
   }, userId);
 }
 
@@ -740,45 +820,35 @@ function buildSamplerParams(
   return base;
 }
 
-async function handleUpdateSettings(
-  persona: string,
-  systemPromptOverride: string | null,
-  samplers: Readonly<Record<string, number | null>>,
-  jailbreak: string,
-  jailbreakPlacement: "system_suffix" | "user_suffix" | "assistant_prefill",
-  workspaceCapBytes: number | null,
-  toolOutputCapTokens: number | null,
-  cacheMode: "off" | "system_only" | "full",
-  parallelToolCalls: boolean,
-  tpmLimit: number | null,
-  rpmLimit: number | null,
-  debugLogging: boolean,
-  requireChangeApproval: boolean | undefined,
-  reasoningEffort: AgentSettings["reasoningEffort"] | undefined,
-  autoCompaction: boolean | undefined,
-  autoRetries: number | undefined,
-  userId: string,
-): Promise<void> {
+async function handleUpdateSettings(msg: Extract<FrontendToBackend, { type: "update_settings" }>, userId: string): Promise<void> {
   const prior = await loadSettings(spindle, userId);
-  const persistedApproval = requireChangeApproval ?? prior.requireChangeApproval;
+  const { coerceHooks } = await import("./agent/hooks");
+  const persona = msg.persona;
+  const systemPromptOverride = msg.systemPromptOverride;
   await saveSettings(spindle, {
     version: 4,
     persona: persona.length > 0 ? persona : DEFAULT_PERSONA,
     systemPromptOverride: systemPromptOverride !== null && systemPromptOverride.trim().length > 0 ? systemPromptOverride : null,
-    samplers: coerceSamplerBag(samplers),
-    jailbreak: typeof jailbreak === "string" ? jailbreak : "",
-    jailbreakPlacement,
-    workspaceCapBytes,
-    toolOutputCapTokens,
-    cacheMode,
-    parallelToolCalls,
-    tpmLimit,
-    rpmLimit,
-    debugLogging,
-    requireChangeApproval: persistedApproval,
-    reasoningEffort: reasoningEffort ?? prior.reasoningEffort,
-    autoCompaction: autoCompaction ?? prior.autoCompaction,
-    autoRetries: coerceAutoRetries(autoRetries ?? prior.autoRetries),
+    samplers: coerceSamplerBag(msg.samplers),
+    jailbreak: typeof msg.jailbreak === "string" ? msg.jailbreak : "",
+    jailbreakPlacement: msg.jailbreakPlacement,
+    workspaceCapBytes: msg.workspaceCapBytes,
+    toolOutputCapTokens: msg.toolOutputCapTokens,
+    cacheMode: msg.cacheMode ?? "full",
+    parallelToolCalls: msg.parallelToolCalls ?? true,
+    tpmLimit: msg.tpmLimit ?? null,
+    rpmLimit: msg.rpmLimit ?? null,
+    debugLogging: msg.debugLogging ?? false,
+    requireChangeApproval: msg.requireChangeApproval ?? prior.requireChangeApproval,
+    reasoningEffort: msg.reasoningEffort ?? prior.reasoningEffort,
+    autoCompaction: msg.autoCompaction ?? prior.autoCompaction,
+    autoRetries: coerceAutoRetries(msg.autoRetries ?? prior.autoRetries),
+    askMaxQuestions: msg.askMaxQuestions ?? prior.askMaxQuestions,
+    askMaxOptions: msg.askMaxOptions ?? prior.askMaxOptions,
+    askHeaderMaxChars: msg.askHeaderMaxChars ?? prior.askHeaderMaxChars,
+    askTimeoutMinutes: msg.askTimeoutMinutes ?? prior.askTimeoutMinutes,
+    spendCapTokens: msg.spendCapTokens === undefined ? prior.spendCapTokens : msg.spendCapTokens,
+    hooks: msg.hooks === undefined ? prior.hooks : coerceHooks(msg.hooks),
   }, userId);
   await handleGetSettings(userId);
 }
@@ -1122,6 +1192,9 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
   try {
     const systemMsg = await buildSessionSystemMessage(c, s, settings, userId);
     const compactPrompt = buildCompactionInstruction(maxHandoffChars);
+    // Snapshot before the compaction turn so the transcript holds only what the
+    // next agent can no longer see.
+    const preCompactionHistory = s.llmHistory.slice();
     const conv: LlmMessage[] = [systemMsg, ...s.llmHistory, { role: "user", content: compactPrompt }];
     // Same jailbreak as a normal turn so the compaction agent doesn't refuse
     // or sanitize content the main agent has been generating freely. Mismatched
@@ -1245,7 +1318,16 @@ async function compactSession(sessionId: string, userId: string, trigger: "auto"
     // Replace the model-facing history with a short primer so the next turn
     // starts fresh. The user's UI thread keeps the full history for their own
     // record; this only affects what the model sees next.
-    const primerContent = fillPrompt(compactionPrimerTemplate, { HANDOFF_PATH });
+    let transcriptNote = "";
+    try {
+      const { writeTmp } = await import("./state/tmp-store");
+      const { renderLlmHistoryTranscript } = await import("./state/transcript");
+      const info = await writeTmp(spindle, sessionId, userId, renderLlmHistoryTranscript(preCompactionHistory), "compaction:transcript");
+      transcriptNote = `The full pre-compaction transcript is kept at tmp handle "${info.handle}": tmp_grep / tmp_read it for any id, quote or decision the handoff lacks.`;
+    } catch (err) {
+      log("warn", `compactSession ${sessionId}: transcript not saved: ${(err as Error).message}`);
+    }
+    const primerContent = fillPrompt(compactionPrimerTemplate, { HANDOFF_PATH, TRANSCRIPT_NOTE: transcriptNote }).replace(/ {2,}/g, " ");
     s.llmHistory = [{ role: "user", content: primerContent }];
     // Persist the primer so the rebuild paths re-prepend it and rebuild only the
     // post-compaction messages instead of re-expanding the full thread.
@@ -1659,6 +1741,7 @@ async function handleLoadSession(sessionId: string, userId: string, frontendSess
     status: computeSessionStatus(s, userId, resolveContextTokens(settings.samplers)),
     sync: sessionRevisions.current(userId, sessionId),
     ...(s.compactedAt !== undefined ? { compactedAt: s.compactedAt } : {}),
+    mode: s.mode ?? "normal",
   };
   spindle.sendToFrontend(payload, userId, target);
 }
@@ -1816,7 +1899,19 @@ async function handleSendMessage(
   // fallback for continue/regenerate paths and will no-op here.
   await emitContextNoteIfChanged(s, userId);
   s.messages.push(userMsg);
-  s.llmHistory.push({ role: "user", content: userLlmContent(content, images, files) });
+  // `/skill rest` inlines the skill file for the model only; the thread keeps
+  // the user's literal text.
+  let llmText = content;
+  if (content.trimStart().startsWith("/")) {
+    try {
+      const { loadSkills, expandSlashCommand, renderSkillInvocation } = await import("./state/skills");
+      const hit = expandSlashCommand(content, await loadSkills(spindle, userId));
+      if (hit) llmText = renderSkillInvocation(hit.skill, hit.rest);
+    } catch (err) {
+      log("warn", `skill expansion failed: ${(err as Error).message}`);
+    }
+  }
+  s.llmHistory.push({ role: "user", content: userLlmContent(llmText, images, files) });
   await saveSession(spindle, s, userId);
   if (wasPending) {
     // Now persisted; drop the in-memory hold so future loads come from disk.
@@ -2692,6 +2787,8 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
   let deferredToolSchemas!: ReturnType<typeof makeDeferredToolSchemaMap>;
   let dispatch!: ReturnType<typeof makeToolDispatch>;
   let samplerParams!: ReturnType<typeof buildSamplerParams>;
+  let delegation!: DelegationContext;
+  let planMode = false;
   try {
     if (s.characterId !== null) {
       c = await spindle.characters.get(s.characterId, userId);
@@ -2729,12 +2826,58 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
     if (dieSchema && deathCommandMentioned(lastUserText) && !tools.some((t) => t.name === "mousey_die")) {
       tools.push(dieSchema);
     }
+    planMode = (s.mode ?? "normal") === "plan";
+    if (planMode) {
+      tools = tools.filter((t) => allowedInPlanMode(t.name));
+      for (const name of Object.keys(deferredToolSchemas)) if (!allowedInPlanMode(name)) delete deferredToolSchemas[name];
+    }
+    tools = applyAskLimits(tools, settings);
     dispatch = makeToolDispatch({
       requireChangeApproval: settings.requireChangeApproval,
       requestApproval: async (request, signal) => requestChangeApproval(userId, request, signal, await binding.target(signal)),
+      hooks: settings.hooks,
+      readOnlyMode: planMode,
     });
     const provider = await resolveProviderForConnection(s.connectionId, userId);
     samplerParams = buildSamplerParams(settings.samplers, settings.parallelToolCalls, provider);
+    const childReasoning = reasoningOverrideFor(settings.reasoningEffort);
+    const childTokenizer = await resolveModelForConnection(s.connectionId, userId);
+    delegation = {
+      systemPrompt: buildSubagentSystemPrompt(s, settings, hasCharacter),
+      contextNote: await buildContextNoteForSession(s, userId),
+      toolSchemas: [...tools, ...Object.values(deferredToolSchemas)],
+      ...(s.connectionId ? { connectionId: s.connectionId } : {}),
+      parameters: samplerParams,
+      ...(childReasoning !== undefined ? { reasoning: childReasoning } : {}),
+      cacheMode: settings.cacheMode,
+      ...(childTokenizer !== undefined ? { tokenizerModelId: childTokenizer } : {}),
+      resolveConnection: async (ref) => {
+        const list = await spindle.connections.list(userId);
+        const needle = ref.trim().toLowerCase();
+        const match = list.find((x) => x.id === ref) ?? list.find((x) => x.name.trim().toLowerCase() === needle);
+        if (!match) return null;
+        return {
+          connectionId: match.id,
+          name: match.name,
+          parameters: buildSamplerParams(settings.samplers, settings.parallelToolCalls, match.provider),
+          ...(typeof match.model === "string" && match.model.length > 0 ? { tokenizerModelId: match.model } : {}),
+        };
+      },
+      onProgress: (callId, ev) => {
+        const block = toolBlocks.get(callId);
+        if (block) {
+          const subcalls = block.subcalls ?? (block.subcalls = []);
+          if (ev.type === "tool_started") {
+            subcalls.push({ id: ev.id, name: ev.name, summary: ev.summary });
+            if (subcalls.length > 200) subcalls.splice(0, subcalls.length - 200);
+          } else if (ev.type === "tool_finished") {
+            const rec = subcalls.find((c) => c.id === ev.id);
+            if (rec) rec.ok = ev.ok;
+          }
+        }
+        send({ type: "subagent_event", sessionId: s.sessionId, callId, event: ev }, userId);
+      },
+    };
   } catch (setupErr) {
     activeSessions.delete(scopedKey(userId, s.sessionId));
     liveSessions.delete(scopedKey(userId, s.sessionId));
@@ -2766,6 +2909,10 @@ async function handleSendMessageInternal(s: PersistedSession, userId: string, co
       cacheMode: settings.cacheMode, tpmLimit: settings.tpmLimit, rpmLimit: settings.rpmLimit, autoRetries: settings.autoRetries, signal: ac.signal,
       recentReads: recentReadsFor(userId, s.sessionId),
       callFrontend: async (op, args, timeoutMs) => callFrontend(userId, op, args, timeoutMs, ac.signal, await binding.target(ac.signal)),
+      spendCapTokens: settings.spendCapTokens,
+      settings,
+      readOnlyMode: planMode,
+      delegation,
     })) {
       advanceActivity(assistant, ev);
       switch (ev.type) {
@@ -3235,12 +3382,14 @@ spindle.onFrontendMessage(async (raw: unknown, userId: string, frontendSessionId
       case "list_chats": await handleListChats(msg.characterId, msg.sessionId, userId); return;
       case "set_pinned_chat": await handleSetPinnedChat(msg.sessionId, msg.chatId, userId); return;
       case "set_focus": await handleSetFocus(msg.sessionId, msg.characterId, userId); return;
+      case "set_session_mode": await handleSetSessionMode(msg.sessionId, msg.mode, userId); return;
+      case "frontend_rpc_keepalive": keepaliveFrontendRpc(msg.rpcId, userId); return;
       case "get_settings": await handleGetSettings(userId); return;
       case "update_settings": {
         const previous = settingsWrites.get(userId) ?? Promise.resolve();
         const write = previous.catch(() => {}).then(async () => {
           try {
-            await handleUpdateSettings(msg.persona, msg.systemPromptOverride, msg.samplers, msg.jailbreak, msg.jailbreakPlacement, msg.workspaceCapBytes, msg.toolOutputCapTokens, msg.cacheMode ?? "full", msg.parallelToolCalls ?? true, msg.tpmLimit ?? null, msg.rpmLimit ?? null, msg.debugLogging ?? false, msg.requireChangeApproval, msg.reasoningEffort, msg.autoCompaction, msg.autoRetries, userId);
+            await handleUpdateSettings(msg, userId);
             if (msg.requestId) spindle.sendToFrontend({ type: "settings_saved", requestId: msg.requestId }, userId, frontendSessionId ? { frontendSessionId } : undefined);
           } catch (error) {
             if (msg.requestId) spindle.sendToFrontend({ type: "settings_saved", requestId: msg.requestId, error: (error as Error).message }, userId, frontendSessionId ? { frontendSessionId } : undefined);

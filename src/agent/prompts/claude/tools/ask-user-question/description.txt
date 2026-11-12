@@ -1,5 +1,5 @@
-Ask the user 1-4 multiple-choice questions and wait for the answer. Use only when a scope-changing or irreversible decision needs them and the choices can be listed: two valid approaches that come down to taste, an ambiguous request with 2-4 clear readings, or a gentler variant of a destructive action. Not for permission to do what was asked, and not for open-ended questions (ask in chat).
+Ask the user 1-{{MAX_Q}} multiple-choice questions and wait for the answer. Use only when a scope-changing or irreversible decision needs them and the choices can be listed: two valid approaches that come down to taste, an ambiguous request with a few clear readings, or a gentler variant of a destructive action. Not for permission to do what was asked, and not for open-ended questions (ask in chat).
 
-Each question: `question` (full sentence ending in ?), `header` (chip label, max 12 chars), `options` (2-4, each with a short `label` and a one-sentence `description`, optional `preview`), `multiSelect`. An "Other" free-text option is added automatically.
+Each question: `question` (full sentence ending in ?), `header` (chip label, max {{MAX_HEADER}} chars), `options` (2-{{MAX_OPT}}, each with a short `label` and a one-sentence `description`, optional `preview`), `multiSelect`. An "Other" free-text option is added automatically.
 
 Result: `cancelled: true`, or `answers` mapping each question to the chosen label (comma-joined for multi-select).

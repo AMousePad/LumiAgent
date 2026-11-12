@@ -3,7 +3,8 @@ import { isDeferredTool, isReadOnlyTool, listDeferredToolNames, maxResultSizeCha
 import { formatZodError, prepareToolArgs } from "./tools/_framework";
 import type { ToolCtx as SharedToolCtx, QueuedImage as SharedQueuedImage } from "./tools/_context";
 import { changeApprovalPolicyFor, type ChangeImpact } from "./change-approval";
-import { canonicalToolReferences, isPublicTool } from './tools/_tool-groups';
+import { canonicalToolReferences, isPublicTool, isToolGroup } from './tools/_tool-groups';
+import { describeHook, hookMatches, type HookRule } from "./hooks";
 
 export type ToolCtx = SharedToolCtx;
 export type QueuedImage = SharedQueuedImage;
@@ -35,6 +36,24 @@ export type ToolApprovalDecision =
 export interface ToolDispatchOptions {
   readonly requireChangeApproval?: boolean;
   readonly requestApproval?: (request: ToolApprovalRequest, signal: AbortSignal) => Promise<ToolApprovalDecision>;
+  readonly hooks?: readonly HookRule[];
+  // Plan mode: any call that is not read-only is refused before it runs.
+  readonly readOnlyMode?: boolean;
+}
+
+// Group calls carry the action in args, so the read-only answer depends on
+// the parsed input, not just the name.
+export function isReadOnlyCall(toolName: string, parsedArgs: Record<string, unknown>): boolean {
+  const tool = registry.get(toolName);
+  if (isToolGroup(toolName)) return Boolean(tool?.isConcurrencySafe?.(parsedArgs));
+  if (tool?.isReadOnly) return Boolean(tool.isReadOnly(parsedArgs));
+  return isReadOnlyTool(toolName);
+}
+
+const PLAN_MODE_ALWAYS_ALLOWED: ReadonlySet<string> = new Set(["delegate", "tool_search", "todo_write", "ask_user_question", "finish", "remember_note"]);
+
+export function allowedInPlanMode(toolName: string): boolean {
+  return PLAN_MODE_ALWAYS_ALLOWED.has(toolName) || isToolGroup(toolName) || isReadOnlyTool(toolName);
 }
 
 // In no-character sessions, drop tools whose execution is character-bound so
@@ -109,11 +128,25 @@ export function makeToolDispatch(options: ToolDispatchOptions = {}): Record<stri
         const v = await tool.validateInput(parsed.data, ctxWithDispatch as ToolCtx);
         if (!v.result) return { content: `Error: [${v.errorCode}] ${v.message}`, isError: true };
       }
-      if (options.requireChangeApproval === true) {
-        const policy = changeApprovalPolicyFor(tool.name, parsed.data as Record<string, unknown>, {
+      const parsedArgs = parsed.data as Record<string, unknown>;
+      if ((options.readOnlyMode === true || ctx.readOnlyMode === true) && !PLAN_MODE_ALWAYS_ALLOWED.has(tool.name) && !isReadOnlyCall(tool.name, parsedArgs)) {
+        return { content: `Error: [PLAN_MODE] '${tool.name}' would change state and plan mode is on. Describe the change you would make instead, the user will switch modes to apply it.`, isError: true };
+      }
+      const hooks = options.hooks ?? [];
+      let hookApproval: HookRule | null = null;
+      for (const rule of hooks) {
+        if (rule.when !== "before" || !hookMatches(rule, tool.name, parsedArgs)) continue;
+        if (rule.effect === "deny") return { content: `Error: [HOOK_DENIED] ${describeHook(rule)}`, isError: true };
+        if (rule.effect === "approve" && hookApproval === null) hookApproval = rule;
+      }
+      if (options.requireChangeApproval === true || hookApproval !== null) {
+        let policy = changeApprovalPolicyFor(tool.name, parsedArgs, {
           characterId: ctx.characterId,
           pinnedChatId: ctx.pinnedChatId,
         });
+        if (hookApproval !== null && policy.kind !== "required") {
+          policy = { kind: "required", impact: { action: "update", severity: "change", target: JSON.stringify(parsedArgs).slice(0, 500), summary: `Hook: ${describeHook(hookApproval)}` } };
+        }
         if (policy.kind === "required") {
           if (ctx.signal.aborted) return deniedResult({ kind: "cancelled" });
           if (!options.requestApproval) {
@@ -153,7 +186,21 @@ export function makeToolDispatch(options: ToolDispatchOptions = {}): Record<stri
       // decide whether to retry / recover; without it, coded errors look like
       // successful results and the model silently moves on.
       const r = await tool.execute(parsed.data, ctxWithDispatch as ToolCtx);
-      return r.isError === true ? { content: r.content, isError: true } : { content: r.content };
+      let content = r.content;
+      if (r.isError !== true && hooks.length > 0 && tool.name !== "custom_tool_run") {
+        for (const rule of hooks) {
+          if (rule.when !== "after" || rule.effect !== "run" || !rule.custom_tool || !hookMatches(rule, tool.name, parsedArgs)) continue;
+          const runner = dispatch["custom_tool_run"];
+          if (!runner) continue;
+          try {
+            const hr = await runner({ name: rule.custom_tool, args: { tool: tool.name, args: parsedArgs, result: content.slice(0, 20_000) } }, ctxWithDispatch as ToolCtx);
+            content = `${content}\n\n[hook ${rule.custom_tool}${hr.isError ? " FAILED" : ""}: ${hr.content.slice(0, 4000)}]`;
+          } catch (err) {
+            content = `${content}\n\n[hook ${rule.custom_tool} FAILED: ${(err as Error).message}]`;
+          }
+        }
+      }
+      return r.isError === true ? { content, isError: true } : { content };
     };
   }
   return dispatch;

@@ -1,5 +1,6 @@
-import type { SpindleAPI } from "lumiverse-spindle-types";
-import type { EditLogEntry, EditRecord, RevertOutcomeWire, ScopeRef } from "../../types";
+import type { GenerationReasoningOverrideDTO, SpindleAPI } from "lumiverse-spindle-types";
+import type { EditLogEntry, EditRecord, RevertOutcomeWire, ScopeRef, SubagentProgressEvent, ToolSchema } from "../../types";
+import type { AgentSettings } from "../../state/settings";
 import { ErrorCode, codedError } from "./_error_codes";
 
 export interface StagedEdit {
@@ -85,6 +86,35 @@ export interface ToolCtx {
   // a user-role image message after the tool batch. Unset in contexts that
   // can't render images.
   queueImage?(img: QueuedImage): void;
+  // Snapshot of the user's agent settings for the run. Tools that bake
+  // user-configurable limits into their behaviour (ask_user_question) read it.
+  readonly settings?: AgentSettings | undefined;
+  // Plan mode: the dispatcher refuses writes, and delegate forces explore.
+  readonly readOnlyMode?: boolean | undefined;
+  // Everything a tool needs to spawn a subagent. Unset inside a subagent, so
+  // nesting bottoms out at depth 1 by construction.
+  readonly delegation?: DelegationContext | undefined;
+}
+
+export interface DelegationContext {
+  // Child system prompt built by the backend: technical body, notes, deferred
+  // tool list, no persona.
+  readonly systemPrompt: string;
+  // Focus / pin note the parent received, replayed to the child as its first
+  // user turn so ids resolve the same way.
+  readonly contextNote: string;
+  // Every public schema this session may offer (initial + deferred), already
+  // character-gated. Profiles filter from here.
+  readonly toolSchemas: readonly ToolSchema[];
+  readonly connectionId?: string | undefined;
+  readonly parameters?: Record<string, unknown> | undefined;
+  readonly reasoning?: GenerationReasoningOverrideDTO | undefined;
+  readonly cacheMode: "off" | "system_only" | "full";
+  readonly tokenizerModelId?: string | undefined;
+  // Connection id or display name -> a runnable connection with provider-safe
+  // sampler params. Null when nothing matches.
+  resolveConnection(ref: string): Promise<{ connectionId: string; parameters: Record<string, unknown> | undefined; tokenizerModelId?: string | undefined; name: string } | null>;
+  onProgress?(callId: string, ev: SubagentProgressEvent): void;
 }
 
 export interface QueuedImage {

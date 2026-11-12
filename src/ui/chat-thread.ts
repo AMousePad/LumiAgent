@@ -9,6 +9,7 @@ import type {
   ChatMessage,
   ChatUserMessage,
   EditLogEntry,
+  SubcallRecord,
   TodoItem,
   TodoStatus,
 } from "../types";
@@ -52,6 +53,7 @@ export interface AssistantHandle {
   appendReasoning(token: string): void;
   startTool(callId: string, name: string, args: Record<string, unknown>): void;
   finishTool(callId: string, result: string, isError: boolean, editIds: readonly string[]): void;
+  subagentProgress(callId: string, subcalls: readonly SubcallRecord[]): void;
   attachEdits(edits: readonly EditLogEntry[]): void;
   addWarning(message: string): void;
   setStatus(status: ChatAssistantMessage["status"]): void;
@@ -213,8 +215,43 @@ function describeToolActivity(name: string, args: Record<string, unknown>): { ki
       const shown = calls.length <= 4 ? calls.join(" → ") : `${calls.slice(0, 3).join(" → ")} → … (${calls.length} steps)`;
       return { kind: "read", verb: "Chaining", target: shown };
     }
+    case "delegate": { const agent = s("agent") ?? "worker"; const task = s("task") ?? ""; return { kind: agent === "explore" ? "search" : "write", verb: "Delegating to", target: `${agent}: ${truncate(task.replace(/\s+/g, " "), 60)}` }; }
+    case "remember_note": return { kind: "write", verb: "Noting", target: truncate(s("text") ?? "a fact", 50) };
     default: return { kind: "read", verb: "Calling", target: name };
   }
+}
+
+function subcallMark(ok: boolean | undefined): string {
+  return ok === undefined ? "→" : ok ? "✓" : "✗";
+}
+
+// Live tool list of a subagent, shown above the delegate card's body.
+function renderSubagentPanel(subcalls: readonly SubcallRecord[]): HTMLElement {
+  const panel = el("div", "la-subagent-panel");
+  updateSubagentPanel(panel, subcalls);
+  return panel;
+}
+
+function updateSubagentPanel(target: HTMLElement, subcalls: readonly SubcallRecord[]): void {
+  const panel = target.classList.contains("la-subagent-panel") ? target : target.querySelector<HTMLElement>(".la-subagent-panel");
+  if (!panel) return;
+  panel.replaceChildren();
+  const running = subcalls.filter((c) => c.ok === undefined).length;
+  const failed = subcalls.filter((c) => c.ok === false).length;
+  const head = el("div", "la-subagent-head", subcalls.length === 0
+    ? "Subagent starting..."
+    : `Subagent: ${subcalls.length} tool call${subcalls.length === 1 ? "" : "s"}${running > 0 ? `, ${running} running` : ""}${failed > 0 ? `, ${failed} failed` : ""}`);
+  panel.appendChild(head);
+  if (subcalls.length === 0) return;
+  const list = el("ul", "la-subagent-list");
+  const shown = subcalls.slice(-12);
+  if (shown.length < subcalls.length) list.appendChild(el("li", "la-subagent-item la-subagent-more", `… ${subcalls.length - shown.length} earlier`));
+  for (const c of shown) {
+    const li = el("li", `la-subagent-item${c.ok === undefined ? " is-running" : c.ok ? " is-done" : " is-error"}`);
+    li.append(el("span", "la-subagent-mark", subcallMark(c.ok)), el("span", "la-subagent-name", c.name), el("span", "la-subagent-summary", c.summary));
+    list.appendChild(li);
+  }
+  panel.appendChild(list);
 }
 
 function todoMark(status: TodoStatus): string {
@@ -246,7 +283,7 @@ function renderTodosPanel(todos: readonly TodoItem[]): HTMLElement {
   return panel;
 }
 
-function buildToolCard(callId: string, name: string, args: Record<string, unknown>, deps?: ChatThreadDeps): HTMLElement {
+function buildToolCard(callId: string, name: string, args: Record<string, unknown>, deps?: ChatThreadDeps, subcalls?: readonly SubcallRecord[]): HTMLElement {
   const card = el("div", "la-tool-card la-msg-block is-running");
   card.dataset["callId"] = callId;
   const desc = describeToolActivity(name, args);
@@ -316,6 +353,7 @@ function buildToolCard(callId: string, name: string, args: Record<string, unknow
     // glance without forcing the user to open the args/result panes.
     card.appendChild(renderTodosPanel(args["todos"] as readonly TodoItem[]));
   }
+  if (name === "delegate") card.appendChild(renderSubagentPanel(subcalls ?? []));
   card.appendChild(body);
   head.addEventListener("click", (ev) => {
     const t = ev.target as HTMLElement;
@@ -677,7 +715,7 @@ export function renderStaticAssistant(msg: ChatAssistantMessage, deps: ChatThrea
   const makeStep = (block: Extract<ChatAssistantMessage["blocks"][number], { type: "tool" }>, blockIndex: number): ActivityStep => {
     const description = describeToolActivity(block.name, block.args);
     return { id: block.call_id, title: `${description.verb} ${description.target}`, state: block.is_error ? "error" : block.result === undefined ? "running" : "done", render: () => {
-      const card = buildToolCard(block.call_id, block.name, block.args, deps);
+      const card = buildToolCard(block.call_id, block.name, block.args, deps, block.subcalls);
       card.classList.toggle("is-running", msg.status === "streaming" && block.result === undefined);
       card.classList.add(block.is_error ? "is-error" : "is-done");
       const result = card.querySelector(".la-tool-body-result pre"); if (result) result.textContent = block.result ?? (msg.status === "streaming" ? "Waiting for result" : "No result received");
@@ -840,7 +878,7 @@ export function createStreamingAssistant(deps: ChatThreadDeps, source?: MessageS
   const activity = createActivitySummary(source ? { load: async (start, callId) => {
     const page = await source.activity("tools", start, callId);
     return { ...page, steps: page.items.flatMap(({ block, blockIndex }): ActivityStep[] => block.type !== "tool" ? [] : [{ id: block.call_id, title: block.name, state: block.is_error ? "error" : block.result === undefined ? "running" : "done", render() {
-      const card = buildToolCard(block.call_id, block.name, block.args, deps);
+      const card = buildToolCard(block.call_id, block.name, block.args, deps, block.subcalls);
       card.classList.toggle("is-running", block.result === undefined);
       const pre = card.querySelector(".la-tool-body-result pre"); if (pre) pre.textContent = block.result ?? "Waiting for result";
       hydrateToolCard(card, source, blockIndex); return card;
@@ -857,7 +895,7 @@ export function createStreamingAssistant(deps: ChatThreadDeps, source?: MessageS
       caption.textContent = label;
     } else caption?.remove();
   });
-  const toolStates = new Map<string, { name: string; args: Record<string, unknown>; result?: string; error?: boolean }>();
+  const toolStates = new Map<string, { name: string; args: Record<string, unknown>; result?: string; error?: boolean; subcalls?: readonly SubcallRecord[] }>();
   let editsCardHandle: ReturnType<typeof buildEditsCard> | null = null;
   let metaLine: HTMLElement | null = null;
   const editIndex = new Map<string, EditLogEntry>();
@@ -932,12 +970,12 @@ export function createStreamingAssistant(deps: ChatThreadDeps, source?: MessageS
       liveReasoning = null;
       if (!reasoning.root.parentElement) bubble.prepend(reasoning.root);
       if (!activity.root.parentElement) bubble.prepend(activity.root);
-      const record: { name: string; args: Record<string, unknown>; result?: string; error?: boolean } = { name, args };
+      const record: { name: string; args: Record<string, unknown>; result?: string; error?: boolean; subcalls?: readonly SubcallRecord[] } = { name, args };
       toolStates.set(callId, record);
       const description = describeToolActivity(name, args);
       reasoning.add({ id: callId, title: name, state: "done", render() { const link = el("button", "la-reasoning-tool", `${description.verb} ${description.target}`); link.onclick = () => activity.reveal(callId); return link; } });
       activity.add({ id: callId, title: `${description.verb} ${description.target}`, state: "running", render: () => {
-        const card = buildToolCard(callId, record.name, record.args, deps);
+        const card = buildToolCard(callId, record.name, record.args, deps, record.subcalls);
         if (record.result !== undefined) {
           card.classList.remove("is-running");
           card.classList.add(record.error ? "is-error" : "is-done");
@@ -946,6 +984,12 @@ export function createStreamingAssistant(deps: ChatThreadDeps, source?: MessageS
         }
         return card;
       } });
+    },
+    subagentProgress(callId, subcalls) {
+      const record = toolStates.get(callId);
+      if (record) record.subcalls = subcalls;
+      const card = wrap.querySelector<HTMLElement>(`.la-tool-card[data-call-id="${callId}"]`);
+      if (card) updateSubagentPanel(card, subcalls);
     },
     finishTool(callId, result, isError, editIds) {
       const record = toolStates.get(callId);

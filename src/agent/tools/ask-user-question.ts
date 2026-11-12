@@ -1,7 +1,13 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import { fillPrompt } from "../prompts/_fill";
 import description from "../prompts/claude/tools/ask-user-question/description.txt";
+import type { ToolSchema } from "../../types";
+import { ASK_LIMITS, type AgentSettings } from "../../state/settings";
 
+// The zod schema accepts the widest configurable shape. The per-user caps are
+// enforced in execute() from ctx.settings and baked into the schema the model
+// sees by applyAskLimits(), so the two never disagree on what is allowed.
 const optionSchema = z.object({
   label: z.string().min(1).describe("Display text (1-5 words, distinct from siblings)."),
   description: z.string().describe("Sentence explaining what the choice does or implies."),
@@ -10,47 +16,56 @@ const optionSchema = z.object({
 
 const questionSchema = z.object({
   question: z.string().min(1).describe("The full question for the user. Should end with '?'."),
-  header: z.string().min(1).max(12).describe("Short chip label (max 12 chars), e.g. 'Auth method'."),
-  options: z.array(optionSchema).min(2).max(4).describe("2-4 mutually-exclusive options (unless multiSelect=true)."),
+  header: z.string().min(1).max(ASK_LIMITS.headerMaxChars.max).describe("Short chip label."),
+  options: z.array(optionSchema).min(2).max(ASK_LIMITS.maxOptions.max).describe("Mutually-exclusive options (unless multiSelect=true)."),
   multiSelect: z.boolean().optional().describe("Allow multiple selections (default false)."),
 }).strict();
 
 const inputSchema = z.object({
-  questions: z.array(questionSchema).min(1).max(4).describe("1-4 questions to surface in one modal."),
+  questions: z.array(questionSchema).min(1).max(ASK_LIMITS.maxQuestions.max).describe("Questions to surface in one modal."),
 }).strict();
 
 type Input = z.infer<typeof inputSchema>;
 
-// Tool result wire format mirrors what the frontend modal posts back. The
-// agent reads `cancelled` first. When false, `answers` maps question text to
-// the user's selection (multi-select returns comma-joined labels so the
-// model never has to branch on type).
 interface AskResult {
   readonly cancelled: boolean;
   readonly answers?: Record<string, string>;
   readonly notes?: Record<string, string>;
 }
 
-export const askUserQuestionTool = defineTool<Input>({
-  name: "ask_user_question",
-  description,
-  inputSchema,
-  jsonSchema: {
+export interface AskLimits {
+  readonly maxQuestions: number;
+  readonly maxOptions: number;
+  readonly headerMaxChars: number;
+  readonly timeoutMinutes: number;
+}
+
+export function askLimitsFrom(settings: AgentSettings | undefined): AskLimits {
+  return {
+    maxQuestions: settings?.askMaxQuestions ?? ASK_LIMITS.maxQuestions.default,
+    maxOptions: settings?.askMaxOptions ?? ASK_LIMITS.maxOptions.default,
+    headerMaxChars: settings?.askHeaderMaxChars ?? ASK_LIMITS.headerMaxChars.default,
+    timeoutMinutes: settings?.askTimeoutMinutes ?? ASK_LIMITS.timeoutMinutes.default,
+  };
+}
+
+function buildJsonSchema(l: AskLimits): Record<string, unknown> {
+  return {
     type: "object",
     properties: {
       questions: {
         type: "array",
         minItems: 1,
-        maxItems: 4,
+        maxItems: l.maxQuestions,
         items: {
           type: "object",
           properties: {
             question: { type: "string", minLength: 1 },
-            header: { type: "string", minLength: 1, maxLength: 12 },
+            header: { type: "string", minLength: 1, maxLength: l.headerMaxChars },
             options: {
               type: "array",
               minItems: 2,
-              maxItems: 4,
+              maxItems: l.maxOptions,
               items: {
                 type: "object",
                 properties: {
@@ -71,7 +86,35 @@ export const askUserQuestionTool = defineTool<Input>({
     },
     required: ["questions"],
     additionalProperties: false,
-  },
+  };
+}
+
+function buildDescription(l: AskLimits): string {
+  return fillPrompt(description, { MAX_Q: l.maxQuestions, MAX_OPT: l.maxOptions, MAX_HEADER: l.headerMaxChars });
+}
+
+const DEFAULT_LIMITS = askLimitsFrom(undefined);
+
+// Rewrites the ask_user_question schema in a tools list to the user's caps.
+// Called per send by the backend, after the schema list is assembled.
+export function applyAskLimits(schemas: readonly ToolSchema[], settings: AgentSettings | undefined): ToolSchema[] {
+  const l = askLimitsFrom(settings);
+  return schemas.map((s) => s.name === "ask_user_question"
+    ? { ...s, description: buildDescription(l), parameters: buildJsonSchema(l) }
+    : s);
+}
+
+// Unlimited waits still die with the browser session (FRONTEND_SESSION_CLOSED
+// cancels pending RPCs), so a day is a safe stand-in for "no timeout".
+function timeoutMsFor(l: AskLimits): number {
+  return l.timeoutMinutes <= 0 ? 24 * 60 * 60_000 : l.timeoutMinutes * 60_000;
+}
+
+export const askUserQuestionTool = defineTool<Input>({
+  name: "ask_user_question",
+  description: buildDescription(DEFAULT_LIMITS),
+  inputSchema,
+  jsonSchema: buildJsonSchema(DEFAULT_LIMITS),
   // Sensitive so the agent's own question + the user's answer survive
   // auto-free and stay visible to the model across the rest of the session.
   execute: async (input, ctx) => {
@@ -81,17 +124,23 @@ export const askUserQuestionTool = defineTool<Input>({
         isError: true,
       };
     }
+    const l = askLimitsFrom(ctx.settings);
+    if (input.questions.length > l.maxQuestions) {
+      return { content: `Error: [INVALID_INPUT] at most ${l.maxQuestions} questions per call (got ${input.questions.length}). Split them or ask the user to raise the cap in agent settings.`, isError: true };
+    }
+    for (const q of input.questions) {
+      if (q.options.length > l.maxOptions) return { content: `Error: [INVALID_INPUT] at most ${l.maxOptions} options per question (question "${q.header}" has ${q.options.length}).`, isError: true };
+      if (q.header.length > l.headerMaxChars) return { content: `Error: [INVALID_INPUT] header "${q.header}" is over ${l.headerMaxChars} chars.`, isError: true };
+    }
     let raw: unknown;
     try {
-      // No tight host timeout. The user might need a minute to read. Cap
-      // at 10 minutes so a long-abandoned session eventually releases the
-      // agent loop instead of hanging forever.
-      raw = await ctx.callFrontend("ask_user_question", input, 10 * 60_000);
+      raw = await ctx.callFrontend("ask_user_question", input, timeoutMsFor(l));
     } catch (err) {
-      return {
-        content: `Error: [SPINDLE_ERROR] ask_user_question failed: ${(err as Error).message}`,
-        isError: true,
-      };
+      const msg = (err as Error).message;
+      if (/timed out/i.test(msg)) {
+        return { content: JSON.stringify({ cancelled: true, note: `The question timed out after ${l.timeoutMinutes} minutes with no answer. Pick a sensible default and continue, or ask in plain chat.` }, null, 2) };
+      }
+      return { content: `Error: [SPINDLE_ERROR] ask_user_question failed: ${msg}`, isError: true };
     }
     const r = raw as AskResult;
     if (r.cancelled) {

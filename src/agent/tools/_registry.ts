@@ -118,6 +118,8 @@ import { readPersonaWorldBookTool } from "./read-persona-world-book";
 import { readVariableTool } from "./read-variable";
 import { resolveMacrosTool } from "./resolve-macros";
 import { todoWriteTool } from "./todo-write";
+import { delegateTool } from "./delegate";
+import { rememberNoteTool } from "./remember-note";
 import { toolSearchTool } from "./tool-search";
 import { listMcpServersTool, getMcpServerTool, createMcpServerTool, connectMcpServerTool, listMcpToolsTool, callMcpToolTool } from "./mcp";
 
@@ -130,7 +132,7 @@ const DEFERRED_TOOL_NAMES: ReadonlySet<string> = new Set([
   "asset_rename", "asset_delete", "module_attach", "module_detach",
   "set_default_variables_text", "create_mcp_server",
   "create_memory_vault", "rename_memory_vault", "attach_memory_link", "set_memory_link_enabled",
-  "squash_session_edits", "notify_user",
+  "squash_session_edits", "notify_user", "remember_note",
   // Niche surfaces: each full schema rode along on every request although few sessions touch them.
   "manage_databank", "update_memory_entity", "list_memory_entities", "apply_glossary", "audit_card_coverage", "navigate_ui",
   "memory_stats", "list_memory_links", "list_memory_vaults", "read_memory_vault", "survey_cjk",
@@ -170,6 +172,7 @@ const DEFERRED_TOOL_HINTS: Readonly<Record<string, string>> = {
   mousey_die: "only when the user commands you to die",
   navigate_ui: "open a drawer tab or settings view in the user's browser",
   notify_user: "OS push notification",
+  remember_note: "append a durable fact to your own notes file for future sessions",
   read_memory_vault: "page through a vault's contents",
   read_tutorial_script: "onboarding tour script and quiz answers",
   rename_memory_vault: "rename a vault",
@@ -230,7 +233,7 @@ const READ_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   // Custom tools authoring. List only, save/delete are writes.
   "custom_tool_list",
   // Stateless utilities
-  "count_cjk_chars", "test_regex", "about_memoria", "read_tutorial_script",
+  "count_cjk_chars", "test_regex", "about_memoria", "read_tutorial_script", "roll_dice", "random_pick",
   // tool_search reads the registry, no mutation
   "tool_search",
 ]);
@@ -298,6 +301,8 @@ registry.register(mouseyDieTool);
 registry.register(readTutorialScriptTool);
 registry.register(applyGlossaryTool);
 registry.register(askUserQuestionTool);
+registry.register(delegateTool);
+registry.register(rememberNoteTool);
 registry.register(attachWorldBookTool);
 registry.register(listChatWorldBooksTool);
 registry.register(assetDeleteTool);

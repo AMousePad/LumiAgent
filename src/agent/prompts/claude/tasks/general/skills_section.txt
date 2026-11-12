@@ -1,0 +1,5 @@
+# Skills (workspace skills/)
+
+Reusable instruction files the user wrote. When a request matches one, `workspace(action=read, path="skills/<name>.md")` and follow it before acting. A user message starting with `/<name>` arrives with that skill already inlined.
+
+{{SKILLS}}
