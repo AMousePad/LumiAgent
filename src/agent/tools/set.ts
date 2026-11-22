@@ -129,12 +129,23 @@ async function setExtension(ctx: ToolCtx, characterId: string, dotted: string, v
   };
 }
 
+const REGEX_READ_ONLY_FIELDS: ReadonlySet<string> = new Set(["id", "preset_id", "can_mutate", "folder_version", "created_at", "updated_at"]);
+
 async function setRegexScriptField(ctx: ToolCtx, scriptId: string, field: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string; valueEncoding?: "json" } | string> {
   const r = await ctx.spindle.regex_scripts.get(scriptId, ctx.userId);
   if (!r) return `regex script ${scriptId} not found`;
-  if (!(field in r)) return `[PATH_NOT_FOUND] regex script has no field '${field}'. Fields: ${Object.keys(r).filter((k) => k !== "id").join(", ")}`;
+  if (REGEX_READ_ONLY_FIELDS.has(field)) {
+    return `[READ_ONLY] regex script field '${field}' cannot be changed after creation.${field === "preset_id" ? ' To bind a script to a preset, create it with create({path:"rx", value:{copy_of:"<scriptId>", preset_id:"<presetId>"}}) and delete the old one.' : ""}`;
+  }
+  if (!(field in r)) return `[PATH_NOT_FOUND] regex script has no field '${field}'. Fields: ${Object.keys(r).filter((k) => !REGEX_READ_ONLY_FIELDS.has(k)).join(", ")}`;
   const before = (r as unknown as Record<string, unknown>)[field];
-  await ctx.spindle.regex_scripts.update(scriptId, { [field]: value } as RegexScriptUpdateDTO, ctx.userId);
+  // A bare target string and its one-item array are the same value to the host.
+  if (field === "target" && typeof value === "string") value = [value];
+  const updated = await ctx.spindle.regex_scripts.update(scriptId, { [field]: value } as RegexScriptUpdateDTO, ctx.userId);
+  const landed = (updated as unknown as Record<string, unknown>)[field];
+  if (stringify(landed) !== stringify(value) && stringify(landed) === stringify(before)) {
+    return `[NOT_APPLIED] the host kept regex script field '${field}' at ${stringify(before)}. Nothing changed.`;
+  }
   // Tag json ONLY for non-string values. String fields (find_regex,
   // replace_string) are stored RAW to match the edit/rewrite route on the same
   // leaf; tagging them would mismatch that route's untagged record and trigger

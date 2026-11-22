@@ -48,17 +48,24 @@ export const updateRegexScriptTool = defineTool({
     const id = input.script_id;
     const before = await ctx.spindle.regex_scripts.get(id, ctx.userId);
     if (!before) return { content: `Error: regex script ${id} not found`, isError: true };
-    const cleaned = cleanPatch(input.patch, before as unknown as Record<string, unknown>, new Set(["replace_string"]));
+    const raw: Record<string, unknown> = { ...input.patch };
+    if ("preset_id" in raw) {
+      return { content: 'Error: [READ_ONLY] preset_id is set at creation only. To bind a script to a preset use create({path:"rx", value:{copy_of:"<scriptId>", preset_id:"<presetId>"}}) and delete the old one.', isError: true };
+    }
+    // The host stores target as an array. A bare string would not round-trip on revert.
+    if (typeof raw["target"] === "string") raw["target"] = [raw["target"]];
+    // The host couples scope with scope_id, so a per-field revert cannot restore it. Moves go through copy and delete.
+    if ("scope" in raw || "scope_id" in raw) {
+      return { content: 'Error: [UNSUPPORTED] scope is not patchable here. Move a script with create({path:"rx", value:{copy_of:"<scriptId>", scope:"global"}}) then delete the original.', isError: true };
+    }
+    const cleaned = cleanPatch(raw, before as unknown as Record<string, unknown>, new Set(["replace_string"]));
     if (Object.keys(cleaned.patch).length === 0) return { content: emptyPatchError(cleaned.unchanged, '{"disabled": true}'), isError: true };
     const patch = cleaned.patch as RegexScriptUpdateDTO;
     const updated = await ctx.spindle.regex_scripts.update(id, patch, ctx.userId);
     for (const [k, v] of Object.entries(patch as Record<string, unknown>)) {
       const prev = (before as unknown as Record<string, unknown>)[k];
-      // Tag json ONLY for non-string values, so a string field (name, flags,
-      // find_regex, replace_string, description, folder, target) stays raw and
-      // matches the edit/rewrite route on the same leaf (no history-dropping
-      // encoding rebase); non-string fields (disabled, placement, sort_order)
-      // are json-tagged to round-trip on revert.
+      // Tag json ONLY for non-string values, so a string field stays raw and
+      // matches the edit/rewrite route on the same leaf. Non-string fields are json-tagged to round-trip on revert.
       const isStr = typeof v === "string";
       const beforeStr = isStr ? (typeof prev === "string" ? prev : JSON.stringify(prev ?? null)) : JSON.stringify(prev ?? null);
       const afterStr = isStr ? (v as string) : JSON.stringify(v ?? null);

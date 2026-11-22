@@ -212,6 +212,7 @@ export const listCharactersTool = defineTool({
       ...(probeExtensionKeys.length > 0 ? { probe_extension_keys: probeExtensionKeys } : {}),
       ...(includeFields.length > 0 ? { include_fields: includeFields, max_chars_per_field: maxChars } : {}),
       scanned,
+      ...(matched === 0 && q && excludedByExtension === 0 ? { note: `No character is named like '${input.query}'. Do not retry with variations: the name may belong to a preset, lorebook or regex folder. Check list({path:"preset"|"wb"|"rx", query}).` } : {}),
       ...(matched === 0 && excludedByExtension > 0 ? { note: `extension_key '${requiredExtension}' excluded all ${excludedByExtension} otherwise-matching characters. Omit extension_key unless you need cards carrying that extension.` } : {}),
       characters: windowed,
     }, null, 2);

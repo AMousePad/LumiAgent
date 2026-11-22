@@ -2,7 +2,7 @@ Create an entity inside a container. The path names the PARENT (same grammar as 
 
 - `wb` -> world book. value: { name, description?, metadata? }
 - `wb/<bookId>/entry` -> entry. value: { content (required), key?, keysecondary?, comment?, constant?, disabled?, position?, depth?, order_value?, probability?, ... any other entry setting }
-- `rx` -> regex script for the active character. value: { name, find_regex, replace_string?, flags?, placement?, target?, disabled?, description? }
+- `rx` -> regex script. value: { name, find_regex, replace_string?, flags?, placement?, target? (prompt|response|display), scope? (global|character|chat, default: focused character, else global), scope_id?, folder?, sort_order?, disabled?, description?, substitute_macros?, preset_id? (create-only binding) }. To duplicate, never re-type patterns: value { copy_of: "<scriptId>" or [ids] } copies scripts byte-for-byte, value { copy_folder: "<folder name>", folder: "<new folder>" } copies a whole folder in one call. Any other field given alongside overrides the copies (scope, folder, target, disabled, preset_id). The result reports the scope, target and folder that landed, so no follow-up check is needed.
 - `persona` -> value: { name (required), title?, description?, folder?, is_default?, attached_world_book_id? }
 - `preset` -> value: { name (required), provider (required), engine?, parameters?, prompts?, metadata? }
 - `preset/<presetId>/block` -> value: block fields { name?, content?, role?, enabled?, position?, depth?, ... } plus optional `index`.

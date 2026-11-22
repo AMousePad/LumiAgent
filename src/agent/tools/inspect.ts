@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { WorldBookEntryDTO } from "lumiverse-spindle-types";
 import { defineTool } from "./_framework";
 import { type ToolCtx, resolveCharacterTarget, resolveCharacterTargetOptional, noTargetResult } from "./_context";
+import { listAllRegexScripts, targetList } from "./_regex";
 import { resolveRead, PathError, OutOfRangeError, ExtensionRefusedError, listAllWorldBooks, type ResolvedLeaf } from "./_path_v2";
 import { wbLabel } from "./_surfaces";
 import description from "../prompts/claude/tools/inspect/description.txt";
@@ -10,6 +11,7 @@ import argCharacterId from "../prompts/claude/tools/inspect/arg_character_id.txt
 import { listTool } from './list';
 
 const PEEK_CHARS = 200;
+const REGEX_ROW_LIMIT = 80;
 const TOP_N = 10;
 const CJK_RE = /[가-힣぀-ゟ゠-ヿ㐀-䶿一-鿿豈-﫿]/g;
 const HANGUL_NFC_RANGE = /[가-힣]+/g;
@@ -109,33 +111,32 @@ async function buildDiagnostics(ctx: ToolCtx, leaf: ResolvedLeaf): Promise<Recor
 }
 
 async function inspectRegexContainer(ctx: ToolCtx, explicit?: string): Promise<Record<string, unknown>> {
-  const scopeId = resolveCharacterTarget(ctx, explicit);
-  const out = [];
-  let offset = 0;
+  const scopeId = resolveCharacterTargetOptional(ctx, explicit);
+  const scripts = [
+    ...(scopeId ? await listAllRegexScripts(ctx, { scope: "character", scopeId }) : []),
+    ...await listAllRegexScripts(ctx, { scope: "global" }),
+  ];
+  const folders = new Map<string, { scripts: number; disabled: number; scopes: Set<string> }>();
+  const rows = [];
   let totalChars = 0;
   let disabled = 0;
-  while (true) {
-    const r = await ctx.spindle.regex_scripts.list({ scope: "character", scopeId, userId: ctx.userId, limit: 200, offset });
-    for (const s of r.data) {
-      const findChars = s.find_regex?.length ?? 0;
-      const replaceChars = s.replace_string?.length ?? 0;
-      totalChars += findChars + replaceChars;
-      if (s.disabled) disabled++;
-      out.push({
-        path: `rx/${s.id}`,
-        name: s.name,
-        find_chars: findChars,
-        replace_chars: replaceChars,
-        disabled: s.disabled,
-        target: s.target,
-        placement: s.placement,
-      });
-    }
-    if (r.data.length === 0 || offset + r.data.length >= r.total) break;
-    offset += r.data.length;
+  for (const s of scripts) {
+    const chars = (s.find_regex?.length ?? 0) + (s.replace_string?.length ?? 0);
+    totalChars += chars;
+    if (s.disabled) disabled++;
+    const f = folders.get(s.folder ?? "") ?? { scripts: 0, disabled: 0, scopes: new Set<string>() };
+    f.scripts++;
+    if (s.disabled) f.disabled++;
+    f.scopes.add(s.scope);
+    folders.set(s.folder ?? "", f);
+    rows.push({ path: `rx/${s.id}`, name: s.name, chars, scope: s.scope, target: targetList(s).join(","), ...(s.folder ? { folder: s.folder } : {}), ...(s.disabled ? { disabled: true } : {}) });
   }
-  out.sort((a, b) => (b.find_chars + b.replace_chars) - (a.find_chars + a.replace_chars));
-  return { path: "rx", count: out.length, total_chars: totalChars, disabled, scripts: out };
+  const folderRows = [...folders.entries()].map(([folder, f]) => ({ folder: folder || "(no folder)", scripts: f.scripts, disabled: f.disabled, scope: [...f.scopes].join(",") }));
+  const summary = { path: "rx", count: rows.length, character_scripts: rows.filter((r) => r.scope === "character").length, global_scripts: rows.filter((r) => r.scope === "global").length, total_chars: totalChars, disabled, folders: folderRows };
+  // A big library answers with folders only. The scripts of one folder come from a name query.
+  if (rows.length > REGEX_ROW_LIMIT) return { ...summary, note: `Scripts omitted (${rows.length}). Get one folder's scripts with list({path:"rx", query:"<folder or name>"}).` };
+  rows.sort((x, y) => y.chars - x.chars);
+  return { ...summary, scripts: rows };
 }
 
 async function inspectRegexScript(ctx: ToolCtx, scriptId: string): Promise<Record<string, unknown> | string> {
@@ -145,6 +146,8 @@ async function inspectRegexScript(ctx: ToolCtx, scriptId: string): Promise<Recor
     path: `rx/${scriptId}`,
     id: r.id,
     name: r.name,
+    scope: r.scope,
+    scope_id: r.scope_id ?? null,
     target: r.target,
     placement: r.placement,
     flags: r.flags,
@@ -153,6 +156,7 @@ async function inspectRegexScript(ctx: ToolCtx, scriptId: string): Promise<Recor
     sort_order: r.sort_order,
     description: r.description,
     folder: r.folder,
+    preset_id: r.preset_id ?? null,
     find_chars: r.find_regex?.length ?? 0,
     replace_chars: r.replace_string?.length ?? 0,
     find_cjk_chars: cjkCount(r.find_regex ?? ""),
@@ -240,15 +244,10 @@ export const inspectTool = defineTool({
 
     if (/^preset(?:\/[^/]+)?$/.test(path)) return listTool.execute({ path }, ctx);
 
-    // Container paths first — they're not leaves so resolveRead would reject them.
-    // inspectRegexContainer / inspectWorldBooksContainer call resolveCharacterTarget(ctx)
-    // internally, which throws NoTargetError in no-focus sessions. Catch it here so the
-    // agent sees [NO_TARGET] guidance instead of a raw uncoded error string.
+    // Containers are not leaves, so resolveRead would reject them.
     if (path === "rx" || path === "regex_scripts") {
-      try {
-        const r = await inspectRegexContainer(ctx, input.character_id);
-        return { content: JSON.stringify(r, null, 2) };
-      } catch (err) { const nt = noTargetResult(err); if (nt) return nt; throw err; }
+      const r = await inspectRegexContainer(ctx, input.character_id);
+      return { content: JSON.stringify(r, null, 2) };
     }
     if (path === "wb" || path === "world_books") {
       // No-character whole-library listing is supported; attachment status is

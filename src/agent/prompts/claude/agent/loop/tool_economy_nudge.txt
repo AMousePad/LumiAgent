@@ -1,0 +1,1 @@
+[Runtime note: {{COUNT}} tool calls so far in this reply and nothing the user asked for has been changed yet. Every call costs the user money. If this is a lookup, answer now from what you have unless one specific gap remains. If a tool cannot do what you need, stop and tell the user in two sentences what is blocking you. Do not probe, re-check or search docs for workarounds.]

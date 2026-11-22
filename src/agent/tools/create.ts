@@ -2,10 +2,6 @@ import { z } from "zod";
 import type {
   WorldBookCreateDTO,
   WorldBookEntryCreateDTO,
-  RegexScriptCreateDTO,
-  RegexPlacementDTO,
-  RegexScopeDTO,
-  RegexMacroModeDTO,
   PersonaCreateDTO,
   UserPresetCreateDTO,
   PromptBlockCreateDTO,
@@ -14,6 +10,7 @@ import { defineTool } from "./_framework";
 import type { ToolCtx } from "./_context";
 import type { EditRecord, ScopeRef } from "../../types";
 import { wbLabel, coerceKeyList } from "./_surfaces";
+import { createRegexScripts } from "./_regex";
 import { ALTERNATE_FIELD_NAMES, isAlternateFieldName, readAltFieldArray, writeAltFieldArray, type AltFieldVariant } from "./_path_v2";
 import description from "../prompts/claude/tools/create/description.txt";
 import argPath from "../prompts/claude/tools/create/arg_path.txt";
@@ -45,8 +42,7 @@ export const createTool = defineTool({
     required: ["path"],
     additionalProperties: false,
   },
-  // Path-targeted. rx / char paths fail loudly without a character; everything
-  // else (wb, persona, preset) works in a no-character session.
+  // Path-targeted. Only char paths need a character, the rest work in a no-character session.
   requiresCharacter: false,
   execute: async (input, ctx: ToolCtx) => {
     const path = input.path.trim().replace(/^character\//, "char/");
@@ -99,27 +95,9 @@ export const createTool = defineTool({
       return { content: JSON.stringify({ entry_id: e.id, world_book_id: e.world_book_id, content_chars: e.content.length }) };
     }
 
-    // rx -> regex script (character-scoped)
     if (path === "rx" || path === "regex_script") {
-      if (!ctx.characterId) return { content: "Error: [INVALID_INPUT] regex script create needs an active character", isError: true };
-      const name = typeof v.name === "string" ? v.name : undefined;
-      const find = typeof v.find_regex === "string" ? v.find_regex : undefined;
-      if (!name || !find) return { content: "Error: [INVALID_INPUT] regex script requires value.name and value.find_regex", isError: true };
-      const create: RegexScriptCreateDTO = {
-        name, find_regex: find,
-        scope: "character" as RegexScopeDTO,
-        scope_id: ctx.characterId,
-        placement: (Array.isArray(v.placement) ? v.placement : ["ai_output"]) as RegexPlacementDTO[],
-        substitute_macros: "none" as RegexMacroModeDTO,
-      };
-      if (typeof v.replace_string === "string") create.replace_string = v.replace_string;
-      if (typeof v.flags === "string") create.flags = v.flags;
-      if (typeof v.target === "string") create.target = v.target as RegexScriptCreateDTO["target"] & string;
-      if (typeof v.disabled === "boolean") create.disabled = v.disabled;
-      if (typeof v.description === "string") create.description = v.description;
-      const s = await ctx.spindle.regex_scripts.create(create, ctx.userId);
-      ctx.pushEdit({ op: "create", surface: "regex_script", surfaceId: s.id, surfaceLabel: s.name, snapshot: s } satisfies EditRecord);
-      return { content: JSON.stringify({ script_id: s.id, name: s.name }) };
+      try { return await createRegexScripts(ctx, v); }
+      catch (err) { return { content: `Error: [SPINDLE_ERROR] ${(err as Error).message}`, isError: true }; }
     }
 
     // persona

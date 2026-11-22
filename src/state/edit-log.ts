@@ -185,6 +185,7 @@ function regexCreateFromDTO(r: RegexScriptDTO): RegexScriptCreateDTO {
     folder: r.folder,
     metadata: r.metadata,
     script_id: r.script_id,
+    ...(r.preset_id ? { preset_id: r.preset_id } : {}),
   };
 }
 

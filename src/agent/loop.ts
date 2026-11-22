@@ -26,6 +26,8 @@ import { StageEditPersistenceError, type DelegationContext } from "./tools/_cont
 import type { AgentSettings } from "../state/settings";
 import { prepareToolArgs } from "./tools/_framework";
 import toolCallAsText from "./prompts/claude/agent/loop/tool_call_as_text.txt";
+import toolEconomyNudge from "./prompts/claude/agent/loop/tool_economy_nudge.txt";
+import { fillPrompt } from "./prompts/_fill";
 
 const PARALLEL_TOOL_CONCURRENCY = 5;
 const SPILL_ENVELOPE_SENTINEL = "{\n  \"spilled\": true";
@@ -190,6 +192,9 @@ async function estimateUsage(
 const DEFAULT_CONTEXT_TOKENS = 400_000;
 
 const DEFAULT_MAX_TURNS = 40;
+const TOOL_ECONOMY_NUDGE_EVERY = 12;
+// Bookkeeping and user-facing calls do not count toward the nudge.
+const TOOL_ECONOMY_FREE: ReadonlySet<string> = new Set(["todo_write", "ask_user_question", "finish", "notify_user", "remember_note"]);
 
 const TPM_WINDOW_MS = 60_000;
 
@@ -476,6 +481,8 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
   let spentTokens = 0;
   let textToolCallRetries = 0;
   let retryAttempt = 0;
+  let callsSinceProgress = 0;
+  let nextEconomyNudgeAt = TOOL_ECONOMY_NUDGE_EVERY;
   const autoRetries = coerceAutoRetries(input.autoRetries);
   for (let i = 1; i <= maxTurns; i++) {
     const turnNum = startingTurn + i;
@@ -917,6 +924,20 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
           continue;
         }
         yield* drainOutcome(oc);
+      }
+    }
+
+    // The note rides on the last tool result: a separate user turn after tool
+    // results gets reordered ahead of them by some provider flatteners.
+    if (newEdits.length > 0 || revertedThisTurn) {
+      callsSinceProgress = 0;
+      nextEconomyNudgeAt = TOOL_ECONOMY_NUDGE_EVERY;
+    } else {
+      callsSinceProgress += toolCalls.filter((tc) => !TOOL_ECONOMY_FREE.has(tc.name.trim())).length;
+      const last = results[results.length - 1];
+      if (last && callsSinceProgress >= nextEconomyNudgeAt && finishedSummary === undefined) {
+        results[results.length - 1] = { ...last, content: `${last.content}\n\n${fillPrompt(toolEconomyNudge, { COUNT: callsSinceProgress })}` };
+        nextEconomyNudgeAt = callsSinceProgress + TOOL_ECONOMY_NUDGE_EVERY;
       }
     }
 

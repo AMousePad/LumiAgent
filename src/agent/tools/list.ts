@@ -4,6 +4,7 @@ import { defineTool } from "./_framework";
 import { type ToolCtx, resolveCharacterTarget, resolveCharacterTargetOptional, noTargetResult } from "./_context";
 import { parseExtensionPath, getAtPath } from "./_paths";
 import { wbLabel } from "./_surfaces";
+import { countGlobalRegexScripts, regexSearchKey, targetList, visibleRegexReader } from "./_regex";
 import { ExtensionRefusedError, ALTERNATE_FIELD_NAMES, readAltFieldArray, isAlternateFieldName, type AlternateFieldName } from "./_path_v2";
 import description from "../prompts/claude/tools/list/description.txt";
 import argPath from "../prompts/claude/tools/list/arg_path.txt";
@@ -32,6 +33,12 @@ interface ListEntry {
   size?: number;
   entries?: number;
   label?: string;
+  scope?: string;
+  target?: string;
+  folder?: string;
+  disabled?: true;
+  preset_id?: string;
+  preset?: string | undefined;
 }
 
 function classifyNode(v: unknown): { type: string; size?: number } {
@@ -100,10 +107,37 @@ async function listAlternateFieldVariants(ctx: ToolCtx, characterId: string, fie
   })).filter(entry => matchesName(entry.label, query)).slice(offset, offset + maxEntries);
 }
 
-async function listRegex(ctx: ToolCtx, characterId: string, maxEntries: number, offset = 0, query?: string): Promise<ListEntry[]> {
-  const page = await searchPage((limit, offset) => ctx.spindle.regex_scripts.list({ scope: "character", scopeId: characterId, userId: ctx.userId, limit, offset }),
-    script => script.name, { limit: maxEntries, offset, query }, ctx.signal);
-  return page.data.map(script => ({ path: `rx/${script.id}`, type: "regex_script", label: script.name, size: (script.find_regex?.length ?? 0) + (script.replace_string?.length ?? 0) }));
+// A name query spans character and global scripts. Without one, a focused
+// character lists only its own, so a large global library is never dumped.
+async function listRegex(ctx: ToolCtx, characterId: string | null, maxEntries: number, offset = 0, query?: string): Promise<ListEntry[]> {
+  const searching = (query ?? "").trim().length > 0;
+  const read = searching || characterId === null
+    ? visibleRegexReader(ctx, searching ? characterId : null)
+    : (limit: number, off: number) => ctx.spindle.regex_scripts.list({ scope: "character", scopeId: characterId, userId: ctx.userId, limit, offset: off });
+  // Users name a preset's regexes by the preset, which the script row only carries as an id.
+  const presetNames = new Map<string, string>();
+  if (searching) {
+    try {
+      for (let off = 0; ; ) {
+        const r = await ctx.spindle.presets.list({ limit: 200, offset: off, userId: ctx.userId });
+        for (const preset of r.data) presetNames.set(preset.id, preset.name);
+        off += r.data.length;
+        if (r.data.length === 0 || off >= r.total) break;
+      }
+    } catch { /* names are a search convenience */ }
+  }
+  const presetOf = (script: { preset_id?: string | null }) => (script.preset_id ? presetNames.get(script.preset_id) : undefined);
+  const page = await searchPage(read, script => `${regexSearchKey(script)}
+${presetOf(script) ?? ""}`, { limit: maxEntries, offset, query }, ctx.signal);
+  return page.data.map(script => ({
+    path: `rx/${script.id}`, type: "regex_script", label: script.name,
+    size: (script.find_regex?.length ?? 0) + (script.replace_string?.length ?? 0),
+    scope: script.scope, target: targetList(script).join(","),
+    ...(script.folder ? { folder: script.folder } : {}),
+    ...(script.disabled ? { disabled: true } : {}),
+    ...(script.preset_id ? { preset_id: script.preset_id } : {}),
+    ...(presetOf(script) ? { preset: presetOf(script) } : {}),
+  }));
 }
 
 async function listWorldBooks(ctx: ToolCtx, characterId: string | null, maxEntries: number, includeUnattached: boolean, offset = 0, query?: string): Promise<ListEntry[]> {
@@ -267,8 +301,8 @@ export const listTool = defineTool({
     required: ["path"],
     additionalProperties: false,
   },
-  // Path-targeted: persona / preset containers resolve without a character;
-  // char/ rx/ wb/ branches loud-fail below when none is selected.
+  // Path-targeted: persona / preset / rx containers resolve without a character.
+  // char/ and wb/ branches loud-fail below when none is selected.
   requiresCharacter: false,
   execute: async (input, ctx) => {
     const query = input.query;
@@ -286,8 +320,11 @@ export const listTool = defineTool({
       // Whole-library world-book listing (include_unattached) is character-
       // independent: the character only annotates `attached`. Don't gate it.
       const wbWholeLibrary = (path === "wb" || path === "world_books") && input.include_unattached === true;
+      const rxListing = path === "rx" || path === "regex_scripts";
       let target = "";
-      if (!personaOrPreset && !wbEntryListing && !wbWholeLibrary) {
+      if (rxListing) {
+        target = resolveCharacterTargetOptional(ctx, input.character_id) ?? "";
+      } else if (!personaOrPreset && !wbEntryListing && !wbWholeLibrary) {
         try { target = resolveCharacterTarget(ctx, input.character_id); }
         catch (err) { const nt = noTargetResult(err); if (nt) return nt; throw err; }
       } else if (wbWholeLibrary) {
@@ -306,8 +343,8 @@ export const listTool = defineTool({
           return { content: `Error: [PATH_NOT_FOUND] unknown alternate field '${field}'. Valid: ${ALTERNATE_FIELD_NAMES.join(", ")}.`, isError: true };
         }
         entries = await listAlternateFieldVariants(ctx, target, field, maxEntries, offset, query);
-      } else if (path === "rx" || path === "regex_scripts") {
-        entries = await listRegex(ctx, target, maxEntries, offset, query);
+      } else if (rxListing) {
+        entries = await listRegex(ctx, target === "" ? null : target, maxEntries, offset, query);
       } else if (path === "wb" || path === "world_books") {
         entries = await listWorldBooks(ctx, target === "" ? null : target, maxEntries, input.include_unattached === true, offset, query);
       } else if (path.startsWith("wb/") || path.startsWith("world_books/")) {
@@ -332,8 +369,13 @@ export const listTool = defineTool({
       }
       const hasMore = entries.length > pageSize;
       entries = entries.slice(0, pageSize);
+      let regexNote: Record<string, unknown> = {};
+      if (rxListing && target !== "" && (query ?? "").trim().length === 0) {
+        const globals = await countGlobalRegexScripts(ctx).catch(() => 0);
+        if (globals > 0) regexNote = { global_scripts: globals, note: `Rows are this character's scripts. ${globals} global scripts also apply: pass query (script name or folder name) to search them, or inspect({path:"rx"}) for the folder breakdown.` };
+      }
       return { content: JSON.stringify({ path, offset, count: entries.length, has_more: hasMore,
-        next_offset: hasMore ? offset + entries.length : null, entries }, null, 2) };
+        next_offset: hasMore ? offset + entries.length : null, ...regexNote, entries }, null, 2) };
     } catch (err) {
       if (err instanceof ExtensionRefusedError) return { content: `Error: [REFUSED_BY_EXTENSION] ${err.message}`, isError: true };
       return { content: `Error: ${(err as Error).message}`, isError: true };

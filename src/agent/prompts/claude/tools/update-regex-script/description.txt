@@ -1,6 +1,6 @@
 Updates metadata fields of a regex script atomically.
 
 Usage:
-- Path-based `edit` / `rewrite` only address `rx/<id>/find_regex` and `rx/<id>/replace_string`. Metadata goes through here: `name`, `flags`, `disabled`, `placement`, `target`, `sort_order`, `description`, `folder`.
+- Path-based `edit` / `rewrite` only address `rx/<id>/find_regex` and `rx/<id>/replace_string`. Metadata goes through here: `name`, `flags`, `disabled`, `placement`, `target`, `sort_order`, `description`, `folder`. Scope and `preset_id` are fixed at creation: to move a script to another scope or bind it to a preset, copy it with `create({path:"rx", value:{copy_of, scope | preset_id}})` and delete the original.
 - Pass only the fields to change in `patch`.
 - Works in a no-character session (operates by `script_id`), like `edit` / `rewrite` / `set` on `rx/`.
