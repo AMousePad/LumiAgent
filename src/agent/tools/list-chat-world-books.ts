@@ -3,6 +3,7 @@ import { defineTool } from "./_framework";
 import { groupLorebookMode, isGroupChat, lorebookCharacterIds } from "../../state/chat-catalog";
 import description from "../prompts/claude/tools/list-chat-world-books/description.txt";
 import argChatId from "../prompts/claude/tools/list-chat-world-books/arg_chat_id.txt";
+import { fallbackChatId } from "./_chat";
 
 // The books feeding a chat are a union of four binding layers (mirrors the
 // host's prompt-assembly). Default list/grep only ever expose the character
@@ -36,7 +37,7 @@ export const listChatWorldBooksTool = defineTool({
     // persona + global are user-level (no chat needed); character + chat need a
     // resolved chat. With nothing pinned, still answer the user-level layers
     // instead of erroring, so "which books are global?" works chat-free.
-    const chatId = input.chat_id ?? ctx.pinnedChatId ?? null;
+    const chatId = await fallbackChatId(ctx, input.chat_id);
     try {
       let chat: Awaited<ReturnType<typeof ctx.spindle.chats.get>> = null;
       if (chatId) {

@@ -1,7 +1,11 @@
-Updates metadata fields of a world book entry atomically.
+Change settings on one or many world book entries with a single patch.
 
-Usage:
-- Path-based `edit` / `rewrite` only address `wb/<id>/content` and `wb/<id>/comment`. Metadata goes through here: `key` array, `keysecondary`, `priority`, `disabled`, `constant`, `position`, `depth`, `role`, `selective`, `selectiveLogic`.
-- Pass only the fields to change in `patch`.
-- For content edits prefer `edit` / `rewrite`.
-- Works in a no-character session (operates by `entry_id`), like `edit` / `rewrite` / `set` on `wb/`.
+Select the entries with one of:
+- `entry_id` for one entry, or `entry_ids` for several.
+- `book_id` (id or name) for every entry in a book, narrowed by `query` (matches title, keys, secondary keys and content, case-insensitive) and `where` flags such as { disabled: true } or { constant: false }.
+
+`patch` holds only the fields to change: key, keysecondary, comment, constant, disabled, selective, selective_logic, position, depth, role, order_value, priority, probability, use_probability, scan_depth, group_name and the other entry settings. key and keysecondary replace the whole list. A null or empty value in patch leaves that field unchanged. To empty a field name it in `clear`, e.g. clear: ["keysecondary", "group_name"].
+Enums: position 0 World Info Before slot, 1 World Info After slot, 2 before author note, 3 after author note, 4 at depth (uses depth), 5 before examples, 6 after examples, 7 at marker, 8 outlet only. selective_logic (used when selective is true and secondary keys exist) 0 AND all, 1 NOT any, 2 OR any, 3 NOT all.
+
+The result reports matched, changed, unchanged and failed with entry labels and the before and after values that landed, so no follow-up check is needed. A value the host kept is reported as [NOT_APPLIED]. Each change is revertable.
+For entry text prefer `edit` / `rewrite` on `wb/<entryId>/content`. Works with no focused character.

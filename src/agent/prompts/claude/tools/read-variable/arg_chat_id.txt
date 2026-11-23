@@ -1,1 +1,1 @@
-Required for chat/local/macro scopes.
+Chat whose variables to read. Leave empty for the pinned chat, else the chat open in Lumiverse.

@@ -3,9 +3,11 @@ import { z } from "zod";
 import { defineTool } from "./_framework";
 import { type ToolCtx, resolveCharacterTarget, resolveCharacterTargetOptional, noTargetResult } from "./_context";
 import { parseExtensionPath, getAtPath } from "./_paths";
-import { wbLabel } from "./_surfaces";
+import { listWorldBooks, listWorldBookEntries } from "./_worldbook";
 import { countGlobalRegexScripts, regexSearchKey, targetList, visibleRegexReader } from "./_regex";
-import { ExtensionRefusedError, ALTERNATE_FIELD_NAMES, readAltFieldArray, isAlternateFieldName, type AlternateFieldName } from "./_path_v2";
+import { describeActivePreset, listAllPresets, presetVars, presetVarTable } from "./_preset";
+import { ExtensionRefusedError, ALTERNATE_FIELD_NAMES, readAltFieldArray, isAlternateFieldName, isCharSubtreeToken, type AlternateFieldName } from "./_path_v2";
+import { splitCharacterPath } from "./_character";
 import description from "../prompts/claude/tools/list/description.txt";
 import argPath from "../prompts/claude/tools/list/arg_path.txt";
 import argCharacterId from "../prompts/claude/tools/list/arg_character_id.txt";
@@ -39,6 +41,12 @@ interface ListEntry {
   disabled?: true;
   preset_id?: string;
   preset?: string | undefined;
+  index?: number;
+  blocks?: number;
+  variables?: number;
+  mode?: string;
+  marker?: string;
+  enabled?: boolean;
 }
 
 function classifyNode(v: unknown): { type: string; size?: number } {
@@ -140,61 +148,6 @@ ${presetOf(script) ?? ""}`, { limit: maxEntries, offset, query }, ctx.signal);
   }));
 }
 
-async function listWorldBooks(ctx: ToolCtx, characterId: string | null, maxEntries: number, includeUnattached: boolean, offset = 0, query?: string): Promise<ListEntry[]> {
-  // characterId may be null only with includeUnattached: the whole library is
-  // character-independent, the character just annotates `attached`.
-  const attached = new Set<string>();
-  if (characterId !== null) {
-    const c = await ctx.spindle.characters.get(characterId, ctx.userId);
-    if (!c) throw new Error(`character ${characterId} not found`);
-    for (const id of c.world_book_ids ?? []) attached.add(id);
-  }
-  // Global ("Always Active") books are active in every chat despite showing
-  // attached:false, so flag them to stop "unattached" reading as "inactive".
-  const globalSet = includeUnattached
-    ? new Set(await ctx.spindle.world_books.getGlobal(ctx.userId).catch(() => [] as string[]))
-    : new Set<string>();
-  const books = includeUnattached
-    ? (await searchPage((limit, offset) => ctx.spindle.world_books.list({ limit, offset, userId: ctx.userId }),
-        book => book.name, { limit: maxEntries, offset, query }, ctx.signal)).data
-    : [];
-  if (!includeUnattached) {
-    let skipped = 0;
-    for (const id of attached) {
-      ctx.signal.throwIfAborted();
-      const book = await ctx.spindle.world_books.get(id, ctx.userId);
-      if (!book || !matchesName(book.name, query)) continue;
-      if (skipped++ < offset) continue;
-      books.push(book);
-      if (books.length >= maxEntries) break;
-    }
-  }
-  const out: ListEntry[] = [];
-  for (const wb of books) {
-    ctx.signal.throwIfAborted();
-    const wbId = wb.id;
-    const meta = await ctx.spindle.world_books.entries.list(wbId, { limit: 1, userId: ctx.userId });
-    const entry: ListEntry = { path: `wb/${wbId}`, type: "world_book", label: wb.name, entries: meta.total };
-    if (includeUnattached && characterId !== null) (entry as ListEntry & { attached: boolean }).attached = attached.has(wbId);
-    if (globalSet.has(wbId)) (entry as ListEntry & { global: boolean }).global = true;
-    out.push(entry);
-  }
-  return out;
-}
-
-async function listWorldBookEntries(ctx: ToolCtx, bookId: string, maxEntries: number, offset = 0, query?: string): Promise<ListEntry[]> {
-  const page = await searchPage((limit, offset) => ctx.spindle.world_books.entries.list(bookId, { limit, offset, userId: ctx.userId }),
-    wbLabel, { limit: maxEntries, offset, query }, ctx.signal);
-  return page.data.map(entry => {
-    const row: ListEntry & { keys?: string[]; secondary_keys?: string[]; constant?: true; disabled?: true } = { path: `wb/${entry.id}`, type: "wb_entry", label: wbLabel(entry), size: entry.content?.length ?? 0 };
-    if (entry.key?.length) row.keys = entry.key;
-    if (entry.keysecondary?.length) row.secondary_keys = entry.keysecondary;
-    if (entry.constant) row.constant = true;
-    if (entry.disabled) row.disabled = true;
-    return row;
-  });
-}
-
 async function listExtensions(ctx: ToolCtx, characterId: string, subPath: string, maxEntries: number, maxDepth: number, offset = 0, query?: string): Promise<ListEntry[]> {
   // Gate the entry point on the phone-line check_read so callers can't peek
   // into refused subtrees (lumirealm.source.*, etc.) by addressing them here.
@@ -258,30 +211,43 @@ async function listPersonas(ctx: ToolCtx, maxEntries: number, offset = 0, query?
 async function listPresets(ctx: ToolCtx, maxEntries: number, offset = 0, query?: string): Promise<ListEntry[]> {
   const page = await searchPage((limit, offset) => ctx.spindle.presets.list({ limit, offset, userId: ctx.userId }),
     preset => preset.name, { limit: maxEntries, offset, query }, ctx.signal);
-  return page.data.map(preset => ({ path: `preset/${preset.id}`, type: "preset", label: preset.name }));
+  return page.data.map(preset => {
+    const blocks = Array.isArray(preset.prompt_order) ? preset.prompt_order : [];
+    const variables = presetVars(preset).length;
+    return { path: `preset/${preset.id}`, type: "preset", label: preset.name, blocks: blocks.length, ...(variables > 0 ? { variables } : {}) };
+  });
 }
 
 async function listPresetBlocks(ctx: ToolCtx, presetId: string, maxEntries: number, offset = 0, query?: string): Promise<ListEntry[]> {
+  const preset = await ctx.spindle.presets.get(presetId, ctx.userId);
+  if (!preset) throw new Error(`[PATH_NOT_FOUND] preset ${presetId} not found. list({path:"preset", query:"<name>"}) finds the id.`);
   const blocks = await ctx.spindle.presets.blocks.list(presetId, ctx.userId);
-  const entries: ListEntry[] = blocks.map((b) => {
+  const entries: ListEntry[] = blocks.map((b, index) => {
     const content = (b as unknown as Record<string, unknown>).content;
     const enabled = (b as unknown as Record<string, unknown>).enabled;
+    const category = b.marker === "category";
     return {
       path: `preset/${presetId}/block/${b.id}`,
-      type: "preset_block",
+      type: category ? "preset_category" : "preset_block",
       label: b.name || "block",
+      index,
       size: typeof content === "string" ? content.length : 0,
       ...(typeof enabled === "boolean" ? { enabled } : {}),
+      ...(category && typeof b.categoryMode === "string" ? { mode: b.categoryMode } : {}),
+      ...(!category && typeof b.marker === "string" && b.marker.length > 0 ? { marker: b.marker } : {}),
+      ...(Array.isArray(b.variables) && b.variables.length > 0 ? { variables: b.variables.length } : {}),
     };
   });
   // New-chat, continue, impersonation and nudge prompts live outside the block list.
-  const preset = await ctx.spindle.presets.get(presetId, ctx.userId);
   const { walkStringLeaves } = await import("./_walk");
-  for (const leaf of walkStringLeaves(preset?.prompts ?? {})) {
+  for (const leaf of walkStringLeaves(preset.prompts ?? {})) {
     entries.push({ path: `preset/${presetId}/prompts/${leaf.path}`, type: "preset_prompt", label: `prompts.${leaf.path}`, size: leaf.text.length });
   }
   return entries.filter(entry => matchesName(entry.label, query)).slice(offset, offset + maxEntries);
 }
+
+const UNKNOWN_LIST_PATH = (path: string) =>
+  `Error: [PATH_NOT_FOUND] unknown list path '${path}'. Valid: '' or 'char' (character overview), 'char/alternate_greetings', 'char/alternate_fields', 'char/extensions[/dotted]', 'rx', 'wb', 'wb/<bookId>', 'persona', 'preset', 'preset/<presetId>', 'preset/<presetId>/var'.`;
 
 export const listTool = defineTool({
   name: "list",
@@ -309,28 +275,38 @@ export const listTool = defineTool({
     const pageSize = input.max_entries ?? 200;
     const maxEntries = pageSize + 1;
     const offset = input.offset ?? 0;
-    const path = input.path.trim();
+    // char/<id> alone lists that card's root, char/<id>/<sub> one of its containers.
+    const rootOf = /^(?:char|character)\/([^/]+)\/?$/.exec(input.path.trim());
+    const split = rootOf && !isCharSubtreeToken(rootOf[1]!)
+      ? { path: "char", target: rootOf[1]! }
+      : splitCharacterPath(input.path.trim(), input.character_id);
+    const path = split.path;
+    const characterArg = split.target ?? undefined;
     const rootExtensions = path === "char/extensions" || path === "extensions";
     const maxDepth = input.max_depth ?? (rootExtensions ? 1 : 4);
     try {
       const personaOrPreset = path === "persona" || path === "personas"
-        || path === "preset" || path === "presets" || path.startsWith("preset/");
+        || path === "preset" || path === "presets" || path.startsWith("preset/") || path.startsWith("presets/");
       // wb/<bookId> entry listing is book-id-scoped, needs no character.
       const wbEntryListing = path.startsWith("wb/") || path.startsWith("world_books/");
-      // Whole-library world-book listing (include_unattached) is character-
-      // independent: the character only annotates `attached`. Don't gate it.
-      const wbWholeLibrary = (path === "wb" || path === "world_books") && input.include_unattached === true;
+      // The book library is character-independent. A character only annotates `attached` and picks the default rows.
+      const wbWholeLibrary = path === "wb" || path === "world_books";
       const rxListing = path === "rx" || path === "regex_scripts";
       let target = "";
       if (rxListing) {
-        target = resolveCharacterTargetOptional(ctx, input.character_id) ?? "";
+        target = resolveCharacterTargetOptional(ctx, characterArg) ?? "";
       } else if (!personaOrPreset && !wbEntryListing && !wbWholeLibrary) {
-        try { target = resolveCharacterTarget(ctx, input.character_id); }
+        // A mistyped root must not be reported as a missing character.
+        if (path !== "" && !/^(?:char|character|alternate_greetings|alternate_fields|extensions)(?:\/|$)/.test(path)) {
+          return { content: UNKNOWN_LIST_PATH(path), isError: true };
+        }
+        try { target = resolveCharacterTarget(ctx, characterArg); }
         catch (err) { const nt = noTargetResult(err); if (nt) return nt; throw err; }
       } else if (wbWholeLibrary) {
-        target = resolveCharacterTargetOptional(ctx, input.character_id) ?? "";
+        target = resolveCharacterTargetOptional(ctx, characterArg) ?? "";
       }
       let entries: ListEntry[];
+      let wbNote: Record<string, unknown> = {};
       if (path === "" || path === "char" || path === "character") {
         entries = await listCharacterRoot(ctx, target, maxEntries, offset, query);
       } else if (path === "char/alternate_greetings" || path === "alternate_greetings") {
@@ -346,7 +322,9 @@ export const listTool = defineTool({
       } else if (rxListing) {
         entries = await listRegex(ctx, target === "" ? null : target, maxEntries, offset, query);
       } else if (path === "wb" || path === "world_books") {
-        entries = await listWorldBooks(ctx, target === "" ? null : target, maxEntries, input.include_unattached === true, offset, query);
+        const listed = await listWorldBooks(ctx, target === "" ? null : target, maxEntries, input.include_unattached === true, offset, query);
+        entries = listed.entries;
+        wbNote = listed.extra;
       } else if (path.startsWith("wb/") || path.startsWith("world_books/")) {
         const bookId = path.split("/")[1] ?? "";
         if (!bookId) return { content: "Error: wb/<bookId> requires a book id", isError: true };
@@ -360,22 +338,41 @@ export const listTool = defineTool({
         entries = await listPersonas(ctx, maxEntries, offset, query);
       } else if (path === "preset" || path === "presets") {
         entries = await listPresets(ctx, maxEntries, offset, query);
-      } else if (path.startsWith("preset/")) {
-        const presetId = path.split("/")[1] ?? "";
+      } else if (path.startsWith("preset/") || path.startsWith("presets/")) {
+        const [, presetId = "", sub, ...rest] = path.split("/").filter((seg) => seg.length > 0);
         if (!presetId) return { content: "Error: preset/<presetId> requires a preset id", isError: true };
+        if (sub === "var" || sub === "vars" || sub === "variables") {
+          const preset = await ctx.spindle.presets.get(presetId, ctx.userId);
+          if (!preset) return { content: `Error: [PATH_NOT_FOUND] preset ${presetId} not found. list({path:"preset", query:"<name>"}) finds the id.`, isError: true };
+          return { content: JSON.stringify(presetVarTable(preset, query ?? rest[rest.length - 1]), null, 2) };
+        }
+        if (sub !== undefined && sub !== "block" && sub !== "blocks") {
+          return { content: `Error: [PATH_NOT_FOUND] '${path}' is not a container. list takes preset/${presetId} (blocks) or preset/${presetId}/var (settings variables). Read a setting with read({path:"${path}"}).`, isError: true };
+        }
         entries = await listPresetBlocks(ctx, presetId, maxEntries, offset, query);
       } else {
-        return { content: `Error: unknown list path '${path}'. Try: '', 'char/alternate_greetings', 'rx', 'wb', 'wb/<id>', 'char/extensions[/dotted]', 'persona', 'preset', 'preset/<id>'.`, isError: true };
+        return { content: UNKNOWN_LIST_PATH(path), isError: true };
       }
       const hasMore = entries.length > pageSize;
       entries = entries.slice(0, pageSize);
+      // Rows for a non-focused character carry its id, or a follow-up read would land on the focused card.
+      if (target !== "" && target !== ctx.characterId) {
+        entries = entries.map((e) => (e.path.startsWith("char/") ? { ...e, path: `char/${target}/${e.path.slice(5)}` } : e));
+      }
       let regexNote: Record<string, unknown> = {};
       if (rxListing && target !== "" && (query ?? "").trim().length === 0) {
         const globals = await countGlobalRegexScripts(ctx).catch(() => 0);
         if (globals > 0) regexNote = { global_scripts: globals, note: `Rows are this character's scripts. ${globals} global scripts also apply: pass query (script name or folder name) to search them, or inspect({path:"rx"}) for the folder breakdown.` };
       }
+      let presetNote: Record<string, unknown> = {};
+      if (path === "preset" || path === "presets") {
+        const active = await describeActivePreset(ctx, await listAllPresets(ctx)).catch(() => null);
+        if (active) presetNote = { active };
+      } else if (path.startsWith("preset/") && entries.some((e) => (e.variables ?? 0) > 0)) {
+        presetNote = { note: `Blocks with variables carry user-facing settings. Their labels, options and current values: list({path:"${path.split("/").slice(0, 2).join("/")}/var"}).` };
+      }
       return { content: JSON.stringify({ path, offset, count: entries.length, has_more: hasMore,
-        next_offset: hasMore ? offset + entries.length : null, ...regexNote, entries }, null, 2) };
+        next_offset: hasMore ? offset + entries.length : null, ...regexNote, ...presetNote, ...wbNote, entries }, null, 2) };
     } catch (err) {
       if (err instanceof ExtensionRefusedError) return { content: `Error: [REFUSED_BY_EXTENSION] ${err.message}`, isError: true };
       return { content: `Error: ${(err as Error).message}`, isError: true };

@@ -1,1 +1,1 @@
-Override the preset.
+Preset id to assemble with instead of the one the chat uses. It wins over preset bindings. Leave empty for the chat's own preset.

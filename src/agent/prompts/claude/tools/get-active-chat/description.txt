@@ -1,1 +1,1 @@
-Get the user's currently active chat (whatever the frontend is showing). Different from the pinned chat — pinned is what this agent session reads from; active is what the user is looking at right now in their main chat panel. Returns null if no chat is open.
+Get the chat the user has open in Lumiverse right now. It can differ from the pinned chat, which is the one this agent session was pointed at. Returns null if no chat is open. Chat tools already fall back to this chat when nothing is pinned, so call this only to learn which chat that is.

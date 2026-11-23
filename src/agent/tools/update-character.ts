@@ -3,11 +3,13 @@ import { cleanPatch, defineTool, emptyPatchError } from "./_framework";
 import { resolveCharacterTarget, noTargetResult } from "./_context";
 import { characterScope } from "../../types";
 import type { CharacterUpdateDTO } from "lumiverse-spindle-types";
-import { normaliseCharacterTags } from "./_surfaces";
+import { CHARACTER_STRING_FIELDS, isCharacterStringField, normaliseCharacterTags } from "./_surfaces";
+import { CHARACTER_FIELD_ALIASES } from "./_character";
 import description from "../prompts/claude/tools/update-character/description.txt";
 
 const inputSchema = z.object({
-  patch: z.record(z.string(), z.unknown()),
+  patch: z.record(z.string(), z.unknown()).optional(),
+  clear: z.array(z.string()).optional(),
   character_id: z.string().optional(),
 });
 
@@ -26,16 +28,37 @@ export const updateCharacterTool = defineTool({
           ["tags", { type: "array", items: { type: "string" } }],
         ]),
       },
+      clear: { type: "array", items: { type: "string" }, description: "Field names to empty, e.g. [\"system_prompt\"]. An empty string in patch is ignored, so this is the only way to blank a field. \"tags\" removes every tag." },
       character_id: { type: "string" },
     },
-    required: ["patch"],
+    required: [],
   },
   requiresCharacter: false,
   execute: async (input, ctx) => {
     let target: string;
     try { target = resolveCharacterTarget(ctx, input.character_id); }
     catch (err) { const nt = noTargetResult(err); if (nt) return nt; throw err; }
-    const patch = input.patch as CharacterUpdateDTO;
+    const rawPatch = (input.patch ?? {}) as Record<string, unknown>;
+    const renamed: string[] = [];
+    const unknown: string[] = [];
+    const patch = {} as CharacterUpdateDTO;
+    for (const [k, v] of Object.entries(rawPatch)) {
+      const key = CHARACTER_FIELD_ALIASES[k] ?? k;
+      if (key !== k) renamed.push(`${k} -> ${key}`);
+      if (key !== "tags" && key !== "extensions" && !isCharacterStringField(key)) { unknown.push(k); continue; }
+      (patch as Record<string, unknown>)[key] = v;
+    }
+    const clear = [...new Set((input.clear ?? []).map((k) => CHARACTER_FIELD_ALIASES[k] ?? k))];
+    for (const k of clear) if (k !== "tags" && !isCharacterStringField(k)) unknown.push(k);
+    if (unknown.length > 0) {
+      const folder = unknown.includes("folder") ? " A character's folder cannot be changed by an extension: the user moves it in the character manager." : "";
+      const greetings = unknown.includes("alternate_greetings") ? ' Greetings: add with create({path:"char/alternate_greetings"}), reorder with set({path:"char/alternate_greetings", value:{from,to}}).' : "";
+      return {
+        content: `Error: [PATH_NOT_FOUND] unknown character field${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ")}. Nothing was written. Valid: ${CHARACTER_STRING_FIELDS.join(", ")}, tags.${folder}${greetings}`,
+        isError: true,
+      };
+    }
+    if (clear.includes("name")) return { content: "Error: [INVALID_INPUT] a character name cannot be cleared. Nothing was written.", isError: true };
     // Refuse `extensions` here. A wholesale extensions patch bypasses the
     // per-path phone-line gates and would let the agent clobber any frozen /
     // derived surface (e.g. lumirealm.source) in one call. Direct it to the
@@ -63,16 +86,24 @@ export const updateCharacterTool = defineTool({
       if (typeof v !== "string") {
         const kind = Array.isArray(v) ? "array" : v === null ? "null" : typeof v;
         return {
-          content: `Error: [INVALID_VALUE_TYPE] update_character only patches string fields. '${k}' is ${kind}. Use \`set({path: "char/${k}", value: ...})\` so the edit is recorded and revertable.`,
+          content: `Error: [INVALID_VALUE_TYPE] update_character only patches string fields. '${k}' is ${kind}.${v === null ? ` To blank it pass clear: ["${k}"].` : ""} Nothing was written.`,
           isError: true,
         };
       }
     }
     const c = await ctx.spindle.characters.get(target, ctx.userId);
     if (!c) return { content: `Error: character ${target} not found`, isError: true };
-    const cleaned = cleanPatch(patch as Record<string, unknown>, c as unknown as Record<string, unknown>);
-    if (Object.keys(cleaned.patch).length === 0) return { content: emptyPatchError(cleaned.unchanged, '{"scenario": "..."}'), isError: true };
+    const ignoredEmpty = Object.entries(patch as Record<string, unknown>).filter(([k, v]) => v === "" && !clear.includes(k)).map(([k]) => k);
+    for (const k of clear) (patch as Record<string, unknown>)[k] = k === "tags" ? [] : "";
+    const cleaned = cleanPatch(patch as Record<string, unknown>, c as unknown as Record<string, unknown>, new Set(clear));
+    // cleanPatch drops an empty array, which is exactly what clearing tags asks for.
+    if (clear.includes("tags") && (c.tags ?? []).length > 0) cleaned.patch["tags"] = [];
+    const emptyHint = ignoredEmpty.length > 0 ? ` Empty strings were ignored for: ${ignoredEmpty.join(", ")}. To blank a field pass clear: ${JSON.stringify(ignoredEmpty)}.` : "";
+    if (Object.keys(cleaned.patch).length === 0) return { content: emptyPatchError(cleaned.unchanged, '{"scenario": "..."}') + emptyHint, isError: true };
     const updated = await ctx.spindle.characters.update(target, cleaned.patch as CharacterUpdateDTO, ctx.userId);
+    const notApplied = Object.entries(cleaned.patch)
+      .filter(([k, v]) => JSON.stringify((updated as unknown as Record<string, unknown>)[k] ?? null) !== JSON.stringify(v))
+      .map(([k]) => k);
     for (const [k, v] of Object.entries(cleaned.patch)) {
       const before = (c as unknown as Record<string, unknown>)[k];
       if (k === "tags" && Array.isArray(v)) {
@@ -96,6 +127,15 @@ export const updateCharacterTool = defineTool({
       if (before === v) continue;
       ctx.pushEdit({ op: "edit", surface: "character_field", surfaceId: target, surfaceLabel: c.name, field: k, before, after: v, scope: characterScope(target) });
     }
-    return { content: `OK. Updated character ${updated.id}. Changed ${cleaned.summary}` };
+    const cleared = clear.filter((k) => k in cleaned.patch);
+    const tail = [
+      cleared.length > 0 ? ` Cleared: ${cleared.join(", ")}.` : "",
+      renamed.length > 0 ? ` Field names corrected: ${renamed.join(", ")}.` : "",
+      emptyHint,
+    ].join("");
+    if (notApplied.length > 0) {
+      return { content: `Error: [NOT_APPLIED] the host did not store: ${notApplied.join(", ")}. Other fields in this call were written.${tail}`, isError: true };
+    }
+    return { content: `OK. Updated ${updated.name} (${updated.id}). Changed ${cleaned.summary || cleared.join(", ")}.${tail}` };
   },
 });

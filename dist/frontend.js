@@ -12995,8 +12995,11 @@ function describeToolActivity(name, args) {
       return { kind: "write", verb: "Updating", target: `character (${Object.keys(args["patch"] ?? {}).join(", ")})` };
     case "update_regex_script":
       return { kind: "write", verb: "Updating", target: `regex ${shortId(s("script_id") ?? "?")} metadata` };
-    case "update_world_book_entry":
-      return { kind: "write", verb: "Updating", target: `world book entry ${shortId(s("entry_id") ?? "?")} metadata` };
+    case "update_world_book_entry": {
+      const many = Array.isArray(args["entry_ids"]) ? args["entry_ids"].length : 0;
+      const target = s("entry_id") ? `world book entry ${shortId(s("entry_id"))} metadata` : many > 0 ? `${many} world book ${many === 1 ? "entry" : "entries"}` : s("book_id") ? `entries in world book ${shortId(s("book_id"))}` : "world book entries";
+      return { kind: "write", verb: "Updating", target };
+    }
     case "create":
       return { kind: "create", verb: "Creating", target: describePath(s("path")) };
     case "delete":

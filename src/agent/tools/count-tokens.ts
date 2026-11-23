@@ -5,6 +5,7 @@ import description from "../prompts/claude/tools/count-tokens/description.txt";
 import argText from "../prompts/claude/tools/count-tokens/arg_text.txt";
 import argChatId from "../prompts/claude/tools/count-tokens/arg_chat_id.txt";
 import argModel from "../prompts/claude/tools/count-tokens/arg_model.txt";
+import { fallbackChatId } from "./_chat";
 
 const inputSchema = z.object({
   path: z.string().optional(),
@@ -48,8 +49,8 @@ export const countTokensTool = defineTool({
         const r = await ctx.spindle.tokens.countText(input.text, opts);
         return { content: JSON.stringify(r, null, 2) };
       }
-      const chatId = input.chat_id ?? ctx.pinnedChatId;
-      if (!chatId) return { content: JSON.stringify({ error: "nothing to count: pass path, text or chat_id (no chat is pinned)" }), isError: true };
+      const chatId = await fallbackChatId(ctx, input.chat_id);
+      if (!chatId) return { content: JSON.stringify({ error: "nothing to count: pass path, text or chat_id (no chat is pinned or open in Lumiverse)" }), isError: true };
       const r = await ctx.spindle.tokens.countChat(chatId, opts);
       return { content: JSON.stringify({ ...r, chat_id: chatId }, null, 2) };
     } catch (err) {

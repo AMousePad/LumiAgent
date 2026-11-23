@@ -1,6 +1,9 @@
-Reads messages from a solo or group chat by id, or the pinned chat if no id is given (chat_id "pinned" is an explicit alias for it).
+Read full messages from a solo or group chat.
 
 Usage:
-- Pass an explicit chat id from `list_chats` to read a non-pinned chat.
-- Returns messages in chronological order. Group results include membership and preserve every message's `speaker_name`; `content` is the active swipe.
-- Default limit 100, cap 500. Most chats fit in one call.
+- chat_id is optional: omitted means the pinned chat, else the chat open in Lumiverse. chat_source in the result says which was used.
+- `last: N` returns the newest N messages in one call. Without it the window starts at the oldest message, and a negative `offset` counts from the end.
+- Default limit 100, cap 500. A partial window says how many messages were left out and how to get the latest.
+- Messages come in chronological order. Group results include membership and every message's `speaker_name`. `content` is the active swipe.
+- Each row has a `path` and counts as read, so `edit` or `rewrite` that path directly.
+- `finish_reason` appears on a reply the model did not end normally, e.g. "length" means it hit the response token limit.

@@ -1,20 +1,24 @@
 import { z } from "zod";
-import type { CharacterUpdateDTO, RegexScriptUpdateDTO, WorldBookEntryUpdateDTO, WorldBookUpdateDTO, UserPresetUpdateDTO, PersonaUpdateDTO } from "lumiverse-spindle-types";
+import type { CharacterUpdateDTO, RegexScriptUpdateDTO, PersonaUpdateDTO } from "lumiverse-spindle-types";
 import { defineTool } from "./_framework";
 import { type ToolCtx, resolveCharacterTarget, noTargetResult } from "./_context";
 import type { EditRecord, ScopeRef } from "../../types";
 import { characterScope } from "../../types";
-import { isCharacterStringField, normaliseCharacterTags, wbLabel, coerceKeyList, WB_ENTRY_KEY_FIELDS, WB_ENTRY_WRITABLE_FIELDS } from "./_surfaces";
+import { CHARACTER_FIELD_ALIASES, setPersonaAddonField } from "./_character";
+import { CHARACTER_STRING_FIELDS, isCharacterStringField, normaliseCharacterTags } from "./_surfaces";
 import { parseExtensionPath, setAtPath } from "./_paths";
-import { applyCharacterId, ExtensionRefusedError, assertExtensionWriteAllowed, scopeForLeafKey, isCharSubtreeToken, isAlternateFieldName, readAltFieldArray, writeAltFieldArray, ALTERNATE_FIELD_NAMES } from "./_path_v2";
+import { applyCharacterId, resolveRead, PathError, NonStringLeafError, ExtensionRefusedError, assertExtensionWriteAllowed, scopeForLeafKey, isCharSubtreeToken, isAlternateFieldName, readAltFieldArray, writeAltFieldArray, ALTERNATE_FIELD_NAMES } from "./_path_v2";
 import { encodeScalar } from "../../state/edit-log";
+import { movePresetBlock, setPresetField, setPresetVars } from "./_preset";
+import { setWorldBookField } from "./_worldbook";
 import description from "../prompts/claude/tools/set/description.txt";
 import argPath from "../prompts/claude/tools/set/arg_path.txt";
 import argValue from "../prompts/claude/tools/set/arg_value.txt";
 
 const inputSchema = z.object({
   path: z.string().min(3).describe("Slash-separated path. Same grammar as `read` / `edit`."),
-  value: z.unknown().describe("The new value. Any JSON-encodable type (string, number, boolean, array, object, null). Wholesale replacement at the path."),
+  value: z.unknown().optional().describe("The new value. Any JSON-encodable type (string, number, boolean, array, object, null). Wholesale replacement at the path."),
+  copy_from: z.string().optional(),
   character_id: z.string().optional(),
 }).strict().transform((d) => ({ ...d, path: applyCharacterId(d.path, d.character_id) }));
 
@@ -24,13 +28,51 @@ function stringify(v: unknown): string {
 }
 
 async function setCharacterField(ctx: ToolCtx, characterId: string, field: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string; valueEncoding?: "json" } | string> {
-  if (field === "tags") {
-    const tags = normaliseCharacterTags(value);
-    if (tags === null) {
-      return `[INVALID_VALUE_TYPE] char/tags expects a string array`;
-    }
+  field = CHARACTER_FIELD_ALIASES[field] ?? field;
+  if (field === "alternate_greetings") {
     const c = await ctx.spindle.characters.get(characterId, ctx.userId);
     if (!c) return "character not found";
+    const current = [...(c.alternate_greetings ?? [])];
+    let next: string[];
+    const move = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+    if (move && typeof move.from === "number" && typeof move.to === "number") {
+      if (move.from < 0 || move.from >= current.length) return `[OUT_OF_RANGE] from ${move.from} (length ${current.length}).`;
+      next = [...current];
+      const [g] = next.splice(move.from, 1);
+      next.splice(Math.max(0, Math.min(next.length, Math.floor(move.to))), 0, g!);
+    } else if (Array.isArray(value) && value.every((g) => typeof g === "string")) {
+      next = value as string[];
+      const lost = current.filter((g) => !next.includes(g)).length;
+      if (lost > 0 && next.length < current.length) {
+        return `[WOULD_DROP_GREETINGS] the new list has ${next.length} greetings and drops ${lost} of the ${current.length} stored ones. Nothing was written. Reorder with value {from, to}, remove with delete({path:"char/alternate_greetings/<idx>"}), add with create.`;
+      }
+    } else {
+      return "[INVALID_VALUE_TYPE] char/alternate_greetings takes {from, to} to move one greeting, or the full string array to reorder. One greeting's text is char/alternate_greetings/<idx>.";
+    }
+    await ctx.spindle.characters.update(characterId, { alternate_greetings: next }, ctx.userId);
+    return { before: JSON.stringify(current), after: JSON.stringify(next), label: c.name, surface: "character_field", surfaceId: characterId, field, valueEncoding: "json" };
+  }
+  if (field === "tags") {
+    const c = await ctx.spindle.characters.get(characterId, ctx.userId);
+    if (!c) return "character not found";
+    // {add, remove} edits the stored list, so adding one tag cannot wipe the others.
+    const delta = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+    const asList = (x: unknown): unknown => (typeof x === "string" ? x.split(",") : x);
+    // A bare string is ambiguous between adding one tag and replacing them all, and guessing replace loses tags.
+    if (typeof value === "string") return `[INVALID_VALUE_TYPE] char/tags takes {add: [...]} to add, {remove: [...]} to remove, or a full array to replace the list. Current tags: ${JSON.stringify(c.tags ?? [])}. Nothing was written.`;
+    let tags: string[] | null;
+    if (delta && (delta.add !== undefined || delta.remove !== undefined)) {
+      const add = normaliseCharacterTags(asList(delta.add ?? []));
+      const remove = normaliseCharacterTags(asList(delta.remove ?? []));
+      if (add === null || remove === null) return "[INVALID_VALUE_TYPE] char/tags {add, remove} take string arrays";
+      const drop = new Set(remove.map((t) => t.toLowerCase()));
+      tags = normaliseCharacterTags([...(c.tags ?? []).filter((t) => !drop.has(t.toLowerCase())), ...add]);
+    } else {
+      tags = normaliseCharacterTags(value);
+    }
+    if (tags === null) {
+      return `[INVALID_VALUE_TYPE] char/tags expects a string array (replaces the list) or {add: [...], remove: [...]}`;
+    }
     const before = JSON.stringify(c.tags ?? []);
     const after = JSON.stringify(tags);
     await ctx.spindle.characters.update(characterId, { tags }, ctx.userId);
@@ -44,7 +86,10 @@ async function setCharacterField(ctx: ToolCtx, characterId: string, field: strin
       valueEncoding: "json",
     };
   }
-  if (!isCharacterStringField(field)) return `[PATH_NOT_FOUND] unknown character field '${field}'`;
+  if (!isCharacterStringField(field)) {
+    const hint = field === "folder" ? " A character's folder cannot be changed by an extension: the user moves it in the character manager." : "";
+    return `[PATH_NOT_FOUND] unknown character field '${field}'. Valid: ${CHARACTER_STRING_FIELDS.join(", ")}, tags, alternate_greetings, alternate_greetings/<idx>, extensions/<dotted>.${hint}`;
+  }
   if (typeof value !== "string") return `[INVALID_VALUE_TYPE] char/${field} expects a string value, got ${typeof value}`;
   const c = await ctx.spindle.characters.get(characterId, ctx.userId);
   if (!c) return "character not found";
@@ -155,74 +200,12 @@ async function setRegexScriptField(ctx: ToolCtx, scriptId: string, field: string
   return { before: stringify(before), after: stringify(value), label: r.name, surface: "regex_script", surfaceId: scriptId, field, ...(isStr ? {} : { valueEncoding: "json" as const }) };
 }
 
-async function setWorldBookField(ctx: ToolCtx, id: string, field: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string; scopeOverride?: ScopeRef; valueEncoding?: "json" } | string> {
-  // wb/<id>/<field> is overloaded: id may be a book (name/description/metadata)
-  // or an entry. Resolve by lookup so one path grammar covers both.
-  const book = await ctx.spindle.world_books.get(id, ctx.userId).catch(() => null);
-  if (book) {
-    if (!(field in book)) return `[PATH_NOT_FOUND] world book has no field '${field}'. Fields: ${Object.keys(book).filter((k) => k !== "id").join(", ")}`;
-    const before = (book as unknown as Record<string, unknown>)[field];
-    await ctx.spindle.world_books.update(id, { [field]: value } as WorldBookUpdateDTO, ctx.userId);
-    // Always file book-level edits under the book's own scope, matching book
-    // create/delete. A book is a standalone entity, not character-owned; without
-    // this, with a character focused, a rename would land in the character ledger
-    // while the create/delete sit in the world_book ledger (split history).
-    return {
-      before: stringify(before), after: stringify(value), label: book.name, surface: "world_book", surfaceId: id, field,
-      scopeOverride: { kind: "world_book" as const, id },
-    };
-  }
-  const e = await ctx.spindle.world_books.entries.get(id, ctx.userId);
-  if (!e) return `no world book or entry with id ${id}`;
-  // Reject fields the host won't write (it would no-op and we'd report a phantom
-  // success with a dead ledger entry).
-  if (!WB_ENTRY_WRITABLE_FIELDS.has(field)) return `[PATH_NOT_FOUND] world book entry has no writable field '${field}'. Valid: ${[...WB_ENTRY_WRITABLE_FIELDS].join(", ")}`;
-  // key/keysecondary are JSON string arrays. A scalar value would be stringified
-  // by the host into an unparseable key column that the entry editor can't open.
-  if (WB_ENTRY_KEY_FIELDS.has(field)) value = coerceKeyList(value);
-  const before = (e as unknown as Record<string, unknown>)[field];
-  await ctx.spindle.world_books.entries.update(id, { [field]: value } as WorldBookEntryUpdateDTO, ctx.userId);
-  const isStr = typeof value === "string";
-  return {
-    // Tag json ONLY for non-string fields. String fields (content, comment) are
-    // stored RAW to match the edit/rewrite route on the same leaf (tagging would
-    // mismatch it and drop history via an encoding rebase, and json-escaping a
-    // multi-line prose field would also break the workshop diff). Non-string
-    // fields (constant, priority, position, disabled) are set-only and json-tagged.
-    before: stringify(before), after: stringify(value), label: wbLabel(e), surface: "world_book_entry", surfaceId: id, field,
-    ...(isStr ? {} : { valueEncoding: "json" as const }),
-    // No-character session: file under the owning book, not under the entry
-    // id (scopeForLeafKey would otherwise treat the entry id as a book id and
-    // store the patch in a ledger that never matches structural ops).
-    ...(ctx.characterId ? {} : { scopeOverride: { kind: "world_book" as const, id: e.world_book_id } }),
-  };
-}
-
-async function setPresetField(ctx: ToolCtx, presetId: string, field: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string } | string> {
-  const p = await ctx.spindle.presets.get(presetId, ctx.userId);
-  if (!p) return `preset ${presetId} not found`;
-  const before = (p as unknown as Record<string, unknown>)[field];
-  // A JSON-encoded string sent for an object field would otherwise overwrite prompts/parameters with a string.
-  if (before && typeof before === "object" && typeof value === "string") {
-    let parsed: unknown;
-    try { parsed = JSON.parse(value); } catch { parsed = undefined; }
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) !== Array.isArray(before)) {
-      return `[INVALID_VALUE_TYPE] preset.${field} is ${Array.isArray(before) ? "an array" : "an object"}. Pass value as a JSON ${Array.isArray(before) ? "array" : "object"}, not a string. To change one string inside prompts, edit preset/${presetId}/prompts/<dotted.path> instead.`;
-    }
-    value = parsed;
-  }
-  // Optimistic concurrency: the host compares expected_cache_revision and throws
-  // on mismatch, so a preset the user edited between our get and update fails
-  // loud instead of silently clobbering their change.
-  await ctx.spindle.presets.update(presetId, { [field]: value, expected_cache_revision: p.cache_revision ?? 0 } as UserPresetUpdateDTO, ctx.userId);
-  return { before: stringify(before), after: stringify(value), label: p.name, surface: "preset", surfaceId: presetId, field };
-}
-
 // Text fields go through edit/rewrite so the read gate and freshness hash apply.
 const PRESET_BLOCK_TEXT_FIELDS = new Set(["content", "name"]);
 
-async function setPresetBlockField(ctx: ToolCtx, presetId: string, blockId: string, field: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string; valueEncoding?: "json" } | string> {
+async function setPresetBlockField(ctx: ToolCtx, presetId: string, blockId: string, field: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string; valueEncoding?: "json"; report?: Record<string, unknown> } | string> {
   if (PRESET_BLOCK_TEXT_FIELDS.has(field)) return `[USE_EDIT] preset block ${field} is text. Use edit or rewrite on preset/${presetId}/block/${blockId}/${field}.`;
+  if (field === "index" || field === "after" || field === "before") return movePresetBlock(ctx, presetId, blockId, field, value);
   const b = await ctx.spindle.presets.blocks.get(presetId, blockId, ctx.userId);
   if (!b) return `preset block ${blockId} not found in preset ${presetId}`;
   const record = b as unknown as Record<string, unknown>;
@@ -234,9 +217,40 @@ async function setPresetBlockField(ctx: ToolCtx, presetId: string, blockId: stri
   return { before: JSON.stringify(before ?? null), after: JSON.stringify(value ?? null), label: b.name || "block", surface: "preset_block", surfaceId: `${presetId}:${blockId}`, field, valueEncoding: "json" };
 }
 
-async function setPersonaAttachedWorldBook(ctx: ToolCtx, personaId: string, field: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string } | string> {
+async function setPersonaAttachedWorldBook(ctx: ToolCtx, personaId: string, field: string, value: unknown): Promise<{ before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string; report?: Record<string, unknown> } | string> {
+  if (field === "default") field = "is_default";
+  if (field === "is_default") {
+    const want = value === true || value === "true" ? true : value === false || value === "false" ? false : null;
+    if (want === null) return "[INVALID_VALUE_TYPE] is_default expects true or false.";
+    const p = await ctx.spindle.personas.get(personaId, ctx.userId);
+    if (!p) return `[PATH_NOT_FOUND] persona ${personaId} not found. Find its id with personas({action:"list", query}).`;
+    if (p.is_default === want) return `[NO_CHANGE] ${p.name} is already ${want ? "the default persona" : "not the default persona"}. Nothing was written.`;
+    const previous = want ? await ctx.spindle.personas.getDefault(ctx.userId).catch(() => null) : null;
+    const updated = await ctx.spindle.personas.update(personaId, { is_default: want } as PersonaUpdateDTO, ctx.userId);
+    if (updated.is_default !== want) return `[NOT_APPLIED] the host kept is_default=${updated.is_default} for ${p.name}.`;
+    return {
+      before: JSON.stringify(p.is_default), after: JSON.stringify(want), label: p.name, surface: "persona", surfaceId: personaId, field,
+      report: {
+        path: `persona/${personaId}/is_default`, persona: p.name, is_default: want,
+        ...(previous && previous.id !== personaId ? { replaced_default: { id: previous.id, name: previous.name } } : {}),
+        note: want
+          ? 'The default persona is used when none is active. The active persona is unchanged: switch it with personas({action:"switch"}).'
+          : "No persona is the default now.",
+      },
+    };
+  }
+  if (field === "folder") {
+    if (typeof value !== "string") return '[INVALID_VALUE_TYPE] folder expects a string. Pass "" for no folder.';
+    const p = await ctx.spindle.personas.get(personaId, ctx.userId);
+    if (!p) return `[PATH_NOT_FOUND] persona ${personaId} not found. Find its id with personas({action:"list", query}).`;
+    const updated = await ctx.spindle.personas.update(personaId, { folder: value } as PersonaUpdateDTO, ctx.userId);
+    return {
+      before: JSON.stringify(p.folder ?? ""), after: JSON.stringify(updated.folder ?? ""), label: p.name, surface: "persona", surfaceId: personaId, field,
+      report: { path: `persona/${personaId}/folder`, persona: p.name, before: p.folder ?? "", after: updated.folder ?? "" },
+    };
+  }
   if (field !== "attached_world_book_id") {
-    return `[PATH_NOT_FOUND] persona/${personaId}/${field} is not settable via \`set\`. Only attached_world_book_id. For name / title / description use \`edit\` or \`rewrite\` on persona/${personaId}/<field>.`;
+    return `[PATH_NOT_FOUND] persona/${personaId}/${field} is not settable. Settable with set: is_default, folder, attached_world_book_id. For name / title / description use edit or rewrite on persona/${personaId}/<field>. The portrait and pronouns can only be changed by the user in the persona editor.`;
   }
   const p = await ctx.spindle.personas.get(personaId, ctx.userId);
   if (!p) return `persona ${personaId} not found`;
@@ -272,7 +286,9 @@ export const setTool = defineTool({
       path: { type: "string", description: argPath },
       character_id: { type: "string", description: "Target character for char/ paths. Same as writing char/<id>/<field>." },
       value: { description: argValue },
+      copy_from: { type: "string", description: "A readable path whose current content is written here byte-for-byte, e.g. char/<otherId>/scenario. When given, value is ignored (send \"\"). Use it to copy text between cards without re-typing it." },
     },
+    // value stays required so dispatch keeps a real null or [] instead of dropping it as a placeholder.
     required: ["path", "value"],
     additionalProperties: false,
   },
@@ -280,7 +296,22 @@ export const setTool = defineTool({
   requiresCharacter: false,
   execute: async (input, ctx) => {
     let path = input.path.trim();
-    const value = input.value;
+    let value = input.value;
+    let copiedFrom: string | null = null;
+    if (typeof input.copy_from === "string" && input.copy_from.trim().length > 0) {
+      try {
+        const leaf = await resolveRead(ctx, input.copy_from.trim());
+        value = leaf.value;
+        copiedFrom = leaf.key;
+      } catch (err) {
+        if (err instanceof NonStringLeafError) { value = err.value; copiedFrom = err.key; }
+        else if (err instanceof PathError) return { content: `Error: [PATH_NOT_FOUND] copy_from: ${err.message}. Nothing was written.`, isError: true };
+        else throw err;
+      }
+    } else if (value === undefined) {
+      return { content: "Error: [INVALID_INPUT] set needs value, or copy_from naming a path to copy.", isError: true };
+    }
+    const requestedPath = path;
 
     // char/<id>/... explicit addressing (mirrors read/edit/rewrite). When the
     // segment after char/ is a character id (not a known subtree token), strip
@@ -299,6 +330,7 @@ export const setTool = defineTool({
     }
 
     let result: { before: string; after: string; label: string; surface: EditRecord["surface"]; surfaceId: string; field: string; valueEncoding?: "json"; scopeOverride?: ScopeRef } | string;
+    let presetReport: Record<string, unknown> | null = null;
 
     if (path.startsWith("char/extensions/") || path.startsWith("character/extensions/")) {
       const dotted = path.replace(/^(char|character)\/extensions\//, "");
@@ -329,18 +361,33 @@ export const setTool = defineTool({
     } else if (path.startsWith("wb/") || path.startsWith("world_book_entry/") || path.startsWith("world_book/")) {
       const parts = path.split("/").slice(1);
       if (parts.length !== 2) return { content: "Error: expected wb/<id>/<field> (id = book or entry)", isError: true };
-      result = await setWorldBookField(ctx, parts[0]!, parts[1]!, value);
+      const written = await setWorldBookField(ctx, parts[0]!, parts[1]!, value);
+      if (typeof written !== "string" && written.report) presetReport = written.report;
+      result = written;
     } else if (/^preset\/[^/]+\/block\/[^/]+\/[^/]+$/.test(path)) {
       const [, presetId, , blockId, field] = path.split("/");
-      result = await setPresetBlockField(ctx, presetId!, blockId!, field!, value);
+      const written = await setPresetBlockField(ctx, presetId!, blockId!, field!, value);
+      if (typeof written !== "string" && "report" in written && written.report) presetReport = written.report;
+      result = written;
+    } else if (/^presets?\/[^/]+\/(?:var|vars|variables)(?:\/|$)/.test(path)) {
+      const [, presetId, , ...rest] = path.split("/");
+      try { return await setPresetVars(ctx, presetId!, rest.length > 0 ? rest : null, value); }
+      catch (err) { return { content: `Error: [SPINDLE_ERROR] ${(err as Error).message}`, isError: true }; }
     } else if (path.startsWith("preset/")) {
       const parts = path.split("/").slice(1);
-      if (parts.length !== 2) return { content: "Error: expected preset/<presetId>/<field>, or preset/<id>/block/<blockId>/<enabled|role|...> for block settings. For block content/name text use edit/rewrite.", isError: true };
-      result = await setPresetField(ctx, parts[0]!, parts[1]!, value);
+      if (parts.length < 2) return { content: "Error: expected preset/<presetId>/<field>. Fields: name, provider, engine, parameters/<dotted.path>, prompts/<dotted.path>, metadata/<dotted.path>, var/<name>, block/<blockId>/<enabled|role|...>. For block content/name text use edit/rewrite.", isError: true };
+      const written = await setPresetField(ctx, parts[0]!, parts.slice(1).join("."), value);
+      if (typeof written !== "string" && written.report) presetReport = written.report;
+      result = written;
     } else if (path.startsWith("persona/")) {
       const parts = path.split("/").slice(1);
-      if (parts.length !== 2) return { content: "Error: expected persona/<personaId>/attached_world_book_id. Persona world-book entries, add-ons (persona/<id>/addon/<addonId>/<content|label>), and name/title/description use edit/rewrite, not set.", isError: true };
-      result = await setPersonaAttachedWorldBook(ctx, parts[0]!, parts[1]!, value);
+      const addonSetting = parts.length === 4 && parts[1] === "addon" && parts[3] !== "content" && parts[3] !== "label";
+      if (!addonSetting && parts.length !== 2) return { content: "Error: expected persona/<personaId>/<is_default|folder|attached_world_book_id> or persona/<personaId>/addon/<addonId>/<enabled|sort_order|outlet_name>. Persona world-book entries, add-on text (persona/<id>/addon/<addonId>/<content|label>), and name/title/description use edit/rewrite, not set.", isError: true };
+      const written = addonSetting
+        ? await setPersonaAddonField(ctx, parts[0]!, parts[2]!, parts[3]!, value)
+        : await setPersonaAttachedWorldBook(ctx, parts[0]!, parts[1]!, value);
+      if (typeof written !== "string" && written.report) presetReport = written.report;
+      result = written;
     } else {
       return { content: `Error: unknown set path '${path}'. See \`read\` tool for grammar.`, isError: true };
     }
@@ -366,9 +413,12 @@ export const setTool = defineTool({
       ...(result.valueEncoding !== undefined ? { valueEncoding: result.valueEncoding } : {}),
     } satisfies EditRecord);
 
+    if (presetReport) return { content: JSON.stringify(presetReport, null, 2) };
+
     return {
       content: JSON.stringify({
-        path,
+        path: charId && charId !== ctx.characterId ? requestedPath : path,
+        ...(copiedFrom ? { copied_from: copiedFrom } : {}),
         before_chars: result.before.length,
         after_chars: result.after.length,
         before_peek: result.before.slice(0, 120),

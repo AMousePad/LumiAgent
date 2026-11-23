@@ -3,6 +3,7 @@ import { defineTool } from "./_framework";
 import { spillOrReturn } from "./_io";
 import { fillPrompt } from "../prompts/_fill";
 import { buildExtensionsSearchSkip } from "../../phoneline/search-excludes";
+import { findNameElsewhere } from "./_character";
 import description from "../prompts/claude/tools/list-characters/description.txt";
 import argQuery from "../prompts/claude/tools/list-characters/arg_query.txt";
 import argLimit from "../prompts/claude/tools/list-characters/arg_limit.txt";
@@ -168,6 +169,7 @@ export const listCharactersTool = defineTool({
     let scanned = 0;
     let matched = 0;
     let excludedByExtension = 0;
+    const excluded: Record<string, unknown>[] = [];
     let pageOffset = 0;
     for (;;) {
       const res = await ctx.spindle.characters.list({
@@ -189,7 +191,11 @@ export const listCharactersTool = defineTool({
         let extensionKeys: string[] | undefined;
         if (requiredExtension !== undefined) {
           extensionKeys = visibleTopLevelExtensionKeys(c.extensions, skipExtensionSearch);
-          if (!extensionKeys.includes(requiredExtension)) { excludedByExtension++; continue; }
+          if (!extensionKeys.includes(requiredExtension)) {
+            if (q && excluded.length < limit) excluded.push(toRow(c, extensionKeys));
+            excludedByExtension++;
+            continue;
+          }
         }
         if (matched >= offset && windowed.length < limit) {
           windowed.push(toRow(c, extensionKeys));
@@ -199,6 +205,11 @@ export const listCharactersTool = defineTool({
       if (res.data.length === 0 || scanned >= res.total) break;
       pageOffset += res.data.length;
     }
+    // A name search that an extension filter emptied still answers with the name matches.
+    // Models fill extension_key with an invented value, and an empty page reads as "no such character".
+    const filterIgnored = matched === 0 && excluded.length > 0;
+    if (filterIgnored) { windowed.push(...excluded); matched = excludedByExtension; }
+    const elsewhere = matched === 0 && q && excludedByExtension === 0 ? await findNameElsewhere(ctx, input.query ?? "").catch(() => null) : null;
     const out = JSON.stringify({
       total: matched,
       total_library: libraryTotal,
@@ -207,13 +218,15 @@ export const listCharactersTool = defineTool({
       has_more: offset + windowed.length < matched,
       next_offset: offset + windowed.length < matched ? offset + windowed.length : null,
       ...(q ? { query: input.query } : {}),
-      ...(requiredExtension !== undefined ? { extension_key: requiredExtension } : {}),
+      ...(requiredExtension !== undefined && !filterIgnored ? { extension_key: requiredExtension } : {}),
       ...(includeExtensionKeys ? { include_extension_keys: true } : {}),
       ...(probeExtensionKeys.length > 0 ? { probe_extension_keys: probeExtensionKeys } : {}),
       ...(includeFields.length > 0 ? { include_fields: includeFields, max_chars_per_field: maxChars } : {}),
       scanned,
-      ...(matched === 0 && q && excludedByExtension === 0 ? { note: `No character is named like '${input.query}'. Do not retry with variations: the name may belong to a preset, lorebook or regex folder. Check list({path:"preset"|"wb"|"rx", query}).` } : {}),
-      ...(matched === 0 && excludedByExtension > 0 ? { note: `extension_key '${requiredExtension}' excluded all ${excludedByExtension} otherwise-matching characters. Omit extension_key unless you need cards carrying that extension.` } : {}),
+      ...(elsewhere ? { also_named: elsewhere, note: `No character is named like '${input.query}', but other things are: see also_named. If the request fits exactly one of them, act on it. Otherwise ask the user which they mean.` } : {}),
+      ...(matched === 0 && q && excludedByExtension === 0 && !elsewhere ? { note: `No character, preset, lorebook, persona or regex folder is named like '${input.query}'. Do not retry with variations: ask the user for the exact name.` } : {}),
+      ...(filterIgnored ? { note: `None of the characters matching '${input.query}' carry extension '${requiredExtension}', so that filter was dropped and the name matches are listed.` } : {}),
+      ...(matched === 0 && excludedByExtension > 0 ? { note: `extension_key '${requiredExtension}' excluded all ${excludedByExtension} characters. Omit extension_key unless you need cards carrying that extension.` } : {}),
       characters: windowed,
     }, null, 2);
     return { content: await spillOrReturn(ctx, out, "list_characters") };

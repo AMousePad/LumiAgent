@@ -1,1 +1,1 @@
-Skim a solo or group chat's messages by id, role, speaker, size, and short snippet. Group speakers remain distinct. Use this to choose messages to read in full.
+Skim a solo or group chat's messages by id, role, speaker, size, and short snippet. Group speakers remain distinct. Use this to choose messages to read in full, hide or delete. chat_id is optional: omitted means the pinned chat, else the chat open in Lumiverse. `last: N` returns the newest N, a negative `offset` counts from the end.

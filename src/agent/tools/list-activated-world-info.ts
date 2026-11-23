@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import { spillOrReturn } from "./_io";
+import { resolveChat } from "./_chat";
 import description from "../prompts/claude/tools/list-activated-world-info/description.txt";
 import argChatId from "../prompts/claude/tools/list-activated-world-info/arg_chat_id.txt";
 
@@ -21,8 +22,9 @@ export const listActivatedWorldInfoTool = defineTool({
   },
   requiresCharacter: false,
   execute: async (input, ctx) => {
-    const chatId = input.chat_id ?? ctx.pinnedChatId;
-    if (!chatId) return { content: JSON.stringify({ error: "no chat_id and no pinned chat" }), isError: true };
+    const resolved = await resolveChat(ctx, input.chat_id);
+    if ("error" in resolved) return resolved.error;
+    const chatId = resolved.chatId;
     try {
       const entries = await ctx.spindle.world_books.getActivated(chatId, ctx.userId);
       const bySource: Record<string, number> = {};

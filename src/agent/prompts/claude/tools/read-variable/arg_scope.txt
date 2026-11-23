@@ -1,1 +1,1 @@
-Variable scope.
+any (default, looks in every store), chat, global or local.

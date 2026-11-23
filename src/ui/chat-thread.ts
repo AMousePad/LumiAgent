@@ -183,7 +183,13 @@ function describeToolActivity(name: string, args: Record<string, unknown>): { ki
     case "audit_card_coverage": { const lang = s("source_lang") ?? "cjk"; return { kind: "search", verb: "Auditing", target: `${lang} coverage` }; }
     case "update_character": return { kind: "write", verb: "Updating", target: `character (${Object.keys((args["patch"] as Record<string, unknown>) ?? {}).join(", ")})` };
     case "update_regex_script": return { kind: "write", verb: "Updating", target: `regex ${shortId(s("script_id") ?? "?")} metadata` };
-    case "update_world_book_entry": return { kind: "write", verb: "Updating", target: `world book entry ${shortId(s("entry_id") ?? "?")} metadata` };
+    case "update_world_book_entry": {
+      const many = Array.isArray(args["entry_ids"]) ? args["entry_ids"].length : 0;
+      const target = s("entry_id") ? `world book entry ${shortId(s("entry_id")!)} metadata`
+        : many > 0 ? `${many} world book ${many === 1 ? "entry" : "entries"}`
+        : s("book_id") ? `entries in world book ${shortId(s("book_id")!)}` : "world book entries";
+      return { kind: "write", verb: "Updating", target };
+    }
     case "create": return { kind: "create", verb: "Creating", target: describePath(s("path")) };
     case "delete": return { kind: "delete", verb: "Deleting", target: describePath(s("path")) };
     case "apply_glossary": { const e = (args["entries"] as Record<string, unknown>) ?? {}; const dry = args["dry_run"] === true; return { kind: dry ? "search" : "write", verb: dry ? "Dry-running" : "Applying", target: `glossary (${Object.keys(e).length} entries)` }; }

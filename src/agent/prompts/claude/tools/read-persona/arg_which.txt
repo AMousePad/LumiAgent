@@ -1,1 +1,1 @@
-Look up by role instead of id.
+Used only without persona_id: active (default, falls back to the default persona) or default.

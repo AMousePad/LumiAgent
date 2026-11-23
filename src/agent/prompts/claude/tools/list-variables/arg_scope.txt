@@ -1,1 +1,1 @@
-Variable scope to list.
+all (default), chat, global or local.

@@ -1,3 +1,3 @@
-Set or clear a LumiRealm module-toggle value for the named chat. Writes to `chat.metadata.macro_variables.global["toggle_<key>"]`. Pass `null` for value to clear.
+Set or clear a LumiRealm module-toggle value. The value is a per-user preference shared by every chat and character that uses the key, and macros see it as the global `toggle_<key>`. It is not stored on the chat: chat_id only picks the Risu chat whose display gets refreshed. Pass `null` for value to clear. Checkboxes store "1" or "0", selects store the option index as a string. chat_id is optional: omitted means the pinned chat, else the chat open in Lumiverse.
 
-Toggle definitions (what toggles exist, what type, what default) live in module envelopes at `module.customModuleToggle` (DSL), edit those via `edit_external` on the envelope. This tool changes the value in the current chat.
+Toggle definitions (what toggles exist, what type, what default) live in module envelopes at `module.customModuleToggle` (DSL), edit those via `edit_external` on the envelope.

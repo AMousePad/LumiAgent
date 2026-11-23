@@ -1,1 +1,1 @@
-Summarize a solo or group chat's size, role and per-speaker counts, and time range before reading or searching it.
+Summarize a solo or group chat's size, role and per-speaker counts, and time range. Useful before reading or searching a whole chat. Not needed for the newest messages: chats(action=read, last=N) gets those directly. chat_id is optional: omitted means the pinned chat, else the chat open in Lumiverse.

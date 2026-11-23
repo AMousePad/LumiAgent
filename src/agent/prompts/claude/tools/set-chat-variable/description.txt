@@ -1,4 +1,4 @@
-Set or clear a chat-scope local variable. Writes to `chat.metadata.macro_variables.local[key]` for the named chat. Pass `null` for value to delete.
+Set or clear a card variable for one chat through LumiRealm. Writes `chat.metadata.chat_variables[key]`, the store Risu / LumiRealm `getvar` and `{{getchatvar}}` read, and refreshes LumiRealm's display and caches, which variables(action=set, scope=chat) does not do. Works only in chats of Risu-imported cards. Pass `null` for value to delete. chat_id is optional: omitted means the pinned chat, else the chat open in Lumiverse.
 
 This is a per-chat runtime patch, not a card-level edit. Trigger `setvar` effects will overwrite this when they fire. For values that should survive every trigger run (the card-side baseline), edit `char/extensions/lumirealm.payload.scriptstate_defaults` instead.
 

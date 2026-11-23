@@ -1,4 +1,5 @@
 import { isToolGroup } from './tools/_tool-groups';
+import { wholeCharacterDeleteTarget } from './tools/_path_v2';
 
 export type ChangeApprovalAction = "create" | "update" | "delete" | "move" | "write";
 export type ChangeApprovalSeverity = "change" | "destructive";
@@ -13,7 +14,7 @@ export interface ChangeImpact {
 export type ChangeApprovalPolicy =
   | { readonly kind: "none" }
   | { readonly kind: "delegate" }
-  | { readonly kind: "required"; readonly impact: ChangeImpact };
+  | { readonly kind: "required"; readonly impact: ChangeImpact; readonly always?: boolean };
 
 // Explicit control-plane operations that do not change user-authored card,
 // chat, lorebook, extension, external-provider, or workspace state. New tools
@@ -98,6 +99,7 @@ const NO_CHANGE_TOOLS: ReadonlySet<string> = new Set([
 const DELETE_TOOLS: ReadonlySet<string> = new Set([
   "asset_delete",
   "custom_tool_delete",
+  "delete_chat_messages",
   "delete",
   "fs_delete",
   "module_detach",
@@ -133,6 +135,8 @@ const MOVE_TOOLS: ReadonlySet<string> = new Set([
 const TOOL_LABELS: Readonly<Record<string, string>> = {
   remember_note: "Append a note to the agent's notes file",
   hide_chat_messages: "Hide or unhide chat messages",
+  rename_chat: "Rename a chat",
+  delete_chat_messages: "Permanently delete chat messages. This cannot be undone",
   run_cache_diagnostic: "Run a LumiCache simulation on a disposable chat copy",
   create_memory_vault: "Snapshot chat memory into a vault",
   rename_memory_vault: "Rename a memory vault",
@@ -220,6 +224,12 @@ function resolveTarget(
   if (toolName === "rename_memory_vault") return stringField(args, "vault_id") ?? "(unknown vault)";
   if (toolName === "attach_memory_link" || toolName === "set_memory_link_enabled") return `${stringField(args, "chat_id") ?? context.pinnedChatId ?? "(no chat)"} / ${stringField(args, "vault_id") ?? stringField(args, "target_chat_id") ?? stringField(args, "link_id") ?? "(unknown link)"}`;
   if (toolName === "create_mcp_server") return stringField(args, "name") ?? "(new MCP server)";
+  if (toolName === "rename_chat") return `${stringField(args, "chat_id") ?? context.pinnedChatId ?? "(open chat)"} -> ${stringField(args, "name") ?? "(no name)"}`;
+  if (toolName === "delete_chat_messages") {
+    const ids = Array.isArray(args["message_ids"]) ? args["message_ids"].length : 0;
+    const what = typeof args["last_n"] === "number" ? `newest ${args["last_n"]} message(s)` : `${ids} message(s)`;
+    return `${stringField(args, "chat_id") ?? context.pinnedChatId ?? "(open chat)"} / ${what}`;
+  }
   if (toolName === "connect_mcp_server" || toolName === "call_mcp_tool") {
     const server = stringField(args, "server_id") ?? "(unknown MCP server)";
     const tool = stringField(args, "tool_name");
@@ -246,8 +256,10 @@ function resolveTarget(
     const contextualTarget = scope === "character"
       ? context.characterId
       : scope === "chat"
-        ? context.pinnedChatId
-        : "global";
+        ? context.pinnedChatId ?? "(open chat)"
+        : scope === "persona"
+          ? "(active persona)"
+          : "global";
     const target = stringField(args, "target_id") ?? contextualTarget ?? `(no active ${scope})`;
     const book = stringField(args, "world_book_id") ?? "(unknown lorebook)";
     return `${scope}:${target} / ${book}`;
@@ -329,6 +341,16 @@ function actionFor(toolName: string): ChangeApprovalAction {
   return "update";
 }
 
+// The host removes a character's chats and images with the card and offers no restore.
+export function isWholeCharacterDelete(toolName: string, args: Readonly<Record<string, unknown>>): boolean {
+  return toolName === "delete" && typeof args["path"] === "string" && wholeCharacterDeleteTarget(args["path"]) !== null;
+}
+
+// Calls the host cannot undo ask the user even when change approval is off.
+export function isIrreversibleCall(toolName: string, args: Readonly<Record<string, unknown>>): boolean {
+  return toolName === "delete_chat_messages" || isWholeCharacterDelete(toolName, args);
+}
+
 export function changeApprovalPolicyFor(
   toolName: string,
   args: Readonly<Record<string, unknown>>,
@@ -350,14 +372,18 @@ export function changeApprovalPolicyFor(
   }
 
   const action = actionFor(toolName);
+  const wholeCharacter = isWholeCharacterDelete(toolName, args);
   return {
     kind: "required",
     impact: {
       action,
       severity: action === "delete" ? "destructive" : "change",
       target: resolveTarget(toolName, args, context).slice(0, 500),
-      summary: TOOL_LABELS[toolName] ?? `Run state-changing tool '${toolName}'`,
+      summary: wholeCharacter
+        ? "Permanently delete a character with its chats and images. This cannot be undone"
+        : TOOL_LABELS[toolName] ?? `Run state-changing tool '${toolName}'`,
     },
+    ...(isIrreversibleCall(toolName, args) ? { always: true } : {}),
   };
 }
 

@@ -2,6 +2,8 @@ Replaces one or more top-level character fields atomically.
 
 Usage:
 - Pass only the fields to change in `patch`.
-- `tags` accepts a string array and can be changed with other fields atomically.
+- `tags` accepts a string array and can be changed with other fields atomically. It replaces the list: to add or remove single tags use `set({path: "char/tags", value: {add: [...], remove: [...]}})`.
+- To blank a field pass its name in `clear`. An empty string in `patch` is ignored.
+- Fields: name, description, personality, scenario, first_mes, mes_example, creator_notes, system_prompt, post_history_instructions, creator, tags. Unknown names error and nothing is written. A character's folder cannot be changed here.
 - For a single field's find/replace use `edit({path: "char/<field>", ...})`.
 - For wholesale overwrite of a single field use `rewrite` or `set`.

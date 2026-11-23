@@ -1,1 +1,1 @@
-Override the persona.
+Persona id to assemble with. Leave empty for the chat's own persona.

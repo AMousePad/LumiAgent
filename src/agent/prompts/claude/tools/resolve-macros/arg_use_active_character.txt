@@ -1,1 +1,1 @@
-Bind {{char}} and character fields to the active character. Defaults to true.
+With no chat and no character_id, bind {{char}} to the focused character. Defaults to true.

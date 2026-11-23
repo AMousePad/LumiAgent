@@ -1,1 +1,1 @@
-Override the connection used (defaults to the chat's active connection).
+Connection id to assemble with. Leave empty for the chat's own connection.

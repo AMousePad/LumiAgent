@@ -1,0 +1,1 @@
+Rename a chat. Returns the old and the new name. Chat metadata, messages and variables are untouched. To undo, call it again with the old name.

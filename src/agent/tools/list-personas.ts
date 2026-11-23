@@ -31,18 +31,20 @@ export const listPersonasTool = defineTool({
         offset,
         userId: ctx.userId,
       }), item => item.name, input, ctx.signal);
+      const active = await ctx.spindle.personas.getActive(ctx.userId).catch(() => null);
       const rows = res.data.map((p) => ({
         id: p.id,
         name: p.name,
         title: p.title,
         folder: p.folder,
         is_default: p.is_default,
+        ...(active?.id === p.id ? { is_active: true } : {}),
         attached_world_book_id: p.attached_world_book_id,
         image_id: p.image_id,
         description_chars: p.description.length,
         updated_at: p.updated_at,
       }));
-      return { content: JSON.stringify({ total: res.total, offset: res.offset, has_more: res.has_more, next_offset: res.next_offset, returned: rows.length, personas: rows }, null, 2) };
+      return { content: JSON.stringify({ total: res.total, offset: res.offset, has_more: res.has_more, next_offset: res.next_offset, returned: rows.length, active_persona_id: active?.id ?? null, personas: rows }, null, 2) };
     } catch (err) {
       return { content: JSON.stringify({ error: (err as Error).message }), isError: true };
     }

@@ -1,19 +1,11 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
-import type { ToolCtx } from "./_context";
+import { CHAT_ID_ARG, resolveChat } from "./_chat";
 import description from "../prompts/claude/tools/chat-stats/description.txt";
 
 const inputSchema = z.object({
   chat_id: z.string().optional(),
 });
-
-function resolveChatId(input: { chat_id?: string | undefined }, ctx: ToolCtx): string | { error: string } {
-  // "pinned" is the documented alias read_chat_messages accepts. Treat it (and
-  // omitted) as the pinned chat so the chat tools behave consistently.
-  if (input.chat_id && input.chat_id !== "pinned") return input.chat_id;
-  if (!ctx.pinnedChatId) return { error: "No chat_id provided and no chat is pinned. Either pass chat_id or have the user pin a chat." };
-  return ctx.pinnedChatId;
-}
 
 export const chatStatsTool = defineTool({
   name: "chat_stats",
@@ -21,17 +13,14 @@ export const chatStatsTool = defineTool({
   inputSchema,
   jsonSchema: {
     type: "object",
-    properties: { chat_id: { type: "string" } },
+    properties: { chat_id: { type: "string", description: CHAT_ID_ARG } },
     required: [],
   },
-  // Chat-scoped; available in no-character sessions (matches read/list_chat_messages).
   requiresCharacter: false,
   execute: async (input, ctx) => {
-    const resolved = resolveChatId(input, ctx);
-    if (typeof resolved !== "string") return { content: `Error: ${resolved.error}`, isError: true };
-    const chatId = resolved;
-    const chat = await ctx.spindle.chats.get(chatId, ctx.userId);
-    if (!chat) return { content: `Error: chat ${chatId} not found`, isError: true };
+    const resolved = await resolveChat(ctx, input.chat_id);
+    if ("error" in resolved) return resolved.error;
+    const { chat, chatId, source } = resolved;
     const all = await ctx.spindle.chat.getMessages(chatId);
     const by_role: Record<string, number> = {};
     const by_speaker: Record<string, number> = {};
@@ -53,6 +42,7 @@ export const chatStatsTool = defineTool({
       content: JSON.stringify({
         chat_id: chatId,
         chat_name: chat.name,
+        chat_source: source,
         total_messages: all.length,
         total_chars: totalChars,
         longest_message_chars: longest,
@@ -61,7 +51,7 @@ export const chatStatsTool = defineTool({
         first_ts: firstTs,
         last_ts: lastTs,
         hint: all.length > 200
-          ? `Big chat. Prefer grep_chat_messages for content search, list_chat_messages for skimming, or read_chat_messages with offset/limit for targeted ranges. read_chat_messages defaults to offset 0 (oldest first); pass offset ${Math.max(0, all.length - 100)} to read the most recent ~100 messages.`
+          ? "Big chat. Use chats(action=search) to find text, chats(action=messages) to skim, chats(action=read, last=20) for the newest messages, or read with offset and limit for a range."
           : "Small enough to read end-to-end if needed.",
       }, null, 2),
     };

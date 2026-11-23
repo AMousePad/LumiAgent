@@ -12,7 +12,23 @@ const MAX_UPDATES = 500;
 const MAX_TAGS_PER_OPERATION = 200;
 const tagsSchema = z.array(z.string()).max(MAX_TAGS_PER_OPERATION);
 
-const updateSchema = z.object({
+// Models fill every row key, so an empty array beside a filled one is a placeholder. A lone `set: []` still clears.
+function dropRowPlaceholders(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+  const row = { ...(raw as Record<string, unknown>) };
+  const filled = (k: string) => Array.isArray(row[k]) && (row[k] as unknown[]).length > 0;
+  const empty = (k: string) => row[k] === null || (Array.isArray(row[k]) && (row[k] as unknown[]).length === 0);
+  // Three empty arrays name no change at all, and reading that as "clear every tag" would destroy data.
+  if (empty("set") && (empty("add") || empty("remove"))) delete row["set"];
+  if (filled("add") || filled("remove")) { if (empty("set")) delete row["set"]; }
+  if (filled("set") || empty("set")) for (const k of ["add", "remove"]) if (empty(k)) delete row[k];
+  if (filled("add") && empty("remove")) delete row["remove"];
+  if (filled("remove") && empty("add")) delete row["add"];
+  if (!("set" in row) && empty("add") && empty("remove")) { delete row["add"]; delete row["remove"]; }
+  return row;
+}
+
+const updateSchema = z.preprocess(dropRowPlaceholders, z.object({
   character_id: z.string().min(1),
   add: tagsSchema.optional(),
   remove: tagsSchema.optional(),
@@ -31,7 +47,7 @@ const updateSchema = z.object({
       message: "set cannot be combined with add or remove",
     });
   }
-});
+}));
 
 const inputSchema = z.object({
   updates: z.array(updateSchema).min(1).max(MAX_UPDATES),

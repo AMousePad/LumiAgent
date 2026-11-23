@@ -29,7 +29,7 @@ export const listMemoryEntitiesTool = defineTool({
   isReadOnly: () => true,
   isConcurrencySafe: () => true,
   execute: async (input, ctx) => {
-    const chatId = resolveMemoryChat(ctx, input.chat_id);
+    const chatId = await resolveMemoryChat(ctx, input.chat_id);
     if (!chatId) return { content: NO_CHAT_ERROR, isError: true };
     try {
       if (input.name !== undefined) {

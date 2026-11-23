@@ -80,8 +80,9 @@ export const manageDatabankTool = defineTool({
           if (!input.databank_id) return { content: "Error: [INVALID_INPUT] delete_bank needs databank_id", isError: true };
           const before = await ctx.spindle.databanks.get(input.databank_id, ctx.userId);
           const ok = await ctx.spindle.databanks.delete(input.databank_id, ctx.userId);
-          if (ok) recordChange(ctx, { kind: "databank", id: input.databank_id }, before?.name ?? "Databank", "deleted", before, null);
-          return { content: JSON.stringify({ deleted: ok }) };
+          if (!ok) return { content: `Error: [PATH_NOT_FOUND] databank '${before?.name ?? input.databank_id}' (${input.databank_id}) was not deleted: ${before ? "the host refused the delete" : "no databank has this id"}. Call databanks(action=list) for valid ids.`, isError: true };
+          recordChange(ctx, { kind: "databank", id: input.databank_id }, before?.name ?? "Databank", "deleted", before, null);
+          return { content: JSON.stringify({ deleted: true, id: input.databank_id, name: before?.name ?? null, note: "The databank and its documents are gone. This cannot be undone." }) };
         }
         case "add_document": {
           if (!input.databank_id) return { content: "Error: [INVALID_INPUT] add_document needs databank_id", isError: true };
@@ -97,7 +98,7 @@ export const manageDatabankTool = defineTool({
             name,
           }, ctx.userId);
           recordChange(ctx, { kind: "databank", id: input.databank_id }, name, "document created", null, doc);
-          return { content: JSON.stringify({ added: { id: doc.id, name: doc.name, status: doc.status }, note: "Chunking and embedding are asynchronous; list_databank_documents shows when it is processed." }) };
+          return { content: JSON.stringify({ added: { id: doc.id, name: doc.name, status: doc.status }, note: "Chunking and embedding are asynchronous. The document is retrievable once list_databank_documents shows status \"ready\" (pending and processing mean not yet, error means it failed)." }) };
         }
         case "rename_document": {
           if (!input.document_id) return { content: "Error: [INVALID_INPUT] rename_document needs document_id", isError: true };
@@ -112,8 +113,9 @@ export const manageDatabankTool = defineTool({
           if (!input.document_id) return { content: "Error: [INVALID_INPUT] delete_document needs document_id", isError: true };
           const before = await ctx.spindle.databanks.documents.get(input.document_id, ctx.userId);
           const ok = await ctx.spindle.databanks.documents.delete(input.document_id, ctx.userId);
-          if (ok) recordChange(ctx, { kind: "databank", id: input.databank_id ?? input.document_id }, before?.name ?? "Document", "document deleted", before, null);
-          return { content: JSON.stringify({ deleted: ok }) };
+          if (!ok) return { content: `Error: [PATH_NOT_FOUND] document '${before?.name ?? input.document_id}' (${input.document_id}) was not deleted: ${before ? "the host refused the delete" : "no document has this id"}. Call databanks(action=documents, databank_id=...) for valid ids.`, isError: true };
+          recordChange(ctx, { kind: "databank", id: input.databank_id ?? input.document_id }, before?.name ?? "Document", "document deleted", before, null);
+          return { content: JSON.stringify({ deleted: true, id: input.document_id, name: before?.name ?? null, note: "This cannot be undone." }) };
         }
         case "reprocess_document": {
           if (!input.document_id) return { content: "Error: [INVALID_INPUT] reprocess_document needs document_id", isError: true };

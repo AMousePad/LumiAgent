@@ -1,14 +1,20 @@
 import { z } from "zod";
-import { cleanPatch, defineTool, emptyPatchError } from "./_framework";
-import { wbLabel, coerceKeyList, WB_ENTRY_KEY_FIELDS, WB_ENTRY_WRITABLE_FIELDS } from "./_surfaces";
-import { characterScope, type ScopeRef } from "../../types";
-import type { WorldBookEntryUpdateDTO } from "lumiverse-spindle-types";
+import { defineTool } from "./_framework";
+import { updateWorldBookEntries, WB_LOGIC_ENUM, WB_POSITION_ENUM } from "./_worldbook";
 import description from "../prompts/claude/tools/update-world-book-entry/description.txt";
 
 const inputSchema = z.object({
-  entry_id: z.string().min(1),
-  patch: z.record(z.string(), z.unknown()),
+  entry_id: z.string().optional(),
+  entry_ids: z.array(z.string()).optional(),
+  book_id: z.string().optional(),
+  query: z.string().optional(),
+  where: z.record(z.string(), z.unknown()).optional(),
+  patch: z.record(z.string(), z.unknown()).optional(),
+  clear: z.array(z.string()).optional(),
 });
+
+const bool = { type: "boolean" };
+const int = { type: "integer" };
 
 export const updateWorldBookEntryTool = defineTool({
   name: "update_world_book_entry",
@@ -17,71 +23,62 @@ export const updateWorldBookEntryTool = defineTool({
   jsonSchema: {
     type: "object",
     properties: {
-      entry_id: { type: "string" },
+      entry_id: { type: "string", description: "One entry to patch." },
+      entry_ids: { type: "array", items: { type: "string" }, description: "Several entries to patch with the same patch." },
+      book_id: { type: "string", description: "Book id or name. Patches every entry in it, or only those selected by query and where." },
+      query: { type: "string", description: "With book_id: keep entries whose comment, keys, secondary keys or content contain this text, case-insensitive." },
+      where: {
+        type: "object",
+        description: "With book_id: keep entries whose flags equal these values.",
+        properties: { constant: bool, disabled: bool, selective: bool, vectorized: bool },
+      },
       patch: {
         type: "object",
-        description: "Only the fields to change. key/keysecondary replace the whole list, so include existing keys you want to keep.",
+        description: "Only the fields to change. key and keysecondary replace the whole list, so include the keys to keep.",
         properties: {
           key: { type: "array", items: { type: "string" } },
           keysecondary: { type: "array", items: { type: "string" } },
           content: { type: "string" },
-          comment: { type: "string" },
-          constant: { type: "boolean" },
-          disabled: { type: "boolean" },
-          selective: { type: "boolean" },
-          position: { type: "integer" },
-          depth: { type: "integer" },
-          order_value: { type: "integer" },
-          probability: { type: "integer" },
-          case_sensitive: { type: "boolean" },
-          match_whole_words: { type: "boolean" },
+          comment: { type: "string", description: "The entry title." },
+          constant: bool,
+          disabled: bool,
+          selective: bool,
+          selective_logic: { type: "integer", description: WB_LOGIC_ENUM },
+          position: { type: "integer", description: WB_POSITION_ENUM },
+          depth: int,
+          role: { type: "string", enum: ["system", "user", "assistant"] },
+          order_value: int,
+          priority: int,
+          probability: int,
+          use_probability: bool,
+          scan_depth: int,
+          case_sensitive: bool,
+          match_whole_words: bool,
+          use_regex: bool,
           group_name: { type: "string" },
+          group_override: bool,
+          group_weight: int,
+          sticky: int,
+          cooldown: int,
+          delay: int,
+          prevent_recursion: bool,
+          exclude_recursion: bool,
+          delay_until_recursion: bool,
+          vectorized: bool,
+          automation_id: { type: "string" },
         },
       },
+      clear: {
+        type: "array",
+        items: { type: "string" },
+        description: "Fields to empty: keysecondary, comment, group_name (leaves its group), role, scan_depth (back to the global scan depth), automation_id. An empty value in patch never clears.",
+      },
     },
-    required: ["entry_id", "patch"],
+    required: ["patch"],
   },
-  // Operates purely by entry_id; consistent with the wb/ path tools, which
-  // are all requiresCharacter:false.
   requiresCharacter: false,
   execute: async (input, ctx) => {
-    const id = input.entry_id;
-    // Force key/keysecondary to string[]. The host stringifies whatever it gets,
-    // so a model passing "a, b" or '["a","b"]' would corrupt the entry's key
-    // column (unparseable, entry can no longer open in the editor).
-    const rawPatch = input.patch as Record<string, unknown>;
-    // Reject fields the host won't write, instead of reporting a phantom success.
-    const unknown = Object.keys(rawPatch).filter((k) => !WB_ENTRY_WRITABLE_FIELDS.has(k));
-    if (unknown.length > 0) return { content: `Error: [PATH_NOT_FOUND] world book entry has no writable field(s): ${unknown.join(", ")}. Valid: ${[...WB_ENTRY_WRITABLE_FIELDS].join(", ")}`, isError: true };
-    const patch: WorldBookEntryUpdateDTO = { ...rawPatch } as WorldBookEntryUpdateDTO;
-    for (const f of WB_ENTRY_KEY_FIELDS) {
-      if (rawPatch[f] !== undefined) (patch as Record<string, unknown>)[f] = coerceKeyList(rawPatch[f]);
-    }
-    const before = await ctx.spindle.world_books.entries.get(id, ctx.userId);
-    if (!before) return { content: `Error: world book entry ${id} not found`, isError: true };
-    const cleaned = cleanPatch(patch as Record<string, unknown>, before as unknown as Record<string, unknown>);
-    if (Object.keys(cleaned.patch).length === 0) return { content: emptyPatchError(cleaned.unchanged, '{"key": ["existing", "new keyword"]}'), isError: true };
-    const updated = await ctx.spindle.world_books.entries.update(id, cleaned.patch as WorldBookEntryUpdateDTO, ctx.userId);
-    const label = wbLabel(before);
-    // File under the focused character, else the OWNING BOOK id (from
-    // before.world_book_id), never the entry id. scopeForLeafKey(`wb/<id>`) would
-    // mis-file under the entry id in a no-character session (same bug class as
-    // the path-edit fix that reads e.world_book_id).
-    const scope: ScopeRef = ctx.characterId
-      ? characterScope(ctx.characterId)
-      : { kind: "world_book", id: before.world_book_id };
-    for (const [k, v] of Object.entries(cleaned.patch)) {
-      const prev = (before as unknown as Record<string, unknown>)[k];
-      // Tag json ONLY for non-string values. A string field stored raw matches
-      // the edit/rewrite route on the same leaf (content/comment), avoiding an
-      // encoding-rebase that would drop history; non-string metadata (arrays,
-      // bools, numbers) is json-tagged so it round-trips on revert.
-      const isStr = typeof v === "string";
-      const beforeStr = isStr ? (typeof prev === "string" ? prev : JSON.stringify(prev ?? null)) : JSON.stringify(prev ?? null);
-      const afterStr = isStr ? (v as string) : JSON.stringify(v ?? null);
-      if (beforeStr === afterStr) continue;
-      ctx.pushEdit({ op: "edit", surface: "world_book_entry", surfaceId: id, surfaceLabel: label, field: k, before: beforeStr, after: afterStr, ...(isStr ? {} : { valueEncoding: "json" as const }), scope });
-    }
-    return { content: `OK. Updated world book entry ${updated.id}. Changed ${cleaned.summary}` };
+    try { return await updateWorldBookEntries(ctx, input); }
+    catch (err) { return { content: `Error: [SPINDLE_ERROR] ${(err as Error).message}`, isError: true }; }
   },
 });

@@ -2,7 +2,9 @@ import type { ToolSchema } from "../types";
 import { isDeferredTool, isReadOnlyTool, listDeferredToolNames, maxResultSizeCharsFor, registry } from "./tools/_registry";
 import { formatZodError, prepareToolArgs } from "./tools/_framework";
 import type { ToolCtx as SharedToolCtx, QueuedImage as SharedQueuedImage } from "./tools/_context";
-import { changeApprovalPolicyFor, type ChangeImpact } from "./change-approval";
+import { changeApprovalPolicyFor, isIrreversibleCall, isWholeCharacterDelete, type ChangeImpact } from "./change-approval";
+import { wholeCharacterDeleteTarget } from "./tools/_path_v2";
+import { describeCharacterDelete } from "./tools/_character";
 import { canonicalToolReferences, isPublicTool, isToolGroup } from './tools/_tool-groups';
 import { describeHook, hookMatches, type HookRule } from "./hooks";
 
@@ -139,13 +141,19 @@ export function makeToolDispatch(options: ToolDispatchOptions = {}): Record<stri
         if (rule.effect === "deny") return { content: `Error: [HOOK_DENIED] ${describeHook(rule)}`, isError: true };
         if (rule.effect === "approve" && hookApproval === null) hookApproval = rule;
       }
-      if (options.requireChangeApproval === true || hookApproval !== null) {
+      const irreversible = isIrreversibleCall(tool.name, parsedArgs);
+      if (options.requireChangeApproval === true || hookApproval !== null || irreversible) {
         let policy = changeApprovalPolicyFor(tool.name, parsedArgs, {
           characterId: ctx.characterId,
           pinnedChatId: ctx.pinnedChatId,
         });
         if (hookApproval !== null && policy.kind !== "required") {
           policy = { kind: "required", impact: { action: "update", severity: "change", target: JSON.stringify(parsedArgs).slice(0, 500), summary: `Hook: ${describeHook(hookApproval)}` } };
+        }
+        if (policy.kind === "required" && isWholeCharacterDelete(tool.name, parsedArgs)) {
+          const described = await describeCharacterDelete(ctxWithDispatch as ToolCtx, wholeCharacterDeleteTarget(String(parsedArgs["path"])) ?? "");
+          if ("content" in described) return described;
+          policy = { ...policy, impact: { ...policy.impact, target: described.target } };
         }
         if (policy.kind === "required") {
           if (ctx.signal.aborted) return deniedResult({ kind: "cancelled" });

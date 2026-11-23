@@ -1,58 +1,30 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import { spillOrReturn } from "./_io";
-import type { ToolCtx } from "./_context";
-import type { ToolResult } from "./_framework";
+import { markReadWithHash } from "./_gates";
+import { CHAT_ID_ARG, messagePath, messageWindow, resolveChat, windowNote } from "./_chat";
 import { groupCharacterIds, isGroupChat } from "../../state/chat-catalog";
 import description from "../prompts/claude/tools/read-chat-messages/description.txt";
-import argChatId from "../prompts/claude/tools/read-chat-messages/arg_chat_id.txt";
 
 const CHAT_MESSAGES_DEFAULT_LIMIT = 100;
 const CHAT_MESSAGES_MAX_LIMIT = 500;
-
-export async function readChatMessagesImpl(
-  ctx: ToolCtx,
-  chatId: string,
-  offsetIn: number | undefined,
-  limitIn: number | undefined,
-): Promise<ToolResult> {
-  const limit = Math.min(CHAT_MESSAGES_MAX_LIMIT, Math.max(1, Math.floor(limitIn ?? CHAT_MESSAGES_DEFAULT_LIMIT)));
-  const chat = await ctx.spindle.chats.get(chatId, ctx.userId);
-  if (!chat) return { content: `Error: chat ${chatId} not found`, isError: true };
-  const all = await ctx.spindle.chat.getMessages(chatId);
-  // A negative offset counts from the end, so "last 5" is one call: offset -5.
-  const rawOffset = Math.floor(offsetIn ?? 0);
-  const offset = rawOffset < 0 ? Math.max(0, all.length + rawOffset) : rawOffset;
-  const slice = all.slice(offset, offset + limit);
-  const messages = slice.map((m, i) => ({
-    idx: offset + i,
-    id: m.id,
-    role: m.role,
-    speaker_name: m.name,
-    ...((m as { hidden?: boolean }).hidden ? { hidden: true } : {}),
-    content: m.content,
-    swipe_count: m.swipes.length,
-    active_swipe: m.swipe_id,
-  }));
-  const payload = JSON.stringify({
-    chat_id: chatId,
-    chat_name: chat.name,
-    is_group: isGroupChat(chat),
-    character_ids: isGroupChat(chat) ? groupCharacterIds(chat) : [chat.character_id],
-    total: all.length,
-    offset,
-    returned: messages.length,
-    messages,
-  }, null, 2);
-  const out = await spillOrReturn(ctx, payload, `read_chat_messages:${chatId}`, `To read just the latest messages in full, re-call with offset -3 (negative counts from the end). For search, use grep_chat_messages.`);
-  return { content: out };
-}
 
 const inputSchema = z.object({
   chat_id: z.string().optional(),
   offset: z.number().optional(),
   limit: z.number().optional(),
+  last: z.number().optional(),
 });
+
+function outcomeOf(extra: unknown): { finish_reason?: string; generation_error?: string } {
+  const outcome = (extra as { generationOutcome?: unknown } | undefined)?.generationOutcome;
+  if (!outcome || typeof outcome !== "object") return {};
+  const o = outcome as { finish_reason?: unknown; error?: unknown };
+  return {
+    ...(typeof o.finish_reason === "string" && o.finish_reason ? { finish_reason: o.finish_reason } : {}),
+    ...(typeof o.error === "string" && o.error ? { generation_error: o.error } : {}),
+  };
+}
 
 export const readChatMessagesTool = defineTool({
   name: "read_chat_messages",
@@ -61,23 +33,52 @@ export const readChatMessagesTool = defineTool({
   jsonSchema: {
     type: "object",
     properties: {
-      chat_id: { type: "string", description: argChatId },
-      offset: { type: "number", description: "Start index. Negative counts from the end: -5 reads the last 5 messages." },
-      limit: { type: "number" },
+      chat_id: { type: "string", description: CHAT_ID_ARG },
+      offset: { type: "number", description: "Start index, oldest is 0. Negative counts from the end: -5 starts at the 5th newest." },
+      limit: { type: "number", description: `Max messages. Default ${CHAT_MESSAGES_DEFAULT_LIMIT}, cap ${CHAT_MESSAGES_MAX_LIMIT}.` },
+      last: { type: "number", description: "Return the newest N messages. Overrides offset and limit." },
     },
     required: [],
   },
-  // Chat-scoped (operates on chat_id / pinned chat), never reads ctx.characterId,
-  // so it stays available in no-character sessions (which can pin + edit chats).
   requiresCharacter: false,
   execute: async (input, ctx) => {
-    const requested = input.chat_id;
-    if (requested === undefined || requested === "pinned") {
-      if (!ctx.pinnedChatId) {
-        return { content: JSON.stringify({ pinned: false, note: "No chat is pinned to this session. Tell the user to click the chat-pin button next to the character selector and choose a chat to give you message context." }) };
-      }
-      return readChatMessagesImpl(ctx, ctx.pinnedChatId, input.offset, input.limit);
-    }
-    return readChatMessagesImpl(ctx, requested, input.offset, input.limit);
+    const resolved = await resolveChat(ctx, input.chat_id);
+    if ("error" in resolved) return resolved.error;
+    const { chat, chatId, source } = resolved;
+    const all = await ctx.spindle.chat.getMessages(chatId);
+    const { start, end } = messageWindow(all.length, input, CHAT_MESSAGES_DEFAULT_LIMIT, CHAT_MESSAGES_MAX_LIMIT);
+    const messages = all.slice(start, end).map((m, i) => {
+      const path = messagePath(chatId, m.id);
+      // Every row is the full active swipe, so it satisfies the edit gate without a second read.
+      markReadWithHash(ctx, path, m.content);
+      return {
+        idx: start + i,
+        id: m.id,
+        path,
+        role: m.role,
+        speaker_name: m.name,
+        ...((m as { hidden?: boolean }).hidden ? { hidden: true } : {}),
+        content: m.content,
+        swipe_count: m.swipes.length,
+        active_swipe: m.swipe_id,
+        ...outcomeOf(m.extra),
+      };
+    });
+    const note = windowNote("read", all.length, start, end);
+    const payload = JSON.stringify({
+      chat_id: chatId,
+      chat_name: chat.name,
+      chat_source: source,
+      is_group: isGroupChat(chat),
+      character_ids: isGroupChat(chat) ? groupCharacterIds(chat) : [chat.character_id],
+      total: all.length,
+      offset: start,
+      returned: messages.length,
+      ...(note ? { note } : {}),
+      edit_hint: "Each row was read in full: edit or rewrite its path directly, no extra read needed.",
+      messages,
+    }, null, 2);
+    const out = await spillOrReturn(ctx, payload, `read_chat_messages:${chatId}`, "For only the newest messages re-call with last=3. To find text use chats(action=search).");
+    return { content: out };
   },
 });

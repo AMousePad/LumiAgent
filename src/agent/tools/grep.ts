@@ -4,6 +4,7 @@ import { iterateAllLeaves, iterateAllWorldBookLeaves, iteratePresetLeaves } from
 import { spillOrReturn } from "./_io";
 import { markGrepHit } from "./_gates";
 import { resolveCharacterTarget, noTargetResult } from "./_context";
+import { unsearchedBooksNote } from "./_worldbook";
 import { fillPrompt } from "../prompts/_fill";
 import descTemplate from "../prompts/claude/tools/grep/description.txt";
 import argFlags from "../prompts/claude/tools/grep/arg_flags.txt";
@@ -27,7 +28,7 @@ const inputSchema = z.object({
   max_matches: z.number().int().positive().max(GREP_MAX_CAP).optional().describe(`Cap on total returned hits across all leaves. Default ${GREP_DEFAULT_MAX}, max ${GREP_MAX_CAP}.`),
   max_hits_per_line: z.number().int().positive().max(50).optional().describe(`Cap on hits returned per line. Default ${GREP_DEFAULT_HITS_PER_LINE}. Keep at 1 when the pattern matches dense single characters (e.g. CJK glyphs) so a single line full of matches doesn't burn the entire max_matches budget.`),
   character_id: z.string().optional().describe("Character to search. Defaults to the focused character."),
-  world_scope: z.enum(["attached", "all"]).optional().describe("World books to search. 'attached' (default) only this character's books; 'all' also searches every other owned book, labeling entries [global] (in the Always-Active set) or [unattached]."),
+  world_scope: z.enum(["attached", "all"]).optional().describe("World books to search. 'attached' (default) only this character's books; 'all' also searches every other owned book, labeling entries [global] (in the Always-Active set) or [not attached to this character]."),
   count_by: z.enum(["book", "leaf"]).optional(),
 }).strict();
 
@@ -177,8 +178,8 @@ export const grepTool = defineTool({
     // size, not an open stream.
     const eligibleLeaves: Array<{ key: string; value: string; surface: string; surfaceLabel: string }> = [];
     const sources = async function* () {
-      if (target) yield* iterateAllLeaves(ctx, target, { wbScope: input.world_scope ?? "attached" });
-      else if (allBooks) yield* iterateAllWorldBookLeaves(ctx);
+      if (target) yield* iterateAllLeaves(ctx, target, { wbScope: input.world_scope ?? "attached", wbKeys: true });
+      else if (allBooks) yield* iterateAllWorldBookLeaves(ctx, { wbKeys: true });
       if (presetPrefixes.length > 0) for (const id of presetIds) yield* iteratePresetLeaves(ctx, id);
     };
     for await (const leaf of sources()) {
@@ -205,9 +206,10 @@ export const grepTool = defineTool({
         g.leaves++; g.matches += n; groups.set(key, g);
         if (input.count_by === "leaf") leafRows.push({ path: leaf.key, label: leaf.surfaceLabel, matches: n });
       }
+      const unsearched = total === 0 && target && (input.world_scope ?? "attached") === "attached" ? await unsearchedBooksNote(ctx, target) : null;
       const out = {
         pattern: input.pattern, flags: assembled, leaves_scanned: leavesScanned, leaves_skipped: leavesFiltered,
-        total_matches: total,
+        total_matches: total, ...(unsearched ? { note: unsearched } : {}),
         by_group: [...groups].map(([group, g]) => ({ group, leaves_with_matches: g.leaves, matches: g.matches })).sort((a, b) => b.matches - a.matches),
         ...(input.count_by === "leaf" ? { leaves: leafRows.sort((a, b) => b.matches - a.matches) } : {}),
       };
@@ -252,6 +254,11 @@ export const grepTool = defineTool({
       truncated,
       hits,
     };
+    // A miss on the attached books says nothing about the rest of the library.
+    if (hits.length === 0 && target && (input.world_scope ?? "attached") === "attached" && (include.length === 0 || include.some(isWbPrefix))) {
+      const note = await unsearchedBooksNote(ctx, target);
+      if (note) out["note"] = note;
+    }
     if (include.length > 0) out["include_paths"] = include;
     if (exclude.length > 0) out["exclude_paths"] = exclude;
     if (truncatedAt) {

@@ -38,7 +38,7 @@ export const updateMemoryEntityTool = defineTool({
   },
   requiresCharacter: false,
   execute: async (input, ctx) => {
-    const chatId = resolveMemoryChat(ctx, input.chat_id);
+    const chatId = await resolveMemoryChat(ctx, input.chat_id);
     if (!chatId) return { content: NO_CHAT_ERROR, isError: true };
     try {
       const entity = await findEntity(ctx.spindle, chatId, { ...(input.name !== undefined ? { name: input.name } : {}), ...(input.entity_id !== undefined ? { entityId: input.entity_id } : {}) }, ctx.userId);

@@ -1,10 +1,10 @@
 import { z } from "zod";
-import type { WorldBookEntryDTO } from "lumiverse-spindle-types";
 import { defineTool } from "./_framework";
 import { type ToolCtx, resolveCharacterTarget, resolveCharacterTargetOptional, noTargetResult } from "./_context";
 import { listAllRegexScripts, targetList } from "./_regex";
-import { resolveRead, PathError, OutOfRangeError, ExtensionRefusedError, listAllWorldBooks, type ResolvedLeaf } from "./_path_v2";
-import { wbLabel } from "./_surfaces";
+import { inspectPreset } from "./_preset";
+import { applyCharacterId, resolveRead, PathError, OutOfRangeError, ExtensionRefusedError, listAllWorldBooks, type ResolvedLeaf } from "./_path_v2";
+import { inspectWorldBookPath } from "./_worldbook";
 import description from "../prompts/claude/tools/inspect/description.txt";
 import argPath from "../prompts/claude/tools/inspect/arg_path.txt";
 import argCharacterId from "../prompts/claude/tools/inspect/arg_character_id.txt";
@@ -12,7 +12,6 @@ import { listTool } from './list';
 
 const PEEK_CHARS = 200;
 const REGEX_ROW_LIMIT = 80;
-const TOP_N = 10;
 const CJK_RE = /[가-힣぀-ゟ゠-ヿ㐀-䶿一-鿿豈-﫿]/g;
 const HANGUL_NFC_RANGE = /[가-힣]+/g;
 const HANGUL_JAMO_RANGE = /[ᄀ-ᇿ]+/g;
@@ -195,35 +194,6 @@ async function inspectWorldBooksContainer(ctx: ToolCtx, explicit?: string): Prom
   return { path: "wb", total: rows.length, ...(charId !== null ? { attached: attached.size } : {}), books: rows };
 }
 
-async function inspectWorldBook(ctx: ToolCtx, bookId: string): Promise<Record<string, unknown> | string> {
-  const wb = await ctx.spindle.world_books.get(bookId, ctx.userId);
-  if (!wb) return `world book ${bookId} not found`;
-  const entries: WorldBookEntryDTO[] = [];
-  let offset = 0;
-  while (true) {
-    const r = await ctx.spindle.world_books.entries.list(bookId, { limit: 500, userId: ctx.userId, offset });
-    entries.push(...r.data);
-    if (r.data.length === 0 || offset + r.data.length >= r.total) break;
-    offset += r.data.length;
-  }
-  const disabled = entries.filter((e) => e.disabled).length;
-  const constant = entries.filter((e) => e.constant).length;
-  const totalChars = entries.reduce((sum, e) => sum + (e.content?.length ?? 0), 0);
-  const top = [...entries]
-    .sort((a, b) => (b.content?.length ?? 0) - (a.content?.length ?? 0))
-    .slice(0, TOP_N)
-    .map((e) => ({ path: `wb/${e.id}/content`, label: wbLabel(e), chars: e.content?.length ?? 0 }));
-  return {
-    path: `wb/${bookId}`,
-    name: wb.name,
-    entries: entries.length,
-    disabled,
-    constant,
-    total_content_chars: totalChars,
-    largest: top,
-  };
-}
-
 export const inspectTool = defineTool({
   name: "inspect",
   description,
@@ -240,9 +210,16 @@ export const inspectTool = defineTool({
   // Path-targeted; char/ loud-fails in resolveRead without a character.
   requiresCharacter: false,
   execute: async (input, ctx) => {
-    const path = input.path.trim();
+    const path = applyCharacterId(input.path.trim(), input.character_id);
 
-    if (/^preset(?:\/[^/]+)?$/.test(path)) return listTool.execute({ path }, ctx);
+    if (path === "preset" || path === "presets") return listTool.execute({ path: "preset" }, ctx);
+    const presetMatch = /^presets?\/([^/]+)$/.exec(path);
+    if (presetMatch) {
+      const r = await inspectPreset(ctx, presetMatch[1]!);
+      if (typeof r === "string") return { content: `Error: ${r}`, isError: true };
+      return { content: JSON.stringify(r, null, 2) };
+    }
+    if (/^presets?\/[^/]+\/(?:var|vars|variables)(?:\/|$)/.test(path)) return listTool.execute({ path }, ctx);
 
     // Containers are not leaves, so resolveRead would reject them.
     if (path === "rx" || path === "regex_scripts") {
@@ -262,14 +239,10 @@ export const inspectTool = defineTool({
       if (typeof r === "string") return { content: `Error: ${r}`, isError: true };
       return { content: JSON.stringify(r, null, 2) };
     }
-    // wb/<id> with no field segment → book aggregate.
-    const wbMatch = /^(?:wb|world_book_entry)\/([^/]+)$/.exec(path);
+    const wbMatch = /^(?:wb|world_books?|world_book_entry)\/([^/]+)$/.exec(path);
     if (wbMatch) {
-      const r = await inspectWorldBook(ctx, wbMatch[1]!);
-      // wb/<id> is also valid shorthand for an entry, which resolveRead below handles.
-      const entry = typeof r === "string" ? await ctx.spindle.world_books.entries.get(wbMatch[1]!, ctx.userId).catch(() => null) : null;
-      if (typeof r === "string" && !entry) return { content: `Error: ${r}`, isError: true };
-      if (typeof r !== "string") return { content: JSON.stringify(r, null, 2) };
+      try { return await inspectWorldBookPath(ctx, wbMatch[1]!); }
+      catch (err) { return { content: `Error: [SPINDLE_ERROR] ${(err as Error).message}`, isError: true }; }
     }
 
     // Otherwise resolve as a leaf and report leaf stats + encoding diagnostics.
@@ -281,7 +254,7 @@ export const inspectTool = defineTool({
       if (err instanceof PathError) {
         // Container paths that list accepts (char/alternate_fields, rx, wb) are not leaves, so answer with the listing.
         const { listTool } = await import("./list");
-        const args = listTool.inputSchema.safeParse({ path });
+        const args = listTool.inputSchema.safeParse({ path: input.path.trim(), ...(input.character_id ? { character_id: input.character_id } : {}) });
         if (args.success) {
           const listed = await listTool.execute(args.data, ctx).catch(() => null);
           if (listed && !listed.isError) return { content: `${path} is a container, not a leaf. Its listing:\n${listed.content}` };

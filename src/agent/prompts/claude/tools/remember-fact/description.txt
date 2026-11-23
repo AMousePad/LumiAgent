@@ -1,3 +1,5 @@
-Append a durable fact to a memory entity. The last 6 facts render into every later generation's entity context, verbatim from the next message on.
+Append a durable fact to a Memory Cortex entity of a chat.
 
-The entity resolves by name or alias and is created with `entity_type` (default character) if missing. The list caps at 30 and evicts lowest `importance` first (1-10, default 5, ties keep the newer), so use 8-10 for facts that must stay. Dedup is case-insensitive. Keep facts to one present-tense clause. Defaults to the pinned chat.
+Facts reach the AI only when Memory Cortex is enabled, and it is off by default. Even then an entity's last 6 facts are injected only on turns where the recent chat text mentions its name or an alias of 3 or more characters. The result reports `cortex_enabled`: when false the fact is saved but nothing is injected until the user turns Memory Cortex on. For text that must be in every prompt, create a constant lorebook entry instead.
+
+The entity resolves by name or alias and is created with `entity_type` (default character) if missing. The list caps at 30 and evicts lowest `importance` first (1-10, default 5, ties keep the newer), so use 8-10 for facts that must stay. Dedup is case-insensitive. Keep facts to one present-tense clause. chat_id is optional: omitted means the pinned chat, else the chat open in Lumiverse.

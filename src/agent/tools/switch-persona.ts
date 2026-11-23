@@ -27,7 +27,7 @@ export const switchPersonaTool = defineTool({
     if (!deactivate) {
       const target = await ctx.spindle.personas.get(input.persona_id, ctx.userId).catch(() => null);
       if (!target) {
-        return { content: `Error: [PATH_NOT_FOUND] persona '${input.persona_id}' not found. Use \`list_personas\` to enumerate ids.`, isError: true };
+        return { content: `Error: [PATH_NOT_FOUND] persona '${input.persona_id}' not found. Find its id with personas({action:"list", query}).`, isError: true };
       }
     }
 

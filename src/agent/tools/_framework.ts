@@ -89,13 +89,62 @@ function stripNonPortableSchemaKeys(node: unknown): unknown {
   return out;
 }
 
+// Strict-schema models must fill every declared argument. A length floor on an optional one forces an
+// invented value that reads as real, so the advertised schema lets "" and [] through for dispatch to drop.
+function relaxOptionalArgs(schema: Record<string, unknown>): Record<string, unknown> {
+  const props = schema.properties;
+  if (!props || typeof props !== "object" || Array.isArray(props)) return schema;
+  const required = new Set((schema.required as string[] | undefined) ?? []);
+  const next: Record<string, unknown> = {};
+  for (const [name, raw] of Object.entries(props as Record<string, unknown>)) {
+    if (required.has(name) || !raw || typeof raw !== "object" || Array.isArray(raw)) { next[name] = raw; continue; }
+    const { minLength: _minLength, minItems: _minItems, ...prop } = raw as Record<string, unknown>;
+    const items = prop.items;
+    if (items && typeof items === "object" && !Array.isArray(items)) {
+      const { minLength: _itemMinLength, ...rest } = items as Record<string, unknown>;
+      prop.items = rest;
+    }
+    next[name] = prop;
+  }
+  return { ...schema, properties: next };
+}
+
+const NO_EMPTY_VALUE_TYPES: ReadonlySet<unknown> = new Set(["boolean", "integer", "number"]);
+
+// A boolean, number or enum inside a patch object has no empty value, so a strict-schema model invents one and it gets written.
+// The advertised schema lets those fields be null, and dispatch drops the nulls.
+function nullableNestedFields(schema: Record<string, unknown>): Record<string, unknown> {
+  const props = schema.properties;
+  if (!props || typeof props !== "object" || Array.isArray(props)) return schema;
+  const next: Record<string, unknown> = {};
+  for (const [name, raw] of Object.entries(props as Record<string, unknown>)) {
+    const holder = raw as { type?: unknown; properties?: unknown; required?: unknown; description?: unknown } | null;
+    if (!holder || typeof holder !== "object" || holder.type !== "object" || !holder.properties || typeof holder.properties !== "object") { next[name] = raw; continue; }
+    const required = new Set((holder.required as string[] | undefined) ?? []);
+    let widened = false;
+    const nested: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(holder.properties as Record<string, unknown>)) {
+      const field = value as { type?: unknown; enum?: unknown; description?: unknown } | null;
+      const fixed = !!field && typeof field === "object" && (NO_EMPTY_VALUE_TYPES.has(field.type) || Array.isArray(field.enum));
+      if (!fixed || required.has(key)) { nested[key] = value; continue; }
+      // Same shape as the nullable type rewrite, which the host Google sanitizer passes through unchanged.
+      nested[key] = { anyOf: [field, { type: "null" }] };
+      widened = true;
+    }
+    const hint = "Send null for a field to leave it unchanged.";
+    const description = typeof holder.description === "string" && holder.description.length > 0 ? `${holder.description} ${hint}` : hint;
+    next[name] = widened ? { ...holder, properties: nested, description } : raw;
+  }
+  return { ...schema, properties: next };
+}
+
 // jsonSchema is stable per ToolDefinition, so the deep walk runs once per tool.
 const sanitizedSchemaCache = new WeakMap<Record<string, unknown>, Record<string, unknown>>();
 
 function portableJsonSchema(schema: Record<string, unknown>): Record<string, unknown> {
   const hit = sanitizedSchemaCache.get(schema);
   if (hit) return hit;
-  const cleaned = stripNonPortableSchemaKeys(schema) as Record<string, unknown>;
+  const cleaned = nullableNestedFields(relaxOptionalArgs(stripNonPortableSchemaKeys(schema) as Record<string, unknown>));
   sanitizedSchemaCache.set(schema, cleaned);
   return cleaned;
 }
@@ -153,7 +202,7 @@ export function formatZodError(err: z.ZodError, schema?: Record<string, unknown>
 // A literal "" in these keys means "empty content" (delete the match, write an empty file), not "argument omitted".
 const EMPTY_STRING_IS_CONTENT = new Set(["replace", "content", "new_content", "value", "text"]);
 
-type JsonProp = { type?: unknown; items?: { type?: unknown }; anyOf?: unknown[] } | undefined;
+type JsonProp = { type?: unknown; items?: { type?: unknown }; anyOf?: unknown[]; properties?: unknown } | undefined;
 
 function allowsNull(prop: JsonProp): boolean {
   if (!prop) return false;
@@ -185,6 +234,14 @@ function coerceToSchema(value: unknown, prop: JsonProp): unknown {
   return value;
 }
 
+// The counterpart of the nullable nested fields: null on a field declared without null means "not set".
+function dropNestedNulls(value: unknown, prop: JsonProp): unknown {
+  const nested = prop?.properties;
+  if (!nested || typeof nested !== "object" || !value || typeof value !== "object" || Array.isArray(value)) return value;
+  const fields = nested as Record<string, JsonProp>;
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>).filter(([k, v]) => v !== null || !fields[k] || allowsNull(fields[k])));
+}
+
 function isPlaceholder(key: string, value: unknown, prop: JsonProp): boolean {
   if (value === null) return !allowsNull(prop);
   if (value === "") return !EMPTY_STRING_IS_CONTENT.has(key);
@@ -201,7 +258,7 @@ export function normalizeToolArgs(schema: Record<string, unknown>, args: unknown
   const required = new Set((schema.required as string[] | undefined) ?? []);
   const out: Record<string, unknown> = {};
   for (const [key, raw] of Object.entries(args as Record<string, unknown>)) {
-    const value = coerceToSchema(raw, props[key]);
+    const value = dropNestedNulls(coerceToSchema(raw, props[key]), props[key]);
     if (!required.has(key) && isPlaceholder(key, value, props[key])) continue;
     out[key] = value;
   }

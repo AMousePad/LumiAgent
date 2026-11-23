@@ -1,1 +1,1 @@
-Specific persona id.
+Persona id or name. Wins over `which` when both are given.

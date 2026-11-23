@@ -1,1 +1,1 @@
-Chat to assemble for. Omit to use the pinned or active chat.
+Chat to assemble for. Leave empty for the pinned chat, else the chat open in Lumiverse. Never guess an id.

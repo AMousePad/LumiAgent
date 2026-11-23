@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import { spillOrReturn } from "./_io";
+import { explicitChatId } from "./_chat";
 import description from "../prompts/claude/tools/resolve-macros/description.txt";
 import argTemplate from "../prompts/claude/tools/resolve-macros/arg_template.txt";
 import argChatId from "../prompts/claude/tools/resolve-macros/arg_chat_id.txt";
@@ -30,14 +31,29 @@ export const resolveMacrosTool = defineTool({
   },
   requiresCharacter: false,
   execute: async (input, ctx) => {
-    const chatId = input.chat_id ?? ctx.pinnedChatId ?? undefined;
-    // use_active_character governs the fallback to focus only. An explicit
-    // character_id always binds {{char}} — otherwise passing `use_active_character:false`
-    // would silently drop a caller-supplied id and resolve macros against
-    // no character at all.
+    const chatId = explicitChatId(input.chat_id) ?? ctx.pinnedChatId ?? undefined;
     const useFocus = input.use_active_character ?? true;
-    const target = input.character_id ?? (useFocus ? (ctx.characterId ?? undefined) : undefined);
+    let target = input.character_id || undefined;
+    let boundTo = target ? "character_id argument" : "none";
+    let shown = target;
     try {
+      // A chat already has a character. Passing the focused one would resolve {{char}} to the wrong card.
+      if (!target && chatId) {
+        const chat = await ctx.spindle.chats.get(chatId, ctx.userId);
+        if (!chat) return { content: `Error: [PATH_NOT_FOUND] chat '${chatId}' not found. Call chats(action=list) for valid ids, or omit chat_id.`, isError: true };
+        const meta = (chat.metadata ?? {}) as Record<string, unknown>;
+        const members = Array.isArray(meta["character_ids"]) ? meta["character_ids"] as unknown[] : [];
+        if (useFocus && ctx.characterId && (meta["group"] === true || meta["group"] === 1) && members.includes(ctx.characterId)) {
+          target = shown = ctx.characterId;
+          boundTo = "focused member of this group chat";
+        } else {
+          boundTo = chat.character_id ? "the chat's own character" : "none";
+          shown = chat.character_id || undefined;
+        }
+      } else if (!target && useFocus && ctx.characterId) {
+        target = shown = ctx.characterId;
+        boundTo = "focused character";
+      }
       const result = await ctx.spindle.macros.resolve(input.template, {
         ...(chatId ? { chatId } : {}),
         ...(target ? { characterId: target } : {}),
@@ -47,10 +63,13 @@ export const resolveMacrosTool = defineTool({
       const out = JSON.stringify({
         text: result.text,
         diagnostics: result.diagnostics,
+        chat_id: chatId ?? null,
+        char_bound_to: boundTo,
+        ...(shown ? { character_id: shown } : {}),
       }, null, 2);
       return { content: await spillOrReturn(ctx, out, `resolve_macros(${input.template.length} chars)`) };
     } catch (err) {
-      return { content: JSON.stringify({ error: (err as Error).message }), isError: true };
+      return { content: `Error: [SPINDLE_ERROR] macro resolution failed: ${(err as Error).message}`, isError: true };
     }
   },
 });

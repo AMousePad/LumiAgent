@@ -6,6 +6,7 @@ import argTarget from "../prompts/claude/tools/list-active-regex-scripts/arg_tar
 import argChatId from "../prompts/claude/tools/list-active-regex-scripts/arg_chat_id.txt";
 import argCharacterId from "../prompts/claude/tools/list-active-regex-scripts/arg_character_id.txt";
 import argUseActiveCharacter from "../prompts/claude/tools/list-active-regex-scripts/arg_use_active_character.txt";
+import { fallbackChatId } from "./_chat";
 
 const TARGETS = ["prompt", "response", "display"] as const;
 
@@ -32,7 +33,7 @@ export const listActiveRegexScriptsTool = defineTool({
   },
   requiresCharacter: false,
   execute: async (input, ctx) => {
-    const chatId = input.chat_id ?? ctx.pinnedChatId ?? undefined;
+    const chatId = (await fallbackChatId(ctx, input.chat_id)) ?? undefined;
     const useChar = input.use_active_character ?? true;
     // An explicit character_id always binds; use_active_character only governs
     // the focus FALLBACK. ANDing useChar with an explicit id silently dropped a

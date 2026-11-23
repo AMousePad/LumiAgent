@@ -1,15 +1,19 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
+import { resolveChat } from "./_chat";
+import { readAllStores, VAR_STORES, type VarStore } from "./_variables";
 import description from "../prompts/claude/tools/read-variable/description.txt";
 import argScope from "../prompts/claude/tools/read-variable/arg_scope.txt";
 import argKey from "../prompts/claude/tools/read-variable/arg_key.txt";
 import argChatId from "../prompts/claude/tools/read-variable/arg_chat_id.txt";
 
 const inputSchema = z.object({
-  scope: z.enum(["chat", "local", "global", "macro"]),
+  scope: z.enum(["chat", "local", "global", "macro", "any"]).optional(),
   key: z.string().min(1),
   chat_id: z.string().optional(),
 }).strict();
+
+const ORDER: readonly VarStore[] = ["chat", "global", "local", "user_level"];
 
 export const readVariableTool = defineTool({
   name: "read_variable",
@@ -18,54 +22,51 @@ export const readVariableTool = defineTool({
   jsonSchema: {
     type: "object",
     properties: {
-      scope: { type: "string", enum: ["chat", "local", "global", "macro"], description: argScope },
+      scope: { type: "string", enum: ["any", "chat", "global", "local"], description: argScope },
       key: { type: "string", description: argKey },
       chat_id: { type: "string", description: argChatId },
     },
-    required: ["scope", "key"],
+    required: ["key"],
   },
   execute: async (input, ctx) => {
+    const resolved = await resolveChat(ctx, input.chat_id);
+    if ("error" in resolved) return resolved.error;
+    const { chat, chatId, source } = resolved;
     try {
-      if (input.scope === "global") {
-        const exists = await ctx.spindle.variables.global.has(input.key, ctx.userId);
-        if (!exists) return { content: JSON.stringify({ scope: "global", key: input.key, exists: false }) };
-        const value = await ctx.spindle.variables.global.get(input.key, ctx.userId);
-        return { content: JSON.stringify({ scope: "global", key: input.key, exists: true, value }, null, 2) };
+      // The old macro scope addressed its two sub-stores as local.<key> and global.<key>.
+      const dotted = input.scope === "macro" ? /^(local|global)\.(.+)$/.exec(input.key) : null;
+      const key = dotted ? dotted[2]! : input.key;
+      const wanted: VarStore | null = dotted ? dotted[1] as VarStore
+        : input.scope === "chat" || input.scope === "global" || input.scope === "local" ? input.scope : null;
+      const stores = await readAllStores(ctx, chat);
+      const found = ORDER.filter((s) => Object.hasOwn(stores[s], key)).map((s) => ({ scope: s, value: stores[s][key]!, store: VAR_STORES[s].store, read_by: VAR_STORES[s].read_by }));
+      const primary = (wanted ? found.find((f) => f.scope === wanted) : found[0]) ?? null;
+      const elsewhere = found.filter((f) => f !== primary);
+      const base = { key, chat_id: chatId, chat_name: chat.name, chat_source: source, ...(wanted ? { scope_asked: wanted } : {}) };
+      if (!primary) {
+        return {
+          content: JSON.stringify({
+            ...base,
+            exists: false,
+            ...(elsewhere.length > 0
+              ? { found_in_other_scopes: elsewhere, note: `'${key}' is not in scope ${wanted}, but exists in ${elsewhere.map((f) => f.scope).join(", ")}.` }
+              : { note: `'${key}' is not set in any variable store of this chat. A macro reading it gets an empty string. variables(action=list) shows the keys that exist.` }),
+          }, null, 2),
+        };
       }
-      const chatId = input.chat_id ?? ctx.pinnedChatId;
-      if (!chatId) return { content: JSON.stringify({ error: `${input.scope} variables need a chat_id and no chat is pinned` }), isError: true };
-      if (input.scope === "macro") {
-        // chat.metadata.macro_variables is { local: {...}, global: {...} }.
-        // Accept either dotted form ("local.foo" / "global.foo") or a bare
-        // name (search both sub-bags, local-wins on collision to match the
-        // Lumiverse macro resolver's precedence).
-        const chat = await ctx.spindle.chats.get(chatId, ctx.userId);
-        const meta = (chat?.metadata ?? {}) as Record<string, unknown>;
-        const raw = meta["macro_variables"];
-        const bag = (raw && typeof raw === "object" && !Array.isArray(raw)) ? raw as Record<string, unknown> : {};
-        const local = (bag.local && typeof bag.local === "object" && !Array.isArray(bag.local)) ? bag.local as Record<string, unknown> : {};
-        const global = (bag.global && typeof bag.global === "object" && !Array.isArray(bag.global)) ? bag.global as Record<string, unknown> : {};
-        let resolved: unknown;
-        let found = false;
-        const dotted = /^(local|global)\.(.+)$/.exec(input.key);
-        if (dotted) {
-          const target = dotted[1] === "local" ? local : global;
-          if (dotted[2]! in target) { resolved = target[dotted[2]!]; found = true; }
-        } else {
-          if (input.key in local) { resolved = local[input.key]; found = true; }
-          else if (input.key in global) { resolved = global[input.key]; found = true; }
-        }
-        if (!found) return { content: JSON.stringify({ scope: "macro", chat_id: chatId, key: input.key, exists: false }) };
-        const value = typeof resolved === "string" ? resolved : JSON.stringify(resolved);
-        return { content: JSON.stringify({ scope: "macro", chat_id: chatId, key: input.key, exists: true, value }, null, 2) };
-      }
-      const surface = input.scope === "chat" ? ctx.spindle.variables.chat : ctx.spindle.variables.local;
-      const exists = await surface.has(chatId, input.key);
-      if (!exists) return { content: JSON.stringify({ scope: input.scope, chat_id: chatId, key: input.key, exists: false }) };
-      const value = await surface.get(chatId, input.key);
-      return { content: JSON.stringify({ scope: input.scope, chat_id: chatId, key: input.key, exists: true, value }, null, 2) };
+      return {
+        content: JSON.stringify({
+          ...base,
+          exists: true,
+          scope: primary.scope,
+          value: primary.value,
+          store: primary.store,
+          read_by: primary.read_by,
+          ...(elsewhere.length > 0 ? { also_in: elsewhere } : {}),
+        }, null, 2),
+      };
     } catch (err) {
-      return { content: JSON.stringify({ error: (err as Error).message }), isError: true };
+      return { content: `Error: [SPINDLE_ERROR] reading variable '${input.key}' in chat ${chatId} failed: ${(err as Error).message}`, isError: true };
     }
   },
 });

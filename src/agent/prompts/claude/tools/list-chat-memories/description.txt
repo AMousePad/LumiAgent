@@ -2,5 +2,6 @@ Lists the top-K vector-retrieved memory chunks for a chat.
 
 Usage:
 - Returns the same chunks Lumiverse would inject into the prompt under chat memory.
-- Response includes { chunks, formatted, count, enabled, settingsSource }.
+- Response includes { chunks, formatted, count, enabled, settingsSource }. `enabled: false` means chat memory is not configured, so nothing is injected.
 - Use to understand what historical context is being surfaced into the current generation.
+- chat_id is optional: omitted means the pinned chat, else the chat open in Lumiverse.

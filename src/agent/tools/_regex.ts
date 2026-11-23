@@ -229,7 +229,10 @@ export async function createRegexScripts(ctx: ToolCtx, v: Record<string, unknown
   if (failure) notes.push(`Stopped after ${created.length} of ${inputs.length}: ${failure}. The created scripts are kept and revertable.`);
   if (ignored.length > 0) notes.push(`Ignored value fields: ${ignored.join(", ")}.`);
   if (copying && overrides.preset_id === undefined && sources.some((s) => typeof s.preset_id === "string" && s.preset_id.length > 0)) {
-    notes.push("Source scripts are bound to a preset. The copies are not: pass preset_id to bind copies at creation.");
+    notes.push("Source scripts are bound to a preset and run only while it is selected. The copies run under every preset.");
+  }
+  if (overrides.preset_id !== undefined) {
+    notes.push("preset_id only ties these scripts' lifetime to that preset: they are deleted with it. Scripts created here still run under every preset while enabled, the host does not switch them with the preset selection.");
   }
   const row = (s: RegexScriptDTO) => ({
     script_id: s.id, name: s.name, scope: s.scope, ...(s.scope_id ? { scope_id: s.scope_id } : {}),

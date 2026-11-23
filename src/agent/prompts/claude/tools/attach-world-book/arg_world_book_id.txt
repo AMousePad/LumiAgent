@@ -1,1 +1,1 @@
-Id of an existing world book.
+Id or name of an existing world book.

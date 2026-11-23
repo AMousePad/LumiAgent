@@ -25,6 +25,7 @@ import type { WorldBookSnapshot, PresetSnapshot, AlternateFieldVariantSnapshot }
 import type { EditLogEntry, EditRecord, RevertOutcomeWire, ScopeRef } from "../types";
 import { characterScope } from "../types";
 import { revertMemoryCreation, readVaultMetadata, readOwnedMemoryLinks } from "./memory-revert";
+import { readChatGlobalVar, writeChatGlobalVar } from "./chat-global-vars";
 import type { ScopedLedger } from "./ledger";
 import { findPatch, findStructural, findExternal, persistLedgerNow, purgeIdsInMemory, entriesView } from "./ledger";
 import { tryRevert, recordExternalDrift, sha256, currentValue, purgeRevertedPatches } from "./patch-stack";
@@ -205,6 +206,9 @@ export function decodeScalar(field: string, s: string): unknown {
 }
 
 function personaScalarUpdate(field: string, decoded: unknown): PersonaUpdateDTO {
+  // A stringified "false" is truthy on the host and would set the default instead of clearing it.
+  if (field === "is_default") return { is_default: decoded === true } as PersonaUpdateDTO;
+  if (field === "metadata") return { metadata: decoded && typeof decoded === "object" ? decoded : {} } as PersonaUpdateDTO;
   return { [field]: decoded == null ? "" : String(decoded) } as PersonaUpdateDTO;
 }
 
@@ -468,10 +472,11 @@ export async function revertEdit(
       }
       if (r.surface === "preset") {
         const snap = r.snapshot as PresetSnapshot;
-        const preset = await spindle.presets.create(presetCreateFromDTO(snap.preset), userId);
-        for (let i = 0; i < snap.blocks.length; i++) {
-          await spindle.presets.blocks.create(preset.id, blockCreateFromDTO(snap.blocks[i]!), { index: i, userId });
-        }
+        // One call with the blocks: the host prunes stored variable values against the block list it is given.
+        await spindle.presets.create({
+          ...presetCreateFromDTO(snap.preset),
+          prompt_order: snap.blocks.map(blockCreateFromDTO) as NonNullable<UserPresetCreateDTO["prompt_order"]>,
+        }, userId);
         return { success: true };
       }
       if (r.surface === "preset_block") {
@@ -518,6 +523,7 @@ export async function readLiveValue(
     }
     case "variable": {
       const [kind, ...parts] = r.surfaceId.split(":"); const id = parts.join(":");
+      if (kind === "chat_global") return JSON.stringify(await readChatGlobalVar(spindle, id, r.field, userId));
       if (kind === "global") return JSON.stringify(await spindle.variables.global.has(r.field, userId) ? await spindle.variables.global.get(r.field, userId) : null);
       const bag = kind === "chat" ? spindle.variables.chat : spindle.variables.local;
       return JSON.stringify(await bag.has(id, r.field) ? await bag.get(id, r.field) : null);
@@ -760,6 +766,7 @@ export async function writeFieldValue(
       const decoded = JSON.parse(value) as string | null;
       if (decoded !== null && typeof decoded !== "string") throw new Error("Variable value must be text or null");
       const [kind, ...parts] = surfaceId.split(":"); const id = parts.join(":");
+      if (kind === "chat_global") { await writeChatGlobalVar(spindle, id, field, decoded, userId); return; }
       if (kind === "global") { if (decoded === null) await spindle.variables.global.delete(field, userId); else await spindle.variables.global.set(field, decoded, userId); }
       else { const bag = kind === "chat" ? spindle.variables.chat : spindle.variables.local; if (decoded === null) await bag.delete(id, field); else await bag.set(id, field, decoded); }
       return;

@@ -1,11 +1,12 @@
 import type { MemoryEntityDTO, SpindleAPI } from "lumiverse-spindle-types";
 import type { ToolCtx } from "./_context";
+import { fallbackChatId } from "./_chat";
 
-export function resolveMemoryChat(ctx: ToolCtx, explicit?: string): string | null {
-  return explicit ?? ctx.pinnedChatId ?? null;
+export function resolveMemoryChat(ctx: ToolCtx, explicit?: string): Promise<string | null> {
+  return fallbackChatId(ctx, explicit);
 }
 
-export const NO_CHAT_ERROR = "Error: [NO_TARGET] no chat. Pass chat_id, or have the user pin a chat. Memory is per-chat.";
+export const NO_CHAT_ERROR = "Error: [NO_TARGET] no chat_id given, no chat is pinned and no chat is open in Lumiverse. Memory is per chat: call chats(action=list) and pass chat_id.";
 
 // The memories permission was added late; installs that predate it run
 // ungrated until the user re-approves, so surface that instead of a raw throw.

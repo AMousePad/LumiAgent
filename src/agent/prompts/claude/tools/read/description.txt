@@ -3,10 +3,10 @@ Read a string leaf as line-numbered text. This satisfies edit's read requirement
 Paths:
 - char/<field>, char/tags, char/alternate_greetings/<index>, char/alternate_fields/<field>/<variantId>/<content|label>, char/extensions/<dotted-with-brackets>
 - rx/<scriptId>/<find_regex|replace_string>
-- wb/<entryId>/<content|comment>. Other entry settings (key, constant, ...) read as JSON and change with set.
+- wb/<entryId>/<content|comment>. Other entry settings (key, constant, ...) read as JSON and change with set. inspect wb/<entryId> returns all of them at once.
 - persona/<id>/<name|title|description>, persona/<id>/wb/<entryId>/<content|comment>, persona/<id>/addon/<addonId>/<content|label>
 - global_addon/<id>/<content|label>
 - chat/<chatId>/msg/<msgId>/content
-- preset/<presetId>/block/<blockId>/<content|name>, preset/<presetId>/prompts/<dotted.path>
+- preset/<presetId>/block/<blockId>/<content|name>, preset/<presetId>/prompts/<dotted.path>. preset/<presetId>/parameters[/<dotted.path>], metadata[/<dotted.path>] and var[/<name>] read as JSON and change with set.
 
 char/ uses focus. `char/<id>/...` or character_id targets another character. wb/<entryId> and preset blocks default to content. Non-string extension values show as read-only JSON: walk them with list, replace with set. Find ids with list, list_characters, chats or personas.

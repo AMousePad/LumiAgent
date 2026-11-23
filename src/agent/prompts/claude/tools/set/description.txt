@@ -1,13 +1,18 @@
 Write any JSON value at a path, for changes edit/rewrite can't make. Unknown field names error with the valid list. Revertable like every edit.
 
-- Lorebook entry settings: `wb/<entryId>/constant` true, likewise disabled, priority, position, depth, role. `key`/`keysecondary` take the full string array (a comma string is split).
-- Book fields: `wb/<bookId>/<name|description|metadata>`.
+- Lorebook entry settings: `wb/<entryId>/constant` true, likewise disabled, selective, selective_logic, priority, position, depth, role, probability, group_name. `key`/`keysecondary` take the full string array (a comma string is split). Values are type-checked, the result reports before and after as stored, and [NOT_APPLIED] means the host kept the old value. The same change on several entries is one update_world_book_entry call.
+- Book fields: `wb/<bookId>/<name|description|metadata>`. metadata takes an object that is merged into the existing metadata, a key set to null is removed.
 - Regex settings: `rx/<scriptId>/disabled` true, likewise sort_order, target, placement, flags, name.
-- Preset block settings: `preset/<presetId>/block/<blockId>/enabled` false. Block content/name text uses edit/rewrite.
-- Character tags: `char/tags` ["a","b"] (trimmed, deduped). For many characters use bulk_update_character_tags.
+- Preset block settings: `preset/<presetId>/block/<blockId>/enabled` false. Move a block with `.../block/<blockId>/index` 3, or `.../after` / `.../before` "<block name or id>". Block content/name text uses edit/rewrite.
+- Preset settings variables (the preset's own settings panel: sliders, switches, dropdowns): `preset/<presetId>/var/<label or name>` value, or several at once with `preset/<presetId>/var` { "<label or name>": value, ... }. number/slider take a number, switch true/false, select an option label, multiselect an array of option labels or { add: [...], remove: [...] }. Labels, options and current values come from list({path:"preset/<presetId>/var"}).
+- Preset sampler and other fields, one value at a time: `preset/<presetId>/parameters/samplerOverrides/temperature` 0.9, likewise `prompts/<dotted>` and `metadata/<dotted>`. `preset/<presetId>/name` renames. Replacing parameters, prompts or metadata wholesale is refused when it would drop keys.
+- Character tags: `char/tags` { add: ["a"], remove: ["b"] } changes single tags. A plain array ["a","b"] replaces the whole list. For many characters use bulk_update_character_tags.
+- Greeting order: `char/alternate_greetings` { from: 8, to: 0 } moves one greeting. One greeting's text is `char/alternate_greetings/<idx>`.
+- Copy text without re-typing it: pass `copy_from` instead of `value`, e.g. path `char/scenario`, copy_from `char/<otherId>/scenario`. The source is written byte-for-byte.
 - Extension values: arrays, objects or typed scalars at `char/extensions/<dotted>`.
+- Persona settings: `persona/<personaId>/is_default` true makes it the default persona (the previous default is reported), `persona/<personaId>/folder` "<name>". The active persona is switched with personas(action=switch). Add-on switches: `persona/<personaId>/addon/<addonId>/enabled` false, likewise sort_order, outlet_name.
 - Persona lorebook: `persona/<personaId>/attached_world_book_id` "<bookId>", null detaches. Character, chat and global bindings use attach_world_book.
 
 Path grammar matches read. `char/<id>/...` or `character_id` targets a non-focused character. On a string leaf, set replaces the whole text without the read gate. Prefer rewrite when the current text matters. For several character fields at once use update_character.
 
-Returns path, before_chars, after_chars and 120-char before_peek/after_peek. Check after_peek, since stored values can be normalized.
+Returns path, before_chars, after_chars and 120-char before_peek/after_peek. Check after_peek, since stored values can be normalized. Preset variable and sampler writes return the before and after values directly.

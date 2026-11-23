@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineTool } from "./_framework";
 import { spillOrReturn } from "./_io";
+import { resolveChat } from "./_chat";
 import description from "../prompts/claude/tools/dry-run-prompt/description.txt";
 import argChatId from "../prompts/claude/tools/dry-run-prompt/arg_chat_id.txt";
 import argConnectionId from "../prompts/claude/tools/dry-run-prompt/arg_connection_id.txt";
@@ -14,6 +15,13 @@ const inputSchema = z.object({
   preset_id: z.string().optional(),
   include_messages: z.boolean().optional(),
 }).strict();
+
+interface PresetUsed {
+  preset_id: string | null;
+  preset_name?: string;
+  preset_source: string;
+  preset_note?: string;
+}
 
 export const dryRunPromptTool = defineTool({
   name: "dry_run_prompt",
@@ -32,38 +40,52 @@ export const dryRunPromptTool = defineTool({
   },
   requiresCharacter: false,
   execute: async (input, ctx) => {
-    let chatId = input.chat_id || ctx.pinnedChatId || null;
-    let chatSource = input.chat_id ? "argument" : "pinned";
-    if (!chatId) {
-      const active = await ctx.spindle.chats.getActive(ctx.userId).catch(() => null);
-      chatId = active?.id ?? null;
-      chatSource = "host_active";
-    }
-    if (!chatId) {
-      return { content: JSON.stringify({ error: 'No chat_id supplied, no chat pinned and no active chat in Lumiverse. Use chats(action=list) and pass a chat_id.' }), isError: true };
-    }
+    const resolved = await resolveChat(ctx, input.chat_id);
+    if ("error" in resolved) return resolved.error;
+    const { chat, chatId, source } = resolved;
+    const meta = (chat.metadata ?? {}) as Record<string, unknown>;
+    const noPresetChat = meta["temporary"] === true && meta["no_preset"] === true;
     try {
-      // Fall back to the agent's own connection so dry-run doesn't depend on the
-      // user having a default connection flagged. The host's resolveConnection
-      // throws "No connection profile found" when no id is passed and no default
-      // exists; the chat path always passes its connection, so chat works while
-      // this tool didn't for users without a default.
+      let preset: PresetUsed;
+      if (input.preset_id && !noPresetChat) {
+        const row = await ctx.spindle.presets.get(input.preset_id, ctx.userId);
+        if (!row) return { content: `Error: [PATH_NOT_FOUND] preset '${input.preset_id}' not found, nothing was assembled. Call list({path:"preset"}) for preset ids, or omit preset_id to use the chat's own preset.`, isError: true };
+        preset = { preset_id: row.id, preset_name: row.name, preset_source: "argument" };
+      } else {
+        // Reporting only. Older hosts lack getActive, and a failed lookup must not fail the dry run.
+        const active = await (async () => ctx.spindle.presets.getActive(chatId, ctx.userId))().catch(() => null);
+        const activeId = active?.preset_id;
+        const row = activeId ? await (async () => ctx.spindle.presets.get(activeId, ctx.userId))().catch(() => null) : null;
+        preset = active
+          ? { preset_id: active.preset_id, ...(row ? { preset_name: row.name } : {}), preset_source: active.source === "none" ? "selected" : `${active.source} binding` }
+          : { preset_id: null, preset_source: "unknown", preset_note: "The host did not report which preset this chat uses." };
+        if (input.preset_id) preset.preset_note = "preset_id was ignored: this is a temporary chat that runs without a preset.";
+      }
+      const forced = preset.preset_source === "argument";
+      // The host errors without a default connection when none is passed, so pass the agent's own.
       const connectionId = input.connection_id || ctx.connectionId;
       const result = await ctx.spindle.generate.dryRun({
         chatId,
         ...(connectionId ? { connectionId } : {}),
         ...(input.persona_id ? { personaId: input.persona_id } : {}),
-        ...(input.preset_id ? { presetId: input.preset_id } : {}),
+        // Without the force flag a chat, persona or character preset binding silently replaces presetId.
+        ...(forced ? { presetId: preset.preset_id!, forcePresetId: true } : {}),
       }, ctx.userId);
-      // Full message bodies run to hundreds of KB and buried the token table, so they are opt-in.
       const sections = [...(result.tokenCount?.breakdown ?? [])].sort((a, b) => b.tokens - a.tokens);
+      const clip = result.contextClipStats;
       const summary = {
         chat_id: chatId,
-        chat_source: chatSource,
+        chat_name: chat.name,
+        chat_source: source,
+        ...preset,
         model: result.model,
         provider: result.provider,
         total_tokens: result.tokenCount?.total_tokens ?? null,
+        chat_history_tokens: result.chatHistoryTokens ?? null,
         tokenizer: result.tokenCount?.tokenizer_name ?? null,
+        context_clip: clip ?? null,
+        ...(clip && clip.messagesDropped > 0 ? { context_clip_note: `${clip.messagesDropped} oldest chat messages (${clip.tokensDropped} tokens) did not fit the ${clip.maxContext}-token context and are not in this prompt.` } : {}),
+        ...(clip?.fixedOverBudget || clip?.budgetInvalid ? { context_clip_warning: "The fixed prompt alone exceeds the input budget. Raise the preset context size or trim prompt blocks and lorebook entries." } : {}),
         sections_by_tokens: sections.map((s) => ({ name: s.name, type: s.type, tokens: s.tokens, ...(s.role ? { role: s.role } : {}) })),
         message_count: result.messages.length,
         world_info_stats: result.worldInfoStats ?? null,
@@ -83,7 +105,7 @@ export const dryRunPromptTool = defineTool({
         "Use tmp_grep to find specific strings (e.g. unfamiliar tokens like '<payload>') across the assembled prompt; tmp_read to inspect specific message bodies.");
       return { content: out };
     } catch (err) {
-      return { content: JSON.stringify({ error: (err as Error).message }), isError: true };
+      return { content: `Error: [SPINDLE_ERROR] dry run for chat ${chatId} failed: ${(err as Error).message}`, isError: true };
     }
   },
 });

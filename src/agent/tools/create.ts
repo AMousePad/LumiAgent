@@ -1,16 +1,12 @@
 import { z } from "zod";
-import type {
-  WorldBookCreateDTO,
-  WorldBookEntryCreateDTO,
-  PersonaCreateDTO,
-  UserPresetCreateDTO,
-  PromptBlockCreateDTO,
-} from "lumiverse-spindle-types";
 import { defineTool } from "./_framework";
-import type { ToolCtx } from "./_context";
-import type { EditRecord, ScopeRef } from "../../types";
-import { wbLabel, coerceKeyList } from "./_surfaces";
+import { type ToolCtx, resolveCharacterTarget, noTargetResult } from "./_context";
+import type { EditRecord } from "../../types";
+import { characterScope } from "../../types";
+import { createPersona, createPersonaAddon, duplicateCharacter, hasCopySource, splitCharacterPath } from "./_character";
 import { createRegexScripts } from "./_regex";
+import { createWorldBook, createWorldBookEntries } from "./_worldbook";
+import { createPreset, createPresetBlocks } from "./_preset";
 import { ALTERNATE_FIELD_NAMES, isAlternateFieldName, readAltFieldArray, writeAltFieldArray, type AltFieldVariant } from "./_path_v2";
 import description from "../prompts/claude/tools/create/description.txt";
 import argPath from "../prompts/claude/tools/create/arg_path.txt";
@@ -19,6 +15,7 @@ import argValue from "../prompts/claude/tools/create/arg_value.txt";
 const inputSchema = z.object({
   path: z.string().min(2).describe("Container to create a child in. See description for the grammar."),
   value: z.unknown().optional().describe("The new entity's fields (object), or a string for a greeting."),
+  character_id: z.string().optional(),
 }).strict();
 
 // Models often send the object JSON-encoded as a string.
@@ -38,6 +35,7 @@ export const createTool = defineTool({
     properties: {
       path: { type: "string", description: argPath },
       value: { description: argValue },
+      character_id: { type: "string", description: "Target character for char/ paths. Same as writing char/<id>/<sub-path>." },
     },
     required: ["path"],
     additionalProperties: false,
@@ -45,54 +43,30 @@ export const createTool = defineTool({
   // Path-targeted. Only char paths need a character, the rest work in a no-character session.
   requiresCharacter: false,
   execute: async (input, ctx: ToolCtx) => {
-    const path = input.path.trim().replace(/^character\//, "char/");
+    const split = splitCharacterPath(input.path.trim(), input.character_id);
+    const path = split.path;
     const parts = path.split("/").filter((p) => p.length > 0);
     const v = asObject(input.value);
 
-    // wb -> world book
-    if (path === "wb" || path === "world_book") {
-      const name = typeof v.name === "string" ? v.name : undefined;
-      if (!name) return { content: "Error: [INVALID_INPUT] world book requires value.name", isError: true };
-      const create: WorldBookCreateDTO = { name };
-      if (typeof v.description === "string") create.description = v.description;
-      if (v.metadata && typeof v.metadata === "object") create.metadata = v.metadata as Record<string, unknown>;
-      const book = await ctx.spindle.world_books.create(create, ctx.userId);
-      ctx.pushEdit({
-        op: "create", surface: "world_book", surfaceId: book.id, surfaceLabel: book.name,
-        snapshot: { book, entries: [] }, scope: { kind: "world_book", id: book.id },
-      } satisfies EditRecord);
-      return { content: JSON.stringify({ world_book_id: book.id, name: book.name }) };
+    if (path === "char" || path === "character" || path === "characters") {
+      if (!hasCopySource(v)) return { content: 'Error: [INVALID_INPUT] create({path:"char"}) only duplicates: pass value { copy_of: "<character id or name>", name }. A new card from scratch is create_character.', isError: true };
+      try { return await duplicateCharacter(ctx, v); }
+      catch (err) { return { content: `Error: [SPINDLE_ERROR] ${(err as Error).message}`, isError: true }; }
+    }
+    let charId = "";
+    if (parts[0] === "char") {
+      try { charId = resolveCharacterTarget(ctx, split.target); }
+      catch (err) { const nt = noTargetResult(err); if (nt) return nt; throw err; }
     }
 
-    // wb/<bookId>/entry -> entry in that book
-    if ((parts[0] === "wb" || parts[0] === "world_book") && parts[2] === "entry" && parts.length === 3) {
-      const bookId = parts[1]!;
-      const content = typeof v.content === "string" ? v.content : undefined;
-      if (content === undefined) return { content: "Error: [INVALID_INPUT] entry requires value.content", isError: true };
-      const create: WorldBookEntryCreateDTO = { content };
-      // Accept a model passing keys as a comma string or JSON-array string, not
-      // only a real array. A non-array reaches the host as a stringified scalar
-      // and the entry's key column becomes unparseable.
-      if (v.key !== undefined) create.key = coerceKeyList(v.key);
-      if (v.keysecondary !== undefined) create.keysecondary = coerceKeyList(v.keysecondary);
-      if (typeof v.comment === "string") create.comment = v.comment;
-      if (typeof v.role === "string") create.role = v.role;
-      // Pass through the remaining settable fields so they aren't silently
-      // dropped to host defaults (the model would otherwise need a follow-up set).
-      const numFields = ["position", "order_value", "probability", "depth", "scan_depth", "group_weight", "priority", "sticky", "cooldown", "delay", "selective_logic"] as const;
-      for (const f of numFields) if (typeof v[f] === "number") (create as Record<string, unknown>)[f] = v[f];
-      const boolFields = ["constant", "disabled", "selective", "case_sensitive", "match_whole_words", "use_regex", "prevent_recursion", "exclude_recursion", "delay_until_recursion", "use_probability", "vectorized"] as const;
-      for (const f of boolFields) if (typeof v[f] === "boolean") (create as Record<string, unknown>)[f] = v[f];
-      const e = await ctx.spindle.world_books.entries.create(bookId, create, ctx.userId);
-      // Character-attached book: file under the session character (no scope =
-      // session default). Standalone book: file under the book's own scope so
-      // it stays tracked + revertable with no character selected.
-      const scope: ScopeRef | undefined = ctx.characterId ? undefined : { kind: "world_book", id: bookId };
-      ctx.pushEdit({
-        op: "create", surface: "world_book_entry", surfaceId: e.id, surfaceLabel: wbLabel(e), snapshot: e,
-        ...(scope ? { scope } : {}),
-      } satisfies EditRecord);
-      return { content: JSON.stringify({ entry_id: e.id, world_book_id: e.world_book_id, content_chars: e.content.length }) };
+    if (path === "wb" || path === "world_book" || path === "world_books") {
+      try { return await createWorldBook(ctx, input.value); }
+      catch (err) { return { content: `Error: [SPINDLE_ERROR] ${(err as Error).message}`, isError: true }; }
+    }
+
+    if ((parts[0] === "wb" || parts[0] === "world_book") && (parts[2] === "entry" || parts[2] === "entries") && parts.length === 3) {
+      try { return await createWorldBookEntries(ctx, parts[1]!, input.value); }
+      catch (err) { return { content: `Error: [SPINDLE_ERROR] ${(err as Error).message}`, isError: true }; }
     }
 
     if (path === "rx" || path === "regex_script") {
@@ -100,59 +74,30 @@ export const createTool = defineTool({
       catch (err) { return { content: `Error: [SPINDLE_ERROR] ${(err as Error).message}`, isError: true }; }
     }
 
-    // persona
-    if (path === "persona") {
-      const name = typeof v.name === "string" ? v.name : undefined;
-      if (!name) return { content: "Error: [INVALID_INPUT] persona requires value.name", isError: true };
-      const create: PersonaCreateDTO = { name };
-      if (typeof v.title === "string") create.title = v.title;
-      if (typeof v.description === "string") create.description = v.description;
-      if (typeof v.folder === "string") create.folder = v.folder;
-      if (typeof v.is_default === "boolean") create.is_default = v.is_default;
-      if (typeof v.attached_world_book_id === "string") create.attached_world_book_id = v.attached_world_book_id;
-      const p = await ctx.spindle.personas.create(create, ctx.userId);
-      ctx.pushEdit({
-        op: "create", surface: "persona", surfaceId: p.id, surfaceLabel: p.name,
-        snapshot: p, scope: { kind: "persona", id: p.id },
-      } satisfies EditRecord);
-      return { content: JSON.stringify({ persona_id: p.id, name: p.name }) };
+    if (path === "persona" || path === "personas") {
+      try { return await createPersona(ctx, v); }
+      catch (err) { return { content: `Error: [SPINDLE_ERROR] ${(err as Error).message}`, isError: true }; }
     }
 
-    // preset
-    if (path === "preset") {
-      const name = typeof v.name === "string" ? v.name : undefined;
-      const provider = typeof v.provider === "string" ? v.provider : undefined;
-      if (!name || !provider) return { content: "Error: [INVALID_INPUT] preset requires value.name and value.provider", isError: true };
-      const create: UserPresetCreateDTO = { name, provider };
-      if (typeof v.engine === "string") create.engine = v.engine;
-      if (v.parameters && typeof v.parameters === "object") create.parameters = v.parameters as Record<string, unknown>;
-      if (v.prompts && typeof v.prompts === "object") create.prompts = v.prompts as Record<string, unknown>;
-      if (v.metadata && typeof v.metadata === "object") create.metadata = v.metadata as Record<string, unknown>;
-      const p = await ctx.spindle.presets.create(create, ctx.userId);
-      ctx.pushEdit({
-        op: "create", surface: "preset", surfaceId: p.id, surfaceLabel: p.name,
-        snapshot: { preset: p, blocks: [] }, scope: { kind: "preset", id: p.id },
-      } satisfies EditRecord);
-      return { content: JSON.stringify({ preset_id: p.id, name: p.name }) };
+    if (parts[0] === "persona" && (parts[2] === "addon" || parts[2] === "addons") && parts.length === 3) {
+      const bare = typeof input.value === "string" && !input.value.trim().startsWith("{") ? input.value : undefined;
+      try { return await createPersonaAddon(ctx, parts[1]!, v, bare); }
+      catch (err) { return { content: `Error: [SPINDLE_ERROR] ${(err as Error).message}`, isError: true }; }
+    }
+
+    if (path === "preset" || path === "presets") {
+      try { return await createPreset(ctx, v); }
+      catch (err) { return { content: `Error: [SPINDLE_ERROR] ${(err as Error).message}`, isError: true }; }
     }
 
     // preset/<presetId>/block -> prompt block
-    if (parts[0] === "preset" && parts[2] === "block" && parts.length === 3) {
-      const presetId = parts[1]!;
-      const { index, ...blockFields } = v as { index?: unknown } & Record<string, unknown>;
-      const opts: { index?: number; userId?: string } = { userId: ctx.userId };
-      if (typeof index === "number") opts.index = index;
-      const b = await ctx.spindle.presets.blocks.create(presetId, blockFields as PromptBlockCreateDTO, opts);
-      ctx.pushEdit({
-        op: "create", surface: "preset_block", surfaceId: `${presetId}:${b.id}`,
-        surfaceLabel: `${b.name || "block"}`, snapshot: b, scope: { kind: "preset", id: presetId },
-      } satisfies EditRecord);
-      return { content: JSON.stringify({ preset_id: presetId, block_id: b.id, name: b.name }) };
+    if (parts[0] === "preset" && (parts[2] === "block" || parts[2] === "blocks") && parts.length === 3) {
+      try { return await createPresetBlocks(ctx, parts[1]!, v); }
+      catch (err) { return { content: `Error: [SPINDLE_ERROR] ${(err as Error).message}`, isError: true }; }
     }
 
     // char/alternate_fields/<field> -> add a variant for description / personality / scenario
     if (parts[0] === "char" && parts[1] === "alternate_fields" && parts.length === 3) {
-      if (!ctx.characterId) return { content: "Error: [INVALID_INPUT] no active character", isError: true };
       const field = parts[2]!;
       if (!isAlternateFieldName(field)) {
         return { content: `Error: [INVALID_INPUT] alternate_fields field must be one of ${ALTERNATE_FIELD_NAMES.join(", ")}, got '${field}'`, isError: true };
@@ -164,8 +109,8 @@ export const createTool = defineTool({
       if (content === undefined) return { content: "Error: [INVALID_INPUT] variant requires value.content (or pass a string for content; value.label optional)", isError: true };
       // Minted before the read so this host round-trip stays outside the read-modify-write window.
       const variantId = await ctx.spindle.uuid.v4();
-      const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
-      if (!c) return { content: `Error: character ${ctx.characterId} not found`, isError: true };
+      const c = await ctx.spindle.characters.get(charId, ctx.userId);
+      if (!c) return { content: `Error: [PATH_NOT_FOUND] character ${charId} not found`, isError: true };
       const before = readAltFieldArray(c.extensions, field);
       const newVariant: AltFieldVariant = { id: variantId, label, content };
       const requested = typeof v.index === "number" ? v.index : undefined;
@@ -173,36 +118,49 @@ export const createTool = defineTool({
       const after = [...before];
       after.splice(at, 0, newVariant);
       const nextExt = writeAltFieldArray(c.extensions, field, after);
-      await ctx.spindle.characters.update(ctx.characterId, { extensions: nextExt }, ctx.userId);
+      await ctx.spindle.characters.update(charId, { extensions: nextExt }, ctx.userId);
       ctx.pushEdit({
         op: "create", surface: "alternate_field_variant", surfaceId: newVariant.id,
         surfaceLabel: `${field} variant '${label || "(unlabeled)"}'`,
         snapshot: { altField: field, variant: { id: newVariant.id, label, content }, index: at },
+        scope: characterScope(charId),
       } satisfies EditRecord);
-      return { content: JSON.stringify({ field, variant_id: newVariant.id, index: at, total: after.length, content_chars: content.length }) };
+      return { content: JSON.stringify({ character: { id: charId, name: c.name }, field, variant_id: newVariant.id, index: at, total: after.length, content_chars: content.length }) };
     }
 
-    // char/alternate_greetings -> append/insert a greeting
+    // char/alternate_greetings -> append/insert one greeting or several
     if (path === "char/alternate_greetings") {
-      if (!ctx.characterId) return { content: "Error: [INVALID_INPUT] no active character", isError: true };
-      const content = typeof input.value === "string"
+      const many = Array.isArray(input.value) ? input.value
+        : Array.isArray(v.greetings) ? v.greetings
+        : Array.isArray(v.content) ? v.content : null;
+      const single = typeof input.value === "string"
         ? input.value
         : typeof v.content === "string" ? v.content : undefined;
-      if (content === undefined) return { content: "Error: [INVALID_INPUT] greeting requires a string value or value.content", isError: true };
-      const c = await ctx.spindle.characters.get(ctx.characterId, ctx.userId);
-      if (!c) return { content: `Error: character ${ctx.characterId} not found`, isError: true };
+      const texts = many ?? (single !== undefined ? [single] : []);
+      if (texts.length === 0 || texts.some((t) => typeof t !== "string" || t.length === 0)) {
+        return { content: "Error: [INVALID_INPUT] greeting requires a string value, an array of strings, or value.content", isError: true };
+      }
+      const c = await ctx.spindle.characters.get(charId, ctx.userId);
+      if (!c) return { content: `Error: [PATH_NOT_FOUND] character ${charId} not found`, isError: true };
       const arr = [...(c.alternate_greetings ?? [])];
       const requested = typeof v.index === "number" ? v.index : undefined;
       const at = requested === undefined ? arr.length : Math.max(0, Math.min(arr.length, Math.floor(requested)));
-      arr.splice(at, 0, content);
-      await ctx.spindle.characters.update(ctx.characterId, { alternate_greetings: arr }, ctx.userId);
-      ctx.pushEdit({
-        op: "create", surface: "alternate_greeting", surfaceId: String(at),
-        surfaceLabel: `alternate_greetings[${at}]`, snapshot: { greeting: content },
-      } satisfies EditRecord);
-      return { content: JSON.stringify({ index: at, total: arr.length, chars: content.length }) };
+      arr.splice(at, 0, ...(texts as string[]));
+      await ctx.spindle.characters.update(charId, { alternate_greetings: arr }, ctx.userId);
+      for (let i = 0; i < texts.length; i++) {
+        ctx.pushEdit({
+          op: "create", surface: "alternate_greeting", surfaceId: String(at + i),
+          surfaceLabel: `alternate_greetings[${at + i}]`, snapshot: { greeting: texts[i] as string },
+          scope: characterScope(charId),
+        } satisfies EditRecord);
+      }
+      return { content: JSON.stringify({
+        character: { id: charId, name: c.name },
+        added: texts.length, index: at, total: arr.length,
+        chars: (texts as string[]).map((t) => t.length),
+      }) };
     }
 
-    return { content: `Error: [PATH_NOT_FOUND] cannot create at '${path}'. Valid containers: wb, wb/<bookId>/entry, rx, persona, preset, preset/<presetId>/block, char/alternate_greetings, char/alternate_fields/<field>`, isError: true };
+    return { content: `Error: [PATH_NOT_FOUND] cannot create at '${path}'. Valid containers: wb, wb/<bookId>/entry, rx, persona, persona/<id>/addon, preset, preset/<presetId>/block, char (duplicate with copy_of), char/alternate_greetings, char/<id>/alternate_greetings, char/alternate_fields/<field>`, isError: true };
   },
 });
